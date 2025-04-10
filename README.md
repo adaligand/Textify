@@ -1,5 +1,3 @@
-# Sentactivity
-
  <p>
    Translation <a href="https://adaligand.github.io/Sentator/tradstarter.html">Translation</a>
    Anagram <a href="https://adaligand.github.io/Sentator/Anagram.html">Anagram</a>
