@@ -1,4 +1,22 @@
 # Sentactivity
+ <p>
+   Translation <a href="https://adaligand.github.io/Sentator/tradstarter.html">Translation</a>
+   Anagram <a href="https://adaligand.github.io/Sentator/anagram.html">Anagram</a>
+   Unjumble
+   Break the flow
+   No vowels
+   No consonants
+   1st Letter
+   Match up
+   Split sentences
+   1 Pen 1 Dice
+   Paired dictation
+   Random Fr > EN
+   Random EN > FR
+   Bingo
+   Battleship
+   Noughts and Crosses
+  </p>
 <details>
   <summary>Module 1 - Ma famille</summary>
   <p>
