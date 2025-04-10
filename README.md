@@ -16,13 +16,10 @@ Year 9
 <details>
   <summary>Module 1 - Ma famille</summary>
   <p>
-   Famille <a href="https://adaligand.github.io/Sentator/tradstarter.html">Famille</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/familledict.html">Dictation</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/familleread.html">Reading</a>
+  <a href="https://adaligand.github.io/Sentator/tradstarter.html">Famille</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/familledict.html">Description</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/familleread.html">Personalité</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/descriptionaloud.html">Animaux</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/descriptiondict.html">Dictation</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/descriptionread.html">Reading</a>
   </p>
   <p>
-    Description: <a href="https://adaligand.github.io/9-French/Family/descriptionaloud.html">Read aloud</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/descriptiondict.html">Dictation</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/descriptionread.html">Reading</a>
-  </p>
-  <p>
-    Personnalité: <a href="https://adaligand.github.io/9-French/Family/Personalitéaloud.html">Read aloud</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/Personalitédict.html">Dictation</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/Personalitéread.html">Reading</a>
+  <a href="https://adaligand.github.io/9-French/Family/Personalitéaloud.html">Read aloud</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/Personalitédict.html">Dictation</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/Personalitéread.html">Reading</a>
   </p>
   <p>
     Mon enfance: <a href="https://adaligand.github.io/9-French/Family/enfancealoud.html">Read aloud</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/enfancedict.html">Dictation</a>&nbsp;<a href="https://adaligand.github.io/9-French/Family/enfanceread.html">Reading</a>
