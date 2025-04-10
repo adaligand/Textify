@@ -1,3 +1,14 @@
+# Main Topics
+
+### [Topic 1](./topic1.md)  
+[![Topic 1 Button](https://img.shields.io/badge/Topic_1-blue)](./test.md)
+
+### [Topic 2](./topic2.md)  
+[![Topic 2 Button](https://img.shields.io/badge/Topic_2-green)](./topic2.md)
+
+### [Topic 3](./topic3.md)  
+[![Topic 3 Button](https://img.shields.io/badge/Topic_3-orange)](./topic3.md)
+
  <p>
    Translation <a href="https://adaligand.github.io/Sentator/tradstarter.html">Translation</a>
    Anagram <a href="https://adaligand.github.io/Sentator/Anagram.html">Anagram</a>
