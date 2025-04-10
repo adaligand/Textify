@@ -2,7 +2,7 @@
   <summary>Year 9 French</summary>
 
 ### [Ma Famille](./Test.md)  
-[![Topic 1 Button](https://img.shields.io/badge/Topic_1-blue)](./Test.md)&nbsp;[![Topic 2 Button](https://img.shields.io/badge/Topic_2-green)](./Year9/Famille.md)&nbsp;[![Topic 3 Button](https://img.shields.io/badge/Topic_3-orange)](./topic3.md)
+[![Topic 1 Button](https://img.shields.io/badge/Topic_1-blue)](./Year9/Famille.md)&nbsp;[![Topic 2 Button](https://img.shields.io/badge/Topic_2-green)](./Year9/Famille.md)&nbsp;[![Topic 3 Button](https://img.shields.io/badge/Topic_3-orange)](./topic3.md)
 
 ### [Topic 2](./topic2.md)  
 
