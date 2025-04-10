@@ -1,9 +1,9 @@
 # Main Topics
 <details>
   <summary>Year 9 French</summary>
-  <p>
-### [Ma famille](./Test.md)  
-[![Topic 1 Button](https://img.shields.io/badge/Topic_1-blue)](./Test.md)
+  
+### [Topic1](./Test.md)  
+[![Topic 1 Button](https://img.shields.io/badge/Topic_1-blue)](./Test.md) 
 
 ### [Topic 2](./topic2.md)  
 [![Topic 2 Button](https://img.shields.io/badge/Topic_2-green)](./topic2.md)
