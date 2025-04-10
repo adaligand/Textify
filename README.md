@@ -17,8 +17,8 @@
 
 <details>
   <summary>Year 9 French</summary>
-  - [![Description Button](https://img.shields.io/badge/Description-blue)](./Year9/Famille/description/README.md)
-  - [![Personnalité Button](https://img.shields.io/badge/Personnalité-green)](./Year9/Famille/personalité/README.md)
+  [![Description Button](https://img.shields.io/badge/Description-blue)](./Year9/Famille/description/README.md)
+  [![Personnalité Button](https://img.shields.io/badge/Personnalité-green)](./Year9/Famille/personalité/README.md)
 </details>
 
 ---
@@ -27,14 +27,14 @@
 
 <details>
   <summary>Topic 1</summary>
-  - [![Subtopic A Button](https://img.shields.io/badge/Subtopic_A-red)](./GCSE/Topic1/SubtopicA/README.md)
-  - [![Subtopic B Button](https://img.shields.io/badge/Subtopic_B-orange)](./GCSE/Topic1/SubtopicB/README.md)
+  [![Subtopic A Button](https://img.shields.io/badge/Subtopic_A-red)](./GCSE/Topic1/SubtopicA/README.md)
+  [![Subtopic B Button](https://img.shields.io/badge/Subtopic_B-orange)](./GCSE/Topic1/SubtopicB/README.md)
 </details>
 
 <details>
   <summary>Topic 2</summary>
-  - [![Subtopic C Button](https://img.shields.io/badge/Subtopic_C-yellow)](./GCSE/Topic2/SubtopicC/README.md)
-  - [![Subtopic D Button](https://img.shields.io/badge/Subtopic_D-purple)](./GCSE/Topic2/SubtopicD/README.md)
+  [![Subtopic C Button](https://img.shields.io/badge/Subtopic_C-yellow)](./GCSE/Topic2/SubtopicC/README.md)
+  [![Subtopic D Button](https://img.shields.io/badge/Subtopic_D-purple)](./GCSE/Topic2/SubtopicD/README.md)
 </details>
 
 <details>
