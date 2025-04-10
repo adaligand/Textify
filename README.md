@@ -1,7 +1,7 @@
 # Main Topics
 
 ### [Topic 1](./topic1.md)  
-[![Topic 1 Button](https://img.shields.io/badge/Topic_1-blue)](./test.md)
+[![Topic 1 Button](https://img.shields.io/badge/Topic_1-blue)](./Test.md)
 
 ### [Topic 2](./topic2.md)  
 [![Topic 2 Button](https://img.shields.io/badge/Topic_2-green)](./topic2.md)
