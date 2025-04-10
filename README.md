@@ -11,32 +11,25 @@
 </details>
 # Welcome to the Repository
 
+# Welcome to the Repository
+
 ### Year 9 Topics
 
-#### [Famille](./Year9/Famille/README.md)  
-[![Famille Button](https://img.shields.io/badge/Famille-blue)](./Year9/Famille/README.md)
-
-- [Description](./Year9/Famille/description/README.md)  
-- [Personnalité](./Year9/Famille/personalité/README.md)  
-
-#### [Autre Topic](./Year9/Autre/README.md)  
-[![Autre Button](https://img.shields.io/badge/Autre-orange)](./Year9/Autre/README.md)
+#### Famille
+- [![Description Button](https://img.shields.io/badge/Description-blue)](./Year9/Famille/description/README.md)
+- [![Personnalité Button](https://img.shields.io/badge/Personnalité-green)](./Year9/Famille/personalité/README.md)
 
 ---
 
 ### GCSE Topics
 
-#### [Topic 1](./GCSE/Topic1/README.md)  
-[![Topic 1 Button](https://img.shields.io/badge/Topic_1-green)](./GCSE/Topic1/README.md)
+#### Topic 1
+- [![Subtopic A Button](https://img.shields.io/badge/Subtopic_A-red)](./GCSE/Topic1/SubtopicA/README.md)
+- [![Subtopic B Button](https://img.shields.io/badge/Subtopic_B-orange)](./GCSE/Topic1/SubtopicB/README.md)
 
-- [Subtopic A](./GCSE/Topic1/SubtopicA/README.md)  
-- [Subtopic B](./GCSE/Topic1/SubtopicB/README.md)
-
-#### [Topic 2](./GCSE/Topic2/README.md)  
-[![Topic 2 Button](https://img.shields.io/badge/Topic_2-red)](./GCSE/Topic2/README.md)
-
-- [Subtopic C](./GCSE/Topic2/SubtopicC/README.md)  
-- [Subtopic D](./GCSE/Topic2/SubtopicD/README.md)
+#### Topic 2
+- [![Subtopic C Button](https://img.shields.io/badge/Subtopic_C-yellow)](./GCSE/Topic2/SubtopicC/README.md)
+- [![Subtopic D Button](https://img.shields.io/badge/Subtopic_D-purple)](./GCSE/Topic2/SubtopicD/README.md)
 
 <details>
   <summary>Module 1 - Ma famille</summary>
