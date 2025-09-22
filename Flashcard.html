@@ -3,30 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>French Flashcards</title>
+<title>Flashcards Game</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
-body { display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f5f5f5; font-family: Arial, sans-serif; flex-direction: column; }
+body { display: flex; flex-direction: column; align-items: center; font-family: Arial; min-height: 100vh; background-color: #f5f5f5; }
 .flashcard-container { perspective: 1000px; margin-bottom: 20px; }
-.flashcard { width: 500px; height: 300px; background-color: white; border-radius: 10px; display: flex; justify-content: center; align-items: center; font-size: 50px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 8px rgba(0,0,0,0.2); text-align: center; transform-style: preserve-3d; transition: transform 0.6s; position: relative; }
+.flashcard { width: 500px; height: 300px; background:white; border-radius:10px; display:flex; justify-content:center; align-items:center; font-size:50px; font-weight:bold; cursor:pointer; box-shadow:0 4px 8px rgba(0,0,0,0.2); text-align:center; transform-style: preserve-3d; transition: transform 0.6s; position: relative; }
 .flipped { transform: rotateY(180deg); }
-.flashcard .front, .flashcard .back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; justify-content: center; align-items: center; border-radius: 10px; }
-.flashcard .back { background-color: #c5dde96e; transform: rotateY(180deg); }
-.button-container { display: flex; gap: 10px; margin-top: 10px; }
-button { padding: 10px 15px; background-color: #f9f9f9; color: #000; border: 2px solid #ccc; border-radius: 10px; cursor: pointer; font-size: 24px; }
-button:hover { background-color: #A9A9A9; transform: translateY(-4px); }
-.hidden { display: none; }
-.quiz-container, .text-input-container, .reset-container { display: none; margin-top: 20px; text-align: center; }
-.quiz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
-.quiz-options button { width: 200px; height: 100px; font-size: 20px; }
-input { font-size: 20px; padding: 10px; border-radius: 10px; transition: border-color 0.3s; }
-input.error { border-color: red; background-color: #f8d7da; }
-input.correct { border-color: green; background-color: #d4edda; }
-.congratulations { font-size: 24px; font-weight: bold; margin-top: 20px; color: green; text-align: center; }
-.keyboard-button { font-size: 18px; padding: 10px; margin: 2px; border: none; border-radius: 10px; background-color: #10148; color: #000; box-shadow: 0 4px 8px rgba(0,0,0,0.3); width: 40px; height: 40px; }
-.keyboard-button:hover { background-color: #A9A9A9; transform: translateY(-4px); }
-.keyboard-container { display: flex; flex-wrap: wrap; gap: 1px; justify-content: center; margin-top: 20px; }
-select { width: 20%; padding: 5px; border-radius: 10px; margin-bottom: 10px; height: 35px; }
+.flashcard .front, .flashcard .back { position:absolute; width:100%; height:100%; backface-visibility:hidden; display:flex; justify-content:center; align-items:center; border-radius:10px; }
+.flashcard .back { background-color:#c5dde96e; transform: rotateY(180deg); }
+.button-container { display:flex; gap:10px; margin-top:10px; }
+button { padding:10px 15px; font-size:20px; border-radius:10px; cursor:pointer; border:2px solid #ccc; background-color:#f9f9f9; }
+button:hover { background-color:#A9A9A9; color:#fff; }
+.quiz-container, .text-input-container, .reset-container { display:none; margin-top:20px; text-align:center; }
+.quiz-options { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px; }
+.quiz-options button { font-size:18px; padding:10px; }
+input { font-size:20px; padding:10px; border-radius:10px; }
+input.error { border-color:red; background-color:#f8d7da; }
+input.correct { border-color:green; background-color:#d4edda; }
+.congratulations { font-size:24px; font-weight:bold; color:green; margin-top:20px; text-align:center; }
+.keyboard-container { display:flex; flex-wrap:wrap; gap:2px; justify-content:center; margin-top:20px; }
+.keyboard-button { font-size:18px; padding:10px; border-radius:10px; width:40px; height:40px; cursor:pointer; }
+.hidden { display:none; }
+select { margin-top:10px; border-radius:10px; padding:5px; font-size:16px; }
 </style>
 </head>
 <body>
@@ -51,71 +50,97 @@ select { width: 20%; padding: 5px; border-radius: 10px; margin-bottom: 10px; hei
   <option value="german">German</option>
   <option value="spanish">Spanish</option>
 </select>
-
 <div class="keyboard-container" id="keyboard"></div>
+
 <div class="reset-container">
   <button onclick="resetExercise()">Restart Exercise</button>
 </div>
+
 <div class="congratulations hidden" id="congratulationsMessage"></div>
 
 <script>
-let cycleIndex = 0; // pair of cards
-let phase = 0; // 0: flash1, 1: flash2, 2: MCQ1, 3: MCQ2, 4: Typing1, 5: Typing2
-let englishWords = [];
-let translations = [];
+let currentIndex = 0, phase = 0, cycleIndex = 0;
+let englishWords = [], translations = [];
 
-// Get CSV from query param
+// Get sheet and game from URL
 const params = new URLSearchParams(window.location.search);
 const sheetUrl = params.get('sheet');
+const gameType = params.get('game') || 'vocab';
 
-if(!sheetUrl) { alert('No spreadsheet URL provided.'); }
+if(!sheetUrl){ alert('No sheet URL provided'); }
 
+// Load CSV
 Papa.parse(sheetUrl,{
     download:true,
     header:true,
     skipEmptyLines:true,
     complete:function(results){
         results.data.forEach(row=>{
-            if(row.English && row.French){
-                englishWords.push(row.English.trim());
-                translations.push(row.French.trim());
-            }
+            if(gameType==='vocab' && row.A && row.B){ englishWords.push(row.A.trim()); translations.push(row.B.trim()); }
+            if(gameType==='sentence' && row.D && row.E){ englishWords.push(row.D.trim()); translations.push(row.E.trim()); }
+            if(gameType==='text' && row.F && row.G){ englishWords.push(row.F.trim()); translations.push(row.G.trim()); }
         });
-        if(englishWords.length===0){ alert("No vocabulary found!"); return; }
+        if(englishWords.length===0){ alert("No items for this game!"); return; }
         nextStep();
     },
-    error: function(err){ console.error(err); alert("Error loading CSV."); }
+    error:function(err){ console.error(err); alert("CSV load error"); }
 });
 
 function flipCard(){ document.querySelector('.flashcard').classList.toggle('flipped'); }
 
-function showFlashcard(index){
+function nextStep(){
     const flashcardContainer = document.querySelector('.flashcard-container');
+    const quizContainer = document.getElementById('quizContainer');
+    const textInputContainer = document.getElementById('textInputContainer');
     const buttonContainer = document.querySelector('.button-container');
-    flashcardContainer.style.display='block';
-    buttonContainer.style.display='flex';
+    const previousButton = document.getElementById('previousButton');
+
+    flashcardContainer.style.display='none';
+    quizContainer.style.display='none';
+    textInputContainer.style.display='none';
+    buttonContainer.style.display='none';
+    previousButton.classList.add('hidden');
+    document.getElementById('keyboard').style.display='none';
+    document.getElementById('languageSelect').classList.add('hidden');
+
+    if(cycleIndex*2 >= englishWords.length){ showCongratulations(); return; }
+
+    let firstIndex = cycleIndex*2;
+    let secondIndex = firstIndex+1;
+
+    switch(phase){
+        case 0: flashcardContainer.style.display='block'; buttonContainer.style.display='flex'; updateCard(firstIndex); previousButton.classList.remove('hidden'); phase++; break;
+        case 1: if(secondIndex < englishWords.length){ updateCard(secondIndex); } else { updateCard(firstIndex); } flashcardContainer.style.display='block'; buttonContainer.style.display='flex'; phase++; break;
+        case 2: quizContainer.style.display='block'; showQuiz(firstIndex); phase++; break;
+        case 3: quizContainer.style.display='block'; showQuiz(secondIndex); phase++; break;
+        case 4: textInputContainer.style.display='block'; showTextInput(firstIndex); phase++; break;
+        case 5: textInputContainer.style.display='block'; showTextInput(secondIndex); phase=0; cycleIndex++; break;
+    }
+}
+
+function previousStep(){ if(cycleIndex>0){ cycleIndex--; phase=0; nextStep(); } }
+
+function updateCard(index){
+    if(index>=englishWords.length) return;
     document.getElementById('frontText').textContent = translations[index];
     document.getElementById('backText').textContent = englishWords[index];
     document.querySelector('.flashcard').classList.remove('flipped');
-    document.getElementById('previousButton').classList.remove('hidden');
 }
 
 function showQuiz(index){
     const quizContainer=document.getElementById('quizContainer');
     quizContainer.innerHTML='';
-    quizContainer.style.display='block';
     let correctAnswer=translations[index];
     let options=shuffle([correctAnswer,...translations.filter((w,i)=>i!==index).slice(0,3)]);
     let div=document.createElement('div');
-    div.innerHTML=`<h3>What is the translation of "${englishWords[index]}"?</h3>`;
-    let optionsDiv=document.createElement('div');
-    optionsDiv.className="quiz-options";
+    div.innerHTML=`<h3>Choose the translation for "${englishWords[index]}"</h3>`;
+    let optionsDiv=document.createElement('div'); optionsDiv.className="quiz-options";
     options.forEach(option=>{
         let btn=document.createElement('button');
         btn.textContent=option;
-        btn.onclick=()=>{
-            if(option===correctAnswer){ nextStep(); }
-            else{ alert("Incorrect! Returning to first card of this pair."); phase=0; nextStep(); }
+        btn.onclick=()=>{ 
+            if(option===correctAnswer){ nextStep(); } 
+            else{ alert("Incorrect! Back to first card of pair."); phase=0; nextStep(); }
         };
         optionsDiv.appendChild(btn);
     });
@@ -126,114 +151,28 @@ function showQuiz(index){
 function showTextInput(index){
     const textInputContainer=document.getElementById('textInputContainer');
     textInputContainer.innerHTML=`<h3>Type the translation for "${englishWords[index]}"</h3>`;
-    let input=document.createElement('input'); input.type="text"; input.placeholder="Type here...";
-    let submitBtn=document.createElement('button'); submitBtn.textContent="Submit";
+    let input=document.createElement('input'); input.type='text'; input.placeholder='Type here...';
+    let submitBtn=document.createElement('button'); submitBtn.textContent='Submit';
     textInputContainer.appendChild(input); textInputContainer.appendChild(submitBtn);
     document.getElementById('keyboard').style.display='flex';
     document.getElementById('languageSelect').classList.remove('hidden');
-
     submitBtn.onclick=()=>{
-        if(input.value.trim().toLowerCase()===translations[index].toLowerCase()){
-            nextStep();
-        } else { alert("Incorrect! Returning to first card of this pair."); input.value=""; phase=0; nextStep(); }
+        if(input.value.trim().toLowerCase()===translations[index].toLowerCase()){ nextStep(); }
+        else{ alert("Incorrect! Back to first card of pair."); input.value=''; phase=0; nextStep(); }
     };
-}
-
-function nextStep(){
-    const firstIndex = cycleIndex*2;
-    const secondIndex = firstIndex+1;
-    const flashcardContainer = document.querySelector('.flashcard-container');
-    const quizContainer = document.getElementById('quizContainer');
-    const textInputContainer = document.getElementById('textInputContainer');
-    const buttonContainer = document.querySelector('.button-container');
-    const previousButton = document.getElementById('previousButton');
-    const keyboardContainer = document.getElementById('keyboard');
-    const languageSelect = document.getElementById('languageSelect');
-
-    // Hide everything
-    flashcardContainer.style.display='none';
-    quizContainer.style.display='none';
-    textInputContainer.style.display='none';
-    buttonContainer.style.display='none';
-    previousButton.classList.add('hidden');
-    keyboardContainer.style.display='none';
-    languageSelect.classList.add('hidden');
-
-    if(firstIndex >= englishWords.length){ 
-        showCongratulations(); 
-        return; 
-    }
-
-    switch(phase){
-        case 0: // Card 1
-            flashcardContainer.style.display='block';
-            buttonContainer.style.display='flex';
-            previousButton.classList.remove('hidden');
-            showFlashcard(firstIndex);
-            break;
-        case 1: // Card 2
-            flashcardContainer.style.display='block';
-            buttonContainer.style.display='flex';
-            previousButton.classList.remove('hidden');
-            showFlashcard(secondIndex < englishWords.length ? secondIndex : firstIndex);
-            break;
-        case 2: // MCQ 1
-            quizContainer.style.display='block';
-            showQuiz(firstIndex, false); // false = don't allow keyboard
-            break;
-        case 3: // MCQ 2
-            quizContainer.style.display='block';
-            showQuiz(secondIndex < englishWords.length ? secondIndex : firstIndex, false);
-            break;
-        case 4: // Typing 1
-            textInputContainer.style.display='block';
-            keyboardContainer.style.display='flex';
-            languageSelect.classList.remove('hidden');
-            showTextInput(firstIndex);
-            break;
-        case 5: // Typing 2
-            textInputContainer.style.display='block';
-            keyboardContainer.style.display='flex';
-            languageSelect.classList.remove('hidden');
-            showTextInput(secondIndex < englishWords.length ? secondIndex : firstIndex);
-            break;
-    }
-
-    phase++;
-    if(phase > 5){ 
-        phase = 0; 
-        cycleIndex++; 
-        nextStep(); // move to next pair of cards
-    }
-}
-
-
-
-function previousStep(){
-    if(cycleIndex>0){ cycleIndex--; phase=0; }
-    nextStep();
 }
 
 function shuffle(array){ return array.sort(()=>Math.random()-0.5); }
 
 function updateKeyboard(){
-    const keyboardContainer=document.getElementById('keyboard');
-    keyboardContainer.innerHTML='';
-    const language=document.getElementById('languageSelect').value;
-    let chars=[];
-    switch(language){
+    const keyboardContainer=document.getElementById('keyboard'); keyboardContainer.innerHTML='';
+    const lang=document.getElementById('languageSelect').value; let chars=[];
+    switch(lang){
         case 'german': chars=['ä','ö','ü','ß']; break;
         case 'french': chars=['à','â','ä','é','è','ê','ë','î','ï','ô','ö','ù','ü','û','ç']; break;
         case 'spanish': chars=['á','é','í','ó','ú','ñ']; break;
     }
-    chars.forEach(c=>{
-        let btn=document.createElement('button'); btn.textContent=c; btn.classList.add('keyboard-button');
-        btn.onclick=()=>{ 
-            const input=document.querySelector('.text-input-container input'); 
-            if(input) input.value+=c; input.focus(); 
-        };
-        keyboardContainer.appendChild(btn);
-    });
+    chars.forEach(c=>{ let btn=document.createElement('button'); btn.textContent=c; btn.classList.add('keyboard-button'); btn.onclick=()=>{ let input=document.querySelector('.text-input-container input'); if(input) input.value+=c; input.focus(); }; keyboardContainer.appendChild(btn); });
 }
 document.getElementById('languageSelect').addEventListener('change',updateKeyboard);
 updateKeyboard();
@@ -253,5 +192,6 @@ function showCongratulations(){
 
 function resetExercise(){ cycleIndex=0; phase=0; document.getElementById('congratulationsMessage').classList.add('hidden'); nextStep(); }
 </script>
+
 </body>
 </html>
