@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dynamic Flashcards Game</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
 body { display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: Arial, sans-serif; min-height: 100vh; background-color: #f5f5f5; }
 .flashcard-container { perspective: 1000px; margin-bottom: 20px; }
@@ -56,52 +57,58 @@ select { margin-top: 10px; border-radius: 10px; padding: 5px; font-size: 16px; }
 <div class="congratulations hidden" id="congratulationsMessage"></div>
 
 <script>
-let currentIndex = 0, phase = 0;
+let currentIndex = 0;
 let englishWords = [], translations = [];
 
 // Get spreadsheet URL from query parameter
 const params = new URLSearchParams(window.location.search);
 const sheetUrl = params.get('sheet');
 
-if (!sheetUrl) {
-  alert('No spreadsheet URL provided in the link.');
-}
+if(!sheetUrl) { alert('No spreadsheet URL provided.'); }
 
-// Load CSV from Google Sheets
-async function loadSpreadsheet() {
-  const response = await fetch(sheetUrl);
-  const text = await response.text();
-  const rows = text.split("\n").map(r => r.split(","));
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i][0] && rows[i][1]) {
-      englishWords.push(rows[i][0].trim());
-      translations.push(rows[i][1].trim());
-    }
+// Load CSV using PapaParse
+Papa.parse(sheetUrl, {
+  download: true,
+  header: true, // first row contains column names
+  skipEmptyLines: true,
+  complete: function(results) {
+    results.data.forEach(row => {
+      if(row.English && row.French){
+        englishWords.push(row.English.trim());
+        translations.push(row.French.trim());
+      }
+    });
+    nextStep();
+  },
+  error: function(err){
+    console.error("Error loading CSV:", err);
   }
-  nextStep();
-}
+});
 
 function updateCard() {
-  if (currentIndex < englishWords.length) {
+  if(currentIndex < englishWords.length){
     document.getElementById('frontText').textContent = translations[currentIndex];
     document.getElementById('backText').textContent = englishWords[currentIndex];
     document.querySelector('.flashcard').classList.remove('flipped');
   } else showCongratulations();
 }
 
-function flipCard() { document.querySelector('.flashcard').classList.toggle('flipped'); }
+function flipCard(){ document.querySelector('.flashcard').classList.toggle('flipped'); }
 
-function nextStep() {
-  if (currentIndex >= englishWords.length) return showCongratulations();
+function nextStep(){
+  if(currentIndex >= englishWords.length) return showCongratulations();
   document.querySelector('.flashcard-container').style.display='block';
   document.getElementById('previousButton').classList.remove('hidden');
   updateCard();
   currentIndex++;
 }
 
-function previousStep() { if(currentIndex>0) currentIndex--; updateCard(); }
+function previousStep(){
+  if(currentIndex>0) currentIndex--;
+  updateCard();
+}
 
-function showCongratulations() {
+function showCongratulations(){
   document.querySelector('.flashcard-container').style.display='none';
   document.querySelector('.quiz-container').style.display='none';
   document.querySelector('.text-input-container').style.display='none';
@@ -114,23 +121,25 @@ function showCongratulations() {
   document.querySelector('.reset-container').style.display='block';
 }
 
-function resetExercise() { currentIndex=0; phase=0;
+function resetExercise(){
+  currentIndex=0;
   document.getElementById('congratulationsMessage').classList.add('hidden');
   document.querySelector('.reset-container').style.display='none';
   nextStep();
 }
 
-function updateKeyboard() {
-  const keyboardContainer = document.getElementById('keyboard');
+// Optional virtual keyboard
+function updateKeyboard(){
+  const keyboardContainer=document.getElementById('keyboard');
   keyboardContainer.innerHTML='';
   const language=document.getElementById('languageSelect').value;
-  let characters=[];
+  let chars=[];
   switch(language){
-    case 'german': characters=['ä','ö','ü','ß']; break;
-    case 'french': characters=['à','â','ä','é','è','ê','ë','î','ï','ô','ö','ù','ü','û','ç']; break;
-    case 'spanish': characters=['á','é','í','ó','ú','ñ']; break;
+    case 'german': chars=['ä','ö','ü','ß']; break;
+    case 'french': chars=['à','â','ä','é','è','ê','ë','î','ï','ô','ö','ù','ü','û','ç']; break;
+    case 'spanish': chars=['á','é','í','ó','ú','ñ']; break;
   }
-  characters.forEach(c=>{
+  chars.forEach(c=>{
     let btn=document.createElement('button');
     btn.textContent=c; btn.classList.add('keyboard-button');
     btn.onclick=()=>{ const input=document.querySelector('.text-input-container input'); if(input) input.value+=c; input.focus(); };
@@ -140,8 +149,6 @@ function updateKeyboard() {
 
 document.getElementById('languageSelect').addEventListener('change', updateKeyboard);
 updateKeyboard();
-
-loadSpreadsheet();
 </script>
 </body>
 </html>
