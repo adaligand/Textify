@@ -3,185 +3,183 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>No vowels - Spreadsheet version</title>
+<title>No vowels - Vocab</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
-body { font-family: Arial; padding: 20px; }
+body { font-family: Arial, sans-serif; }
+.container { width: 100%; padding: 20px; box-sizing: border-box; font-size: 16px; }
 .title { font-size: 40px; font-weight: bold; text-align: center; margin-bottom: 20px; }
 .subtitle { font-size: 20px; margin-bottom: 10px; text-align:center; }
 .counter { font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 10px; }
-textarea { width:100%; height:150px; font-size:20px; margin-bottom:10px; border-radius:5px; }
-button { padding: 10px 20px; background-color:#f9f9f9; border:2px solid #ccc; color:#000; border-radius:10px; cursor:pointer; margin:5px; }
-button:hover { background-color:#A9A9A9; color:#fff; }
-.hide { display:none; }
-.missing-word { width: 15px; font-size: 20px; border:none; border-bottom: 1px solid #000; background:transparent; outline:none; margin-right:2px; text-align:center; }
-.correct { background-color:#cef4ce; }
-.incorrect { background-color:#ffb6c19c; }
+textarea { width: 100%; height: 150px; font-size: 20px; margin-bottom: 10px; border-radius: 5px; }
+button { padding: 10px 20px; background-color: #f9f9f9; border: 2px solid #ccc; color: #000000; border-radius: 10px; cursor: pointer; }
+button:hover { background-color: #A9A9A9; transform: translateY(-4px); }
+.hide { display: none; }
+.missing-word { width: 15px; padding:0; font-size:20px; border:none; border-bottom:0.5px solid #000; background-color:transparent; outline:none; margin-right:2px; text-align:center; }
+.correct { background-color: #cef4ce; }
+.incorrect { background-color: #ffb6c19c; }
 #keyboardContainer { text-align:center; margin-top:20px; }
-.keyboard-button { font-size:18px; padding:10px 15px; margin:2px; border:none; border-radius:10px; background-color:#10148; color:#000; cursor:pointer; box-shadow:0 4px 8px rgba(0,0,0,0.3); }
-.keyboard-button:hover { background-color:#A9A9A9; transform:translateY(-4px); }
+.keyboard-button { font-size: 18px; padding: 10px 15px; margin:2px; border:none; border-radius:10px; background-color:#10148; color:#000; box-shadow:0 4px 8px rgba(0,0,0,0.3); }
+.keyboard-button:hover { background-color:#A9A9A9; transform: translateY(-4px); }
+select { width: 20%; padding:5px; border-radius:10px; margin-bottom:10px; height:35px; }
 </style>
 </head>
 <body>
+<div class="container">
+  <div class="title">No vowels</div>
+  <div class="subtitle" id="subtitle">Fill in the French word with the correct vowels: Click "Generate Exercise"</div>
+  <div class="counter" id="sentenceCounter"></div>
 
-<div class="title">No vowels</div>
-<div class="subtitle">Select game mode:</div>
-<div style="text-align:center; margin-bottom:20px;">
-  <button onclick="startGame('vocab')">Vocab Game</button>
-  <button onclick="startGame('sentence')">Sentence Game</button>
-  <button onclick="startGame('text')">Text Game</button>
-</div>
-
-<div class="counter" id="sentenceCounter"></div>
-<div id="exerciseOutput"></div>
-
-<div style="text-align:center;">
-  <select id="languageSelect" onchange="generateKeyboard(this.value)">
-    <option value="french" selected>French</option>
-    <option value="german">German</option>
-    <option value="spanish">Spanish</option>
-  </select>
-  <div id="keyboardContainer"></div>
-  <div id="feedback"></div>
-  <button id="nextButton" class="hide" onclick="nextText()">Next</button>
-  <button id="resetButton" class="hide" onclick="resetActivity()">Restart</button>
+  <div id="exerciseOutput"></div>
+  <div class="input-container">
+    <button id="generateButtonChunk" onclick="generateChunk()">Generate Exercise</button>
+    <select id="languageSelect" onchange="generateKeyboard(this.value)">
+      <option value="french" selected>French</option>
+      <option value="german">German</option>
+      <option value="spanish">Spanish</option>
+    </select>
+    <div id="feedback" class="hide"></div>
+    <button id="resetButton" class="hide" onclick="resetActivity()">Restart</button>
+    <button id="nextButton" class="hide" onclick="nextText()">Next</button>
+    <div id="keyboardContainer"></div>
+  </div>
 </div>
 
 <script>
-let vowels = ['a','e','i','o','u','à','â','ä','é','è','ê','ë','î','ï','ô','ö','ù','ü','û','á','é','í','ó','ú'];
-let sentencePairs = [];
-let currentTextIndex = 0;
-let sheetUrl = "YOUR_CSV_URL_HERE"; // Replace with your CSV URL
+var currentTextIndex = 0;
+var sentencePairs = [];
+var lastFocusedInput = null;
+var vowels = ['a','e','i','o','u','à','â','ä','é','è','ê','ë','î','ï','ô','ö','ù','ü','û','á','é','í','ó','ú'];
 
-function startGame(gameType) {
-    sentencePairs = [];
-    currentTextIndex = 0;
-    Papa.parse(sheetUrl, {
-        download: true,
-        header: true,
-        skipEmptyLines: true,
-        complete: function(results){
-            if(gameType==='vocab'){
-                results.data.forEach(row => {
-                    if(row.A && row.B) sentencePairs.push({english: row.B.trim(), french: row.A.trim()});
-                });
-            } else if(gameType==='sentence'){
-                results.data.forEach(row => {
-                    if(row.D && row.E) sentencePairs.push({english: row.E.trim(), french: row.D.trim()});
-                });
-            } else if(gameType==='text'){
-                // French in G2 -> row index 1, English in G5 -> row index 4
-                let fr = results.data[1]?.G?.trim() || "";
-                let en = results.data[4]?.G?.trim() || "";
-                if(fr && en) sentencePairs.push({english: en, french: fr});
-            }
+// Get spreadsheet URL from query parameter
+const params = new URLSearchParams(window.location.search);
+const sheetUrl = params.get('sheet');
+if(!sheetUrl){ alert('No spreadsheet URL provided'); }
 
-            if(sentencePairs.length===0){
-                alert("No items for this game!");
-                return;
-            }
-
-            shuffleArray(sentencePairs);
-            generateChunk();
-            generateKeyboard('french');
-        },
-        error:function(){ alert("Error loading CSV"); }
+// Load vocab list from columns A (French) and B (English)
+Papa.parse(sheetUrl, {
+  download:true,
+  header:true,
+  skipEmptyLines:true,
+  complete: function(results){
+    results.data.forEach(row=>{
+      if(row.A && row.B){
+        sentencePairs.push({ french: row.A.trim(), english: row.B.trim() });
+      }
     });
-}
+    if(sentencePairs.length === 0){ alert("No items found in columns A and B!"); return; }
+  }
+});
 
-function shuffleArray(array){ for(let i=array.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[array[i],array[j]]=[array[j],array[i]]; } }
+function insertCharacter(character) {
+  if(lastFocusedInput){
+    var cursorPosition = lastFocusedInput.selectionStart;
+    var currentValue = lastFocusedInput.value;
+    lastFocusedInput.value = currentValue.slice(0,cursorPosition)+character+currentValue.slice(cursorPosition);
+    lastFocusedInput.setSelectionRange(cursorPosition+1,cursorPosition+1);
+    validateCharacter(lastFocusedInput);
+  }
+}
 
 function generateKeyboard(language){
-    let container = document.getElementById('keyboardContainer');
-    container.innerHTML='';
-    let chars = [];
-    switch(language){
-        case 'german': chars=['ä','ö','ü','ß']; break;
-        case 'french': chars=['à','â','ä','é','è','ê','ë','î','ï','ô','ö','ù','ü','û','ç']; break;
-        case 'spanish': chars=['á','é','í','ó','ú','ñ']; break;
-    }
-    chars.forEach(c=>{
-        let btn = document.createElement('button');
-        btn.textContent=c;
-        btn.className='keyboard-button';
-        btn.onclick=()=>{ insertCharacter(c); };
-        container.appendChild(btn);
-    });
+  var keyboardContainer = document.getElementById('keyboardContainer');
+  keyboardContainer.innerHTML = '';
+  var characters = [];
+  switch(language){
+    case 'german': characters=['ä','ö','ü','ß']; break;
+    case 'french': characters=['à','â','ä','é','è','ê','ë','î','ï','ô','ö','ù','ü','û','ç']; break;
+    case 'spanish': characters=['á','é','í','ó','ú','ñ']; break;
+  }
+  characters.forEach(function(character){
+    var button = document.createElement('button');
+    button.innerHTML = character;
+    button.className='keyboard-button';
+    button.addEventListener('click',function(e){ e.preventDefault(); insertCharacter(character); });
+    keyboardContainer.appendChild(button);
+  });
 }
 
-let lastFocusedInput = null;
-function setLastFocusedInput(input){ lastFocusedInput=input; }
-function insertCharacter(char){
-    if(lastFocusedInput){
-        let pos = lastFocusedInput.selectionStart;
-        let val = lastFocusedInput.value;
-        lastFocusedInput.value = val.slice(0,pos)+char+val.slice(pos);
-        lastFocusedInput.setSelectionRange(pos+1,pos+1);
-        validateCharacter(lastFocusedInput);
-    }
-}
+function setLastFocusedInput(input){ lastFocusedInput = input; }
 
 function generateChunk(){
-    let english = sentencePairs[currentTextIndex].english;
-    let french = sentencePairs[currentTextIndex].french;
-    let output = document.getElementById('exerciseOutput');
-    output.innerHTML='';
+  var englishSentence = sentencePairs[currentTextIndex].english;
+  var frenchSentence = sentencePairs[currentTextIndex].french;
 
-    let enDiv = document.createElement('div'); enDiv.textContent = english; enDiv.style.marginBottom='10px';
-    output.appendChild(enDiv);
+  var sentenceWithInputFields = '';
+  for(var i=0;i<frenchSentence.length;i++){
+    var char = frenchSentence[i];
+    if(vowels.includes(char.toLowerCase())){
+      sentenceWithInputFields += `<input type="text" class="missing-word" data-index="${i}" oninput="validateCharacter(this)" onfocus="setLastFocusedInput(this)" onkeydown="submitOnEnter(event,this)">`;
+    } else { sentenceWithInputFields += char; }
+  }
 
-    let sentenceDiv = document.createElement('div');
-    for(let i=0;i<french.length;i++){
-        let char = french[i];
-        if(vowels.includes(char.toLowerCase())){
-            let input = document.createElement('input');
-            input.className='missing-word';
-            input.setAttribute('data-index',i);
-            input.oninput=()=>validateCharacter(input);
-            input.onfocus=()=>setLastFocusedInput(input);
-            input.onkeydown=(e)=>{if(e.key==='Enter'){focusNext(input);e.preventDefault();}};
-            sentenceDiv.appendChild(input);
-        } else {
-            sentenceDiv.appendChild(document.createTextNode(char));
-        }
-    }
-    output.appendChild(sentenceDiv);
-    document.getElementById('sentenceCounter').textContent=(currentTextIndex+1)+'/'+sentencePairs.length;
-    document.getElementById('nextButton').classList.add('hide');
-    document.getElementById('resetButton').classList.add('hide');
-}
-
-function focusNext(input){
-    let next = input.nextElementSibling;
-    if(next && next.classList.contains('missing-word')) next.focus();
+  var exerciseOutput = document.getElementById('exerciseOutput');
+  exerciseOutput.innerHTML = `<div class="english-sentence">${englishSentence}</div><div class="french-sentence">${sentenceWithInputFields}</div>`;
+  exerciseOutput.classList.remove('hide');
+  document.getElementById('feedback').classList.add('hide');
+  document.getElementById('resetButton').classList.add('hide');
+  document.getElementById('nextButton').classList.add('hide');
+  document.getElementById('sentenceCounter').textContent = (currentTextIndex+1)+' / '+sentencePairs.length;
 }
 
 function validateCharacter(input){
-    let val = input.value.toLowerCase();
-    let correctChar = sentencePairs[currentTextIndex].french[input.getAttribute('data-index')].toLowerCase();
-    if(val===''){ input.classList.remove('correct','incorrect'); return; }
-    if(val===correctChar){ input.classList.add('correct'); input.classList.remove('incorrect'); } 
-    else { input.classList.add('incorrect'); input.classList.remove('correct'); }
-    checkAnswers();
+  var userInput = input.value.trim().toLowerCase();
+  if(userInput===''){ input.classList.remove('correct','incorrect'); return; }
+  var correctChar = sentencePairs[currentTextIndex].french[input.getAttribute('data-index')];
+  if(userInput===correctChar.toLowerCase()){ input.classList.add('correct'); input.classList.remove('incorrect'); }
+  else{ input.classList.add('incorrect'); input.classList.remove('correct'); }
+
+  // focus next input
+  var nextInput = input.nextElementSibling;
+  if(nextInput && nextInput.classList.contains('missing-word')) nextInput.focus();
+
+  checkAnswers();
 }
 
 function checkAnswers(){
-    let inputs = document.querySelectorAll('.missing-word');
-    let allCorrect = Array.from(inputs).every(i=>i.classList.contains('correct'));
-    if(allCorrect){
-        document.getElementById('nextButton').classList.remove('hide');
-        if(currentTextIndex===sentencePairs.length-1) document.getElementById('resetButton').classList.remove('hide');
-    }
+  var allCorrect=true;
+  document.querySelectorAll('.missing-word').forEach(input=>{
+    if(!input.classList.contains('correct')) allCorrect=false;
+  });
+  if(allCorrect){
+    if(currentTextIndex===sentencePairs.length-1) document.getElementById('resetButton').classList.remove('hide');
+    else document.getElementById('nextButton').classList.remove('hide');
+  }
+}
+
+function submitOnEnter(event,input){
+  if(event.keyCode===13){ jumpToNextInput(input); event.preventDefault(); }
+  else if(event.keyCode===8 && input.value===''){ jumpToPreviousInput(input); event.preventDefault(); }
+}
+
+function jumpToNextInput(input){
+  var nextInput=input.nextElementSibling;
+  if(nextInput && nextInput.classList.contains('missing-word')) nextInput.focus();
+}
+
+function jumpToPreviousInput(input){
+  var prevInput=input.previousElementSibling;
+  if(prevInput && prevInput.classList.contains('missing-word')){
+    prevInput.focus();
+    prevInput.value='';
+    prevInput.classList.remove('correct','incorrect');
+  }
+}
+
+function resetActivity(){
+  currentTextIndex=0;
+  sentencePairs.sort(()=>Math.random()-0.5); // shuffle
+  generateChunk();
 }
 
 function nextText(){
-    currentTextIndex++;
-    if(currentTextIndex>=sentencePairs.length) currentTextIndex=0;
-    generateChunk();
+  currentTextIndex = (currentTextIndex+1)%sentencePairs.length;
+  generateChunk();
 }
 
-function resetActivity(){ currentTextIndex=0; shuffleArray(sentencePairs); generateChunk(); }
-
+window.onload = function(){
+  generateKeyboard('french');
+};
 </script>
 </body>
 </html>
