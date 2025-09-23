@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anagram</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            width: 100%;
+            padding: 20px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        .title {
+            font-size: 40px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .subtitle {
+            font-size: 20px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .feedback {
+            font-size: 22px;
+            font-weight: bold;
+            color: #28a745;
+            margin-top: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 14px;
+            background-color: #f9f9f9;
+            border: 2px solid #ccc;
+            color: #000000;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #f0f0f0;
+            transform: translateY(-4px);
+        }
+        .exercise-box {
+            text-align: center;
+        }
+        .englishText-box {
+            margin-bottom: 10px;
+            font-size: 20px;
+            padding: 10px;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            background-color: #f0f0f0;
+            text-align: center;
+            width: 80%;
+            box-sizing: border-box;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .letter-container {
+            text-align: center;
+        }
+        .anagram-letter {
+            cursor: pointer;
+            padding: 5px 10px;
+            margin: 0 5px;
+            font-size: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            display: inline-block;
+            margin-top: 10px;
+        }
+        .frenchText {
+            text-align: left;
+            font-weight: normal;
+            font-size: 22px;
+        }
+        .inserted-letter {
+            font-weight: normal;
+        }
+        .anagram-letter:hover {
+            background-color: #f0f0f0;
+        }
+        .hide {
+            display: none;
+        }
+        .center {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title">Anagram</div>
+        <div class="subtitle" id="subtitle">Unjumble the words.</div>
+        <div class="exercise-box">
+            <div class="englishText-box hide" id="englishText"></div>
+            <div class="letter-container hide" id="letter-container">
+                <h2 class="frenchText center" id="anagram"></h2>
+                <div id="letter-buttons"></div>
+            </div>
+            <div id="feedback" class="feedback hide">🎉 Congratulations! You solved the sentence. 🎉</div>
+        </div>
+    </div>
+
+<script>
+    let currentWordIndex = 0;
+    let currentWordAnagram = '';
+    let sentencePair = {}; // Will hold the single pair of sentences
+
+    // --- DATA LOADING FROM SPECIFIC CELLS ---
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        document.getElementById('subtitle').textContent = "⚠️ No CSV URL provided. Please add ?sheet=YOUR_LINK to the address bar.";
+    } else {
+        document.getElementById('subtitle').textContent = "Loading data...";
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: false, // Treat the data as a grid
+            skipEmptyLines: false, // Preserve row positions
+            complete: function(results) {
+                try {
+                    // Access data by coordinates: results.data[rowIndex][columnIndex]
+                    // Cell G2 is at row index 1, column index 6
+                    const frenchText = results.data[1][6];
+                    // Cell G5 is at row index 4, column index 6
+                    const englishText = results.data[4][6];
+
+                    if (!frenchText || !englishText) {
+                        throw new Error("Text is missing from cell G2 or G5.");
+                    }
+                    
+                    sentencePair = {
+                        english: englishText.trim(),
+                        french: frenchText.trim()
+                    };
+
+                    // --- AUTO-START GAME LOGIC ---
+                    document.getElementById('subtitle').textContent = "Unjumble the words.";
+                    
+                    // Show the main game elements
+                    document.getElementById("englishText").classList.remove("hide");
+                    document.getElementById("letter-container").classList.remove("hide");
+                    
+                    // Start the exercise
+                    displaySentence();
+                    generateExercise();
+
+                } catch (e) {
+                    document.getElementById('subtitle').textContent = "⚠️ Error reading data. Check that your sheet has text in cells G2 and G5 and is published correctly.";
+                    console.error(e);
+                }
+            },
+            error: function(err) {
+                document.getElementById('subtitle').textContent = "⚠️ Error loading the CSV file.";
+                console.error(err);
+            }
+        });
+    }
+
+    document.addEventListener("keydown", function(event) {
+        const key = event.key.toLowerCase();
+        const letterButtons = document.querySelectorAll(".anagram-letter");
+        letterButtons.forEach(function(button) {
+            if (button.textContent.toLowerCase() === key) {
+                revealLetter(button.textContent, button);
+            }
+        });
+    });
+
+    function displayAnagram() {
+        const anagramContainer = document.getElementById("anagram");
+        const letterButtonsContainer = document.getElementById("letter-buttons");
+        const words = sentencePair.french.match(/[\wÀ-ÿ]+|[^\s\wÀ-ÿ]/g) || [];
+
+        let fullAnagram = '';
+        if (words.length > 0) {
+            for (let i = 0; i < words.length; i++) {
+                const word = words[i];
+                if (!word.match(/[\wÀ-ÿ]/)) { // If it's punctuation
+                    fullAnagram += word;
+                    continue;
+                }
+                
+                if (i !== 0 && words[i-1].match(/[\wÀ-ÿ]/)) {
+                    fullAnagram += ' ';
+                }
+
+                if (i < currentWordIndex) {
+                    fullAnagram += word;
+                } else if (i === currentWordIndex) {
+                    fullAnagram += currentWordAnagram;
+                } else {
+                    fullAnagram += '<span class="inserted-letter">' + '•'.repeat(word.length) + '</span>';
+                }
+            }
+        }
+        anagramContainer.innerHTML = fullAnagram;
+
+        letterButtonsContainer.innerHTML = ''; // Clear previous letter buttons
+
+        if (currentWordIndex < words.length) {
+            const currentWord = words[currentWordIndex];
+            const clickableLetters = shuffleArray(currentWord.split(''));
+            for (let letter of clickableLetters) {
+                const button = document.createElement("button");
+                button.textContent = letter;
+                button.classList.add("anagram-letter");
+                button.addEventListener("click", function() {
+                    revealLetter(letter, button);
+                });
+                letterButtonsContainer.appendChild(button);
+            }
+        }
+    }
+
+    function revealLetter(letter, button) {
+        const words = sentencePair.french.match(/[\wÀ-ÿ]+|[^\s\wÀ-ÿ]/g) || [];
+        const word = words[currentWordIndex];
+
+        const indexToReplace = currentWordAnagram.indexOf('•');
+        if (letter === word[indexToReplace]) {
+            currentWordAnagram = currentWordAnagram.substring(0, indexToReplace) + letter + currentWordAnagram.substring(indexToReplace + 1);
+            displayAnagram();
+            button.remove();
+
+            if (!currentWordAnagram.includes('•')) {
+                currentWordIndex++;
+                while (currentWordIndex < words.length && !words[currentWordIndex].match(/[\wÀ-ÿ]/)) {
+                    currentWordIndex++; // Skip over punctuation
+                }
+
+                if (currentWordIndex < words.length) {
+                    currentWordAnagram = '•'.repeat(words[currentWordIndex].length);
+                    displayAnagram();
+                } else {
+                    // Sentence finished, show feedback message
+                    document.getElementById("feedback").classList.remove("hide");
+                }
+            }
+        }
+    }
+
+    function shuffleArray(array) {
+        const shuffledArray = array.slice();
+        for (let i = shuffledArray.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffledArray[i], shuffledArray[j]] = [shuffledArray[j], shuffledArray[i]];
+        }
+        return shuffledArray;
+    }
+
+    function displaySentence() {
+        document.getElementById("englishText").textContent = sentencePair.english;
+    }
+
+    function generateExercise() {
+        const words = sentencePair.french.match(/[\wÀ-ÿ]+|[^\s\wÀ-ÿ]/g) || [];
+        currentWordIndex = 0;
+        // Skip initial punctuation if any
+        while (currentWordIndex < words.length && !words[currentWordIndex].match(/[\wÀ-ÿ]/)) {
+            currentWordIndex++;
+        }
+        if (currentWordIndex < words.length) {
+            currentWordAnagram = '•'.repeat(words[currentWordIndex].length);
+        }
+        displayAnagram();
+    }
+</script>
+</body>
+</html>
