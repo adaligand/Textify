@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chunks</title>
+  <title>Chunkator</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     body {
@@ -24,7 +24,6 @@
     .subtitle {
       font-size: 20px;
       margin-bottom: 10px;
-      text-align: center;
     }
     button {
       padding: 10px 20px;
@@ -33,7 +32,6 @@
       color: #000000;
       border-radius: 10px;
       cursor: pointer;
-      margin: 5px;
     }
     button:hover {
       background-color: #A9A9A9;
@@ -42,22 +40,31 @@
     .hide {
       display: none;
     }
-    .english-sentence {
-      margin-bottom: 20px;
-      font-size: 20px;
-      padding: 10px;
+    .english-text-box {
       border: 2px solid #ccc;
-      border-radius: 10px;
+      padding: 10px;
+      font-size: 20px;
+      text-align: justify;
       background-color: #f9f9f9;
-      text-align: center;
+      border-radius: 10px;
+      margin-bottom: 20px;
     }
-    .draggable-word {
+    #generateButtonChunk {
+      border: 2px solid #ccc;
+    }
+    #exerciseOutput {
+      font-size: 20px;
+      line-height: 2;
+      text-align: center; /* Center the chunk buttons */
+      word-spacing: 0.5em;
+      margin-top: 20px;
+    }
+   .draggable-word {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       margin-right: 5px;
-      font-size: 20px;
       margin-bottom: 5px;
       border: 1px solid black;
       padding: 2px 10px;
@@ -77,10 +84,10 @@
     .dropzone-container {
       margin-top: 20px;
       margin-bottom: 20px;
-      text-align: center;
+      text-align: center; /* Center the dropzones */
     }
     .dropzone {
-      border: 1px dashed #007bff;
+      border: 2px dashed #ccc;
       min-height: 20px;
       font-size: 20px;
       height: auto;
@@ -90,31 +97,47 @@
       vertical-align: top;
       margin: 2px;
     }
-    .feedback {
-      font-weight: bold;
-      font-size: 18px;
-      text-align: center;
-      margin-top: 20px;
+    select {
+      width: 20%;
+      padding: 5px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      height: 35px;
+    }
+    .input-container {
+        text-align: center;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="title">Chunks</div>
+    <div class="title">Chunkator</div>
     <div class="subtitle" id="subtitle">Unjumble the chunks.</div>
+    <br>
+    <div class="english-text-box hide" id="englishText"></div>
+    <div id="frenchText" class="hide"></div>
 
-    <div id="exerciseOutput"></div>
+    <div class="input-container">
+      <label for="chunkSize">Select Chunk Size:</label>
+      <select id="chunkSize">
+        <option value="1">Single Words</option>
+        <option value="2">Small chunks</option>
+        <option value="4">Medium chunks</option>
+        <option value="6">Big chunks</option>
+      </select>
+      <button id="generateButtonChunk" onclick="generateChunk()">Generate Exercise</button>
+      <br>
+    </div>
+    <div id="exerciseOutput" class="hide"></div>
     <div class="dropzone-container hide" id="dropZones"></div>
-    <div id="feedback" class="feedback hide"></div>
-    
+    <div id="feedback" class="hide"></div>
   </div>
 
-<script>
+  <script>
     var originalChunks = [];
     var currentChunkIndex = 0;
-    var sentencePair = {}; // Will hold the single pair of sentences
 
-    // --- DATA LOADING FROM SPECIFIC CELLS ---
+    // --- NEW: DATA LOADING FROM GOOGLE SHEET ---
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
 
@@ -129,22 +152,26 @@
             complete: function(results) {
                 try {
                     // Access data by coordinates: results.data[rowIndex][columnIndex]
-                    // Cell G2 is row index 1, column index 6
+                    // Cell G2 is at row index 1, column index 6
                     const frenchText = results.data[1][6];
-                    // Cell G5 is row index 4, column index 6
+                    // Cell G5 is at row index 4, column index 6
                     const englishText = results.data[4][6];
 
                     if (!frenchText || !englishText) {
                         throw new Error("Text is missing from cell G2 or G5.");
                     }
-
-                    sentencePair = {
-                        english: englishText.trim(),
-                        french: frenchText.trim()
-                    };
                     
+                    // Populate the divs with the loaded text
+                    document.getElementById('englishText').textContent = englishText.trim();
+                    document.getElementById('frenchText').textContent = frenchText.trim();
+                    
+                    // --- AUTO-START GAME LOGIC ---
                     document.getElementById('subtitle').textContent = "Unjumble the chunks.";
-                    generateChunk(); // Start the exercise automatically
+                    document.getElementById('englishText').classList.remove('hide');
+
+                    // Start the first exercise automatically
+                    generateChunk();
+
                 } catch (e) {
                     document.getElementById('subtitle').textContent = "⚠️ Error reading data. Check that your sheet has text in cells G2 and G5 and is published correctly.";
                     console.error(e);
@@ -157,90 +184,86 @@
         });
     }
 
-function generateChunk() {
-    var englishSentence = sentencePair.english;
-    var frenchSentence = sentencePair.french;
-    originalChunks = getWordChunks(frenchSentence);
 
-    var shuffledChunks = shuffleArray([...originalChunks]);
+    function generateChunk() {
+      var textInput = document.getElementById('frenchText').textContent;
+      if (!textInput) {
+        alert("No French text has been loaded.");
+        return;
+      }
+      
+      var exerciseOutput = document.getElementById('exerciseOutput');
+      exerciseOutput.innerHTML = '';
+      var dropZones = document.getElementById('dropZones');
+      dropZones.innerHTML = '';
 
-    var exerciseOutput = document.getElementById('exerciseOutput');
-    exerciseOutput.innerHTML = '';
+      var chunkSize = parseInt(document.getElementById('chunkSize').value);
+      originalChunks = getWordChunks(textInput, chunkSize);
+      var shuffledChunks = shuffleArray([...originalChunks]);
 
-    var englishSentenceDiv = document.createElement('div');
-    englishSentenceDiv.classList.add('english-sentence');
-    englishSentenceDiv.textContent = englishSentence;
-    exerciseOutput.appendChild(englishSentenceDiv);
+      for (var i = 0; i < originalChunks.length; i++) {
+        var dropZone = document.createElement('div');
+        dropZone.classList.add('dropzone');
+        dropZones.appendChild(dropZone);
+      }
 
-    var chunkContainer = document.createElement('div');
-    chunkContainer.classList.add('chunk-container');
-    chunkContainer.style.textAlign = 'center';
-    exerciseOutput.appendChild(chunkContainer);
-
-    for (var i = 0; i < shuffledChunks.length; i++) {
+      for (var i = 0; i < shuffledChunks.length; i++) {
         var chunk = shuffledChunks[i].join(' ');
         var chunkElement = document.createElement('div');
         chunkElement.textContent = chunk;
         chunkElement.classList.add('draggable-word');
         chunkElement.setAttribute('onclick', 'selectChunk(this)');
-        chunkContainer.appendChild(chunkElement);
+        exerciseOutput.appendChild(chunkElement);
+      }
+
+      exerciseOutput.classList.remove('hide');
+      dropZones.classList.remove('hide');
+      document.getElementById('feedback').classList.add('hide');
+      currentChunkIndex = 0;
     }
 
-    var dropZones = document.getElementById('dropZones');
-    dropZones.innerHTML = '';
-    for (var i = 0; i < originalChunks.length; i++) {
-        var dropZone = document.createElement('div');
-        dropZone.classList.add('dropzone');
-        dropZones.appendChild(dropZone);
+    function getWordChunks(text, chunkSize) {
+      var words = text.split(/\s+/).filter(Boolean);
+      var chunks = [];
+      for (var i = 0; i < words.length; i += chunkSize) {
+        chunks.push(words.slice(i, i + chunkSize));
+      }
+      return chunks;
     }
 
-    dropZones.classList.remove('hide');
-    document.getElementById('feedback').classList.add('hide');
-    currentChunkIndex = 0;
-}
-
-function getWordChunks(text) {
-    var words = text.split(/\s+/).filter(Boolean);
-    var chunks = [];
-    for (var i = 0; i < words.length; i++) {
-        chunks.push([words[i]]);
-    }
-    return chunks;
-}
-
-function shuffleArray(array) {
-    for (var i = array.length - 1; i > 0; i--) {
+    function shuffleArray(array) {
+      for (var i = array.length - 1; i > 0; i--) {
         var j = Math.floor(Math.random() * (i + 1));
         var temp = array[i];
         array[i] = array[j];
         array[j] = temp;
+      }
+      return array;
     }
-    return array;
-}
 
-function selectChunk(element) {
-    var chunkText = element.textContent;
-    var correctChunk = originalChunks[currentChunkIndex].join(' ');
+    function selectChunk(element) {
+      var chunkText = element.textContent;
+      var correctChunk = originalChunks[currentChunkIndex].join(' ');
 
-    if (chunkText === correctChunk) {
+      if (chunkText === correctChunk) {
         var dropZones = document.getElementById('dropZones');
-        var dropZone = dropZones.children[currentChunkindex];
+        var dropZone = dropZones.children[currentChunkIndex];
         dropZone.textContent = chunkText;
         dropZone.classList.add('correct-chunk');
         element.remove();
         currentChunkIndex++;
+
         if (currentChunkIndex === originalChunks.length) {
-            var feedbackElement = document.getElementById('feedback');
-            feedbackElement.textContent = '🎉 Correct! Well done.';
-            feedbackElement.classList.remove('hide');
+          document.getElementById('feedback').textContent = 'All chunks are in the correct order!';
+          document.getElementById('feedback').classList.remove('hide');
         }
-    } else {
+      } else {
         element.classList.add('wrong-chunk');
         setTimeout(() => {
-            element.classList.remove('wrong-chunk');
+          element.classList.remove('wrong-chunk');
         }, 2000);
+      }
     }
-}
-</script>
+  </script>
 </body>
 </html>
