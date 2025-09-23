@@ -75,7 +75,7 @@
       border-radius: 5px;
       min-width: 50px;
       min-height: 30px;
-      text-align: center; /* Changed from middle */
+      text-align: center;
       vertical-align: bottom;
     }
     .filled-word {
@@ -140,8 +140,9 @@
 
 <script>
 var removedWordSet = new Set();
+var sentencePair = {}; // Use a single object for the text pair
 
-// --- NEW: DATA LOADING FROM GOOGLE SHEET ---
+// --- DATA LOADING FROM GOOGLE SHEET ---
 const params = new URLSearchParams(window.location.search);
 const sheetUrl = params.get('sheet');
 
@@ -151,31 +152,26 @@ if (!sheetUrl) {
     document.getElementById('subtitle').textContent = "Loading data...";
     Papa.parse(sheetUrl, {
         download: true,
-        header: false, // Treat the data as a grid
-        skipEmptyLines: false, // Preserve row positions
+        header: false,
+        skipEmptyLines: false,
         complete: function(results) {
             try {
-                // Access data by coordinates: results.data[rowIndex][columnIndex]
-                // Cell G2 is at row index 1, column index 6
                 const frenchText = results.data[1][6];
-                // Cell G5 is at row index 4, column index 6
                 const englishText = results.data[4][6];
-
                 if (!frenchText || !englishText) {
                     throw new Error("Text is missing from cell G2 or G5.");
                 }
                 
-                // Populate the divs with the loaded text
-                document.getElementById('frenchText').textContent = frenchText.trim();
-                document.getElementById('englishTranslation').textContent = englishText.trim();
-                
-                document.getElementById('subtitle').textContent = "Drag and drop: Select the amount of words to remove from your text and click on Generate exercise.";
-                
-                // Call the original initialize function now that the text is loaded
-                initialize();
+                sentencePair = {
+                    french: frenchText.trim(),
+                    english: englishText.trim()
+                };
 
+                document.getElementById('frenchText').textContent = sentencePair.french;
+                document.getElementById('englishTranslation').textContent = sentencePair.english;
+                document.getElementById('subtitle').textContent = "Drag and drop: Select the amount of words to remove and click 'Generate Exercise'.";
             } catch (e) {
-                document.getElementById('subtitle').textContent = "⚠️ Error reading data. Check that your sheet has text in cells G2 and G5 and is published correctly.";
+                document.getElementById('subtitle').textContent = "⚠️ Error reading data. Check your sheet has text in cells G2 and G5.";
                 console.error(e);
             }
         },
@@ -186,16 +182,13 @@ if (!sheetUrl) {
     });
 }
 
-function initialize() {
-  var frenchText = document.getElementById('frenchText').textContent.trim();
-  var englishTranslation = document.getElementById('englishTranslation').textContent.trim();
-  document.getElementById('exerciseOutput').textContent = frenchText;
-  document.getElementById('englishTranslation').textContent = englishTranslation;
-}
-
 function generateExercise() {
   resetExercise();
   var frenchText = document.getElementById('frenchText').textContent.trim();
+  if (!frenchText) {
+      alert("Text has not been loaded yet. Please wait or check the sheet URL.");
+      return;
+  }
   generateDragDropExercise(frenchText);
   document.getElementById('subtitle').style.display = 'none';
 }
@@ -206,48 +199,43 @@ function generateDragDropExercise(frenchText) {
 
   var selectValue = document.getElementById('percentageSelect').value;
   var percentage;
-
   switch (selectValue) {
     case "aFewWords": percentage = 5; break;
     case "someWords": percentage = 10; break;
     case "moreWords": percentage = 20; break;
     case "half": percentage = 50; break;
     case "evenMoreWords": percentage = 60; break;
-    default: alert("Invalid selection."); return;
+    default: return;
   }
 
   var words = frenchText.match(/[\wÀ-ÿ'’-]+|[^\w\s'’-]+/gu);
-  var filteredWords = words.filter(word => word.length > 1);
-  var uniqueWords = Array.from(new Set(filteredWords));
+  var uniqueWords = Array.from(new Set(words.filter(word => word.length > 1)));
   var numWordsToRemove = Math.min(Math.round((percentage / 100) * uniqueWords.length), uniqueWords.length);
 
   if (numWordsToRemove < 1) {
-    alert("Not enough unique words to remove for this percentage. Please try a higher percentage.");
+    alert("Not enough unique words to remove for this percentage.");
     return;
   }
 
-  function shuffle(array) {
-    for (var i = array.length - 1; i > 0; i--) {
-      var j = Math.floor(Math.random() * (i + 1));
-      var temp = array[i];
-      array[i] = array[j];
-      array[j] = temp;
-    }
-    return array;
-  }
-
   uniqueWords = shuffle(uniqueWords);
-  var removedWords = uniqueWords.slice(0, numWordsToRemove);
+  var wordsToTurnIntoBlanks = uniqueWords.slice(0, numWordsToRemove);
   
+  // --- CORRECTED LOGIC ---
+  // 1. Create a list of ALL instances of words that will be removed.
+  var allRemovedInstances = [];
+  words.forEach(function(word) {
+      if (wordsToTurnIntoBlanks.includes(word)) {
+          allRemovedInstances.push(word);
+      }
+  });
+
+  // 2. Build the sentence with drop targets
   var modifiedText = '';
-  frenchText.match(/[\wÀ-ÿ'’-]+|[^\w\s'’-]+/gu).forEach(function(match) {
-    let wordOrPunct = match.trim();
-    if (wordOrPunct !== "") {
-        if (removedWords.includes(wordOrPunct)) {
-            modifiedText += '<span class="drop-target" data-correct-answer="' + wordOrPunct + '" onclick="emptyDropBox(this)"></span> ';
-        } else {
-            modifiedText += '<span class="filled-word">' + match + '</span> ';
-        }
+  words.forEach(function(match) {
+    if (wordsToTurnIntoBlanks.includes(match)) {
+      modifiedText += '<span class="drop-target" data-correct-answer="' + match + '" onclick="emptyDropBox(this)"></span> ';
+    } else {
+      modifiedText += '<span class="filled-word">' + match + '</span> ';
     }
   });
 
@@ -255,17 +243,17 @@ function generateDragDropExercise(frenchText) {
   exerciseOutput.innerHTML = modifiedText.trim();
   exerciseOutput.classList.remove('hide');
 
-  document.getElementById('checkFeedbackContainer').classList.add('hide');
-
+  // 3. Create the draggable words from ALL instances, not just unique ones.
   var removedWordsContainer = document.getElementById('removedWords');
-  removedWordsContainer.innerHTML = ''; // Clear previous words
+  removedWordsContainer.innerHTML = '';
   removedWordsContainer.classList.remove('hide');
   
-  shuffle(removedWords).forEach(word => {
+  shuffle(allRemovedInstances).forEach((word, index) => {
     var removedWord = document.createElement('div');
     removedWord.textContent = word;
     removedWord.className = 'removed-word';
     removedWord.draggable = true;
+    removedWord.id = 'drag-' + index; // Give each draggable word a unique ID
     removedWord.ondragstart = function(event) {
       drag(event);
     };
@@ -286,15 +274,19 @@ function generateDragDropExercise(frenchText) {
 function emptyDropBox(dropTarget) {
   var filledWord = dropTarget.querySelector('.filled-word');
   if (filledWord) {
+    var wordText = filledWord.textContent;
+    var newId = 'drag-' + Date.now(); // Create a new unique ID
+
     var wordToAddBack = document.createElement('div');
-    wordToAddBack.textContent = filledWord.textContent;
+    wordToAddBack.textContent = wordText;
     wordToAddBack.className = 'removed-word';
     wordToAddBack.draggable = true;
+    wordToAddBack.id = newId;
     wordToAddBack.ondragstart = function(event) {
       drag(event);
     };
     document.getElementById('removedWords').appendChild(wordToAddBack);
-    dropTarget.innerHTML = ''; // Clear the drop target
+    dropTarget.innerHTML = '';
   }
   updateCheckingButtonVisibility();
 }
@@ -305,11 +297,13 @@ function allowDrop(event) {
 
 function drag(event) {
   event.dataTransfer.setData("text", event.target.textContent);
+  event.dataTransfer.setData("element-id", event.target.id); // Transfer the unique ID
 }
 
 function drop(event) {
   event.preventDefault();
   var data = event.dataTransfer.getData("text");
+  var elementId = event.dataTransfer.getData("element-id"); // Get the unique ID
   var target = event.target;
   
   if (target.classList.contains("drop-target") && !target.querySelector(".filled-word")) {
@@ -318,12 +312,11 @@ function drop(event) {
     droppedWord.className = "filled-word";
     target.appendChild(droppedWord);
     
-    var draggableWords = document.querySelectorAll('.removed-word');
-    draggableWords.forEach(function(word) {
-      if (word.textContent.trim() === droppedWord.textContent.trim()) {
-        word.remove();
-      }
-    });
+    // Remove the specific dragged element by its ID
+    var draggedElement = document.getElementById(elementId);
+    if (draggedElement) {
+        draggedElement.remove();
+    }
     
     setTimeout(updateCheckingButtonVisibility, 100);
   }
@@ -353,7 +346,6 @@ function checkExercise() {
   for (var i = 0; i < dropTargets.length; i++) {
     var correctAnswer = dropTargets[i].dataset.correctAnswer;
     var filledWord = dropTargets[i].querySelector('.filled-word');
-
     if (!filledWord || filledWord.textContent.trim() !== correctAnswer) {
       incorrectCount++;
     }
@@ -364,7 +356,6 @@ function checkExercise() {
   } else {
     feedback.textContent = 'Number of incorrect answers: ' + incorrectCount;
   }
-
   feedback.classList.remove('hide');
   updateResetButtonVisibility();
 }
@@ -397,6 +388,16 @@ function resetExercise() {
   resetButton.classList.add('hide');
   var checkFeedbackContainer = document.getElementById('checkFeedbackContainer');
   checkFeedbackContainer.classList.add('hide');
+}
+
+function shuffle(array) {
+    for (var i = array.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var temp = array[i];
+        array[i] = array[j];
+        array[j] = temp;
+    }
+    return array;
 }
 </script>
 </body>
