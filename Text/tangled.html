@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tangled Translation</title>
+  <!-- Added PapaParse library to read the CSV -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      min-height: 100vh;
+      background: #f9f9f9;
+      display: flex;
+      flex-direction: column;
+    }
+    h1.title {
+      text-align: center;
+      font-size: 2rem;
+      padding: 1rem 0;
+      color: #333;
+    }
+    .container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      width: 100%;
+      align-items: stretch;
+      padding: 2rem;
+      gap: 1rem;
+      flex-grow: 1;
+      box-sizing: border-box;
+    }
+    .input-box, .center-text {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-width: 0;
+    }
+    .center-text {
+      text-align: center;
+      font-size: 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    textarea {
+      flex: 1;
+      resize: none;
+      font-size: 1rem;
+      padding: 1rem;
+      border: 2px solid #ccc;
+      border-radius: 8px;
+      min-height: 150px;
+    }
+    .feedback {
+      text-align: center;
+      font-weight: bold;
+      padding: 0.5rem;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #f9f9f9;
+      border: 2px solid #ccc;
+      color: #000000;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+      margin-top: 0.75rem;
+    }
+    button:hover {
+      background-color: #A9A9A9;
+      transform: translateY(-4px);
+    }
+    .highlight {
+      background-color: #ffe4b3;
+      border-radius: 4px;
+      padding: 0 4px;
+    }
+    .result-box {
+      margin-top: 0.5rem;
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1 class="title">Tangled Translation</h1>
+  <div class="container">
+    <!-- French Input -->
+    <div class="input-box">
+      <h3>Traduction française</h3>
+      <textarea id="frenchInput"></textarea>
+      <div class="feedback" id="frenchFeedback"></div>
+      <div class="result-box" id="frenchResult"></div>
+      <button onclick="checkFrench()">Check French</button>
+    </div>
+
+    <!-- Hybrid Sentence (will be populated from the sheet) -->
+    <div class="center-text" id="tangledText">Loading text...</div>
+
+    <!-- English Input -->
+    <div class="input-box">
+      <h3>English Translation</h3>
+      <textarea id="englishInput"></textarea>
+      <div class="feedback" id="englishFeedback"></div>
+      <div class="result-box" id="englishResult"></div>
+      <button onclick="checkEnglish()">Check English</button>
+    </div>
+  </div>
+
+<script>
+    // These will be populated from the spreadsheet
+    let correctFrench = "";
+    let correctEnglish = "";
+
+    const tangledTextBox = document.getElementById('tangledText');
+
+    // --- NEW: DATA LOADING FROM GOOGLE SHEET ---
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        tangledTextBox.textContent = "⚠️ No CSV URL provided. Please add ?sheet=YOUR_LINK to the address bar.";
+    } else {
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: false, // Treat data as a grid
+            skipEmptyLines: false, // Preserve row positions
+            complete: function(results) {
+                try {
+                    // Access data by coordinates: results.data[rowIndex][columnIndex]
+                    correctFrench = results.data[1][6];   // Cell G2
+                    correctEnglish = results.data[4][6];  // Cell G5
+                    const tangledText = results.data[7][6];   // Cell G8
+
+                    if (!correctFrench || !correctEnglish || !tangledText) {
+                        throw new Error("Text is missing from one of the required cells (G2, G5, G8).");
+                    }
+                    
+                    // Populate the page with the loaded text
+                    tangledTextBox.textContent = tangledText.trim();
+                    
+                } catch (e) {
+                    tangledTextBox.textContent = "⚠️ Error reading data. Check that your sheet has text in cells G2, G5, and G8 and is published correctly.";
+                    console.error(e);
+                }
+            },
+            error: function(err) {
+                tangledTextBox.textContent = "⚠️ Error loading the CSV file.";
+                console.error(err);
+            }
+        });
+    }
+
+    function highlightMistakes(userText, correctText) {
+      const userWords = userText.split(/\s+/);
+      const correctWords = correctText.split(/\s+/);
+      let mistakeCount = 0;
+      const highlighted = userWords.map((word, i) => {
+        if (correctWords[i] && word.toLowerCase().trim() === correctWords[i].toLowerCase().trim()) {
+          return word;
+        } else {
+          mistakeCount++;
+          return `<span class="highlight">${word}</span>`;
+        }
+      }).join(' ');
+      return { highlighted, mistakeCount };
+    }
+
+    function checkFrench() {
+      const userFrench = document.getElementById('frenchInput').value.trim();
+      const frenchFeedback = document.getElementById('frenchFeedback');
+      const frenchResult = document.getElementById('frenchResult');
+
+      if (!correctFrench) {
+          frenchFeedback.textContent = "Error: Correct text not loaded.";
+          return;
+      }
+
+      if (userFrench.toLowerCase() === correctFrench.toLowerCase()) {
+        frenchFeedback.textContent = '✅ Correct';
+        frenchFeedback.style.color = 'green';
+        frenchResult.innerHTML = '';
+      } else {
+        const { highlighted, mistakeCount } = highlightMistakes(userFrench, correctFrench);
+        frenchFeedback.textContent = `❌ ${mistakeCount} mistake(s)`;
+        frenchFeedback.style.color = 'red';
+        frenchResult.innerHTML = highlighted;
+      }
+    }
+
+    function checkEnglish() {
+      const userEnglish = document.getElementById('englishInput').value.trim();
+      const englishFeedback = document.getElementById('englishFeedback');
+      const englishResult = document.getElementById('englishResult');
+
+       if (!correctEnglish) {
+          englishFeedback.textContent = "Error: Correct text not loaded.";
+          return;
+      }
+
+      if (userEnglish.toLowerCase() === correctEnglish.toLowerCase()) {
+        englishFeedback.textContent = '✅ Correct';
+        englishFeedback.style.color = 'green';
+        englishResult.innerHTML = '';
+      } else {
+        const { highlighted, mistakeCount } = highlightMistakes(userEnglish, correctEnglish);
+        englishFeedback.textContent = `❌ ${mistakeCount} mistake(s)`;
+        englishFeedback.style.color = 'red';
+        englishResult.innerHTML = highlighted;
+      }
+    }
+</script>
+</body>
+</html>
