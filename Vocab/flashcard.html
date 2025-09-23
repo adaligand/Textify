@@ -232,12 +232,14 @@
         const buttonContainer = document.querySelector('.button-container');
         const previousButton = document.getElementById('previousButton');
 
-        if (cycleIndex > 0) {
-            previousButton.classList.remove('hidden');
-        } else {
+        // New Visibility Logic: Show button unless it's the very first step.
+        if (cycleIndex === 0 && phase === 0) {
             previousButton.classList.add('hidden');
+        } else {
+            previousButton.classList.remove('hidden');
         }
 
+        // Hide all main containers
         flashcardContainer.style.display = 'none';
         quizContainer.style.display = 'none';
         textInputContainer.style.display = 'none';
@@ -245,60 +247,85 @@
         document.getElementById('keyboard').style.display = 'none';
         document.getElementById('languageSelect').classList.add('hidden');
 
-        if (cycleIndex * 2 >= englishWords.length) {
+        if (cycleIndex * 2 >= englishWords.length && phase > 1) { // Adjusted condition to allow final steps to show
             showCongratulations();
             return;
         }
+
         let firstIndex = cycleIndex * 2;
         let secondIndex = firstIndex + 1;
+
+        // The switch now only SHOWS the correct elements
         switch (phase) {
             case 0:
                 flashcardContainer.style.display = 'block';
                 buttonContainer.style.display = 'flex';
                 updateCard(firstIndex);
-                phase++;
                 break;
             case 1:
+                flashcardContainer.style.display = 'block';
+                buttonContainer.style.display = 'flex';
                 if (secondIndex < englishWords.length) {
                     updateCard(secondIndex);
                 } else {
-                    updateCard(firstIndex);
+                    // If there's no second card, skip to the end
+                    showCongratulations();
+                    return;
                 }
-                flashcardContainer.style.display = 'block';
-                buttonContainer.style.display = 'flex';
-                phase++;
                 break;
             case 2:
                 quizContainer.style.display = 'block';
                 showQuiz(firstIndex);
-                phase++;
                 break;
             case 3:
                 quizContainer.style.display = 'block';
-                showQuiz(secondIndex);
-                phase++;
+                 if (secondIndex < englishWords.length) {
+                    showQuiz(secondIndex);
+                } else {
+                    showCongratulations();
+                    return;
+                }
                 break;
             case 4:
                 textInputContainer.style.display = 'block';
                 showTextInput(firstIndex);
-                phase++;
                 break;
             case 5:
                 textInputContainer.style.display = 'block';
-                showTextInput(secondIndex);
-                phase = 0;
-                cycleIndex++;
+                 if (secondIndex < englishWords.length) {
+                    showTextInput(secondIndex);
+                } else {
+                    showCongratulations();
+                    return;
+                }
                 break;
+            default: // Catches phase > 5
+                 cycleIndex++;
+                 phase = 0;
+                 nextStep(); // Re-run the logic for the new cycle
+                 return; // Important to exit after the recursive call
         }
+
+        // Phase is now incremented cleanly here at the end
+        phase++;
     }
 
     function previousStep() {
-        if (cycleIndex > 0) {
-            cycleIndex--;
-            phase = 0;
-            nextStep();
+        // Go back one step. `phase` holds the value for the *next* step.
+        // So we need to subtract 2 to get to the step before the one we're on.
+        phase -= 2;
+
+        if (phase < 0) {
+            if (cycleIndex > 0) {
+                cycleIndex--;
+                phase = 5; // Go to the last phase of the previous cycle
+            } else {
+                phase = 0; // Clamp to the beginning
+            }
         }
+        nextStep();
     }
+
 
     function updateCard(index) {
         if (index >= englishWords.length) return;
@@ -323,7 +350,8 @@
                 if (option === correctAnswer) {
                     nextStep();
                 } else {
-                    alert("Incorrect! Back to previous pair of cards.");
+                    alert("Incorrect! Back to the start of the pair.");
+                    // Reset to the beginning of the current card pair's cycle
                     phase = 0;
                     nextStep();
                 }
@@ -340,16 +368,16 @@
         let input = document.createElement('input');
         input.type = 'text';
         input.placeholder = 'Type here...';
+        input.focus();
         let submitBtn = document.createElement('button');
         submitBtn.textContent = 'Submit';
         textInputContainer.appendChild(input);
         textInputContainer.appendChild(submitBtn);
 
-        // ✅ ADDED EVENT LISTENER FOR 'ENTER' KEY
         input.addEventListener('keydown', function(event) {
             if (event.key === 'Enter') {
-                event.preventDefault(); // Stop default behavior
-                submitBtn.click(); // Trigger the submit button's click event
+                event.preventDefault();
+                submitBtn.click();
             }
         });
 
@@ -359,8 +387,9 @@
             if (input.value.trim().toLowerCase() === translations[index].toLowerCase()) {
                 nextStep();
             } else {
-                alert("Incorrect! Back to the previous pair of cards.");
+                alert("Incorrect! Back to the start of the pair.");
                 input.value = '';
+                // Reset to the beginning of the current card pair's cycle
                 phase = 0;
                 nextStep();
             }
