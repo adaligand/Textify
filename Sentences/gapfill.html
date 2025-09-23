@@ -145,13 +145,13 @@
             header: true,
             skipEmptyLines: true,
             complete: function(results) {
-                // --- CORRECTED DATA PROCESSING ---
+                // --- ROBUST DATA PROCESSING ---
                 results.data.forEach(row => {
-                    // This now safely handles rows with empty cells
+                    // This now safely handles rows with empty or non-string cells
                     const french = row["French sentences"] || "";
                     const english = row["English sentences"] || "";
 
-                    if (french.trim() && english.trim()) {
+                    if (french.trim() !== "" && english.trim() !== "") {
                         sentencePairs.push({
                             french: french.trim(),
                             english: english.trim()
@@ -221,4 +221,112 @@
 
     function generateChunk() {
       var englishSentence = sentencePairs[currentTextIndex].english;
-      var frenchSentence = sentencePairs[current
+      var frenchSentence = sentencePairs[currentTextIndex].french;
+      originalChunks = getWordChunks(frenchSentence);
+
+      var wordIndices = [];
+      originalChunks.forEach((chunk, index) => {
+          if (chunk.match(/[\wÀ-ÿ'-]+/)) {
+              wordIndices.push(index);
+          }
+      });
+      
+      var removedChunksCount = Math.ceil(wordIndices.length / 2);
+      var shuffledWordIndices = shuffleArray([...wordIndices]);
+      var removedChunksIndices = new Set(shuffledWordIndices.slice(0, removedChunksCount));
+
+      var sentenceWithInputFields = '';
+      for (var i = 0; i < originalChunks.length; i++) {
+        if (removedChunksIndices.has(i)) {
+            sentenceWithInputFields += `<input type="text" class="missing-word" data-index="${i}" onkeyup="checkAnswers()" oninput="adjustInputWidth(this)" onfocus="setLastFocusedInput(this)">`;
+        } else {
+          sentenceWithInputFields += originalChunks[i];
+        }
+      }
+
+      var exerciseOutput = document.getElementById('exerciseOutput');
+      exerciseOutput.innerHTML = '';
+
+      var englishSentenceDiv = document.createElement('div');
+      englishSentenceDiv.classList.add('english-sentence');
+      englishSentenceDiv.textContent = englishSentence;
+      exerciseOutput.appendChild(englishSentenceDiv);
+
+      var sentenceDiv = document.createElement('div');
+      sentenceDiv.classList.add('french-sentence');
+      sentenceDiv.innerHTML = sentenceWithInputFields;
+      exerciseOutput.appendChild(sentenceDiv);
+
+      document.getElementById('feedback').classList.add('hide');
+      document.getElementById('resetButton').classList.add('hide');
+      document.getElementById('nextButton').classList.add('hide');
+      
+      document.getElementById('sentenceCounter').textContent = (currentTextIndex + 1) + '/' + sentencePairs.length;
+    }
+
+    function setLastFocusedInput(input) {
+      lastFocusedInput = input;
+    }
+
+    function adjustInputWidth(input) {
+      input.style.width = 'auto';
+      input.style.width = (input.scrollWidth + 2) + 'px';
+    }
+
+    function nextText() {
+      currentTextIndex++;
+       if (currentTextIndex >= sentencePairs.length) {
+        currentTextIndex = 0;
+      }
+      generateChunk();
+    }
+
+    function resetActivity() {
+      currentTextIndex = 0;
+      shuffleArray(sentencePairs);
+      generateChunk();
+    }
+    
+    function getWordChunks(text) {
+      return text.split(/([\wÀ-ÿ'-]+)/g).filter(Boolean);
+    }
+
+    function checkAnswers() {
+      var inputFields = document.querySelectorAll('.missing-word');
+      var allFilled = true;
+      var correctCount = 0;
+
+      inputFields.forEach(function(input) {
+        var inputIndex = parseInt(input.getAttribute('data-index'));
+        var userInput = input.value.trim();
+        var correctWord = originalChunks[inputIndex].trim();
+
+        if (userInput === '') {
+          allFilled = false;
+          input.style.backgroundColor = '';
+        } else if (userInput.toLowerCase() === correctWord.toLowerCase()) {
+          correctCount++;
+          input.style.backgroundColor = '#d4edda';
+        } else {
+          input.style.backgroundColor = '#f8d7da';
+        }
+      });
+      
+      var feedbackElement = document.getElementById('feedback');
+      if (allFilled) {
+        if (correctCount === inputFields.length) {
+          feedbackElement.textContent = 'All answers are correct!';
+          feedbackElement.style.color = 'green';
+          if (currentTextIndex >= sentencePairs.length - 1) {
+            document.getElementById('resetButton').classList.remove('hide');
+          } else {
+            document.getElementById('nextButton').classList.remove('hide');
+          }
+        } else {
+          feedbackElement.textContent = `There are ${inputFields.length - correctCount} incorrect answers.`;
+          feedbackElement.style.color = 'red';
+          document.getElementById('nextButton').classList.add('hide');
+          document.getElementById('resetButton').classList.add('hide');
+        }
+        feedbackElement.classList.remove('hide');
+      } else {
