@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spacetor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            width: 100%;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .title {
+            font-size: 40px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .subtitle {
+            font-size: 18px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .english-text-box {
+            margin-bottom: 20px;
+            font-size: 20px;
+            padding: 10px;
+            border: 2px solid #ccc;
+            text-align: justify;
+            border-radius: 10px;
+            background-color: #f9f9f9;
+        }
+        .exercise-box {
+            font-size: 22px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            text-align: justify;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+        .hidden-space {
+            cursor: pointer;
+        }
+        .hide {
+            display: none;
+        }
+        .counter-container {
+            text-align: center;
+            margin: 0;
+            margin-top: 20px;
+        }
+        .counter,
+        .wrong-click,
+        .correct-click,
+        .feedback {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 0;
+        }
+        .wrong-click {
+            color: red;
+        }
+        .correct-click {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title">Spacetor</div>
+        <div class="subtitle" id="subtitle">Click where you want to insert spaces to recreate the correct text.</div>
+        
+        <div class="english-text-box hide" id="englishText"></div>
+        <div id="frenchText" class="hide"></div>
+
+        <div class="exercise-box" style="display: none;">
+            <p class="frenchText no-spaces" id="exercise-frenchText"></p>
+        </div>
+        <div class="counter-container">
+            <div class="counter" id="counter" style="display: none;">Spaces remaining: 0</div>
+            <div class="feedback" id="feedback"></div>
+            <div class="feedback" id="wrong-clicks" style="display: none;">Wrong clicks: 0</div>
+            <div class="feedback" id="correct-clicks" style="display: none;">Correct clicks: 0</div>
+        </div>
+    </div>
+
+<script>
+    // Global variables for the game state
+    let wrongClicks = [];
+    let correctClicks = 0;
+
+    // --- NEW: DATA LOADING FROM GOOGLE SHEET ---
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        document.getElementById('subtitle').textContent = "⚠️ No CSV URL provided. Please add ?sheet=YOUR_LINK to the address bar.";
+    } else {
+        document.getElementById('subtitle').textContent = "Loading data...";
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: false, // Treat the data as a grid
+            skipEmptyLines: false, // Preserve row positions
+            complete: function(results) {
+                try {
+                    // Access data by coordinates: results.data[rowIndex][columnIndex]
+                    const frenchText = results.data[1][6]; // Cell G2
+                    const englishText = results.data[4][6]; // Cell G5
+
+                    if (!frenchText || !englishText) {
+                        throw new Error("Text is missing from cell G2 or G5.");
+                    }
+
+                    // Populate the divs with the loaded text
+                    document.getElementById('englishText').textContent = englishText.trim();
+                    document.getElementById('frenchText').textContent = frenchText.trim();
+                    
+                    // --- AUTO-START GAME LOGIC ---
+                    document.getElementById('subtitle').textContent = "Click where you want to insert spaces to recreate the correct text.";
+                    document.getElementById('englishText').classList.remove('hide');
+                    
+                    // Start the game automatically
+                    startGame();
+
+                } catch (e) {
+                    document.getElementById('subtitle').textContent = "⚠️ Error reading data. Check your sheet has text in cells G2 and G5 and is published correctly.";
+                    console.error(e);
+                }
+            },
+            error: function(err) {
+                document.getElementById('subtitle').textContent = "⚠️ Error loading the CSV file.";
+                console.error(err);
+            }
+        });
+    }
+
+    // This function contains the logic to generate the exercise
+    function startGame() {
+        document.querySelector('.exercise-box').style.display = 'block';
+
+        wrongClicks = [];
+        correctClicks = 0;
+
+        const frenchText = document.getElementById('frenchText').textContent;
+        const spaceCount = (frenchText.match(/ /g) || []).length;
+
+        document.getElementById('counter').innerText = `Spaces remaining: ${spaceCount}`;
+        document.getElementById('counter').style.display = 'block';
+
+        let hiddenSpaces = 0;
+        const punctuation = ['.', ',', ';', ':', '!', '?'];
+        const html = frenchText.split('').map((char, index, arr) => {
+            if (char === ' ') {
+                const prevChar = arr[index - 1];
+                const nextChar = arr[index + 1];
+                if (punctuation.includes(prevChar) || punctuation.includes(nextChar)) {
+                    return `<span class='letter-span' data-index='${index}'>&nbsp;</span>`;
+                } else {
+                    hiddenSpaces++;
+                    return `<span class='space-span' onclick='check_space(this, ${index})'><span class='space-inner' style='display:none'>&nbsp;</span></span>`;
+                }
+            } else {
+                return `<span class='letter-span' data-index='${index}' onclick='check_space(this, ${index})'>${char}</span>`;
+            }
+        }).join('');
+
+        document.getElementById('exercise-frenchText').innerHTML = html;
+        document.getElementById('counter').innerText = `Spaces remaining: ${hiddenSpaces}`;
+        document.getElementById('feedback').innerText = '';
+        document.getElementById('wrong-clicks').innerText = 'Wrong clicks: 0';
+        document.getElementById('correct-clicks').innerText = 'Correct clicks: 0';
+        document.getElementById('wrong-clicks').style.display = 'block';
+        document.getElementById('correct-clicks').style.display = 'block';
+    }
+
+    function check_space(element, index) {
+        let isCorrectClick = false;
+
+        const checkAdjacent = (sibling) => {
+            if (sibling && sibling.classList.contains('space-span')) {
+                const spaceInner = sibling.querySelector('.space-inner');
+                if (spaceInner && spaceInner.style.display === 'none') {
+                    spaceInner.style.display = 'inline';
+                    updateCounter(-1);
+                    correctClicks++;
+                    isCorrectClick = true;
+                }
+            }
+        };
+
+        checkAdjacent(element.previousElementSibling);
+        checkAdjacent(element.nextElementSibling);
+        // Also check if the element clicked is a hidden space itself
+        if (element.classList.contains('space-span')) {
+             checkAdjacent(element);
+        }
+
+        if (isCorrectClick) {
+            updateCorrectClicks();
+        } else {
+            // Only count as a wrong click if it's not a previously revealed space
+            if (!element.classList.contains('space-span') || element.querySelector('.space-inner').style.display === 'none') {
+                wrongClicks.push(index);
+                updateWrongClicks();
+            }
+        }
+        
+        if (document.querySelectorAll('.space-inner[style="display:none"]').length === 0) {
+            document.getElementById('feedback').innerText = 'Congratulations! You found all the spaces.';
+        }
+    }
+
+    function updateCounter(change) {
+        const counter = document.getElementById('counter');
+        const currentCount = parseInt(counter.innerText.split(':')[1].trim());
+        const newCount = currentCount + change;
+        counter.innerText = `Spaces remaining: ${newCount}`;
+    }
+
+    function updateWrongClicks() {
+        const wrongClicksElement = document.getElementById('wrong-clicks');
+        wrongClicksElement.innerText = `Wrong clicks: ${wrongClicks.length}`;
+    }
+
+    function updateCorrectClicks() {
+        const correctClicksElement = document.getElementById('correct-clicks');
+        correctClicksElement.innerText = `Correct clicks: ${correctClicks}`;
+    }
+</script>
+</body>
+</html>
