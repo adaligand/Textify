@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pyramidor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #exercise-container {
+            margin: 0 auto;
+            padding: 20px;
+            border: none;
+            border-radius: 5px;
+            background-color: transparent;
+            opacity: 0.8;
+        }
+        #title {
+            font-size: 40px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .subtitle {
+            font-size: 16px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        #text-container {
+            margin-bottom: 20px;
+            text-align: justify;
+            padding: 10px;
+            font-size: 20px;
+            border: 2px solid #ccc;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        #choices-container {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        button {
+            padding: 10px 15px;
+            margin: 2px;
+            background-color: #f9f9f9;
+            color: #000000;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #A9A9A9;
+            transform: translateY(-4px);
+        }
+        .choice {
+            display: inline-block;
+            padding: 5px 10px;
+            margin-right: 10px;
+            font-size: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            cursor: pointer;
+            background-color: #fff;
+        }
+        .choice:hover {
+            background-color: #f0f0f0;
+        }
+        #dropbox-container {
+            margin-bottom: 20px;
+            font-size: 20px;
+            line-height: 1.8;
+        }
+        .dropped-chunk {
+            display: inline-block;
+            padding: 5px 10px;
+            margin-right: 10px;
+            font-size: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #dff0d8;
+        }
+        #chunk-length {
+            width: 13%;
+            padding: 5px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            height: 35px;
+            font-size: 14px;
+        }
+        .controls-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="exercise-container">
+        <div id="title">Pyramidor</div>
+        <div class="subtitle" id="subtitle">One in four: Reconstruct the text by choosing the correct chunk.</div>
+        <br>
+        <div id="text-container" style="display: none;"></div>
+        <div id="dropbox-container"></div>
+        <div id="choices-container"></div>
+
+        <div class="controls-container">
+            <label for="chunk-length">Select chunk length:</label>
+            <select id="chunk-length">
+                <option value="1">Single words</option>
+                <option value="2">Small chunks</option>
+                <option value="4">Medium chunks</option>
+                <option value="6">Big chunks</option>
+            </select>
+            <button id="reset-btn" style="display: none;">Reset</button>
+        </div>
+    </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const textContainer = document.getElementById('text-container');
+        const choicesContainer = document.getElementById('choices-container');
+        const dropboxContainer = document.getElementById('dropbox-container');
+        const resetBtn = document.getElementById('reset-btn');
+        const chunkLengthSelect = document.getElementById('chunk-length');
+        const subtitle = document.getElementById('subtitle');
+
+        let englishText = "";
+        let frenchText = "";
+        let chunks = [];
+        let correctChunks = [];
+        let droppedChunks = [];
+        let currentIndex = 0;
+        let exerciseCompleted = false;
+
+        // --- NEW: DATA LOADING FROM GOOGLE SHEET ---
+        const params = new URLSearchParams(window.location.search);
+        const sheetUrl = params.get('sheet');
+
+        if (!sheetUrl) {
+            subtitle.textContent = "⚠️ No CSV URL provided. Please add ?sheet=YOUR_LINK to the address bar.";
+        } else {
+            subtitle.textContent = "Loading data...";
+            Papa.parse(sheetUrl, {
+                download: true,
+                header: false, // Treat data as a grid
+                skipEmptyLines: false,
+                complete: function(results) {
+                    try {
+                        frenchText = results.data[1][6]; // Cell G2
+                        englishText = results.data[4][6]; // Cell G5
+                        if (!frenchText || !englishText) {
+                            throw new Error("Text is missing from cell G2 or G5.");
+                        }
+                        
+                        subtitle.textContent = "One in four: Reconstruct the text by choosing the correct chunk.";
+                        textContainer.textContent = englishText;
+                        textContainer.style.display = 'block';
+
+                        // Start the game automatically
+                        startExercise();
+                        
+                    } catch (e) {
+                        subtitle.textContent = "⚠️ Error reading data. Check sheet has text in G2 & G5.";
+                        console.error(e);
+                    }
+                },
+                error: function(err) {
+                    subtitle.textContent = "⚠️ Error loading the CSV file.";
+                    console.error(err);
+                }
+            });
+        }
+
+        function startExercise() {
+            const chunkLength = parseInt(chunkLengthSelect.value);
+            generateChunks(frenchText, chunkLength);
+            correctChunks = [...chunks];
+            droppedChunks = [];
+            currentIndex = 0;
+            exerciseCompleted = false;
+            
+            dropboxContainer.innerHTML = '';
+            choicesContainer.style.display = 'block';
+            resetBtn.style.display = 'none';
+
+            displayChoices();
+        }
+
+        function generateChunks(text, length) {
+            const words = text.split(' ');
+            chunks = [];
+            for (let i = 0; i < words.length; i += length) {
+                chunks.push(words.slice(i, i + length).join(' '));
+            }
+        }
+
+        function displayChoices() {
+            choicesContainer.innerHTML = '';
+            if (currentIndex >= correctChunks.length) return;
+
+            // Create a small pool of wrong choices to pick from
+            let wrongChoicesPool = chunks.filter(chunk => chunk !== correctChunks[currentIndex]);
+            let shuffledWrongChoices = shuffle(wrongChoicesPool).slice(0, 3);
+            
+            // Create the final choices array with 1 correct and 3 wrong answers
+            let finalChoices = shuffle([correctChunks[currentIndex], ...shuffledWrongChoices]);
+            
+            finalChoices.forEach(chunk => {
+                const choiceElement = createChoiceElement(chunk);
+                choicesContainer.appendChild(choiceElement);
+            });
+        }
+
+        function createChoiceElement(chunk) {
+            const choiceElement = document.createElement('div');
+            choiceElement.classList.add('choice');
+            choiceElement.textContent = chunk;
+            choiceElement.addEventListener('click', function() {
+                if (exerciseCompleted) return;
+
+                if (choiceElement.textContent === correctChunks[currentIndex]) {
+                    droppedChunks.push(choiceElement.textContent);
+                    displayDroppedChunks();
+                    currentIndex++;
+
+                    if (currentIndex >= correctChunks.length) {
+                        exerciseCompleted = true;
+                        alert('Congratulations! You completed the exercise.');
+                        choicesContainer.style.display = 'none';
+                        resetBtn.style.display = 'inline-block';
+                    } else {
+                        displayChoices();
+                    }
+                } else {
+                    // Flash the wrong choice red
+                    choiceElement.style.backgroundColor = '#f8d7da';
+                    setTimeout(() => {
+                        choiceElement.style.backgroundColor = '#fff';
+                    }, 500);
+                }
+            });
+            return choiceElement;
+        }
+
+        function displayDroppedChunks() {
+            dropboxContainer.innerHTML = droppedChunks.join(' ');
+        }
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        chunkLengthSelect.addEventListener('change', startExercise);
+        resetBtn.addEventListener('click', startExercise);
+    });
+</script>
+</body>
+</html>
