@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Listening Exercise</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    .container {
+      width: 100%;
+      padding: 20px;
+      box-sizing: border-box;
+      font-size: 16px;
+      font-family: Arial, sans-serif;
+    }
+    .flex-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    button {
+      padding: 10px 15px;
+      margin: 2px;
+      background-color: #f0f0f0;
+      color: #000000;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 24px;
+    }
+    button:hover {
+      background-color: #A9A9A9;
+      transform: translateY(-4px);
+    }
+    .hide {
+      display: none;
+    }
+    .keyboard-container {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .keyboard-container button {
+      font-size: 20px;
+      padding: 10px 15px;
+      margin: 2px;
+      border: none;
+      border-radius: 10px;
+      background-color: #f0f0f0;
+      color: #000000;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      transition: background-color 0.3s, transform 0.2s;
+    }
+    .keyboard-container button:hover {
+      background-color: #A9A9A9;
+      transform: translateY(-4px);
+    }
+    .on-screen-title {
+      font-size: 40px;
+      font-weight: bold;
+      text-align: center;
+    }
+    .input-container {
+      margin-top: 20px;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    #counter {
+      text-align: center;
+      font-weight: bold;
+      margin-top: 20px;
+    }
+    #timer {
+      text-align: center;
+      font-weight: bold;
+      font-size: 24px;
+      margin-top: 20px;
+    }
+    #playAudioButton {
+      margin-left: 10px;
+    }
+    #textInput {
+      margin-right: 10px;
+      border-radius: 10px;
+      height: 60px;
+      width: 500px;
+      font-size: 40px;
+    }
+    select {
+      vertical-align: middle;
+      padding: 5px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      height: 50px;
+      font-size: 24px;
+    }
+    #checkButton {
+      margin-left: 10px;
+    }
+    #nextButton {
+      margin-left: 10px;
+    }
+    #resetButton {
+      margin-left: 10px;
+    }
+    #feedback {
+      text-align: center;
+      font-weight: bold;
+      font-size: 20px;
+      margin-top: 10px;
+      width: 100%;
+    }
+    #exerciseOutput {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="on-screen-title">Type what you hear</div>
+    <br><br>
+    <div id="timer"></div>
+    <br><br>
+    <div id="exerciseOutput" class="hide"></div>
+    <br><br>
+    <div class="input-container flex-container">
+      <input type="text" id="textInput" class="hide" autocomplete="off" autocorrect="off" autocapitalize="off" onkeypress="handleKeyPress(event)">
+      <button id="checkButton" class="hide" onclick="checkAnswer()">Check</button>
+      <button id="nextButton" class="hide" onclick="nextPhrase()">Next</button>
+      <button id="resetButton" class="hide" onclick="resetExercise()">Reset Exercise</button>
+      <div id="feedback" class="hide input-feedback"></div>
+    </div>
+    <div class="input-container flex-container">
+      <select id="languageSelect" onchange="updateKeyboard()">
+        <option value="french">French</option>
+        <option value="german">German</option>
+        <option value="spanish">Spanish</option>
+      </select>
+      &nbsp;&nbsp;&nbsp;
+      <button id="playAudioButton" onclick="playAudio()">Play Audio</button>
+    </div>
+    <div class="keyboard-container"></div>
+    <div id="counter"></div>
+
+<script>
+    var currentPhraseIndex = 0;
+    var exercisePhrases = [];
+    var allPhrases = []; // To store all phrases from the sheet
+    var totalPhrases = 10;
+    
+    // --- NEW: DATA LOADING FROM GOOGLE SHEET ---
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        document.querySelector('.on-screen-title').textContent = "⚠️ No CSV URL provided.";
+    } else {
+        document.querySelector('.on-screen-title').textContent = "Loading vocabulary...";
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                results.data.forEach(row => {
+                    const frenchWord = row["French"] || "";
+                    if (frenchWord.trim()) {
+                        allPhrases.push(frenchWord.trim());
+                    }
+                });
+
+                if (allPhrases.length === 0) {
+                    document.querySelector('.on-screen-title').textContent = "⚠️ No data found. Check your column header is 'French'.";
+                    return;
+                }
+
+                // --- AUTO-START GAME LOGIC ---
+                document.querySelector('.on-screen-title').textContent = "Type what you hear";
+                initialize();
+            },
+            error: function(err) {
+                document.querySelector('.on-screen-title').textContent = "⚠️ Error loading the CSV file.";
+                console.error(err);
+            }
+        });
+    }
+
+    function initialize() {
+        generateExercisePhrases(); // Select 10 random phrases from the loaded list
+        startTimer();
+        updateCounter();
+        generateExercise();
+        generateKeyboard(document.getElementById('languageSelect').value);
+        document.getElementById('textInput').focus();
+    }
+
+    function generateKeyboard(language) {
+        var keyboardContainer = document.querySelector('.keyboard-container');
+        keyboardContainer.innerHTML = '';
+        var vowels = [];
+        switch (language) {
+          case 'french':
+            vowels = ['à', 'â', 'ä','é', 'è', 'ê', 'ë', 'î', 'ï', 'ô','ö', 'ù', 'ü', 'û', 'ç'];
+            break;
+          case 'german':
+            vowels = ['ä', 'ö', 'ü', 'ß'];
+            break;
+          case 'spanish':
+            vowels = ['á', 'é', 'í', 'ó', 'ú', 'ñ'];
+            break;
+          default:
+            vowels = ['a', 'e', 'i', 'o', 'u'];
+            break;
+        }
+        vowels.forEach(function (vowel) {
+          var button = document.createElement('button');
+          button.innerHTML = vowel;
+          button.className = 'keyboard-button';
+          button.setAttribute('onclick', 'insertLetter("' + vowel + '")');
+          keyboardContainer.appendChild(button);
+        });
+    }
+
+    function insertLetter(letter) {
+        var input = document.getElementById('textInput');
+        var start = input.selectionStart;
+        var end = input.selectionEnd;
+        input.value = input.value.substring(0, start) + letter + input.value.substring(end);
+        input.selectionStart = input.selectionEnd = start + 1;
+        input.focus();
+    }
+
+    // This function now selects 10 random phrases from the list loaded from the spreadsheet
+    function generateExercisePhrases() {
+        var shuffledPhrases = allPhrases.sort(() => Math.random() - 0.5);
+        totalPhrases = Math.min(10, allPhrases.length); // Ensure we don't try to get more phrases than available
+        exercisePhrases = shuffledPhrases.slice(0, totalPhrases);
+    }
+
+    function generateExercise() {
+        document.getElementById('textInput').value = '';
+        document.getElementById('textInput').classList.remove('hide');
+        document.getElementById('checkButton').classList.remove('hide');
+        document.getElementById('nextButton').classList.add('hide');
+        document.getElementById('feedback').classList.add('hide');
+        playAudio();
+    }
+
+    function checkAnswer() {
+        var userInput = document.getElementById('textInput').value;
+        var correctAnswer = exercisePhrases[currentPhraseIndex];
+        var feedbackEl = document.getElementById('feedback');
+        
+        if (userInput && userInput.toLowerCase() === correctAnswer.toLowerCase()) {
+            feedbackEl.textContent = 'Correct!';
+            feedbackEl.style.color = 'green';
+            document.getElementById('checkButton').classList.add('hide');
+            if (currentPhraseIndex < totalPhrases - 1) {
+                document.getElementById('nextButton').classList.remove('hide');
+            } else {
+                document.getElementById('resetButton').classList.remove('hide');
+            }
+        } else {
+            feedbackEl.textContent = 'Incorrect. The correct answer is: ' + correctAnswer;
+            feedbackEl.style.color = 'red';
+            document.getElementById('checkButton').classList.add('hide');
+             if (currentPhraseIndex < totalPhrases - 1) {
+                document.getElementById('nextButton').classList.remove('hide');
+            } else {
+                document.getElementById('resetButton').classList.remove('hide');
+            }
+        }
+        feedbackEl.classList.remove('hide');
+    }
+
+    function handleKeyPress(event) {
+        if (event.key === 'Enter') {
+            if (!document.getElementById('checkButton').classList.contains('hide')) {
+                checkAnswer();
+            } else if (!document.getElementById('nextButton').classList.contains('hide')) {
+                nextPhrase();
+            }
+        }
+    }
+
+    function nextPhrase() {
+        currentPhraseIndex++;
+        if (currentPhraseIndex < totalPhrases) {
+            generateExercise();
+            updateCounter();
+        } else {
+            // This part is reached if they click 'Next' on the last question
+            document.getElementById('exerciseOutput').textContent = "Exercise completed!";
+        }
+    }
+
+    function resetExercise() {
+        currentPhraseIndex = 0;
+        generateExercisePhrases(); // Get a new set of 10 random phrases
+        generateExercise();
+        document.getElementById('resetButton').classList.add('hide');
+        updateCounter();
+        startTimer(); // Restart timer
+    }
+
+    function updateCounter() {
+        var counterElement = document.getElementById('counter');
+        counterElement.textContent = (currentPhraseIndex + 1) + '/' + totalPhrases;
+    }
+
+    var timerInterval;
+    var startTime;
+    function startTimer() {
+        stopTimer(); // Ensure no previous timer is running
+        startTime = new Date().getTime();
+        timerInterval = setInterval(updateTimer, 1000);
+    }
+    function stopTimer() {
+        clearInterval(timerInterval);
+    }
+    function updateTimer() {
+        var currentTime = new Date().getTime();
+        var elapsedTime = currentTime - startTime;
+        var minutes = Math.floor(elapsedTime / (1000 * 60));
+        var seconds = Math.floor((elapsedTime % (1000 * 60)) / 1000);
+        document.getElementById("timer").textContent = minutes + "m " + seconds + "s";
+    }
+
+    function playAudio() {
+        if (!exercisePhrases[currentPhraseIndex]) return; // Don't play if there's no phrase
+        var speechSynthesis = window.speechSynthesis;
+        // Cancel any previous speech to prevent overlap
+        speechSynthesis.cancel();
+        
+        var utterance = new SpeechSynthesisUtterance(exercisePhrases[currentPhraseIndex]);
+        var selectedLanguage = document.getElementById('languageSelect').value;
+
+        switch (selectedLanguage) {
+            case 'french': utterance.lang = 'fr-FR'; break;
+            case 'german': utterance.lang = 'de-DE'; break;
+            case 'spanish': utterance.lang = 'es-ES'; break;
+            default: utterance.lang = 'en-US'; break;
+        }
+        utterance.rate = 0.7;
+        speechSynthesis.speak(utterance);
+    }
+    
+    function updateKeyboard() {
+        var selectedLanguage = document.getElementById('languageSelect').value;
+        generateKeyboard(selectedLanguage);
+    }
+</script>
+  </div>
+</body>
+</html>
