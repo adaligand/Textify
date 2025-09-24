@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flashcards Game</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: Arial, sans-serif;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+        .game-wrapper {
+            background-color: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .flashcard-container {
+            perspective: 1000px;
+            margin-bottom: 20px;
+        }
+        .flashcard {
+            width: 500px;
+            height: 300px;
+            background: white;
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 50px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            transform-style: preserve-3d;
+            transition: transform 0.6s;
+            position: relative;
+        }
+        .flipped {
+            transform: rotateY(180deg);
+        }
+        .flashcard .front, .flashcard .back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 10px;
+            box-sizing: border-box;
+            padding: 10px;
+        }
+        .flashcard .front {
+            border: 1px solid #ddd;
+            background-color: white;
+        }
+        .flashcard .back {
+            background-color: white;
+            border: 15px solid #6c99bb;
+            transform: rotateY(180deg);
+        }
+        .button-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        button {
+            font-size: 20px;
+            padding: 10px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 10px;
+            border: 2px solid #ccc;
+            background-color: #f0f0f0;
+            transition: all 0.2s ease-in-out;
+        }
+        button:hover {
+            background-color: #A9A9A9;
+            transform: translateY(-4px);
+        }
+        .quiz-container,
+        .text-input-container,
+        .reset-container {
+            display: none;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .quiz-options {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .quiz-options button {
+            width: 200px;
+            height: 100px;
+            font-size: 20px;
+        }
+        input {
+            font-size: 20px;
+            padding: 10px;
+            border-radius: 10px;
+        }
+        .congratulations {
+            font-size: 24px;
+            font-weight: bold;
+            color: green;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .keyboard-container {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+        .keyboard-button {
+            font-size: 18px;
+            padding: 10px 15px;
+            margin: 2px;
+            border: none;
+            border-radius: 10px;
+            background-color: #f0f0f0;
+            color: #000000;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        .keyboard-button:hover {
+            background-color: #A9A9A9;
+            transform: translateY(-4px);
+        }
+        .hidden {
+            display: none;
+        }
+        select {
+            margin-top: 10px;
+            border-radius: 10px;
+            padding: 5px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-wrapper">
+        <div class="flashcard-container">
+            <div class="flashcard" onclick="flipCard()">
+                <div class="front" id="frontText">Loading...</div>
+                <div class="back" id="backText">Loading...</div>
+            </div>
+        </div>
+        <div class="button-container">
+            <button onclick="previousStep()" id="previousButton" class="hidden">Previous</button>
+            <button onclick="nextStep()">Next</button>
+        </div>
+        <div class="quiz-container" id="quizContainer"></div>
+        <div class="text-input-container" id="textInputContainer"></div>
+        <select id="languageSelect" class="hidden" onchange="updateKeyboard()">
+            <option value="french" selected>French</option>
+            <option value="german">German</option>
+            <option value="spanish">Spanish</option>
+        </select>
+        <div class="keyboard-container" id="keyboard"></div>
+        <div class="reset-container">
+            <button onclick="resetExercise()">Restart Exercise</button>
+        </div>
+        <div class="congratulations hidden" id="congratulationsMessage"></div>
+    </div>
+
+<script>
+    let currentIndex = 0,
+        phase = 0,
+        cycleIndex = 0;
+    let englishWords = [],
+        translations = []; // This will hold French text OR image URLs
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+    const gameType = params.get('game') || 'vocab';
+    
+    if (!sheetUrl) {
+        alert('Error: No sheet URL provided in the address bar.');
+    }
+    
+    Papa.parse(sheetUrl, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+            results.data.forEach(row => {
+                // Original vocab game (e.g., English -> French)
+                if (gameType === 'vocab' && row.English && row.French) {
+                    englishWords.push(row.English.trim());
+                    translations.push(row.French.trim());
+                }
+                // ✅ CHANGE: Added 'eal' game type for images
+                if (gameType === 'eal' && row.English && row.ImageURL) {
+                    englishWords.push(row.English.trim());
+                    translations.push(row.ImageURL.trim()); // Store image URL in translations array
+                }
+                // Your other game types can remain here
+            });
+            
+            if (englishWords.length === 0) {
+                alert("No valid data found for this game type. Please check your spreadsheet columns (e.g., 'English', 'French', 'ImageURL').");
+                return;
+            }
+            nextStep();
+        },
+        error: function(err) {
+            console.error(err);
+            alert("Error loading or parsing the CSV file. Please check that the URL is correct and the sheet is published as a CSV.");
+        }
+    });
+
+    function flipCard() {
+        document.querySelector('.flashcard').classList.toggle('flipped');
+    }
+
+    // ✅ CHANGE: This function now handles displaying images or text
+    function updateCard(index) {
+        if (index >= englishWords.length) return;
+        
+        const front = document.getElementById('frontText');
+        const back = document.getElementById('backText');
+
+        // Clear previous content
+        front.innerHTML = '';
+        back.textContent = englishWords[index];
+
+        if (gameType === 'eal') {
+            // Create and display an image on the front
+            const img = document.createElement('img');
+            img.src = translations[index]; // The URL from the spreadsheet
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = 'contain';
+            img.style.borderRadius = '10px';
+            front.appendChild(img);
+        } else {
+            // Original logic for text-based games
+            front.textContent = translations[index];
+        }
+        
+        document.querySelector('.flashcard').classList.remove('flipped');
+    }
+
+    // ✅ CHANGE: This function now shows an image as the quiz prompt for EAL
+    function showQuiz(index) {
+        const quizContainer = document.getElementById('quizContainer');
+        quizContainer.innerHTML = '';
+
+        let correctAnswer, optionsPrompt, quizOptions;
+        
+        if (gameType === 'eal') {
+            correctAnswer = englishWords[index];
+            quizOptions = shuffle([correctAnswer, ...englishWords.filter((w, i) => i !== index).slice(0, 3)]);
+            optionsPrompt = `
+                <h3>Choose the word for this image:</h3>
+                <img src="${translations[index]}" style="height: 150px; margin-bottom: 15px; border-radius: 10px;">
+            `;
+        } else {
+            correctAnswer = translations[index];
+            quizOptions = shuffle([correctAnswer, ...translations.filter((w, i) => i !== index).slice(0, 3)]);
+            optionsPrompt = `<h3>Choose the translation for "${englishWords[index]}"</h3>`;
+        }
+
+        let div = document.createElement('div');
+        div.innerHTML = optionsPrompt;
+        let optionsDiv = document.createElement('div');
+        optionsDiv.className = "quiz-options";
+        
+        quizOptions.forEach(option => {
+            let btn = document.createElement('button');
+            btn.textContent = option;
+            btn.onclick = () => {
+                if (option === correctAnswer) {
+                    nextStep();
+                } else {
+                    alert("Incorrect! Let's try that pair again.");
+                    phase = (phase <= 1) ? 0 : (phase <= 3) ? 2 : 4;
+                    nextStep();
+                }
+            };
+            optionsDiv.appendChild(btn);
+        });
+        div.appendChild(optionsDiv);
+        quizContainer.appendChild(div);
+    }
+
+    // ✅ CHANGE: This function now shows an image and asks the user to type the English word
+    function showTextInput(index) {
+        const textInputContainer = document.getElementById('textInputContainer');
+        let promptHTML = '';
+
+        if (gameType === 'eal') {
+            promptHTML = `
+                <h3>Type the word for this image:</h3>
+                <img src="${translations[index]}" style="height: 150px; margin-bottom: 15px; border-radius: 10px;">
+            `;
+        } else {
+            promptHTML = `<h3>Type the translation for "${englishWords[index]}"</h3>`;
+        }
+
+        textInputContainer.innerHTML = `
+            ${promptHTML}
+            <input type="text" id="userInput" placeholder="Type here..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+            <button id="submitBtn">Submit</button>
+            <div id="feedback" style="margin-top: 10px; font-size: 18px; min-height: 24px; font-weight: bold;"></div>
+        `;
+
+        const input = document.getElementById('userInput');
+        const submitBtn = document.getElementById('submitBtn');
+        const feedbackEl = document.getElementById('feedback');
+        input.focus();
+
+        const checkAnswer = () => {
+            const userInput = input.value.trim();
+            const correctAnswer = (gameType === 'eal') ? englishWords[index] : translations[index];
+            
+            if (userInput.toLowerCase() === correctAnswer.toLowerCase()) {
+                feedbackEl.textContent = 'Correct!';
+                feedbackEl.style.color = 'green';
+                input.disabled = true;
+                submitBtn.disabled = true;
+                setTimeout(nextStep, 1000);
+            } else {
+                feedbackEl.style.color = 'darkorange';
+                let hint = (gameType === 'eal') ? correctAnswer.substring(0, 1) : translations[index].substring(0, 1);
+                feedbackEl.textContent = `Hint: Starts with "${hint}"...`;
+            }
+        };
+
+        submitBtn.onclick = checkAnswer;
+        input.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                checkAnswer();
+            }
+        });
+        
+        // Hide keyboard for EAL game since we are typing in English
+        if (gameType === 'eal') {
+            document.getElementById('keyboard').style.display = 'none';
+            document.getElementById('languageSelect').classList.add('hidden');
+        } else {
+            document.getElementById('keyboard').style.display = 'flex';
+            document.getElementById('languageSelect').classList.remove('hidden');
+            updateKeyboard();
+        }
+    }
+
+    function nextStep() {
+        const flashcardContainer = document.querySelector('.flashcard-container');
+        const quizContainer = document.getElementById('quizContainer');
+        const textInputContainer = document.getElementById('textInputContainer');
+        const buttonContainer = document.querySelector('.button-container');
+        const previousButton = document.getElementById('previousButton');
+
+        if (cycleIndex === 0 && phase === 0) {
+            previousButton.classList.add('hidden');
+        } else {
+            previousButton.classList.remove('hidden');
+        }
+
+        flashcardContainer.style.display = 'none';
+        quizContainer.style.display = 'none';
+        textInputContainer.style.display = 'none';
+        buttonContainer.style.display = 'none';
+        document.getElementById('keyboard').style.display = 'none';
+        document.getElementById('languageSelect').classList.add('hidden');
+
+        if (cycleIndex * 2 >= englishWords.length && phase > 1) {
+            showCongratulations();
+            return;
+        }
+
+        let firstIndex = cycleIndex * 2;
+        let secondIndex = firstIndex + 1;
+
+        switch (phase) {
+            case 0:
+                flashcardContainer.style.display = 'block';
+                buttonContainer.style.display = 'flex';
+                updateCard(firstIndex);
+                break;
+            case 1:
+                flashcardContainer.style.display = 'block';
+                buttonContainer.style.display = 'flex';
+                if (secondIndex < englishWords.length) {
+                    updateCard(secondIndex);
+                } else {
+                    phase = 5; // Skip to the end if there's no second card
+                    nextStep();
+                    return;
+                }
+                break;
+            case 2:
+                quizContainer.style.display = 'block';
+                showQuiz(firstIndex);
+                break;
+            case 3:
+                quizContainer.style.display = 'block';
+                if (secondIndex < englishWords.length) {
+                    showQuiz(secondIndex);
+                } else {
+                    phase = 5; // Skip
+                    nextStep();
+                    return;
+                }
+                break;
+            case 4:
+                textInputContainer.style.display = 'block';
+                showTextInput(firstIndex);
+                break;
+            case 5:
+                textInputContainer.style.display = 'block';
+                if (secondIndex < englishWords.length) {
+                    showTextInput(secondIndex);
+                } else {
+                    showCongratulations();
+                    return;
+                }
+                break;
+            default:
+                cycleIndex++;
+                phase = 0;
+                nextStep();
+                return;
+        }
+        phase++;
+    }
+
+    function previousStep() {
+        phase -= 2;
+        if (phase < 0) {
+            if (cycleIndex > 0) {
+                cycleIndex--;
+                phase = 5; 
+                // Adjust phase if the previous pair had only one item
+                if (cycleIndex * 2 + 1 >= englishWords.length) {
+                    phase = 4;
+                }
+            } else {
+                phase = 0;
+            }
+        }
+        nextStep();
+    }
+
+    function shuffle(array) {
+        return array.sort(() => Math.random() - 0.5);
+    }
+
+    function updateKeyboard() {
+        const keyboardContainer = document.getElementById('keyboard');
+        keyboardContainer.innerHTML = '';
+        const lang = document.getElementById('languageSelect').value;
+        let chars = [];
+        switch (lang) {
+            case 'german':
+                chars = ['ä', 'ö', 'ü', 'ß'];
+                break;
+            case 'french':
+                chars = ['à', 'â', 'ä', 'é', 'è', 'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'ù', 'ü', 'û', 'ç'];
+                break;
+            case 'spanish':
+                chars = ['á', 'é', 'í', 'ó', 'ú', 'ñ', 'ü'];
+                break;
+        }
+        chars.forEach(c => {
+            let btn = document.createElement('button');
+            btn.textContent = c;
+            btn.classList.add('keyboard-button');
+            btn.onclick = () => {
+                let input = document.querySelector('#userInput');
+                if (input) {
+                    input.value += c;
+                    input.focus();
+                }
+            };
+            keyboardContainer.appendChild(btn);
+        });
+    }
+
+    function showCongratulations() {
+        document.querySelector('.flashcard-container').style.display = 'none';
+        document.querySelector('.quiz-container').style.display = 'none';
+        document.querySelector('.text-input-container').style.display = 'none';
+        document.querySelector('.button-container').style.display = 'none';
+        document.getElementById('keyboard').style.display = 'none';
+        document.getElementById('languageSelect').classList.add('hidden');
+        let msg = document.getElementById('congratulationsMessage');
+        msg.classList.remove('hidden');
+        msg.textContent = "Congratulations! You've completed all the exercises!";
+        document.querySelector('.reset-container').style.display = 'block';
+    }
+
+    function resetExercise() {
+        cycleIndex = 0;
+        phase = 0;
+        document.getElementById('congratulationsMessage').classList.add('hidden');
+        document.querySelector('.reset-container').style.display = 'none';
+        nextStep();
+    }
+</script>
+</body>
+</html>
