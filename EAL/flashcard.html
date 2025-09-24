@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flashcards Game</title>
+    <title>EAL Flashcards Game</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         body {
@@ -119,35 +119,8 @@
             margin-top: 20px;
             text-align: center;
         }
-        .keyboard-container {
-            display: flex;
-            justify-content: center;
-            flex-wrap: wrap;
-            margin-top: 20px;
-        }
-        .keyboard-button {
-            font-size: 18px;
-            padding: 10px 15px;
-            margin: 2px;
-            border: none;
-            border-radius: 10px;
-            background-color: #f0f0f0;
-            color: #000000;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-            transition: background-color 0.3s, transform 0.2s;
-        }
-        .keyboard-button:hover {
-            background-color: #A9A9A9;
-            transform: translateY(-4px);
-        }
         .hidden {
             display: none;
-        }
-        select {
-            margin-top: 10px;
-            border-radius: 10px;
-            padding: 5px;
-            font-size: 16px;
         }
     </style>
 </head>
@@ -165,12 +138,6 @@
         </div>
         <div class="quiz-container" id="quizContainer"></div>
         <div class="text-input-container" id="textInputContainer"></div>
-        <select id="languageSelect" class="hidden" onchange="updateKeyboard()">
-            <option value="french" selected>French</option>
-            <option value="german">German</option>
-            <option value="spanish">Spanish</option>
-        </select>
-        <div class="keyboard-container" id="keyboard"></div>
         <div class="reset-container">
             <button onclick="resetExercise()">Restart Exercise</button>
         </div>
@@ -182,10 +149,10 @@
         phase = 0,
         cycleIndex = 0;
     let englishWords = [],
-        translations = []; // This will hold French text OR image URLs
+        translations = []; // This will hold the image URLs
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
-    const gameType = params.get('game') || 'vocab';
+    const gameType = params.get('game') || 'eal'; // Default to 'eal'
     
     if (!sheetUrl) {
         alert('Error: No sheet URL provided in the address bar.');
@@ -193,25 +160,23 @@
     
     Papa.parse(sheetUrl, {
         download: true,
-        header: true,
+        header: false,
         skipEmptyLines: true,
         complete: function(results) {
-            results.data.forEach(row => {
-                // Original vocab game (e.g., English -> French)
-                if (gameType === 'vocab' && row.English && row.French) {
-                    englishWords.push(row.English.trim());
-                    translations.push(row.French.trim());
+            results.data.forEach((row, index) => {
+                // Skip the header row (the very first row)
+                if (index === 0) {
+                    return;
                 }
-                // ✅ CHANGE: Added 'eal' game type for images
-                if (gameType === 'eal' && row.English && row.ImageURL) {
-                    englishWords.push(row.English.trim());
-                    translations.push(row.ImageURL.trim()); // Store image URL in translations array
+                // For EAL game, read from Column B (index 1) and Column C (index 2)
+                if (gameType === 'eal' && row[1] && row[2]) {
+                    englishWords.push(row[1].trim()); // Column B: English word
+                    translations.push(row[2].trim()); // Column C: Image URL
                 }
-                // Your other game types can remain here
             });
             
             if (englishWords.length === 0) {
-                alert("No valid data found for this game type. Please check your spreadsheet columns (e.g., 'English', 'French', 'ImageURL').");
+                alert("No valid data found. Please check your spreadsheet has an English word in Column B and an Image URL in Column C.");
                 return;
             }
             nextStep();
@@ -226,53 +191,36 @@
         document.querySelector('.flashcard').classList.toggle('flipped');
     }
 
-    // ✅ CHANGE: This function now handles displaying images or text
     function updateCard(index) {
         if (index >= englishWords.length) return;
         
         const front = document.getElementById('frontText');
         const back = document.getElementById('backText');
 
-        // Clear previous content
         front.innerHTML = '';
         back.textContent = englishWords[index];
 
-        if (gameType === 'eal') {
-            // Create and display an image on the front
-            const img = document.createElement('img');
-            img.src = translations[index]; // The URL from the spreadsheet
-            img.style.width = '100%';
-            img.style.height = '100%';
-            img.style.objectFit = 'contain';
-            img.style.borderRadius = '10px';
-            front.appendChild(img);
-        } else {
-            // Original logic for text-based games
-            front.textContent = translations[index];
-        }
+        const img = document.createElement('img');
+        img.src = translations[index]; // The URL from the spreadsheet
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'contain';
+        img.style.borderRadius = '10px';
+        front.appendChild(img);
         
         document.querySelector('.flashcard').classList.remove('flipped');
     }
 
-    // ✅ CHANGE: This function now shows an image as the quiz prompt for EAL
     function showQuiz(index) {
         const quizContainer = document.getElementById('quizContainer');
         quizContainer.innerHTML = '';
 
-        let correctAnswer, optionsPrompt, quizOptions;
-        
-        if (gameType === 'eal') {
-            correctAnswer = englishWords[index];
-            quizOptions = shuffle([correctAnswer, ...englishWords.filter((w, i) => i !== index).slice(0, 3)]);
-            optionsPrompt = `
-                <h3>Choose the word for this image:</h3>
-                <img src="${translations[index]}" style="height: 150px; margin-bottom: 15px; border-radius: 10px;">
-            `;
-        } else {
-            correctAnswer = translations[index];
-            quizOptions = shuffle([correctAnswer, ...translations.filter((w, i) => i !== index).slice(0, 3)]);
-            optionsPrompt = `<h3>Choose the translation for "${englishWords[index]}"</h3>`;
-        }
+        const correctAnswer = englishWords[index];
+        const quizOptions = shuffle([correctAnswer, ...englishWords.filter((w, i) => i !== index).slice(0, 3)]);
+        const optionsPrompt = `
+            <h3>Choose the word for this image:</h3>
+            <img src="${translations[index]}" style="height: 150px; margin-bottom: 15px; border-radius: 10px;">
+        `;
 
         let div = document.createElement('div');
         div.innerHTML = optionsPrompt;
@@ -297,19 +245,12 @@
         quizContainer.appendChild(div);
     }
 
-    // ✅ CHANGE: This function now shows an image and asks the user to type the English word
     function showTextInput(index) {
         const textInputContainer = document.getElementById('textInputContainer');
-        let promptHTML = '';
-
-        if (gameType === 'eal') {
-            promptHTML = `
-                <h3>Type the word for this image:</h3>
-                <img src="${translations[index]}" style="height: 150px; margin-bottom: 15px; border-radius: 10px;">
-            `;
-        } else {
-            promptHTML = `<h3>Type the translation for "${englishWords[index]}"</h3>`;
-        }
+        const promptHTML = `
+            <h3>Type the word for this image:</h3>
+            <img src="${translations[index]}" style="height: 150px; margin-bottom: 15px; border-radius: 10px;">
+        `;
 
         textInputContainer.innerHTML = `
             ${promptHTML}
@@ -325,7 +266,7 @@
 
         const checkAnswer = () => {
             const userInput = input.value.trim();
-            const correctAnswer = (gameType === 'eal') ? englishWords[index] : translations[index];
+            const correctAnswer = englishWords[index];
             
             if (userInput.toLowerCase() === correctAnswer.toLowerCase()) {
                 feedbackEl.textContent = 'Correct!';
@@ -335,7 +276,7 @@
                 setTimeout(nextStep, 1000);
             } else {
                 feedbackEl.style.color = 'darkorange';
-                let hint = (gameType === 'eal') ? correctAnswer.substring(0, 1) : translations[index].substring(0, 1);
+                const hint = correctAnswer.substring(0, 1);
                 feedbackEl.textContent = `Hint: Starts with "${hint}"...`;
             }
         };
@@ -347,16 +288,6 @@
                 checkAnswer();
             }
         });
-        
-        // Hide keyboard for EAL game since we are typing in English
-        if (gameType === 'eal') {
-            document.getElementById('keyboard').style.display = 'none';
-            document.getElementById('languageSelect').classList.add('hidden');
-        } else {
-            document.getElementById('keyboard').style.display = 'flex';
-            document.getElementById('languageSelect').classList.remove('hidden');
-            updateKeyboard();
-        }
     }
 
     function nextStep() {
@@ -376,9 +307,7 @@
         quizContainer.style.display = 'none';
         textInputContainer.style.display = 'none';
         buttonContainer.style.display = 'none';
-        document.getElementById('keyboard').style.display = 'none';
-        document.getElementById('languageSelect').classList.add('hidden');
-
+        
         if (cycleIndex * 2 >= englishWords.length && phase > 1) {
             showCongratulations();
             return;
@@ -446,7 +375,6 @@
             if (cycleIndex > 0) {
                 cycleIndex--;
                 phase = 5; 
-                // Adjust phase if the previous pair had only one item
                 if (cycleIndex * 2 + 1 >= englishWords.length) {
                     phase = 4;
                 }
@@ -461,44 +389,11 @@
         return array.sort(() => Math.random() - 0.5);
     }
 
-    function updateKeyboard() {
-        const keyboardContainer = document.getElementById('keyboard');
-        keyboardContainer.innerHTML = '';
-        const lang = document.getElementById('languageSelect').value;
-        let chars = [];
-        switch (lang) {
-            case 'german':
-                chars = ['ä', 'ö', 'ü', 'ß'];
-                break;
-            case 'french':
-                chars = ['à', 'â', 'ä', 'é', 'è', 'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'ù', 'ü', 'û', 'ç'];
-                break;
-            case 'spanish':
-                chars = ['á', 'é', 'í', 'ó', 'ú', 'ñ', 'ü'];
-                break;
-        }
-        chars.forEach(c => {
-            let btn = document.createElement('button');
-            btn.textContent = c;
-            btn.classList.add('keyboard-button');
-            btn.onclick = () => {
-                let input = document.querySelector('#userInput');
-                if (input) {
-                    input.value += c;
-                    input.focus();
-                }
-            };
-            keyboardContainer.appendChild(btn);
-        });
-    }
-
     function showCongratulations() {
         document.querySelector('.flashcard-container').style.display = 'none';
         document.querySelector('.quiz-container').style.display = 'none';
         document.querySelector('.text-input-container').style.display = 'none';
         document.querySelector('.button-container').style.display = 'none';
-        document.getElementById('keyboard').style.display = 'none';
-        document.getElementById('languageSelect').classList.add('hidden');
         let msg = document.getElementById('congratulationsMessage');
         msg.classList.remove('hidden');
         msg.textContent = "Congratulations! You've completed all the exercises!";
