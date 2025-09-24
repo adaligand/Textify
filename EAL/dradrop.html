@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drag and Drop</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+    /* ✅ Updated body styles for background and centering */
+    body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+        box-sizing: border-box;
+    }
+    
+    /* ✅ New wrapper for the white box effect */
+    .game-wrapper {
+        background-color: white;
+        padding: 20px 40px;
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        text-align: center;
+        width: 100%;
+        max-width: 900px; /* Adjusted for sentence length */
+    }
+
+    .container { width: 100%; padding: 20px; box-sizing: border-box; font-size: 20px; }
+    .title { font-size: 40px; font-weight: bold; text-align: center; margin-bottom: 20px; }
+    .subtitle { font-size: 20px; margin-bottom: 10px; text-align: center; }
+    .counter { font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 10px; }
+    .draggable-word { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; margin-right: 5px; font-size: 20px; margin-bottom: 5px; border: 1px solid black; padding: 2px 10px; border-radius: 5px; background-color: #f0f0f0; height: 30px; line-height: 1.5; vertical-align: middle; overflow: hidden; }
+    .dropzone-container { margin-top: 20px; margin-bottom: 20px; text-align: center; }
+    .dropzone { border: 1px dashed #007bff; min-width: 50px; min-height: 30px; font-size: 20px; height: auto; border-radius: 10px; display: inline-block; padding: 5px 10px; vertical-align: middle; line-height: 1.5; margin-right: 5px; cursor: pointer; }
+    .feedback-container { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; }
+    .feedback { font-weight: bold; font-size: 18px; text-align: center; }
+    button { padding: 10px 20px; background-color: #f9f9f9; border: 2px solid #ccc; color: #000; border-radius: 10px; cursor: pointer; }
+    button:hover { background-color: #A9A9A9; transform: translateY(-4px); }
+    .hide { display: none; }
+</style>
+</head>
+<body>
+<div class="game-wrapper">
+    <div class="container">
+      <div class="title">Drag and Drop</div>
+      <div class="subtitle">Drag and drop the missing words to complete the sentence</div>
+      <div class="counter" id="sentenceCounter"></div>
+
+      <div id="exerciseOutput"></div>
+
+      <div class="feedback-container">
+        <div id="feedback" class="feedback hide"></div>
+        <button id="nextButton" class="hide" onclick="nextText()">Next</button>
+      </div>
+
+      <div class="input-container">
+        <button id="resetButton" class="hide" onclick="resetActivity()">Restart</button>
+      </div>
+    </div>
+</div>
+
+<script>
+// ✅ This array will be filled with sentences from the spreadsheet
+let allSentences = [];
+let randomizedSentences = [];
+let currentTextIndex = 0;
+let originalChunks = [];
+let removedChunks = [];
+let removedIndices = [];
+let filledDropzonesCount = 0;
+
+const params = new URLSearchParams(window.location.search);
+const sheetUrl = params.get('sheet');
+
+if (!sheetUrl) {
+    document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
+} else {
+    // ✅ Load and parse data from the Google Sheet
+    Papa.parse(sheetUrl, {
+        download: true,
+        header: false, // Read by column index
+        skipEmptyLines: true,
+        complete: function(results) {
+            results.data.forEach((row, index) => {
+                // Skip header row
+                if (index === 0) return;
+                // Read sentences from Column B
+                if (row[1] && row[1].trim()) {
+                    allSentences.push(row[1].trim());
+                }
+            });
+
+            if (allSentences.length === 0) {
+                document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ No sentences found in Column B.</h1>";
+                return;
+            }
+
+            // ✅ Start the game after data is loaded
+            startGame();
+        },
+        error: function(err) {
+            console.error(err);
+            document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ Error loading CSV file.</h1>";
+        }
+    });
+}
+
+// ✅ Updated to use the dynamically loaded 'allSentences' array
+function startGame() {
+  randomizedSentences = shuffleArray([...allSentences]);
+  currentTextIndex = 0;
+  generateChunk();
+}
+
+function generateChunk() {
+  if (currentTextIndex >= randomizedSentences.length) {
+    // Restart with a new shuffle if all sentences have been used
+    randomizedSentences = shuffleArray([...allSentences]);
+    currentTextIndex = 0;
+  }
+
+  const sentence = randomizedSentences[currentTextIndex];
+  originalChunks = sentence.split(' ').filter(Boolean);
+
+  let numToRemove = Math.ceil(originalChunks.length / 2);
+  removedIndices = getRandomIndices(originalChunks.length, numToRemove);
+  removedChunks = removedIndices.map(i => originalChunks[i]);
+
+  const sentenceDiv = document.createElement('div');
+  sentenceDiv.style.textAlign = 'center';
+  originalChunks.forEach((word, i) => {
+    if (removedIndices.includes(i)) {
+      sentenceDiv.innerHTML += `<div class="dropzone" data-index="${i}" ondrop="drop(event)" ondragover="allowDrop(event)"></div> `;
+    } else {
+      sentenceDiv.innerHTML += word + ' ';
+    }
+  });
+
+  const exerciseOutput = document.getElementById('exerciseOutput');
+  exerciseOutput.innerHTML = '';
+  exerciseOutput.appendChild(sentenceDiv);
+
+  const chunkContainer = document.createElement('div');
+  chunkContainer.classList.add('chunk-container');
+  chunkContainer.style.marginTop = '20px';
+  chunkContainer.style.textAlign = 'center';
+  removedChunks.forEach((word, idx) => {
+    const chunkElement = document.createElement('div');
+    chunkElement.textContent = word;
+    chunkElement.classList.add('draggable-word');
+    chunkElement.setAttribute('draggable', 'true');
+    chunkElement.setAttribute('ondragstart', 'drag(event)');
+    chunkElement.setAttribute('data-original-index', removedIndices[idx]);
+    chunkContainer.appendChild(chunkElement);
+  });
+  exerciseOutput.appendChild(chunkContainer);
+
+  document.getElementById('feedback').classList.add('hide');
+  document.getElementById('nextButton').classList.add('hide');
+  filledDropzonesCount = 0;
+
+  document.getElementById('sentenceCounter').textContent = (currentTextIndex + 1) + '/' + randomizedSentences.length;
+}
+
+function nextText() {
+  currentTextIndex++;
+  generateChunk();
+}
+
+// ✅ Updated to use the 'allSentences' array
+function resetActivity() {
+  randomizedSentences = shuffleArray([...allSentences]);
+  currentTextIndex = 0;
+  generateChunk();
+  document.getElementById('nextButton').classList.add('hide');
+  document.getElementById('resetButton').classList.add('hide'); // This button is not used, but kept for consistency
+}
+
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
+function getRandomIndices(length, count) {
+  let indices = [];
+  while (indices.length < count) {
+    const i = Math.floor(Math.random() * length);
+    if (!indices.includes(i)) indices.push(i);
+  }
+  return indices;
+}
+
+function drag(event) {
+  event.dataTransfer.setData("text", event.target.textContent);
+  event.dataTransfer.setData("original-index", event.target.getAttribute('data-original-index'));
+}
+
+function allowDrop(event) { event.preventDefault(); }
+
+function drop(event) {
+  event.preventDefault();
+  const data = event.dataTransfer.getData("text");
+  const idx = event.dataTransfer.getData("original-index");
+  const target = event.target;
+
+  if (target.classList.contains('dropzone') && !target.textContent) {
+    target.textContent = data;
+    target.setAttribute('data-original-index', idx);
+    target.classList.add('correct-chunk');
+    filledDropzonesCount++;
+    removeDraggableWord(idx);
+    checkAnswers();
+  }
+}
+
+function removeDraggableWord(idx) {
+  const container = document.querySelector('.chunk-container');
+  container.querySelectorAll('.draggable-word').forEach(word => {
+    if (word.getAttribute('data-original-index') === idx) word.remove();
+  });
+}
+
+function addDraggableWord(word, idx) {
+  const container = document.querySelector('.chunk-container');
+  const chunkElement = document.createElement('div');
+  chunkElement.textContent = word;
+  chunkElement.classList.add('draggable-word');
+  chunkElement.setAttribute('draggable', 'true');
+  chunkElement.setAttribute('ondragstart', 'drag(event)');
+  chunkElement.setAttribute('data-original-index', idx);
+  container.appendChild(chunkElement);
+}
+
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('dropzone') && e.target.textContent) {
+    const word = e.target.textContent;
+    const idx = e.target.getAttribute('data-original-index');
+    e.target.textContent = '';
+    e.target.classList.remove('correct-chunk');
+    filledDropzonesCount--;
+    addDraggableWord(word, idx);
+    // Hide feedback when a word is returned
+    document.getElementById('feedback').classList.add('hide');
+    document.getElementById('nextButton').classList.add('hide');
+  }
+});
+
+function checkAnswers() {
+  const dropzones = document.querySelectorAll('.dropzone');
+  if (filledDropzonesCount === dropzones.length) {
+    let correct = 0;
+    dropzones.forEach(dz => {
+      const idx = dz.getAttribute('data-index');
+      if (dz.textContent === originalChunks[idx]) correct++;
+    });
+    const feedback = document.getElementById('feedback');
+    if (correct === dropzones.length) {
+      feedback.textContent = "All answers are correct!";
+      feedback.classList.remove('hide');
+      document.getElementById('nextButton').classList.remove('hide');
+    } else {
+      feedback.textContent = `There are ${dropzones.length - correct} incorrect answers. Click a word to try again.`;
+      feedback.classList.remove('hide');
+    }
+  }
+}
+</script>
+</body>
+</html>
