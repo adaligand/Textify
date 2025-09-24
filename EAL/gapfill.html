@@ -6,7 +6,6 @@
   <title>Gapfill</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
-    /* ✅ Updated body styles for background and centering */
     body {
         font-family: Arial, sans-serif;
         background-color: #f4f4f9;
@@ -18,7 +17,6 @@
         padding: 20px;
         box-sizing: border-box;
     }
-    /* ✅ New wrapper for the white box effect */
     .game-wrapper {
         background-color: white;
         padding: 20px 40px;
@@ -119,8 +117,8 @@
 
   <script>
     let currentTextIndex = 0;
-    let allSentences = []; // ✅ Holds all sentences from the sheet
-    let exerciseSentences = []; // ✅ Holds the 10 sentences for the current game
+    let allSentences = [];
+    let exerciseSentences = [];
     let originalChunks = [];
 
     const params = new URLSearchParams(window.location.search);
@@ -129,16 +127,13 @@
     if (!sheetUrl) {
         document.querySelector('.container').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
     } else {
-        // ✅ Load and parse data from the Google Sheet
         Papa.parse(sheetUrl, {
             download: true,
-            header: false, // Read by column index
+            header: false,
             skipEmptyLines: true,
             complete: function(results) {
                 results.data.forEach((row, index) => {
-                    // Skip the header row
                     if (index === 0) return;
-                    // Read sentences from Column F (index 5)
                     if (row[5] && row[5].trim()) {
                         allSentences.push({ english: row[5].trim() });
                     }
@@ -149,7 +144,6 @@
                     return;
                 }
                 
-                // ✅ Start the game after data has loaded
                 initializeChunk();
             },
             error: function(err) {
@@ -160,7 +154,6 @@
     }
 
     function initializeChunk() {
-      // ✅ Shuffle and select 10 random sentences for the exercise
       exerciseSentences = shuffleArray([...allSentences]).slice(0, 10);
       currentTextIndex = 0;
       generateChunk();
@@ -175,60 +168,59 @@
     }
 
     function generateChunk() {
-      if (currentTextIndex >= exerciseSentences.length) {
-          document.getElementById('exerciseOutput').innerHTML = '<h2>🎉 Well done!</h2>';
-          document.getElementById('nextButton').classList.add('hide');
-          document.getElementById('resetButton').classList.remove('hide');
-          return;
-      }
-
-      var englishSentence = exerciseSentences[currentTextIndex].english;
-      originalChunks = getWordChunks(englishSentence);
-
-      var removedChunksCount = Math.max(1, Math.floor(originalChunks.length * 0.3));
-      var removedChunksIndices = getRandomIndices(originalChunks.length, removedChunksCount);
-
-      var sentenceWithInputFields = '';
-      var hasGap = false;
-      for (var i = 0; i < originalChunks.length; i++) {
-        if (removedChunksIndices.includes(i) && originalChunks[i].trim().match(/\w+/)) {
-          sentenceWithInputFields += `<input type="text" class="missing-word" data-index="${i}" onchange="checkAnswers()" oninput="expandInput(this)" style="width: 40px;"> `;
-          hasGap = true;
-        } else {
-          sentenceWithInputFields += originalChunks[i];
+        if (currentTextIndex >= exerciseSentences.length) {
+            document.getElementById('exerciseOutput').innerHTML = '<h2>🎉 Well done!</h2>';
+            document.getElementById('nextButton').classList.add('hide');
+            document.getElementById('resetButton').classList.remove('hide');
+            return;
         }
-      }
 
-      if (!hasGap && originalChunks.length > 1) {
-        sentenceWithInputFields = '';
-        var fallbackIndex = Math.floor(Math.random() * originalChunks.length);
+        var englishSentence = exerciseSentences[currentTextIndex].english;
+        originalChunks = getWordChunks(englishSentence);
+
+        // ✅ FIX START: This new logic reliably creates gaps.
+        // 1. Find the indices of actual words (not spaces).
+        const wordIndices = [];
+        originalChunks.forEach((chunk, index) => {
+            if (chunk.trim().length > 0) {
+                wordIndices.push(index);
+            }
+        });
+
+        // 2. Decide how many words to remove from the available words.
+        const numWordsToRemove = Math.max(1, Math.floor(wordIndices.length * 0.3));
+
+        // 3. Shuffle the word indices and pick which ones to turn into gaps.
+        const removedChunksIndices = shuffleArray([...wordIndices]).slice(0, numWordsToRemove);
+        // ✅ FIX END
+
+        var sentenceWithInputFields = '';
         for (var i = 0; i < originalChunks.length; i++) {
-          if (i === fallbackIndex && originalChunks[i].trim().match(/\w+/)) {
-            sentenceWithInputFields += `<input type="text" class="missing-word" data-index="${i}" onchange="checkAnswers()" oninput="expandInput(this)" style="width: 40px;"> `;
-          } else {
-            sentenceWithInputFields += originalChunks[i];
-          }
+            if (removedChunksIndices.includes(i)) {
+                sentenceWithInputFields += `<input type="text" class="missing-word" data-index="${i}" onchange="checkAnswers()" oninput="expandInput(this)" style="width: 40px;">`;
+            } else {
+                sentenceWithInputFields += originalChunks[i];
+            }
         }
-      }
 
-      var exerciseOutput = document.getElementById('exerciseOutput');
-      exerciseOutput.innerHTML = '';
-      var sentenceDiv = document.createElement('div');
-      sentenceDiv.classList.add('english-sentence');
-      sentenceDiv.innerHTML = sentenceWithInputFields;
-      exerciseOutput.appendChild(sentenceDiv);
-      exerciseOutput.classList.remove('hide');
+        var exerciseOutput = document.getElementById('exerciseOutput');
+        exerciseOutput.innerHTML = '';
+        var sentenceDiv = document.createElement('div');
+        sentenceDiv.classList.add('english-sentence');
+        sentenceDiv.innerHTML = sentenceWithInputFields;
+        exerciseOutput.appendChild(sentenceDiv);
+        exerciseOutput.classList.remove('hide');
 
-      document.getElementById('feedback').classList.add('hide');
-      document.getElementById('nextButton').classList.add('hide');
-      document.getElementById('resetButton').classList.add('hide');
+        document.getElementById('feedback').classList.add('hide');
+        document.getElementById('nextButton').classList.add('hide');
+        document.getElementById('resetButton').classList.add('hide');
 
-      document.getElementById('sentenceCounter').textContent = (currentTextIndex + 1) + '/' + exerciseSentences.length;
+        document.getElementById('sentenceCounter').textContent = (currentTextIndex + 1) + '/' + exerciseSentences.length;
     }
 
     function expandInput(input) {
       var minWidth = 40;
-      var expansionFactor = 12; // Adjusted for better fit
+      var expansionFactor = 12;
       var newWidth = Math.max(minWidth, (input.value.length) * expansionFactor + 10);
       input.style.width = newWidth + 'px';
     }
@@ -243,7 +235,6 @@
     }
 
     function getWordChunks(text) {
-      // Splits by spaces while keeping them, to preserve sentence structure
       return text.split(/(\s+)/);
     }
 
@@ -267,7 +258,6 @@
         var userInput = inputFields[i].value.trim();
         var correctWord = originalChunks[inputIndex];
         
-        // Auto-expand input on check
         expandInput(inputFields[i]);
 
         if (userInput.toLowerCase() === correctWord.toLowerCase()) {
