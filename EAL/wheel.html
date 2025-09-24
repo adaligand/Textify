@@ -28,7 +28,18 @@
         max-width: 1200px;
     }
     h1,h2 { text-align:center; margin:0; }
-    #hiddenSentence { font-size:28px; margin:20px 0; letter-spacing:5px; width:100%; text-align:center; }
+    /* ✅ CSS FIX: Using word-spacing for better wrapping control */
+    #hiddenSentence { 
+        font-size:28px; 
+        margin:20px 0; 
+        width:100%; 
+        text-align:center;
+        word-spacing: 15px; /* Controls space between words */
+        line-height: 1.6;  /* Adds space if sentence wraps to a new line */
+    }
+    .word-group {
+        display: inline-block; /* Ensures the whole word wraps together */
+    }
     .game-container { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:20px; max-width:100%; }
     .scores { display:flex; flex-direction:column; gap:20px; flex:1 1 100px; min-width:100px; }
     .player-score { padding:15px 20px; border-radius:15px; background-color:#f0f0f0; font-size:20px; min-width:140px; text-align:center; transition:all 0.3s ease; }
@@ -36,7 +47,15 @@
     #letters { display:flex; flex-wrap:wrap; justify-content:center; flex:1 1 300px; opacity:0; transform:translateY(50px); transition:opacity 0.5s, transform 0.5s; }
     #letters.show { opacity:1; transform:translateY(0); }
     .letter-button { margin:2px; padding:10px; font-size:18px; width:40px; border-radius:10px}
-    .letter-box { display:inline-block; width:45px; height:50px; margin:4px; border-radius:10px; background-color:#e0e0e0; text-align:center; line-height:50px; font-weight:bold; font-size:24px; vertical-align:middle; }
+    /* ✅ CSS FIX: Letter spacing now controlled by margin */
+    .letter-box { 
+        display:inline-block; 
+        width:45px; height:50px; 
+        margin: 0 2px; /* Controls space between letters */
+        border-radius:10px; background-color:#e0e0e0; 
+        text-align:center; line-height:50px; 
+        font-weight:bold; font-size:24px; vertical-align:middle; 
+    }
     #wheelContainer { position:relative; width:400px; height:400px; flex:1 1 400px; max-width:100%; }
     #pointer {
       position: absolute;
@@ -80,9 +99,7 @@
 </div>
 
 <script>
-// ✅ This array will hold all sentences loaded from the sheet
 let allSentences = [];
-
 let currentSentence="", hidden=[], currentPlayer=1, wheelValue=0, scores={1:0,2:0}, spinning=false, canSpin=true;
 
 const wheelCanvas=document.getElementById("wheelCanvas"), ctx=wheelCanvas.getContext("2d");
@@ -101,16 +118,13 @@ const sheetUrl = params.get('sheet');
 if (!sheetUrl) {
     document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
 } else {
-    // ✅ Load and parse data from the Google Sheet
     Papa.parse(sheetUrl, {
         download: true,
-        header: false, // Read by column index
+        header: false,
         skipEmptyLines: true,
         complete: function(results) {
             results.data.forEach((row, index) => {
-                // Skip the header row
                 if (index === 0) return;
-                // Read sentences from Column F (index 5)
                 if (row[5] && row[5].trim()) {
                     allSentences.push(row[5].trim());
                 }
@@ -121,7 +135,6 @@ if (!sheetUrl) {
                 return;
             }
             
-            // ✅ Start the game after data has loaded
             initGame();
         },
         error: function(err) {
@@ -145,7 +158,6 @@ function drawWheel(){
   for(let i=0;i<values.length;i++){
     const start=i*sectionAngle+rotation;
     const end=start+sectionAngle;
-
     ctx.beginPath();
     ctx.moveTo(center,center);
     ctx.arc(center,center,radius,start,end);
@@ -154,7 +166,6 @@ function drawWheel(){
     ctx.fill();
     ctx.strokeStyle="#333";
     ctx.stroke();
-
     const angle=start+sectionAngle/2;
     const textRadius=radius*0.75;
     const x=center+textRadius*Math.cos(angle);
@@ -180,11 +191,10 @@ function initGame(){
   newGameBtn.style.display = "none";
   updateScores();
   updateActiveScore();
-  // ✅ Select a random sentence from the loaded data
   currentSentence=allSentences[Math.floor(Math.random()*allSentences.length)];
   hidden=currentSentence.split("").map(c => {
-    if(/[a-zA-ZÀ-ÿ]/.test(c)) return "_"; // letters hidden
-    else return c; // punctuation visible
+    if(/[a-zA-ZÀ-ÿ]/.test(c)) return "_";
+    else return c;
   });
   updateHiddenDisplay();
   createLetterButtons();
@@ -192,14 +202,36 @@ function initGame(){
   canSpin=true;
 }
 
+// ✅ JAVASCRIPT FIX: This function now groups letters into non-breaking words.
 function updateHiddenDisplay() {
-  hiddenDisplay.innerHTML = hidden.map((c,i)=>{
-    if(c===" "){
-      return `<span class="letter-box" style="background:none;margin-right:20px;"></span>`;
-    } else {
-      return `<span class="letter-box">${c}</span>`;
+    hiddenDisplay.innerHTML = ''; // Clear the container first
+    
+    let wordGroup = document.createElement('span');
+    wordGroup.className = 'word-group';
+    
+    hidden.forEach(char => {
+        if (char === ' ') {
+            // When a space is found, finish the current word and append it
+            if (wordGroup.hasChildNodes()) {
+                hiddenDisplay.appendChild(wordGroup);
+            }
+            // Add the space and start a new word group
+            hiddenDisplay.append(' ');
+            wordGroup = document.createElement('span');
+            wordGroup.className = 'word-group';
+        } else {
+            // It's a letter or punctuation, so add it to the current word group
+            const letterBox = document.createElement('span');
+            letterBox.className = 'letter-box';
+            letterBox.textContent = char;
+            wordGroup.appendChild(letterBox);
+        }
+    });
+    
+    // Append the very last word group
+    if (wordGroup.hasChildNodes()) {
+        hiddenDisplay.appendChild(wordGroup);
     }
-  }).join("");
 }
 
 function createLetterButtons(){
@@ -218,7 +250,6 @@ function spinWheel() {
   if (spinning || !canSpin) return;
   spinning = true;
   canSpin = false;
-
   const sliceAngle = 2 * Math.PI / values.length;
   const index = Math.floor(Math.random() * values.length);
   const pointerAngle = 3 * Math.PI / 2;
@@ -227,7 +258,6 @@ function spinWheel() {
   let deltaRotation = targetAngle - currentNorm;
   if(deltaRotation < 0) deltaRotation += 2 * Math.PI;
   deltaRotation += (5 + Math.floor(Math.random()*3)) * 2 * Math.PI;
-
   const duration = 4000;
   const initialRotation = rotation;
   let start=null;
