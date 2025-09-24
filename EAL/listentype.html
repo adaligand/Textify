@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Listen and Type</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+    }
+    .container {
+      width: 100%;
+      max-width: 800px;
+      padding: 20px;
+      box-sizing: border-box;
+      background-color: #ffffff;
+      border-radius: 20px;
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+    }
+    .flex-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    button {
+        font-size: 20px; 
+        padding: 10px; 
+        margin: 5px; 
+        cursor: pointer; 
+        border-radius: 10px;
+        border: 2px solid #ccc;
+        background-color: #f0f0f0;
+        transition: all 0.2s ease-in-out;
+    }
+    button:hover {
+      background-color: #A9A9A9;
+      transform: translateY(-4px);
+    }
+    button:active {
+      transform: translateY(1px);
+      box-shadow: 3px 3px 6px #bebebe, -3px -3px 6px #ffffff;
+    }
+    .hide {
+      display: none;
+    }
+    .on-screen-title {
+      font-size: 40px;
+      font-weight: bold;
+      text-align: center;
+      color: #333;
+    }
+    .input-container {
+      margin-top: 20px;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .stats-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 40px;
+      margin-top: 20px;
+    }
+    #counter, #timer {
+      font-weight: bold;
+      font-size: 24px;
+      color: #555;
+      margin-top: 0;
+    }
+    #textInput {
+      border-radius: 12px;
+      height: 60px;
+      width: 100%;
+      max-width: 500px;
+      font-size: 40px;
+      border: 2px solid #ddd;
+      padding: 0 15px;
+      box-sizing: border-box;
+      transition: border-color 0.3s;
+    }
+     #textInput:focus {
+        border-color: #333;
+        outline: none;
+    }
+    #feedback {
+      text-align: center;
+      font-weight: bold;
+      font-size: 20px;
+      margin-top: 10px;
+      width: 100%;
+      min-height: 24px;
+    }
+    /* ✅ Styles for the image display area */
+    #exerciseOutput {
+        height: 250px;
+        margin: 20px auto;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    #exerciseOutput img {
+        max-width: 100%;
+        max-height: 100%;
+        border-radius: 12px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="on-screen-title">Type what you see and hear</div>
+    
+    <div class="stats-container">
+        <div id="counter"></div>
+        <div id="timer">0m 0s</div>
+    </div>
+    
+    <div id="exerciseOutput"></div>
+    
+    <div class="input-container flex-container">
+      <input type="text" id="textInput" class="hide" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onkeypress="handleKeyPress(event)">
+    </div>
+     <div class="input-container flex-container">
+        <div id="feedback" class="hide input-feedback"></div>
+    </div>
+    <div class="input-container flex-container">
+        <button id="resetButton" class="hide" onclick="resetExercise()">Reset</button>
+    </div>
+    <div class="input-container flex-container">
+      <button id="playAudioButton" onclick="playAudio()">▶️ Play Audio</button>
+      <button id="nextButton" class="hide" onclick="nextPhrase()">Next</button>
+      <button id="checkButton" class="hide" onclick="checkAnswer()">Check</button>
+    </div>
+    
+<script>
+    let currentPhraseIndex = 0;
+    let exerciseEnglishWords = [];
+    let exerciseImageUrls = []; // ✅ Added array for image URLs
+    let allEnglishWords = [];   // ✅ Added array for all words
+    let allImageUrls = [];    // ✅ Added array for all URLs
+    let totalPhrases = 10;
+    
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        document.querySelector('.on-screen-title').textContent = "⚠️ No CSV URL provided.";
+    } else {
+        document.querySelector('.on-screen-title').textContent = "Loading vocabulary...";
+        
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: false, // ✅ Switched to false to read by column position
+            skipEmptyLines: true,
+            complete: function(results) {
+                if (results.errors.length) {
+                    document.querySelector('.on-screen-title').textContent = "⚠️ Error parsing the CSV file.";
+                    console.error("PapaParse Errors:", results.errors);
+                    return;
+                }
+
+                results.data.forEach((row, index) => {
+                    // ✅ Skip header row and read from columns B (1) and C (2)
+                    if (index > 0 && row[1] && row[2]) {
+                        allEnglishWords.push(row[1].trim());
+                        allImageUrls.push(row[2].trim());
+                    }
+                });
+
+                if (allEnglishWords.length === 0) {
+                    document.querySelector('.on-screen-title').textContent = "⚠️ No data found. Check your sheet has words in Column B and URLs in Column C.";
+                    return;
+                }
+
+                document.querySelector('.on-screen-title').textContent = "Type what you see and hear";
+                initialize();
+            },
+            error: function(err) {
+                document.querySelector('.on-screen-title').textContent = "⚠️ Error loading the CSV file.";
+                console.error("Network or CORS Error:", err);
+            }
+        });
+    }
+
+    function initialize() {
+        generateExercisePhrases();
+        startTimer();
+        updateCounter();
+        generateExercise();
+        document.getElementById('textInput').focus();
+    }
+
+    function generateExercisePhrases() {
+        // ✅ Shuffle pairs of words and images together
+        const combined = allEnglishWords.map((word, index) => ({ word, imageUrl: allImageUrls[index] }));
+        const shuffled = combined.sort(() => Math.random() - 0.5);
+        
+        totalPhrases = Math.min(10, shuffled.length);
+        const exercisePairs = shuffled.slice(0, totalPhrases);
+        
+        exerciseEnglishWords = exercisePairs.map(pair => pair.word);
+        exerciseImageUrls = exercisePairs.map(pair => pair.imageUrl);
+    }
+
+    function generateExercise() {
+        const textInput = document.getElementById('textInput');
+        const outputDiv = document.getElementById('exerciseOutput');
+        
+        // ✅ Show the image for the current exercise
+        outputDiv.innerHTML = ''; // Clear previous image
+        const img = document.createElement('img');
+        img.src = exerciseImageUrls[currentPhraseIndex];
+        outputDiv.appendChild(img);
+
+        textInput.value = '';
+        textInput.disabled = false;
+        textInput.classList.remove('hide');
+        document.getElementById('checkButton').classList.remove('hide');
+        document.getElementById('nextButton').classList.add('hide');
+        document.getElementById('feedback').classList.add('hide');
+        textInput.focus();
+        playAudio();
+    }
+
+    function checkAnswer() {
+        const userInput = document.getElementById('textInput').value.trim();
+        // ✅ Correct answer is the English word
+        const correctAnswer = exerciseEnglishWords[currentPhraseIndex];
+        const feedbackEl = document.getElementById('feedback');
+        
+        if (!userInput) return;
+
+        if (userInput.toLowerCase() === correctAnswer.toLowerCase()) {
+            feedbackEl.textContent = 'Correct!';
+            feedbackEl.style.color = 'green';
+            document.getElementById('textInput').disabled = true;
+            document.getElementById('checkButton').classList.add('hide');
+            if (currentPhraseIndex < totalPhrases - 1) {
+                document.getElementById('nextButton').classList.remove('hide');
+            } else {
+                document.getElementById('resetButton').classList.remove('hide');
+                stopTimer();
+            }
+        } else {
+            feedbackEl.style.color = 'darkorange';
+            // ✅ Hint logic uses the English word
+            const hint = correctAnswer.substring(0, 1);
+            feedbackEl.textContent = `Not quite! Hint: Starts with "${hint}"...`;
+        }
+        feedbackEl.classList.remove('hide');
+    }
+
+    function handleKeyPress(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            if (!document.getElementById('checkButton').classList.contains('hide')) {
+                checkAnswer();
+            } else if (!document.getElementById('nextButton').classList.contains('hide')) {
+                nextPhrase();
+            } else if (!document.getElementById('resetButton').classList.contains('hide')) {
+                resetExercise();
+            }
+        }
+    }
+
+    function nextPhrase() {
+        currentPhraseIndex++;
+        if (currentPhraseIndex < totalPhrases) {
+            generateExercise();
+            updateCounter();
+        }
+    }
+
+    function resetExercise() {
+        currentPhraseIndex = 0;
+        generateExercisePhrases();
+        generateExercise();
+        document.getElementById('resetButton').classList.add('hide');
+        updateCounter();
+        startTimer();
+    }
+
+    function updateCounter() {
+        const counterElement = document.getElementById('counter');
+        counterElement.textContent = `${currentPhraseIndex + 1} / ${totalPhrases}`;
+    }
+
+    let timerInterval;
+    let startTime;
+    function startTimer() {
+        stopTimer();
+        startTime = new Date().getTime();
+        timerInterval = setInterval(updateTimer, 1000);
+        updateTimer();
+    }
+    function stopTimer() {
+        clearInterval(timerInterval);
+    }
+    function updateTimer() {
+        const currentTime = new Date().getTime();
+        const elapsedTime = currentTime - startTime;
+        const minutes = Math.floor(elapsedTime / (1000 * 60));
+        const seconds = Math.floor((elapsedTime % (1000 * 60)) / 1000);
+        document.getElementById("timer").textContent = `${minutes}m ${seconds}s`;
+    }
+
+    function playAudio() {
+        if (!exerciseEnglishWords[currentPhraseIndex]) return;
+        const speechSynthesis = window.speechSynthesis;
+        speechSynthesis.cancel();
+        
+        const utterance = new SpeechSynthesisUtterance(exerciseEnglishWords[currentPhraseIndex]);
+        // ✅ Hardcoded to a British English voice
+        utterance.lang = 'en-GB';
+        utterance.rate = 0.8;
+        speechSynthesis.speak(utterance);
+    }
+</script>
+  </div>
+</body>
+</html>
