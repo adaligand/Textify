@@ -1,1 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unjumble</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+    /* ✅ Updated body styles for background and centering */
+    body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+        box-sizing: border-box;
+    }
+    /* ✅ New wrapper for the white box effect */
+    .game-wrapper {
+        background-color: white;
+        padding: 20px 40px;
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        width: 100%;
+        max-width: 900px;
+    }
+    .container { width: 100%; padding: 20px; box-sizing: border-box; font-size: 16px; }
+    .title { font-size: 40px; font-weight: bold; text-align: center; margin-bottom: 20px; }
+    .subtitle { font-size: 20px; margin-bottom: 10px; text-align: center; }
+    .counter { font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 10px; }
+    .draggable-word { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; margin: 5px; font-size: 20px; border: 1px solid black; padding: 2px 10px; border-radius: 5px; background-color: #f0f0f0; height: 30px; line-height: 1.5; vertical-align: middle; }
+    .correct-chunk { background-color: #d4edda; border-color: #c3e6cb; }
+    .wrong-chunk { background-color: #f8d7da; border-color: #f5c6cb; }
+    .dropzone-container { margin-top: 20px; margin-bottom: 20px; text-align: center; }
+    .dropzone { border: 1px dashed #007bff; min-height: 30px; font-size: 20px; height: auto; border-radius: 10px; display: inline-block; padding: 5px 10px; vertical-align: top; margin: 5px; }
+    .feedback-container { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; }
+    .feedback { font-weight: bold; font-size: 18px; text-align: center; }
+    button { padding: 10px 20px; background-color: #f9f9f9; border: 2px solid #ccc; color: #000; border-radius: 10px; cursor: pointer; }
+    button:hover { background-color: #A9A9A9; transform: translateY(-4px); }
+    .hide { display: none; }
+    #exerciseOutput { text-align: center; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<div class="game-wrapper">
+    <div class="container">
+      <div class="title">Unjumble</div>
+      <div class="subtitle">Unjumble the words</div>
+      <div class="counter" id="sentenceCounter"></div>
 
+      <div id="dropZones" class="dropzone-container"></div>
+      <div id="exerciseOutput"></div>
+
+      <div class="feedback-container">
+        <div id="feedback" class="feedback hide"></div>
+        <button id="nextButton" class="hide" onclick="nextText()">Next</button>
+      </div>
+
+      <div class="input-container">
+        <button id="resetButton" class="hide" onclick="resetActivity()">Restart</button>
+      </div>
+    </div>
+</div>
+
+<script>
+// ✅ This array will store all sentences loaded from the sheet
+let allSentences = [];
+
+let randomizedSentences = [];
+let currentTextIndex = 0;
+let originalChunks = [];
+let currentChunkIndex = 0;
+
+const params = new URLSearchParams(window.location.search);
+const sheetUrl = params.get('sheet');
+
+if (!sheetUrl) {
+    document.querySelector('.container').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
+} else {
+    // ✅ Load and parse data from the Google Sheet
+    Papa.parse(sheetUrl, {
+        download: true,
+        header: false, // Read by column index
+        skipEmptyLines: true,
+        complete: function(results) {
+            results.data.forEach((row, index) => {
+                // Skip the header row
+                if (index === 0) return;
+                // Read sentences from Column F (index 5)
+                if (row[5] && row[5].trim()) {
+                    allSentences.push(row[5].trim());
+                }
+            });
+
+            if (allSentences.length === 0) {
+                document.querySelector('.container').innerHTML = "<h1>⚠️ No data found in Column F.</h1>";
+                return;
+            }
+
+            // ✅ Start the game after data has loaded
+            startGame();
+        },
+        error: function(err) {
+            console.error(err);
+            document.querySelector('.container').innerHTML = "<h1>⚠️ Error loading CSV file.</h1>";
+        }
+    });
+}
+
+function startGame() {
+  // ✅ Select up to 10 random sentences from the loaded data
+  randomizedSentences = shuffleArray([...allSentences]).slice(0, 10);
+  currentTextIndex = 0;
+  generateChunk();
+}
+
+function generateChunk() {
+  if (currentTextIndex >= randomizedSentences.length) {
+    document.getElementById('dropZones').innerHTML = "<h2>🎉 Well done!</h2>";
+    document.getElementById('exerciseOutput').innerHTML = "";
+    document.getElementById('nextButton').classList.add('hide');
+    document.getElementById('resetButton').classList.remove('hide');
+    return;
+  }
+
+  const sentence = randomizedSentences[currentTextIndex];
+  originalChunks = getWordChunks(sentence);
+  const shuffledChunks = shuffleArray([...originalChunks]);
+
+  const dropZones = document.getElementById('dropZones');
+  dropZones.innerHTML = '';
+  originalChunks.forEach(() => {
+    const dropZone = document.createElement('div');
+    dropZone.classList.add('dropzone');
+    dropZones.appendChild(dropZone);
+  });
+
+  const exerciseOutput = document.getElementById('exerciseOutput');
+  exerciseOutput.innerHTML = '';
+  shuffledChunks.forEach(chunk => {
+    const chunkElement = document.createElement('div');
+    chunkElement.textContent = chunk.join(' ');
+    chunkElement.classList.add('draggable-word');
+    chunkElement.setAttribute('onclick', 'selectChunk(this)');
+    exerciseOutput.appendChild(chunkElement);
+  });
+
+  document.getElementById('feedback').classList.add('hide');
+  document.getElementById('nextButton').classList.add('hide');
+  currentChunkIndex = 0;
+  document.getElementById('sentenceCounter').textContent = (currentTextIndex + 1) + '/' + randomizedSentences.length;
+}
+
+function nextText() {
+  currentTextIndex++;
+  generateChunk();
+}
+
+function resetActivity() {
+  // ✅ Restart with a new set of sentences
+  startGame();
+  document.getElementById('resetButton').classList.add('hide');
+}
+
+function getWordChunks(text) {
+  return text.split(/\s+/).filter(Boolean).map(word => [word]);
+}
+
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
+function selectChunk(element) {
+  const chunkText = element.textContent;
+  const correctChunk = originalChunks[currentChunkIndex].join(' ');
+
+  if (chunkText === correctChunk) {
+    const dropZone = document.getElementById('dropZones').children[currentChunkIndex];
+    dropZone.textContent = chunkText;
+    dropZone.classList.add('correct-chunk');
+    element.remove();
+    currentChunkIndex++;
+    if (currentChunkIndex === originalChunks.length) {
+      const feedback = document.getElementById('feedback');
+      feedback.textContent = 'All chunks are in the correct order!';
+      feedback.classList.remove('hide');
+      document.getElementById('nextButton').classList.remove('hide');
+    }
+  } else {
+    element.classList.add('wrong-chunk');
+    setTimeout(() => element.classList.remove('wrong-chunk'), 2000);
+  }
+}
+</script>
+</body>
+</html>
