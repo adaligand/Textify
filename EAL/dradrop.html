@@ -18,19 +18,16 @@
         padding: 20px;
         box-sizing: border-box;
     }
-    
     /* ✅ New wrapper for the white box effect */
     .game-wrapper {
         background-color: white;
         padding: 20px 40px;
         border-radius: 15px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        text-align: center;
         width: 100%;
-        max-width: 900px; /* Adjusted for sentence length */
+        max-width: 900px;
     }
-
-    .container { width: 100%; padding: 20px; box-sizing: border-box; font-size: 20px; }
+    .game-content { width: 100%; padding: 20px; box-sizing: border-box; font-size: 20px; }
     .title { font-size: 40px; font-weight: bold; text-align: center; margin-bottom: 20px; }
     .subtitle { font-size: 20px; margin-bottom: 10px; text-align: center; }
     .counter { font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 10px; }
@@ -46,7 +43,7 @@
 </head>
 <body>
 <div class="game-wrapper">
-    <div class="container">
+    <div class="game-content">
       <div class="title">Drag and Drop</div>
       <div class="subtitle">Drag and drop the missing words to complete the sentence</div>
       <div class="counter" id="sentenceCounter"></div>
@@ -65,8 +62,9 @@
 </div>
 
 <script>
-// ✅ This array will be filled with sentences from the spreadsheet
+// ✅ This array will store all sentences loaded from the sheet
 let allSentences = [];
+
 let randomizedSentences = [];
 let currentTextIndex = 0;
 let originalChunks = [];
@@ -78,7 +76,7 @@ const params = new URLSearchParams(window.location.search);
 const sheetUrl = params.get('sheet');
 
 if (!sheetUrl) {
-    document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
+    document.querySelector('.game-content').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
 } else {
     // ✅ Load and parse data from the Google Sheet
     Papa.parse(sheetUrl, {
@@ -87,51 +85,54 @@ if (!sheetUrl) {
         skipEmptyLines: true,
         complete: function(results) {
             results.data.forEach((row, index) => {
-                // Skip header row
+                // Skip the header row
                 if (index === 0) return;
-                // Read sentences from Column B
-                if (row[1] && row[1].trim()) {
-                    allSentences.push(row[1].trim());
+                // Read sentences from Column F (index 5)
+                if (row[5] && row[5].trim()) {
+                    allSentences.push(row[5].trim());
                 }
             });
 
             if (allSentences.length === 0) {
-                document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ No sentences found in Column B.</h1>";
+                document.querySelector('.game-content').innerHTML = "<h1>⚠️ No data found in Column F.</h1>";
                 return;
             }
 
-            // ✅ Start the game after data is loaded
+            // ✅ Start the game after data has loaded
             startGame();
         },
         error: function(err) {
             console.error(err);
-            document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ Error loading CSV file.</h1>";
+            document.querySelector('.game-content').innerHTML = "<h1>⚠️ Error loading CSV file.</h1>";
         }
     });
 }
 
-// ✅ Updated to use the dynamically loaded 'allSentences' array
 function startGame() {
-  randomizedSentences = shuffleArray([...allSentences]);
+  // ✅ Select up to 10 random sentences from the loaded data
+  randomizedSentences = shuffleArray([...allSentences]).slice(0, 10);
   currentTextIndex = 0;
   generateChunk();
 }
 
 function generateChunk() {
   if (currentTextIndex >= randomizedSentences.length) {
-    // Restart with a new shuffle if all sentences have been used
-    randomizedSentences = shuffleArray([...allSentences]);
-    currentTextIndex = 0;
+    // This case is now handled by the resetButton or completion message
+    document.getElementById('exerciseOutput').innerHTML = "<h2>🎉 Well done!</h2>";
+    document.getElementById('nextButton').classList.add('hide');
+    document.getElementById('resetButton').classList.remove('hide');
+    return;
   }
 
   const sentence = randomizedSentences[currentTextIndex];
   originalChunks = sentence.split(' ').filter(Boolean);
 
-  let numToRemove = Math.ceil(originalChunks.length / 2);
+  let numToRemove = Math.max(1, Math.floor(originalChunks.length / 3)); // Remove about 1/3 of words
   removedIndices = getRandomIndices(originalChunks.length, numToRemove);
   removedChunks = removedIndices.map(i => originalChunks[i]);
 
   const sentenceDiv = document.createElement('div');
+  sentenceDiv.innerHTML = '';
   sentenceDiv.style.textAlign = 'center';
   originalChunks.forEach((word, i) => {
     if (removedIndices.includes(i)) {
@@ -149,13 +150,14 @@ function generateChunk() {
   chunkContainer.classList.add('chunk-container');
   chunkContainer.style.marginTop = '20px';
   chunkContainer.style.textAlign = 'center';
-  removedChunks.forEach((word, idx) => {
+  shuffleArray(removedChunks).forEach((word, idx) => { // Shuffle draggable words
+    const originalIndex = removedIndices.find(i => originalChunks[i] === word); // Find original index
     const chunkElement = document.createElement('div');
     chunkElement.textContent = word;
     chunkElement.classList.add('draggable-word');
     chunkElement.setAttribute('draggable', 'true');
     chunkElement.setAttribute('ondragstart', 'drag(event)');
-    chunkElement.setAttribute('data-original-index', removedIndices[idx]);
+    chunkElement.setAttribute('data-original-index', originalIndex);
     chunkContainer.appendChild(chunkElement);
   });
   exerciseOutput.appendChild(chunkContainer);
@@ -172,13 +174,9 @@ function nextText() {
   generateChunk();
 }
 
-// ✅ Updated to use the 'allSentences' array
 function resetActivity() {
-  randomizedSentences = shuffleArray([...allSentences]);
-  currentTextIndex = 0;
-  generateChunk();
-  document.getElementById('nextButton').classList.add('hide');
-  document.getElementById('resetButton').classList.add('hide'); // This button is not used, but kept for consistency
+  startGame(); // Restart with a new set of 10 sentences
+  document.getElementById('resetButton').classList.add('hide');
 }
 
 function shuffleArray(array) {
@@ -214,7 +212,6 @@ function drop(event) {
   if (target.classList.contains('dropzone') && !target.textContent) {
     target.textContent = data;
     target.setAttribute('data-original-index', idx);
-    target.classList.add('correct-chunk');
     filledDropzonesCount++;
     removeDraggableWord(idx);
     checkAnswers();
@@ -244,12 +241,8 @@ document.addEventListener('click', function(e) {
     const word = e.target.textContent;
     const idx = e.target.getAttribute('data-original-index');
     e.target.textContent = '';
-    e.target.classList.remove('correct-chunk');
     filledDropzonesCount--;
     addDraggableWord(word, idx);
-    // Hide feedback when a word is returned
-    document.getElementById('feedback').classList.add('hide');
-    document.getElementById('nextButton').classList.add('hide');
   }
 });
 
@@ -267,7 +260,7 @@ function checkAnswers() {
       feedback.classList.remove('hide');
       document.getElementById('nextButton').classList.remove('hide');
     } else {
-      feedback.textContent = `There are ${dropzones.length - correct} incorrect answers. Click a word to try again.`;
+      feedback.textContent = `You have ${dropzones.length - correct} incorrect word(s). Click on a word to try again.`;
       feedback.classList.remove('hide');
     }
   }
