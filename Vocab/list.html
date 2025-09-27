@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vocabulary List & Flashcards</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* Align to top */
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px 0;
+        }
+        .container {
+            width: 90%;
+            max-width: 800px;
+            padding: 40px;
+            box-sizing: border-box;
+            background-color: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        .title {
+            font-size: 40px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            font-size: 20px;
+            margin-bottom: 30px;
+            color: #555;
+        }
+        .controls {
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #f9f9f9;
+            color: #000000;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #e9e9e9;
+        }
+        #vocab-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 18px;
+        }
+        #vocab-table th, #vocab-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        #vocab-table th {
+            background-color: #f2f2f2;
+            cursor: pointer;
+        }
+
+        /* Styles for elements that only appear during printing */
+        .print-only {
+            display: none;
+        }
+
+        @media print {
+            body {
+                background-color: white;
+                padding: 0;
+                margin: 0;
+            }
+            .container {
+                box-shadow: none;
+                border: none;
+                width: 100%;
+                max-width: 100%;
+                padding: 0;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .print-only {
+                display: block !important;
+            }
+
+            /* List Printing Styles */
+            body.print-list-active #list-for-print {
+                display: block;
+            }
+            #list-for-print table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 12pt;
+            }
+            #list-for-print th, #list-for-print td {
+                border: 1px solid #000;
+                padding: 8px;
+                text-align: left;
+            }
+
+            /* Flashcard Printing Styles */
+            body.print-flashcards-active #flashcards-for-print {
+                display: block;
+            }
+            .flashcard-page {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                grid-template-rows: repeat(4, 1fr);
+                gap: 0;
+                height: 100vh;
+                page-break-after: always;
+            }
+            .flashcard {
+                box-sizing: border-box;
+                border: 1px dashed #999;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 10px;
+                text-align: center;
+                font-size: 16pt;
+                overflow: hidden;
+            }
+            .flashcard.back {
+                transform: scaleX(-1); /* Mirror for printing */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title no-print">Vocabulary List</div>
+        <div class="subtitle no-print" id="subtitle">Loading vocabulary...</div>
+        
+        <div class="controls no-print">
+            <button onclick="printList()">🖨️ Print as List</button>
+            <button onclick="printFlashcards()">🖨️ Print as Flashcards</button>
+        </div>
+
+        <table id="vocab-table" class="no-print">
+            <thead>
+                <tr>
+                    <th onclick="sortTable(0)">English</th>
+                    <th onclick="sortTable(1)">French</th>
+                </tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+
+        <div id="list-for-print" class="print-only"></div>
+
+        <div id="flashcards-for-print" class="print-only"></div>
+    </div>
+
+<script>
+    let vocabList = [];
+
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        document.getElementById('subtitle').textContent = "⚠️ No sheet URL provided.";
+    } else {
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                results.data.forEach(row => {
+                    if (row.English && row.French) {
+                        vocabList.push({
+                            english: row.English.trim(),
+                            french: row.French.trim()
+                        });
+                    }
+                });
+
+                if (vocabList.length === 0) {
+                    document.getElementById('subtitle').textContent = "⚠️ No data found. Check sheet for 'English' and 'French' columns.";
+                    return;
+                }
+                
+                document.getElementById('subtitle').textContent = `Loaded ${vocabList.length} vocabulary pairs.`;
+                displayOnScreenList();
+                preparePrintLayouts();
+            },
+            error: function(err) {
+                console.error("CSV Loading Error:", err);
+                document.getElementById('subtitle').textContent = "⚠️ Error loading or parsing the CSV file.";
+            }
+        });
+    }
+
+    function displayOnScreenList() {
+        const tableBody = document.querySelector("#vocab-table tbody");
+        tableBody.innerHTML = '';
+        vocabList.forEach(item => {
+            const row = tableBody.insertRow();
+            row.insertCell(0).textContent = item.english;
+            row.insertCell(1).textContent = item.french;
+        });
+    }
+
+    function preparePrintLayouts() {
+        // 1. Prepare the simple list for printing
+        const listContainer = document.getElementById('list-for-print');
+        let listTable = '<table><thead><tr><th>English</th><th>French</th></tr></thead><tbody>';
+        vocabList.forEach(item => {
+            listTable += `<tr><td>${item.english}</td><td>${item.french}</td></tr>`;
+        });
+        listTable += '</tbody></table>';
+        listContainer.innerHTML = listTable;
+
+        // 2. Prepare the flashcards for printing
+        const flashcardContainer = document.getElementById('flashcards-for-print');
+        let flashcardHTML = '';
+        const cardsPerPage = 8;
+        for (let i = 0; i < vocabList.length; i += cardsPerPage) {
+            const pageItems = vocabList.slice(i, i + cardsPerPage);
+            
+            // Front side page
+            flashcardHTML += '<div class="flashcard-page">';
+            pageItems.forEach(item => {
+                flashcardHTML += `<div class="flashcard front">${item.english}</div>`;
+            });
+            flashcardHTML += '</div>';
+
+            // Back side page
+            flashcardHTML += '<div class="flashcard-page">';
+            // Reverse pairs for each row to align correctly when printing double-sided
+            for (let j = 0; j < pageItems.length; j += 2) {
+                if (pageItems[j+1]) {
+                    flashcardHTML += `<div class="flashcard back">${pageItems[j+1].french}</div>`;
+                    flashcardHTML += `<div class="flashcard back">${pageItems[j].french}</div>`;
+                } else {
+                    flashcardHTML += `<div class="flashcard back">${pageItems[j].french}</div>`;
+                }
+            }
+            flashcardHTML += '</div>';
+        }
+        flashcardContainer.innerHTML = flashcardHTML;
+    }
+
+    function printList() {
+        document.body.classList.remove('print-flashcards-active');
+        document.body.classList.add('print-list-active');
+        window.print();
+    }
+
+    function printFlashcards() {
+        document.body.classList.remove('print-list-active');
+        document.body.classList.add('print-flashcards-active');
+        window.print();
+    }
+    
+    function sortTable(columnIndex) {
+        const key = columnIndex === 0 ? 'english' : 'french';
+        vocabList.sort((a, b) => a[key].localeCompare(b[key]));
+        displayOnScreenList();
+    }
+
+</script>
+</body>
+</html>
