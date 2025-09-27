@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vocabulary Quiz</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            width: 90%;
+            max-width: 800px;
+            padding: 40px;
+            box-sizing: border-box;
+            background-color: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        .title {
+            font-size: 40px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .subtitle {
+            font-size: 20px;
+            margin-bottom: 10px;
+            color: #555;
+        }
+        #counter {
+            font-size: 20px;
+            color: #666;
+            margin-bottom: 20px;
+        }
+        #question {
+            font-size: 28px;
+            font-weight: bold;
+            margin: 20px 0;
+            color: #333;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 12px;
+        }
+        #answerInput {
+            font-size: 24px;
+            padding: 10px;
+            width: 100%;
+            max-width: 350px;
+            border-radius: 12px;
+            border: 2px solid #ddd;
+            margin-bottom: 15px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 18px;
+            background-color: #f9f9f9;
+            color: #000000;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #A9A9A9;
+            transform: translateY(-2px);
+        }
+        .hide {
+            display: none;
+        }
+        #feedback {
+            font-size: 20px;
+            font-weight: bold;
+            min-height: 24px;
+            margin: 15px 0;
+        }
+        .keyboard-controls {
+            margin-top: 20px;
+        }
+        #keyboardContainer {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 5px;
+            margin-top: 10px;
+        }
+        .keyboard-button {
+            background-color: #f0f0f0;
+            color: #333;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 20px;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+        }
+        #languageSelect {
+            padding: 5px 10px;
+            border-radius: 12px;
+            height: 40px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title">Vocabulary Quiz</div>
+        <div class="subtitle" id="subtitle">Translate the word shown below.</div>
+        <div id="counter"></div>
+        
+        <div id="question">Loading...</div>
+        <input type="text" id="answerInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        
+        <div>
+            <button id="checkButton">Check</button>
+            <button id="nextButton" class="hide">Next</button>
+        </div>
+
+        <div id="feedback"></div>
+
+        <div class="keyboard-controls">
+            <select id="languageSelect">
+                <option value="french" selected>French</option>
+                <option value="german">German</option>
+                <option value="spanish">Spanish</option>
+            </select>
+            <div id="keyboardContainer"></div>
+        </div>
+    </div>
+
+<script>
+    let allQuestions = [];
+    let currentQuestions = [];
+    let currentIndex = 0;
+
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        document.getElementById('question').textContent = "⚠️ No sheet URL provided.";
+    } else {
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                results.data.forEach(row => {
+                    if (row.English && row.French) {
+                        allQuestions.push({
+                            english: row.English.trim(),
+                            french: row.French.trim()
+                        });
+                    }
+                });
+
+                if (allQuestions.length === 0) {
+                    document.getElementById('question').textContent = "⚠️ No data found. Check your sheet for 'English' and 'French' columns.";
+                    return;
+                }
+                
+                initialize();
+            },
+            error: function(err) {
+                console.error("CSV Loading Error:", err);
+                document.getElementById('question').textContent = "⚠️ Error loading or parsing the CSV file.";
+            }
+        });
+    }
+
+    function initialize() {
+        // Shuffle and pick 10 questions for this round
+        allQuestions.sort(() => Math.random() - 0.5);
+        currentQuestions = allQuestions.slice(0, 10);
+        currentIndex = 0;
+        
+        displayQuestion();
+        generateKeyboard('french');
+    }
+
+    function displayQuestion() {
+        if (currentIndex >= currentQuestions.length) {
+            document.getElementById('question').textContent = '🎉 Exercise Complete!';
+            document.getElementById('answerInput').classList.add('hide');
+            document.getElementById('checkButton').classList.add('hide');
+            document.getElementById('nextButton').classList.add('hide');
+            document.getElementById('feedback').classList.add('hide');
+            document.querySelector('.keyboard-controls').classList.add('hide');
+            return;
+        }
+
+        const question = currentQuestions[currentIndex];
+        document.getElementById('question').textContent = question.english;
+        
+        const answerInput = document.getElementById('answerInput');
+        answerInput.value = '';
+        answerInput.disabled = false;
+        answerInput.style.backgroundColor = 'white';
+        
+        document.getElementById('feedback').textContent = '';
+        document.getElementById('checkButton').classList.remove('hide');
+        document.getElementById('nextButton').classList.add('hide');
+        
+        updateCounter();
+        answerInput.focus();
+    }
+
+    function updateCounter() {
+        document.getElementById('counter').textContent = `${currentIndex + 1} / ${currentQuestions.length}`;
+    }
+
+    function checkAnswer() {
+        const answerInput = document.getElementById('answerInput');
+        const feedbackEl = document.getElementById('feedback');
+        const userAnswer = answerInput.value.trim().toLowerCase();
+        const correctAnswer = currentQuestions[currentIndex].french.toLowerCase();
+
+        if (userAnswer === correctAnswer) {
+            feedbackEl.textContent = 'Correct!';
+            feedbackEl.style.color = 'green';
+            answerInput.style.backgroundColor = '#d4edda';
+            answerInput.disabled = true;
+            document.getElementById('checkButton').classList.add('hide');
+            document.getElementById('nextButton').classList.remove('hide');
+        } else {
+            feedbackEl.style.color = 'darkorange';
+            let correctPrefixLength = 0;
+            for (let i = 0; i < userAnswer.length; i++) {
+                if (i < correctAnswer.length && userAnswer[i] === correctAnswer[i]) {
+                    correctPrefixLength++;
+                } else {
+                    break;
+                }
+            }
+            const hint = currentQuestions[currentIndex].french.substring(0, correctPrefixLength + 1);
+            feedbackEl.textContent = `Hint: ${hint}...`;
+        }
+    }
+
+    function nextQuestion() {
+        currentIndex++;
+        displayQuestion();
+    }
+
+    function generateKeyboard(language) {
+        const keyboardContainer = document.getElementById('keyboardContainer');
+        keyboardContainer.innerHTML = '';
+        let chars = [];
+        switch (language) {
+            case 'french': chars = ['à', 'â', 'ä', 'é', 'è', 'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'ù', 'ü', 'û', 'ç']; break;
+            case 'german': chars = ['ä', 'ö', 'ü', 'ß']; break;
+            case 'spanish': chars = ['á', 'é', 'í', 'ó', 'ú', 'ñ']; break;
+        }
+        chars.forEach(c => {
+            const btn = document.createElement('button');
+            btn.textContent = c;
+            btn.className = 'keyboard-button';
+            btn.onclick = () => insertLetter(c);
+            keyboardContainer.appendChild(btn);
+        });
+    }
+
+    function insertLetter(letter) {
+        const input = document.getElementById('answerInput');
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.value = input.value.substring(0, start) + letter + input.value.substring(end);
+        input.selectionStart = input.selectionEnd = start + 1;
+        input.focus();
+    }
+    
+    // Event Listeners
+    document.getElementById('checkButton').addEventListener('click', checkAnswer);
+    document.getElementById('nextButton').addEventListener('click', nextQuestion);
+    document.getElementById('answerInput').addEventListener('keypress', function(event) {
+        if (event.key === 'Enter') {
+            if (!document.getElementById('checkButton').classList.contains('hide')) {
+                checkAnswer();
+            } else if (!document.getElementById('nextButton').classList.contains('hide')) {
+                nextQuestion();
+            }
+        }
+    });
+    document.getElementById('languageSelect').addEventListener('change', (e) => {
+        generateKeyboard(e.target.value);
+    });
+
+</script>
+</body>
+</html>
