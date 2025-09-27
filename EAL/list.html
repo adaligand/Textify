@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vocab List</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* Align to top */
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px 0;
+        }
+        .container {
+            width: 90%;
+            max-width: 800px;
+            padding: 40px;
+            box-sizing: border-box;
+            background-color: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        .title {
+            font-size: 40px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            font-size: 20px;
+            margin-bottom: 30px;
+            color: #555;
+        }
+        .controls {
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #f9f9f9;
+            color: #000000;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #e9e9e9;
+        }
+        #vocab-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 18px;
+        }
+        #vocab-table th, #vocab-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+            vertical-align: middle; /* MODIFIED: Vertically align content */
+        }
+        #vocab-table th {
+            background-color: #f2f2f2;
+            cursor: pointer;
+            text-align: center;
+        }
+        .print-only {
+            display: none;
+        }
+
+        @media print {
+            @page {
+                size: portrait;
+                margin: 1.5cm;
+            }
+
+            body {
+                background-color: white;
+                padding: 0;
+                margin: 0;
+            }
+            .container {
+                box-shadow: none;
+                border: none;
+                width: 100%;
+                max-width: 100%;
+                padding: 0;
+            }
+            .no-print {
+                display: none !important;
+            }
+            
+            #list-for-print, #flashcards-for-print {
+                display: none;
+            }
+
+            body.print-list-active #list-for-print {
+                display: block !important;
+            }
+            body.print-flashcards-active #flashcards-for-print {
+                display: block !important;
+            }
+
+            #list-for-print table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 14pt;
+            }
+            #list-for-print th, #list-for-print td {
+                border: 1px solid #000;
+                padding: 8px;
+                text-align: left;
+                vertical-align: middle; /* MODIFIED: Vertically align content */
+            }
+            #list-for-print th {
+                text-align: center;
+            }
+
+            .flashcard-page {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                grid-template-rows: repeat(4, 1fr);
+                gap: 0;
+                height: 98vh;
+                width: 100%;
+                page-break-after: always;
+            }
+            .flashcard {
+                box-sizing: border-box;
+                border: 1px dashed #999;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 10px;
+                text-align: center;
+                font-size: 22pt;
+                overflow: hidden;
+                word-wrap: break-word;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title no-print">Vocabulary List</div>
+        <div class="subtitle no-print" id="subtitle">Loading vocabulary...</div>
+        
+        <div class="controls no-print">
+            <button onclick="printList()">🖨️ Print as List</button>
+            <button onclick="printFlashcards()">🖨️ Print as Flashcards</button>
+        </div>
+
+        <table id="vocab-table" class="no-print">
+            <thead>
+                <tr>
+                    <th onclick="sortTable(0)">Image</th>
+                    <th onclick="sortTable(1)">Term</th>
+                </tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+
+        <div id="list-for-print" class="print-only"></div>
+        <div id="flashcards-for-print" class="print-only"></div>
+    </div>
+
+<script>
+    let vocabList = [];
+
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+    
+    // MODIFIED: Helper function to check for image URLs
+    function isImageUrl(url) {
+        return (typeof url === 'string') && (url.startsWith('http') || url.startsWith('//')) && /\.(jpeg|jpg|gif|png|svg)$/i.test(url);
+    }
+
+    if (!sheetUrl) {
+        document.getElementById('subtitle').textContent = "⚠️ No sheet URL provided.";
+    } else {
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                // MODIFICATION START
+                results.data.forEach(row => {
+                    // Look for 'ImageURL' and 'English' columns
+                    if (row.ImageURL && row.English) {
+                        vocabList.push({
+                            term: row.ImageURL.trim(),
+                            translation: row.English.trim()
+                        });
+                    }
+                });
+
+                if (vocabList.length === 0) {
+                    document.getElementById('subtitle').textContent = "⚠️ No data found. Check sheet for 'ImageURL' and 'English' columns.";
+                    return;
+                }
+                // MODIFICATION END
+                
+                document.getElementById('subtitle').style.display = 'none';
+                
+                displayOnScreenList();
+                preparePrintLayouts();
+            },
+            error: function(err) {
+                console.error("CSV Loading Error:", err);
+                document.getElementById('subtitle').textContent = "⚠️ Error loading or parsing the CSV file.";
+            }
+        });
+    }
+
+    function displayOnScreenList() {
+        const tableBody = document.querySelector("#vocab-table tbody");
+        tableBody.innerHTML = '';
+        vocabList.forEach(item => {
+            const row = tableBody.insertRow();
+            const termCell = row.insertCell(0);
+            const translationCell = row.insertCell(1);
+            
+            // MODIFICATION START: Check if the term is an image URL
+            if (isImageUrl(item.term)) {
+                termCell.innerHTML = `<img src="${item.term}" alt="${item.translation}" style="width: 120px; height: auto; border-radius: 5px;">`;
+            } else {
+                termCell.textContent = item.term;
+            }
+            translationCell.textContent = item.translation;
+            // MODIFICATION END
+        });
+    }
+
+    function preparePrintLayouts() {
+        const listContainer = document.getElementById('list-for-print');
+        // MODIFIED: Changed table headers for print list
+        let listTable = '<table><thead><tr><th>Image</th><th>Term</th></tr></thead><tbody>';
+        vocabList.forEach(item => {
+            // MODIFICATION START: Check for image URL in print list
+            const termContent = isImageUrl(item.term)
+                ? `<img src="${item.term}" style="width: 80px; height: auto;">`
+                : item.term;
+            listTable += `<tr><td>${termContent}</td><td>${item.translation}</td></tr>`;
+            // MODIFICATION END
+        });
+        listTable += '</tbody></table>';
+        listContainer.innerHTML = listTable;
+
+        const flashcardContainer = document.getElementById('flashcards-for-print');
+        let flashcardHTML = '';
+        const cardsPerPage = 8;
+        
+        for (let i = 0; i < vocabList.length; i += cardsPerPage) {
+            const pageItems = vocabList.slice(i, i + cardsPerPage);
+            
+            flashcardHTML += '<div class="flashcard-page">';
+            pageItems.forEach(item => {
+                 // MODIFICATION START: Check for image URL in flashcards
+                const termContent = isImageUrl(item.term)
+                    ? `<img src="${item.term}" style="max-width: 90%; max-height: 90%; object-fit: contain;">`
+                    : item.term;
+                flashcardHTML += `<div class="flashcard front">${termContent}</div>`;
+                // MODIFICATION END
+            });
+            for (let k = pageItems.length; k < cardsPerPage; k++) {
+                flashcardHTML += `<div class="flashcard front"></div>`;
+            }
+            flashcardHTML += '</div>';
+
+            flashcardHTML += '<div class="flashcard-page">';
+            const backSideOrder = [];
+            for (let j = 0; j < pageItems.length; j += 2) {
+                if (pageItems[j+1]) {
+                    backSideOrder.push(pageItems[j+1].translation);
+                    backSideOrder.push(pageItems[j].translation);
+                } else {
+                    backSideOrder.push('');
+                    backSideOrder.push(pageItems[j].translation);
+                }
+            }
+            while(backSideOrder.length < cardsPerPage) {
+                backSideOrder.push('');
+            }
+            
+            backSideOrder.forEach(translationText => {
+                flashcardHTML += `<div class="flashcard back">${translationText}</div>`;
+            });
+            flashcardHTML += '</div>';
+        }
+        flashcardContainer.innerHTML = flashcardHTML;
+    }
+
+    function printList() {
+        document.body.classList.remove('print-flashcards-active');
+        document.body.classList.add('print-list-active');
+        window.print();
+    }
+
+    function printFlashcards() {
+        document.body.classList.remove('print-list-active');
+        document.body.classList.add('print-flashcards-active');
+        window.print();
+    }
+    
+    function sortTable(columnIndex) {
+        const key = columnIndex === 0 ? 'term' : 'translation';
+        vocabList.sort((a, b) => a[key].localeCompare(b[key]));
+        displayOnScreenList();
+        preparePrintLayouts();
+    }
+</script>
+</body>
+</html>
