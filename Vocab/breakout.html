@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vocabulary Quiz</title>
+    <title>Breakout</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         body {
@@ -32,9 +32,44 @@
         }
         .subtitle {
             font-size: 20px;
-            margin-bottom: 10px;
+            margin-bottom: 20px;
             color: #555;
         }
+        .hide {
+            display: none;
+        }
+        /* Lock Screen Styles */
+        #lockScreen {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
+        }
+        .lock {
+            width: 80px;
+            height: 80px;
+            border: 3px solid #ccc;
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #aaa;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .lock:hover {
+            border-color: #888;
+            color: #333;
+        }
+        .lock.unlocked {
+            background-color: #d4edda;
+            border-color: #28a745;
+            color: #28a745;
+            cursor: default;
+        }
+        /* Question Screen Styles */
         #counter {
             font-size: 20px;
             color: #666;
@@ -71,9 +106,6 @@
         button:hover {
             background-color: #A9A9A9;
             transform: translateY(-2px);
-        }
-        .hide {
-            display: none;
         }
         #feedback {
             font-size: 20px;
@@ -113,39 +145,44 @@
 <body>
     <div class="container">
         <div class="title">Vocabulary Quiz</div>
-        <div class="subtitle" id="subtitle">Translate the word shown below.</div>
-        <div id="counter"></div>
+        <div class="subtitle" id="subtitle">Select a lock to reveal a question.</div>
         
-        <div id="question">Loading...</div>
-        <input type="text" id="answerInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-        
-        <div>
-            <button id="checkButton">Check</button>
-            <button id="nextButton" class="hide">Next</button>
-        </div>
+        <div id="lockScreen"></div>
 
-        <div id="feedback"></div>
+        <div id="questionScreen" class="hide">
+            <div id="counter"></div>
+            <div id="question">Loading...</div>
+            <input type="text" id="answerInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+            
+            <div>
+                <button id="checkButton">Check</button>
+                <button id="backButton" class="hide">Back to Locks</button>
+            </div>
 
-        <div class="keyboard-controls">
-            <select id="languageSelect">
-                <option value="french" selected>French</option>
-                <option value="german">German</option>
-                <option value="spanish">Spanish</option>
-            </select>
-            <div id="keyboardContainer"></div>
+            <div id="feedback"></div>
+
+            <div class="keyboard-controls">
+                <select id="languageSelect">
+                    <option value="french" selected>French</option>
+                    <option value="german">German</option>
+                    <option value="spanish">Spanish</option>
+                </select>
+                <div id="keyboardContainer"></div>
+            </div>
         </div>
     </div>
 
 <script>
     let allQuestions = [];
     let currentQuestions = [];
+    let lockStates = [];
     let currentIndex = 0;
 
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
 
     if (!sheetUrl) {
-        document.getElementById('question').textContent = "⚠️ No sheet URL provided.";
+        document.getElementById('subtitle').textContent = "⚠️ No sheet URL provided.";
     } else {
         Papa.parse(sheetUrl, {
             download: true,
@@ -162,7 +199,7 @@
                 });
 
                 if (allQuestions.length === 0) {
-                    document.getElementById('question').textContent = "⚠️ No data found. Check your sheet for 'English' and 'French' columns.";
+                    document.getElementById('subtitle').textContent = "⚠️ No data found. Check your sheet for 'English' and 'French' columns.";
                     return;
                 }
                 
@@ -170,32 +207,51 @@
             },
             error: function(err) {
                 console.error("CSV Loading Error:", err);
-                document.getElementById('question').textContent = "⚠️ Error loading or parsing the CSV file.";
+                document.getElementById('subtitle').textContent = "⚠️ Error loading or parsing the CSV file.";
             }
         });
     }
 
     function initialize() {
-        // Shuffle and pick 10 questions for this round
         allQuestions.sort(() => Math.random() - 0.5);
         currentQuestions = allQuestions.slice(0, 10);
-        currentIndex = 0;
+        lockStates = Array(currentQuestions.length).fill(false);
         
-        displayQuestion();
+        renderLockScreen();
         generateKeyboard('french');
     }
 
-    function displayQuestion() {
-        if (currentIndex >= currentQuestions.length) {
-            document.getElementById('question').textContent = '🎉 Exercise Complete!';
-            document.getElementById('answerInput').classList.add('hide');
-            document.getElementById('checkButton').classList.add('hide');
-            document.getElementById('nextButton').classList.add('hide');
-            document.getElementById('feedback').classList.add('hide');
-            document.querySelector('.keyboard-controls').classList.add('hide');
-            return;
+    function renderLockScreen() {
+        const lockScreen = document.getElementById('lockScreen');
+        lockScreen.innerHTML = '';
+
+        for (let i = 0; i < currentQuestions.length; i++) {
+            const lock = document.createElement('div');
+            lock.className = 'lock';
+            lock.textContent = i + 1;
+
+            if (lockStates[i]) {
+                lock.classList.add('unlocked');
+            } else {
+                lock.onclick = () => revealQuestion(i);
+            }
+            lockScreen.appendChild(lock);
         }
 
+        document.getElementById('questionScreen').classList.add('hide');
+        document.getElementById('lockScreen').classList.remove('hide');
+        document.getElementById('subtitle').classList.remove('hide');
+    }
+
+    function revealQuestion(index) {
+        currentIndex = index;
+        document.getElementById('lockScreen').classList.add('hide');
+        document.getElementById('questionScreen').classList.remove('hide');
+        document.getElementById('subtitle').classList.add('hide');
+        displayQuestion();
+    }
+
+    function displayQuestion() {
         const question = currentQuestions[currentIndex];
         document.getElementById('question').textContent = question.english;
         
@@ -206,14 +262,14 @@
         
         document.getElementById('feedback').textContent = '';
         document.getElementById('checkButton').classList.remove('hide');
-        document.getElementById('nextButton').classList.add('hide');
+        document.getElementById('backButton').classList.add('hide');
         
         updateCounter();
         answerInput.focus();
     }
 
     function updateCounter() {
-        document.getElementById('counter').textContent = `${currentIndex + 1} / ${currentQuestions.length}`;
+        document.getElementById('counter').textContent = `Question ${currentIndex + 1} / ${currentQuestions.length}`;
     }
 
     function checkAnswer() {
@@ -228,7 +284,17 @@
             answerInput.style.backgroundColor = '#d4edda';
             answerInput.disabled = true;
             document.getElementById('checkButton').classList.add('hide');
-            document.getElementById('nextButton').classList.remove('hide');
+            document.getElementById('backButton').classList.remove('hide');
+            
+            lockStates[currentIndex] = true; // Mark lock as unlocked
+
+            // Check if all are unlocked
+            if (lockStates.every(state => state === true)) {
+                document.getElementById('question').textContent = '🎉 All Locks Opened!';
+                document.getElementById('backButton').classList.add('hide');
+                document.getElementById('feedback').classList.add('hide');
+            }
+
         } else {
             feedbackEl.style.color = 'darkorange';
             let correctPrefixLength = 0;
@@ -242,11 +308,6 @@
             const hint = currentQuestions[currentIndex].french.substring(0, correctPrefixLength + 1);
             feedbackEl.textContent = `Hint: ${hint}...`;
         }
-    }
-
-    function nextQuestion() {
-        currentIndex++;
-        displayQuestion();
     }
 
     function generateKeyboard(language) {
@@ -278,13 +339,11 @@
     
     // Event Listeners
     document.getElementById('checkButton').addEventListener('click', checkAnswer);
-    document.getElementById('nextButton').addEventListener('click', nextQuestion);
+    document.getElementById('backButton').addEventListener('click', renderLockScreen);
     document.getElementById('answerInput').addEventListener('keypress', function(event) {
         if (event.key === 'Enter') {
             if (!document.getElementById('checkButton').classList.contains('hide')) {
                 checkAnswer();
-            } else if (!document.getElementById('nextButton').classList.contains('hide')) {
-                nextQuestion();
             }
         }
     });
