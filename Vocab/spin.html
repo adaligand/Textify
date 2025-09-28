@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title> Spinner</title>
+    <title>Vocabulary Spinner</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         body {
@@ -68,10 +68,13 @@
         }
         #selected-term { font-size: 22px; font-weight: bold; margin-bottom: 10px;}
         #answerInput { padding: 8px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; width: 80%; }
-        #feedback { font-weight: bold; min-height: 24px; margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px; }
-        #remove-word-btn {
-            background: transparent; border: none; font-size: 14px; cursor: pointer; color: #dc3545;
+        #feedback { font-weight: bold; min-height: 24px; margin-top: 10px; }
+        #choice-buttons { display: flex; justify-content: center; gap: 15px; margin-top: 10px;}
+        #remove-word-btn, #keep-word-btn {
+            border: 1px solid #ccc; font-size: 14px; cursor: pointer; padding: 5px 10px; border-radius: 5px;
         }
+        #remove-word-btn { background-color: #fdd; }
+        #keep-word-btn { background-color: #dfd; }
         
         .keyboard-controls {
             padding: 15px;
@@ -109,7 +112,10 @@
                 <button id="submitAnswer">Submit</button>
                 <div id="feedback">
                     <span id="feedback-text"></span>
-                    <button id="remove-word-btn" class="hide">❌ Remove</button>
+                    <div id="choice-buttons" class="hide">
+                        <button id="remove-word-btn">❌ Remove</button>
+                        <button id="keep-word-btn">👍 Keep</button>
+                    </div>
                 </div>
             </div>
             <div class="keyboard-controls">
@@ -127,7 +133,6 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     let vocabList = [];
-    // ✅ Updated color array
     const colors = ["#1abc9c", "#16a085", "#2ecc71", "#27ae60", "#3498db", "#2980b9", "#9b59b6", "#8e44ad", "#e74c3c", "#c0392b", "#d35400", "#e67e22", "#f1c40f"];
     let currentRotation = 0;
     let lastSelectedItem = null;
@@ -141,7 +146,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const answerInputEl = document.getElementById('answerInput');
     const submitAnswerBtn = document.getElementById('submitAnswer');
     const feedbackTextEl = document.getElementById('feedback-text');
+    const choiceButtonsEl = document.getElementById('choice-buttons');
     const removeWordBtn = document.getElementById('remove-word-btn');
+    const keepWordBtn = document.getElementById('keep-word-btn');
     const languageSelect = document.getElementById('languageSelect');
 
     const params = new URLSearchParams(window.location.search);
@@ -182,7 +189,6 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.strokeStyle = "#333";
         ctx.lineWidth = 2;
         ctx.font = '14px Arial';
-
         for (let i = 0; i < vocabList.length; i++) {
             const angle = i * arc;
             ctx.fillStyle = colors[i % colors.length];
@@ -206,16 +212,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isSpinning || gameOver) return;
         isSpinning = true;
         qaContainer.classList.add('hide');
-        removeWordBtn.classList.add('hide');
         
         const selectedIndex = Math.floor(Math.random() * vocabList.length);
         lastSelectedItem = vocabList[selectedIndex];
 
-        const arc = 360 / vocabList.length;
-        const targetAngle = (selectedIndex * arc) + (arc / 2);
-        const rotationNeeded = 270 - targetAngle;
-        const extraRotations = (Math.floor(Math.random() * 5) + 5) * 360;
-        const finalRotation = currentRotation - (currentRotation % 360) + extraRotations + rotationNeeded;
+        // ✅ --- New, More Reliable Rotation Logic ---
+        const arcSize = 360 / vocabList.length;
+        // Calculate the angle for the middle of the target segment
+        const targetMiddleAngle = (selectedIndex * arcSize) + (arcSize / 2);
+        // Calculate the final orientation needed to point that segment to the top (270 deg)
+        let finalOrientation = 270 - targetMiddleAngle;
+        
+        // Ensure the wheel always spins forward multiple times
+        let finalRotation = finalOrientation;
+        while (finalRotation <= currentRotation) {
+            finalRotation += 360;
+        }
+        finalRotation += (Math.floor(Math.random() * 4) + 4) * 360; // Add 4-7 full spins
+        // --- End of New Logic ---
         
         canvas.style.transform = `rotate(${finalRotation}deg)`;
         currentRotation = finalRotation;
@@ -228,6 +242,7 @@ document.addEventListener('DOMContentLoaded', () => {
         answerInputEl.dataset.correctAnswer = lastSelectedItem.term;
         answerInputEl.value = '';
         feedbackTextEl.textContent = '';
+        choiceButtonsEl.classList.add('hide');
         qaContainer.classList.remove('hide');
         answerInputEl.focus();
     }
@@ -237,9 +252,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const correctAnswer = answerInputEl.dataset.correctAnswer.toLowerCase();
 
         if (userAnswer === correctAnswer) {
-            feedbackTextEl.textContent = "Correct! 🎉";
+            feedbackTextEl.textContent = "Correct! 🎉 Keep this word or remove it?";
             feedbackTextEl.style.color = "green";
-            removeWordBtn.classList.remove('hide');
+            choiceButtonsEl.classList.remove('hide');
         } else {
             let correctPrefixLength = 0;
             for (let i = 0; i < userAnswer.length; i++) {
@@ -252,10 +267,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const hint = correctAnswer.substring(0, correctPrefixLength + 1);
             feedbackTextEl.textContent = `Hint: ${hint}...`;
             feedbackTextEl.style.color = "orange";
-            removeWordBtn.classList.add('hide');
+            isSpinning = false;
         }
-        
         answerInputEl.value = '';
+    }
+    
+    function continueGame() {
+        qaContainer.classList.add('hide');
         isSpinning = false;
     }
     
@@ -266,10 +284,11 @@ document.addEventListener('DOMContentLoaded', () => {
             vocabList.splice(itemIndex, 1);
         }
         drawSpinner();
-        qaContainer.classList.add('hide');
         lastSelectedItem = null;
-        isSpinning = false;
+        continueGame();
     });
+
+    keepWordBtn.addEventListener('click', continueGame);
 
     function generateKeyboard(language) {
         const keyboardContainer = document.getElementById('keyboardContainer');
