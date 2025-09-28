@@ -26,14 +26,14 @@
         }
         #game-board {
             display: grid;
-            grid-template-columns: repeat(7, 1fr);
-            width: 560px;
-            height: 480px;
+            grid-template-columns: repeat(7, 60px);
+            grid-template-rows: repeat(6, 60px);
             background-color: #007bff;
             border: 10px solid #0056b3;
             border-radius: 10px;
             padding: 10px;
             gap: 10px;
+            margin: 0 auto; /* Center the board */
         }
         .cell {
             width: 60px;
@@ -41,10 +41,11 @@
             background-color: white;
             border-radius: 50%;
             cursor: pointer;
+            transition: background-color 0.3s;
         }
         .cell.red { background-color: #dc3545; }
         .cell.yellow { background-color: #ffc107; }
-        .cell.win { border: 5px solid #28a745; }
+        .cell.win { border: 5px solid #28a745; box-sizing: border-box; }
 
         #game-status {
             font-size: 24px;
@@ -59,191 +60,4 @@
             min-height: 100px;
         }
         #question { font-weight: bold; margin-bottom: 10px; }
-        #answerInput { padding: 8px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; }
-        button {
-            margin-top: 10px;
-            padding: 8px 15px;
-            font-size: 16px;
-            border-radius: 5px;
-            cursor: pointer;
-            border: 1px solid #ccc;
-        }
-        .hide { display: none; }
-    </style>
-</head>
-<body>
-
-<div class="game-wrapper">
-    <h1>Vocabulary Connect 4</h1>
-    <div id="game-board"></div>
-    <div id="game-status">Player 1's Turn (Red)</div>
-    <div id="qa-container" class="hide">
-        <div id="question"></div>
-        <input type="text" id="answerInput" placeholder="Type translation...">
-        <button id="submitAnswer">Submit</button>
-    </div>
-    <button id="restart" class="hide">Play Again</button>
-</div>
-
-<script>
-    const BOARD_ROWS = 6;
-    const BOARD_COLS = 7;
-    let board = [];
-    let currentPlayer = 'red';
-    let gameOver = false;
-    let vocabList = [];
-    let shuffledVocab = [];
-    let activeColumn = null;
-
-    const boardEl = document.getElementById('game-board');
-    const statusEl = document.getElementById('game-status');
-    const qaContainerEl = document.getElementById('qa-container');
-    const questionEl = document.getElementById('question');
-    const answerInputEl = document.getElementById('answerInput');
-    const submitAnswerBtn = document.getElementById('submitAnswer');
-    const restartBtn = document.getElementById('restart');
-
-    // --- Data Loading ---
-    const params = new URLSearchParams(window.location.search);
-    const sheetUrl = params.get('sheet');
-    if (!sheetUrl) {
-        document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
-    } else {
-        Papa.parse(sheetUrl, {
-            download: true,
-            header: false,
-            skipEmptyLines: true,
-            complete: (results) => {
-                results.data.forEach((row, index) => {
-                    if (index > 0 && row[1] && row[2]) {
-                        vocabList.push({ term: row[1].trim(), translation: row[2].trim() });
-                    }
-                });
-                if (vocabList.length < 1) {
-                    document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ Not enough data in spreadsheet.</h1>";
-                    return;
-                }
-                initializeGame();
-            }
-        });
-    }
-
-    function shuffleVocab() {
-        shuffledVocab = [...vocabList].sort(() => Math.random() - 0.5);
-    }
-
-    function getQuestion() {
-        if (shuffledVocab.length === 0) shuffleVocab();
-        return shuffledVocab.pop();
-    }
-
-    function createBoard() {
-        board = Array(BOARD_ROWS).fill(null).map(() => Array(BOARD_COLS).fill(null));
-        boardEl.innerHTML = '';
-        for (let r = 0; r < BOARD_ROWS; r++) {
-            for (let c = 0; c < BOARD_COLS; c++) {
-                const cell = document.createElement('div');
-                cell.classList.add('cell');
-                cell.dataset.row = r;
-                cell.dataset.col = c;
-                boardEl.appendChild(cell);
-            }
-        }
-    }
-
-    function initializeGame() {
-        gameOver = false;
-        currentPlayer = 'red';
-        shuffleVocab();
-        createBoard();
-        statusEl.textContent = "Player 1's Turn (Red)";
-        statusEl.style.color = '#dc3545';
-        restartBtn.classList.add('hide');
-        qaContainerEl.classList.add('hide');
-    }
-
-    boardEl.addEventListener('click', (e) => {
-        if (gameOver || !e.target.classList.contains('cell')) return;
-        
-        activeColumn = parseInt(e.target.dataset.col);
-        const question = getQuestion();
-        
-        qaContainerEl.classList.remove('hide');
-        questionEl.textContent = `Translate: "${question.translation}"`;
-        answerInputEl.value = '';
-        answerInputEl.dataset.correctAnswer = question.term;
-        answerInputEl.focus();
-    });
-
-    submitAnswerBtn.addEventListener('click', () => {
-        const userAnswer = answerInputEl.value.trim().toLowerCase();
-        const correctAnswer = answerInputEl.dataset.correctAnswer.toLowerCase();
-
-        if (userAnswer === correctAnswer) {
-            dropPiece(activeColumn);
-        } else {
-            alert('Incorrect. You lose your turn.');
-            switchPlayer();
-        }
-        qaContainerEl.classList.add('hide');
-    });
-    
-    answerInputEl.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') submitAnswerBtn.click();
-    });
-
-    function dropPiece(col) {
-        for (let r = BOARD_ROWS - 1; r >= 0; r--) {
-            if (!board[r][col]) {
-                board[r][col] = currentPlayer;
-                const cell = document.querySelector(`.cell[data-row='${r}'][data-col='${col}']`);
-                cell.classList.add(currentPlayer);
-
-                if (checkForWin()) {
-                    statusEl.textContent = `${currentPlayer.toUpperCase()} WINS!`;
-                    gameOver = true;
-                    restartBtn.classList.remove('hide');
-                } else if (board.flat().every(cell => cell)) {
-                    statusEl.textContent = "It's a Draw!";
-                    gameOver = true;
-                    restartBtn.classList.remove('hide');
-                } else {
-                    switchPlayer();
-                }
-                return;
-            }
-        }
-    }
-
-    function switchPlayer() {
-        currentPlayer = (currentPlayer === 'red') ? 'yellow' : 'red';
-        const playerName = (currentPlayer === 'red') ? 'Player 1 (Red)' : 'Player 2 (Yellow)';
-        statusEl.textContent = `${playerName}'s Turn`;
-        statusEl.style.color = (currentPlayer === 'red') ? '#dc3545' : '#ffc107';
-    }
-
-    function checkForWin() {
-        const directions = [
-            { r: 0, c: 1 }, // Horizontal
-            { r: 1, c: 0 }, // Vertical
-            { r: 1, c: 1 }, // Diagonal down-right
-            { r: 1, c: -1 } // Diagonal down-left
-        ];
-
-        for (let r = 0; r < BOARD_ROWS; r++) {
-            for (let c = 0; c < BOARD_COLS; c++) {
-                if (!board[r][c]) continue;
-
-                for (const dir of directions) {
-                    const line = [{r, c}];
-                    for (let i = 1; i < 4; i++) {
-                        const nextR = r + i * dir.r;
-                        const nextC = c + i * dir.c;
-                        if (nextR >= 0 && nextR < BOARD_ROWS && nextC >= 0 && nextC < BOARD_COLS && board[nextR][nextC] === currentPlayer) {
-                            line.push({r: nextR, c: nextC});
-                        } else {
-                            break;
-                        }
-                    }
-                    if (line.length === 4) {
-                        line.forEach(pos => document.querySelector(`.cell[data-row='${pos.r}'][data
+        #
