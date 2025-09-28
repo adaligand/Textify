@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spinner</title>
+    <title>Vocabulary Spinner</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         body {
@@ -24,7 +24,6 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             text-align: center;
         }
-        /* ✅ New layout containers */
         .game-content {
             display: flex;
             align-items: center;
@@ -45,6 +44,7 @@
             width: 100%;
             height: 100%;
             transition: transform 5s cubic-bezier(0.25, 1, 0.5, 1);
+            cursor: pointer; /* ✅ Make the wheel look clickable */
         }
         #spinner-pointer {
             position: absolute;
@@ -57,20 +57,6 @@
             border-right: 20px solid transparent;
             border-top: 30px solid #dc3545;
             z-index: 10;
-        }
-        #spin-button {
-            padding: 10px 30px;
-            font-size: 20px;
-            font-weight: bold;
-            border-radius: 10px;
-            cursor: pointer;
-            border: 2px solid #6c757d;
-            background-color: #f8f9fa;
-            margin-top: 20px;
-        }
-        #spin-button:disabled {
-            cursor: not-allowed;
-            opacity: 0.6;
         }
         .hide { display: none; }
 
@@ -136,8 +122,7 @@
             </div>
         </div>
     </div>
-    <button id="spin-button">SPIN</button>
-</div>
+    </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -145,10 +130,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const colors = ["#89CFF0", "#F0E68C", "#98FB98", "#FFB6C1", "#DDA0DD", "#B0E0E6"];
     let currentRotation = 0;
     let lastSelectedItem = null;
+    let isSpinning = false; // ✅ State to prevent clicking while spinning
+    let gameOver = false;
 
     const canvas = document.getElementById('spinner-canvas');
     const ctx = canvas.getContext('2d');
-    const spinBtn = document.getElementById('spin-button');
     const qaContainer = document.getElementById('qa-container');
     const selectedTermEl = document.getElementById('selected-term');
     const answerInputEl = document.getElementById('answerInput');
@@ -185,7 +171,8 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.textAlign = "center";
             ctx.font = "20px Arial";
             ctx.fillText("All words answered!", 200, 200);
-            spinBtn.disabled = true;
+            gameOver = true;
+            canvas.style.cursor = 'default';
             return;
         }
         const arc = (2 * Math.PI) / vocabList.length;
@@ -207,16 +194,17 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.save();
             ctx.fillStyle = "#000";
             ctx.translate(200, 200);
-            ctx.rotate(angle + arc / 2); // ✅ Rotate to the middle of the slice
+            ctx.rotate(angle + arc / 2);
             ctx.textAlign = "right";
             const text = vocabList[i].term;
-            ctx.fillText(text, 180, 5); // ✅ Draw text sideways
+            ctx.fillText(text, 180, 5);
             ctx.restore();
         }
     }
 
     function spin() {
-        spinBtn.disabled = true;
+        if (isSpinning || gameOver) return; // Prevent spin if already spinning or game over
+        isSpinning = true;
         qaContainer.classList.add('hide');
         removeWordBtn.classList.add('hide');
         
@@ -224,23 +212,24 @@ document.addEventListener('DOMContentLoaded', () => {
         lastSelectedItem = vocabList[selectedIndex];
 
         const arc = 360 / vocabList.length;
-        const targetAngle = (selectedIndex * arc) + (arc / 2); // Middle of the target slice
-        const rotationNeeded = 270 - targetAngle; // Align target slice with the top pointer
+        const targetAngle = (selectedIndex * arc) + (arc / 2);
+        const rotationNeeded = 270 - targetAngle;
         const extraRotations = (Math.floor(Math.random() * 5) + 5) * 360;
         const finalRotation = currentRotation + extraRotations + rotationNeeded;
         
         canvas.style.transform = `rotate(${finalRotation}deg)`;
         currentRotation = finalRotation;
-
-        canvas.addEventListener('transitionend', () => {
-            selectedTermEl.textContent = `Translate: "${lastSelectedItem.term}"`;
-            answerInputEl.dataset.correctAnswer = lastSelectedItem.translation;
-            answerInputEl.value = '';
-            feedbackTextEl.textContent = '';
-            qaContainer.classList.remove('hide');
-            answerInputEl.focus();
-        }, { once: true });
     }
+
+    canvas.addEventListener('transitionend', () => {
+        selectedTermEl.textContent = `Translate: "${lastSelectedItem.term}"`;
+        answerInputEl.dataset.correctAnswer = lastSelectedItem.translation;
+        answerInputEl.value = '';
+        feedbackTextEl.textContent = '';
+        qaContainer.classList.remove('hide');
+        answerInputEl.focus();
+        isSpinning = false; // Allow another spin after the question is answered
+    }, { once: true });
 
     function handleAnswer() {
         const userAnswer = answerInputEl.value.trim().toLowerCase();
@@ -256,7 +245,6 @@ document.addEventListener('DOMContentLoaded', () => {
             removeWordBtn.classList.add('hide');
         }
         
-        spinBtn.disabled = (vocabList.length <= 1);
         answerInputEl.value = '';
     }
     
@@ -269,11 +257,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         drawSpinner();
-        feedbackTextEl.textContent = `"${lastSelectedItem.term}" removed!`;
-        feedbackTextEl.style.color = 'blue';
-        removeWordBtn.classList.add('hide');
+        qaContainer.classList.add('hide'); // ✅ Hide question box after removing
         lastSelectedItem = null;
-        spinBtn.disabled = (vocabList.length === 0);
     });
 
     function generateKeyboard(language) {
@@ -302,7 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
         answerInputEl.focus();
     }
 
-    spinBtn.addEventListener('click', spin);
+    canvas.addEventListener('click', spin); // ✅ Spin by clicking the canvas
     submitAnswerBtn.addEventListener('click', handleAnswer);
     answerInputEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleAnswer(); });
     languageSelect.addEventListener('change', (e) => generateKeyboard(e.target.value));
