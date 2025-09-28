@@ -63,7 +63,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            width: 630px;
+            width: 100%;
             margin-bottom: 20px;
         }
         .header-button {
@@ -86,6 +86,13 @@
         }
         .player-panel h3 { margin: 0; }
         .player-panel .score { font-size: 32px; font-weight: bold; margin: 5px 0; }
+
+        /* ✅ New container for board + status */
+        .game-body {
+            display: flex;
+            align-items: center;
+            gap: 30px;
+        }
 
         #game-board-container {
             position: relative;
@@ -119,30 +126,25 @@
         }
         .piece.red { background-color: var(--red-player); }
         .piece.yellow { background-color: var(--yellow-player); }
-        .piece.win {
-            animation: pulse 1s infinite;
+        .piece.win { animation: pulse 1s infinite; }
+        
+        /* ✅ Updated Status Box Styles */
+        #game-status {
+            background-color: white;
+            padding: 15px 25px;
+            border-radius: 15px;
+            border: 2px solid black;
+            box-shadow: 0 4px 0 black;
+            font-weight: bold;
+            width: 160px;
         }
+        #turn-indicator { font-size: 18px; margin-bottom: 10px;}
+        #timer { font-size: 48px; }
+        
         @keyframes pulse {
             0% { transform: scale(1); }
             50% { transform: scale(1.1); }
             100% { transform: scale(1); }
-        }
-        #game-status {
-            margin-top: -30px;
-            background-color: white;
-            padding: 10px 30px;
-            border-radius: 15px;
-            border: 2px solid black;
-            box-shadow: 0 4px 0 black;
-            font-size: 18px;
-            font-weight: bold;
-        }
-        .winner-panel {
-            background-color: white;
-            padding: 10px 30px;
-            border-radius: 15px;
-            border: 2px solid black;
-            box-shadow: 0 4px 0 black;
         }
 
         #qa-modal {
@@ -175,10 +177,15 @@
         </div>
         <button class="header-button" id="restart-btn">RESTART</button>
     </div>
-    <div id="game-board-container">
-        <div id="game-board"></div>
+    <div class="game-body">
+        <div id="game-board-container">
+            <div id="game-board"></div>
+        </div>
+        <div id="game-status">
+            <div id="turn-indicator">PLAYER 1'S TURN</div>
+            <div id="timer">30s</div>
+        </div>
     </div>
-    <div id="game-status"></div>
 </div>
 
 <div id="qa-modal" class="hide">
@@ -201,11 +208,17 @@ document.addEventListener('DOMContentLoaded', () => {
     let gameOver = false;
     let vocabList = [], shuffledVocab = [];
     let activeColumn = null;
+    
+    // ✅ Timer variables
+    let timerId = null;
+    let timeLeft = 30;
 
     const mainMenuEl = document.getElementById('main-menu');
     const gameAreaEl = document.getElementById('game-area');
     const boardEl = document.getElementById('game-board');
     const statusEl = document.getElementById('game-status');
+    const turnIndicatorEl = document.getElementById('turn-indicator');
+    const timerEl = document.getElementById('timer');
     const p1ScoreEl = document.getElementById('score1');
     const p2ScoreEl = document.getElementById('score2');
     const qaModalEl = document.getElementById('qa-modal');
@@ -216,10 +229,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
 
-    if (!sheetUrl) {
-        mainMenuEl.innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
-        return;
-    }
+    if (!sheetUrl) { mainMenuEl.innerHTML = "<h1>⚠️ No sheet URL provided.</h1>"; return; }
 
     Papa.parse(sheetUrl, {
         download: true, header: false, skipEmptyLines: true,
@@ -289,6 +299,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleAnswer() {
+        resetTimer();
         const userAnswer = answerInputEl.value.trim().toLowerCase();
         const correctAnswer = answerInputEl.dataset.correctAnswer.toLowerCase();
         qaModalEl.classList.add('hide');
@@ -308,27 +319,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (gameOver) return;
         let row = -1;
         for (let r = BOARD_ROWS - 1; r >= 0; r--) {
-            if (!board[r][col]) {
-                row = r;
-                break;
-            }
+            if (!board[r][col]) { row = r; break; }
         }
         if (row === -1) return;
-
         board[row][col] = currentPlayer;
         
         const piece = document.createElement('div');
         piece.className = `piece ${currentPlayer === 1 ? 'red' : 'yellow'}`;
-        
-        // ✅ Position piece absolutely relative to the board
-        piece.style.left = `${10 + col * 90}px`; // 10px padding + col * (80px cell + 10px gap)
+        piece.style.left = `${10 + col * 90}px`;
         piece.style.top = `-80px`;
         boardEl.appendChild(piece);
-
-        setTimeout(() => {
-            // ✅ Animate to final top position
-            piece.style.top = `${10 + row * 90}px`;
-        }, 50);
+        setTimeout(() => { piece.style.top = `${10 + row * 90}px`; }, 50);
 
         setTimeout(() => {
             if (checkForWin(row, col)) {
@@ -336,9 +337,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusEl.innerHTML = `<div class="winner-panel">PLAYER ${currentPlayer} WINS!</div>`;
                 scores[currentPlayer]++;
                 updateScores();
+                resetTimer();
             } else if (board.flat().every(cell => cell)) {
                 gameOver = true;
                 statusEl.innerHTML = `<div class="winner-panel">IT'S A DRAW!</div>`;
+                resetTimer();
             } else {
                 switchPlayer();
             }
@@ -360,6 +363,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function cpuMove() {
+        resetTimer();
         let move = -1;
         for(let c = 0; c < BOARD_COLS; c++) { if(isWinningMove(c, 2)) { move = c; break; } }
         if(move === -1) { for(let c = 0; c < BOARD_COLS; c++) { if(isWinningMove(c, 1)) { move = c; break; } } }
@@ -386,7 +390,28 @@ document.addEventListener('DOMContentLoaded', () => {
         if (gameOver) return;
         let playerText = `PLAYER ${currentPlayer}`;
         if (gameMode === 'pvc' && currentPlayer === 2) playerText = 'CPU';
-        statusEl.innerHTML = `<div>${playerText}'S TURN</div>`;
+        turnIndicatorEl.textContent = `${playerText}'S TURN`;
+        startTimer();
+    }
+
+    // ✅ Timer Functions
+    function startTimer() {
+        resetTimer();
+        timeLeft = 30;
+        timerEl.textContent = `${timeLeft}s`;
+        timerId = setInterval(() => {
+            timeLeft--;
+            timerEl.textContent = `${timeLeft}s`;
+            if (timeLeft === 0) {
+                clearInterval(timerId);
+                alert("Time's up! You lose your turn.");
+                qaModalEl.classList.add('hide'); // Hide question if it was open
+                switchPlayer();
+            }
+        }, 1000);
+    }
+    function resetTimer() {
+        clearInterval(timerId);
     }
 
     function checkForWin(r, c) {
@@ -414,6 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('menu-btn').addEventListener('click', () => {
         gameAreaEl.classList.add('hide');
         mainMenuEl.classList.remove('hide');
+        resetTimer();
     });
 });
 </script>
