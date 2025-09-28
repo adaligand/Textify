@@ -68,10 +68,13 @@
         }
         #selected-term { font-size: 22px; font-weight: bold; margin-bottom: 10px;}
         #answerInput { padding: 8px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; width: 80%; }
-        #feedback { font-weight: bold; min-height: 24px; margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px; }
-        #remove-word-btn {
-            background: transparent; border: none; font-size: 14px; cursor: pointer; color: #dc3545;
+        #feedback { font-weight: bold; min-height: 24px; margin-top: 10px; }
+        #choice-buttons { display: flex; justify-content: center; gap: 15px; margin-top: 10px;}
+        #remove-word-btn, #keep-word-btn {
+            border: 1px solid #ccc; font-size: 14px; cursor: pointer; padding: 5px 10px; border-radius: 5px;
         }
+        #remove-word-btn { background-color: #fdd; }
+        #keep-word-btn { background-color: #dfd; }
         
         .keyboard-controls {
             padding: 15px;
@@ -109,7 +112,10 @@
                 <button id="submitAnswer">Submit</button>
                 <div id="feedback">
                     <span id="feedback-text"></span>
-                    <button id="remove-word-btn" class="hide">❌ Remove</button>
+                    <div id="choice-buttons" class="hide">
+                        <button id="remove-word-btn">❌ Remove</button>
+                        <button id="keep-word-btn">👍 Keep</button>
+                    </div>
                 </div>
             </div>
             <div class="keyboard-controls">
@@ -140,7 +146,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const answerInputEl = document.getElementById('answerInput');
     const submitAnswerBtn = document.getElementById('submitAnswer');
     const feedbackTextEl = document.getElementById('feedback-text');
+    const choiceButtonsEl = document.getElementById('choice-buttons');
     const removeWordBtn = document.getElementById('remove-word-btn');
+    const keepWordBtn = document.getElementById('keep-word-btn');
     const languageSelect = document.getElementById('languageSelect');
 
     const params = new URLSearchParams(window.location.search);
@@ -162,7 +170,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             drawSpinner();
             generateKeyboard('french');
-            promptToSpin();
         }
     });
 
@@ -174,6 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fillText("All words answered!", 200, 200);
             gameOver = true;
             canvas.style.cursor = 'default';
+            qaContainer.classList.add('hide');
             return;
         }
         const arc = (2 * Math.PI) / vocabList.length;
@@ -181,7 +189,6 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.strokeStyle = "#333";
         ctx.lineWidth = 2;
         ctx.font = '14px Arial';
-
         for (let i = 0; i < vocabList.length; i++) {
             const angle = i * arc;
             ctx.fillStyle = colors[i % colors.length];
@@ -205,7 +212,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isSpinning || gameOver) return;
         isSpinning = true;
         qaContainer.classList.add('hide');
-        removeWordBtn.classList.add('hide');
         
         const selectedIndex = Math.floor(Math.random() * vocabList.length);
         lastSelectedItem = vocabList[selectedIndex];
@@ -214,25 +220,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetAngle = (selectedIndex * arc) + (arc / 2);
         const rotationNeeded = 270 - targetAngle;
         const extraRotations = (Math.floor(Math.random() * 5) + 5) * 360;
-        const finalRotation = currentRotation + extraRotations + rotationNeeded;
+        const finalRotation = currentRotation - (currentRotation % 360) + extraRotations + rotationNeeded;
         
         canvas.style.transform = `rotate(${finalRotation}deg)`;
         currentRotation = finalRotation;
         
-        // ✅ Bug Fix: Add event listener for THIS spin only.
-        canvas.addEventListener('transitionend', onSpinEnd, { once: true });
+        setTimeout(onSpinEnd, 5000);
     }
 
     function onSpinEnd() {
-        if (!isSpinning) return;
-        
         selectedTermEl.textContent = `Term for: "${lastSelectedItem.translation}"`;
         answerInputEl.dataset.correctAnswer = lastSelectedItem.term;
         answerInputEl.value = '';
         feedbackTextEl.textContent = '';
+        choiceButtonsEl.classList.add('hide');
         qaContainer.classList.remove('hide');
         answerInputEl.focus();
-        // Do not set isSpinning to false here, wait for answer
     }
 
     function handleAnswer() {
@@ -240,9 +243,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const correctAnswer = answerInputEl.dataset.correctAnswer.toLowerCase();
 
         if (userAnswer === correctAnswer) {
-            feedbackTextEl.textContent = "Correct! 🎉";
+            feedbackTextEl.textContent = "Correct! 🎉 Keep this word or remove it?";
             feedbackTextEl.style.color = "green";
-            removeWordBtn.classList.remove('hide');
+            choiceButtonsEl.classList.remove('hide'); // ✅ Show Keep/Remove buttons
         } else {
             let correctPrefixLength = 0;
             for (let i = 0; i < userAnswer.length; i++) {
@@ -255,37 +258,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const hint = correctAnswer.substring(0, correctPrefixLength + 1);
             feedbackTextEl.textContent = `Hint: ${hint}...`;
             feedbackTextEl.style.color = "orange";
-            removeWordBtn.classList.add('hide');
+            isSpinning = false; // Allow user to try again or spin
         }
-        
         answerInputEl.value = '';
-        promptToSpin(2000);
     }
     
-    function promptToSpin(delay = 0) {
-        setTimeout(() => {
-            qaContainer.classList.add('hide');
-            feedbackTextEl.textContent = "Click the wheel to spin!";
-            feedbackTextEl.style.color = "gray";
-            isSpinning = false; // ✅ Allow spinning again only after answering
-        }, delay);
+    // ✅ New function to continue the game after a choice
+    function continueGame() {
+        qaContainer.classList.add('hide');
+        isSpinning = false; // Allow the next spin
     }
     
     removeWordBtn.addEventListener('click', () => {
         if (!lastSelectedItem) return;
-
         const itemIndex = vocabList.findIndex(item => item.term === lastSelectedItem.term && item.translation === lastSelectedItem.translation);
         if (itemIndex > -1) {
             vocabList.splice(itemIndex, 1);
         }
-
         drawSpinner();
-        feedbackTextEl.textContent = `"${lastSelectedItem.translation}" removed!`;
-        feedbackTextEl.style.color = 'blue';
         lastSelectedItem = null;
-        removeWordBtn.classList.add('hide');
-        promptToSpin(2000);
+        continueGame();
     });
+
+    keepWordBtn.addEventListener('click', continueGame);
 
     function generateKeyboard(language) {
         const keyboardContainer = document.getElementById('keyboardContainer');
