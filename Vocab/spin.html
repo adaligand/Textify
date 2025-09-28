@@ -26,7 +26,7 @@
     }
     .game-content {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 40px;
     }
     .right-panel {
@@ -110,31 +110,36 @@
 <div class="game-wrapper">
   <h1>Vocabulary Spinner</h1>
   
-  <div id="mode-select">
-    <p>Select Game Mode:</p>
-    <button id="one-player-btn">1 Player</button>
-    <button id="two-player-btn">2 Players</button>
-  </div>
-  
-  <div id="scoreboard" class="hide">
-    <div class="score-display" id="p1-score">Player 1 Score: <span>0</span></div>
-    <div class="score-display hide" id="p2-score">Player 2 Score: <span>0</span></div>
-    <div id="turn-indicator" class="hide">Current Turn: Player 1</div>
-  </div>
-  
   <div class="game-content">
     <div id="spinner-container">
       <div id="spinner-pointer"></div>
       <canvas id="spinner-canvas" width="400" height="400"></canvas>
     </div>
     <div class="right-panel">
+      <div id="mode-select">
+        <p>Select Game Mode:</p>
+        <button id="one-player-btn">1 Player</button>
+        <button id="two-player-btn">2 Players</button>
+      </div>
+      
+      <div id="scoreboard" class="hide">
+        <div class="score-display" id="p1-score">Player 1 Score: <span>0</span></div>
+        <div class="score-display hide" id="p2-score">Player 2 Score: <span>0</span></div>
+        <div id="turn-indicator" class="hide">Current Turn: Player 1</div>
+      </div>
+      
       <div id="prompt-container" class="hide">Click the wheel to spin!</div>
       <div id="qa-container" class="hide">
         <div id="selected-term"></div>
         <input type="text" id="answerInput" placeholder="Type term...">
         <button id="submitAnswer">Submit</button>
         <div id="feedback"><span id="feedback-text"></span></div>
+        <div id="choice-buttons" class="hide">
+          <button id="remove-word-btn">Remove</button>
+          <button id="keep-word-btn">Keep</button>
+        </div>
       </div>
+      
       <div class="keyboard-controls hide">
         <select id="languageSelect">
           <option value="french" selected>French</option>
@@ -151,13 +156,8 @@
 document.addEventListener('DOMContentLoaded', () => {
   let vocabList = [];
   const colors = ["#1abc9c","#16a085","#2ecc71","#27ae60","#3498db","#2980b9","#9b59b6","#8e44ad","#e74c3c","#c0392b","#d35400","#e67e22","#f1c40f"];
-  let currentRotation = 0;
-  let lastSelectedItem = null;
-  let isSpinning = false;
-  let gameOver = false;
-  let gameMode = null;
-  let currentPlayer = 1;
-  let scores = {1:0,2:0};
+  let currentRotation = 0, lastSelectedItem = null, isSpinning = false, gameOver = false;
+  let gameMode = null, currentPlayer = 1, scores = {1:0,2:0};
 
   const canvas = document.getElementById('spinner-canvas');
   const ctx = canvas.getContext('2d');
@@ -167,6 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const answerInputEl = document.getElementById('answerInput');
   const submitAnswerBtn = document.getElementById('submitAnswer');
   const feedbackTextEl = document.getElementById('feedback-text');
+  const choiceButtons = document.getElementById('choice-buttons');
   const languageSelect = document.getElementById('languageSelect');
   const keyboardControls = document.querySelector('.keyboard-controls');
   const modeSelect = document.getElementById('mode-select');
@@ -193,9 +194,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function setUIState(state) {
-    if (state==='prompt'){ promptContainer.classList.remove('hide'); qaContainer.classList.add('hide'); keyboardControls.classList.add('hide');}
-    else if (state==='question'){ promptContainer.classList.add('hide'); qaContainer.classList.remove('hide'); keyboardControls.classList.remove('hide');}
-    else if (state==='spinning'){ promptContainer.classList.add('hide'); qaContainer.classList.add('hide'); keyboardControls.classList.add('hide');}
+    if (state==='prompt'){ promptContainer.classList.remove('hide'); qaContainer.classList.add('hide'); keyboardControls.classList.add('hide'); choiceButtons.classList.add('hide'); }
+    else if (state==='question'){ promptContainer.classList.add('hide'); qaContainer.classList.remove('hide'); keyboardControls.classList.remove('hide'); }
+    else if (state==='spinning'){ promptContainer.classList.add('hide'); qaContainer.classList.add('hide'); keyboardControls.classList.add('hide'); }
   }
 
   function drawSpinner() {
@@ -235,12 +236,9 @@ document.addEventListener('DOMContentLoaded', () => {
     qaContainer.classList.add('feedback-mode');
     if(userAnswer===correctAnswer){
       scores[currentPlayer]++; updateScoreDisplay();
-      feedbackTextEl.textContent="✅ Correct!";
-      feedbackTextEl.style.color="green";
+      feedbackTextEl.textContent="✅ Correct!"; feedbackTextEl.style.color="green";
       if(gameMode==="2p"){ setTimeout(()=>{switchTurn(); continueGame();},1500); }
-      else { // 1p mode: show keep/remove buttons
-        document.getElementById('choice-buttons').classList.remove('hide');
-      }
+      else { choiceButtons.classList.remove('hide'); }
     } else {
       if(gameMode==="1p"){
         let correctPrefixLength=0;
@@ -257,7 +255,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function continueGame(){ setUIState('prompt'); isSpinning=false; }
 
-  // keep/remove only visible in 1P mode
   document.getElementById('remove-word-btn').addEventListener('click',()=>{ if(!lastSelectedItem)return;
     const idx=vocabList.findIndex(item=>item.term===lastSelectedItem.term&&item.translation===lastSelectedItem.translation);
     if(idx>-1) vocabList.splice(idx,1); drawSpinner(); lastSelectedItem=null; continueGame(); });
@@ -279,13 +276,8 @@ document.addEventListener('DOMContentLoaded', () => {
   answerInputEl.addEventListener('keypress',(e)=>{if(e.key==='Enter') handleAnswer();});
   languageSelect.addEventListener('change',(e)=>generateKeyboard(e.target.value));
 
-  document.getElementById('one-player-btn').addEventListener('click',()=>{
-    gameMode="1p"; modeSelect.classList.add('hide'); scoreboard.classList.remove('hide'); setUIState('prompt');
-  });
-  document.getElementById('two-player-btn').addEventListener('click',()=>{
-    gameMode="2p"; modeSelect.classList.add('hide'); scoreboard.classList.remove('hide');
-    p2ScoreContainer.classList.remove('hide'); turnIndicator.classList.remove('hide'); setUIState('prompt');
-  });
+  document.getElementById('one-player-btn').addEventListener('click',()=>{ gameMode="1p"; modeSelect.classList.add('hide'); scoreboard.classList.remove('hide'); setUIState('prompt'); });
+  document.getElementById('two-player-btn').addEventListener('click',()=>{ gameMode="2p"; modeSelect.classList.add('hide'); scoreboard.classList.remove('hide'); p2ScoreContainer.classList.remove('hide'); turnIndicator.classList.remove('hide'); setUIState('prompt'); });
 });
 </script>
 </body>
