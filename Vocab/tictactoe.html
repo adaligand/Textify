@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tic Tac Toe</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+        box-sizing: border-box;
+    }
+    
+    .game-wrapper {
+        background-color: white;
+        padding: 20px 40px;
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        text-align: center;
+    }
+
+    #container { display: flex; justify-content: center; align-items: flex-start; gap: 20px; }
+    #grid { display: grid; gap: 10px; }
+    .cell { 
+        position: relative; 
+        width: 150px;  
+        height: 150px;  
+        border: 1px solid #999; 
+        border-radius: 10px; 
+        cursor: pointer; 
+        background-color: #fafafa;
+    }
+    /* ✅ New style for text inside the cells */
+    .cell-text {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 18px;
+        font-weight: bold;
+        padding: 5px;
+        box-sizing: border-box;
+        color: #333;
+    }
+    .overlay { 
+        position: absolute; 
+        top:0; left:0; 
+        width:100%; height:100%; 
+        background-color: rgba(255,0,0,0.4); 
+        opacity:0; 
+        border-radius:10px; 
+        transition: opacity 0.3s; 
+        pointer-events: none; 
+    }
+    .mark {
+        position:absolute;
+        top:0; left:0;
+        width:100%; height:100%;
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        font-size:120px;
+        font-weight:bold;
+        color:rgba(249, 249, 8, 0.871); 
+        pointer-events:none;
+        user-select:none;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    }
+    #words { display:flex; flex-direction: column; gap:10px; }
+    .word { 
+        padding: 10px; 
+        border:1px solid #ccc; 
+        border-radius:5px; 
+        cursor: grab; 
+        background-color:#f0f0f0; 
+        user-select:none; 
+        width: 180px;
+        font-size: 16px;
+        text-align: center;
+        box-sizing: border-box;
+    }
+    #turn { margin-top:20px; font-size:20px; font-weight:bold; }
+    #restart { 
+        margin-top:15px; 
+        padding:8px 15px; 
+        font-size:16px; 
+        border:1px solid #ccc; 
+        border-radius:5px; 
+        background-color:#f0f0f0; 
+        cursor:pointer; 
+        display:none;
+    }
+</style>
+</head>
+<body>
+
+<div class="game-wrapper">
+    <h1>Tic Tac Toe</h1>
+    <div id="container">
+        <div id="grid"></div>
+        <div id="words"></div>
+    </div>
+    <div id="turn">Turn: X</div>
+    <button id="restart">Restart Game</button>
+</div>
+
+<script>
+let allItemPairs = [];
+let turn = 'X';
+let gameOver = false;
+const grid = document.getElementById('grid');
+const wordsDiv = document.getElementById('words');
+const turnDiv = document.getElementById('turn');
+const restartBtn = document.getElementById('restart');
+const containerDiv = document.getElementById('container');
+
+const params = new URLSearchParams(window.location.search);
+const sheetUrl = params.get('sheet');
+
+if (!sheetUrl) {
+    document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
+} else {
+    Papa.parse(sheetUrl, {
+        download: true,
+        header: false,
+        skipEmptyLines: true,
+        complete: function(results) {
+            results.data.forEach((row, index) => {
+                if (index === 0) return; // Skip header row
+                
+                // ✅ Load vocab from Column B (index 1) and Column C (index 2)
+                if (row[1] && row[2]) {
+                    allItemPairs.push({ 
+                        term: row[1].trim(),        // Column B
+                        translation: row[2].trim()  // Column C
+                    });
+                }
+            });
+
+            if (allItemPairs.length < 9) {
+                document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ Not enough data. The game requires at least 9 rows with text in columns B and C.</h1>";
+                return;
+            }
+
+            generateGame();
+        },
+        error: function(err) {
+            console.error(err);
+            document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ Error loading CSV file.</h1>";
+        }
+    });
+}
+
+function shuffle(array){
+    for(let i=array.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [array[i],array[j]]=[array[j],array[i]];
+    }
+    return array;
+}
+
+function checkWinner(){
+    const cells = [...document.querySelectorAll('.cell .mark')].map(m=>m.textContent);
+    const winPatterns = [
+        [0,1,2],[3,4,5],[6,7,8], // rows
+        [0,3,6],[1,4,7],[2,5,8], // cols
+        [0,4,8],[2,4,6]      // diagonals
+    ];
+    for(const pattern of winPatterns){
+        const [a,b,c] = pattern;
+        if(cells[a] && cells[a]===cells[b] && cells[a]===cells[c]){
+            turnDiv.textContent = cells[a] + " wins!";
+            gameOver = true;
+            restartBtn.style.display = "inline-block";
+            return true;
+        }
+    }
+    if(cells.every(c=>c)){ // draw
+        turnDiv.textContent = "It's a draw!";
+        gameOver = true;
+        restartBtn.style.display = "inline-block";
+    }
+    return false;
+}
+
+function generateGame(){
+    grid.innerHTML = '';
+    wordsDiv.innerHTML = '';
+    turn = 'X';
+    gameOver = false;
+    restartBtn.style.display = "none";
+    turnDiv.textContent = "Turn: X";
+
+    let selected = shuffle([...allItemPairs]).slice(0,9);
+
+    const columns = 3;
+    grid.style.gridTemplateColumns = `repeat(${columns}, 150px)`;
+
+    selected.forEach(pair=>{
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        // ✅ The correct answer to be dragged is the term (from Column B)
+        cell.dataset.correctTerm = pair.term;
+
+        // ✅ Display the translation (from Column C) inside the cell
+        const cellText = document.createElement('div');
+        cellText.className = 'cell-text';
+        cellText.textContent = pair.translation;
+        cell.appendChild(cellText);
+
+        const overlay = document.createElement('div');
+        overlay.className='overlay';
+        cell.appendChild(overlay);
+
+        const mark = document.createElement('div');
+        mark.className='mark';
+        cell.appendChild(mark);
+
+        cell.addEventListener('dragover',e=>e.preventDefault());
+        cell.addEventListener('drop',e=>{
+            if(gameOver) return;
+            const dragged = e.dataTransfer.getData('text');
+            const wordEl = document.querySelector(`.word[data-word='${dragged}']`);
+            
+            // ✅ Check if the dragged term matches the cell's correct term
+            if(dragged===cell.dataset.correctTerm && !mark.textContent){
+                mark.textContent = turn;
+                mark.style.color = turn==='X'?'rgba(255,100,100,0.8)':'rgba(100,100,255,0.8)';
+                if(wordEl) wordEl.remove();
+                if(!checkWinner()){
+                    turn = turn==='X'?'O':'X';
+                    turnDiv.textContent = 'Turn: '+turn;
+                }
+            } else {
+                overlay.style.opacity='0.7';
+                setTimeout(()=>overlay.style.opacity='0',500);
+                if(wordEl) wordsDiv.appendChild(wordEl);
+                
+                turn = turn==='X'?'O':'X';
+                turnDiv.textContent = 'Turn: '+turn;
+            }
+        });
+
+        grid.appendChild(cell);
+    });
+
+    shuffle(selected).forEach(pair=>{
+        const wordEl = document.createElement('div');
+        wordEl.className='word';
+        // ✅ The draggable items are the terms (from Column B)
+        wordEl.textContent = pair.term;
+        wordEl.setAttribute('draggable','true');
+        wordEl.dataset.word=pair.term;
+        wordEl.addEventListener('dragstart',e=>{
+            e.dataTransfer.setData('text',pair.term);
+        });
+        wordsDiv.appendChild(wordEl);
+    });
+}
+
+restartBtn.addEventListener('click',generateGame);
+</script>
+</body>
+</html>
