@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vocabulary Connect 4</title>
+    <title>Connect 4</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         :root {
@@ -127,22 +127,23 @@
         .piece.yellow { background-color: var(--yellow-player); }
         .piece.win { animation: pulse 1s infinite; }
         
-        /* ✅ New container for the right-side panels */
         .right-panel {
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 20px;
+            width: 214px; /* Set a fixed width for the panel */
         }
 
-        #game-status {
+        #game-status, #qa-panel {
             background-color: white;
-            padding: 15px 25px;
+            padding: 15px;
             border-radius: 15px;
             border: 2px solid black;
             box-shadow: 0 4px 0 black;
             font-weight: bold;
-            width: 160px;
+            width: 100%;
+            box-sizing: border-box;
         }
         #turn-indicator { font-size: 18px; margin-bottom: 10px;}
         #timer { font-size: 48px; }
@@ -153,15 +154,17 @@
             100% { transform: scale(1); }
         }
 
-        #qa-modal {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 10;
+        #question { font-weight: bold; margin-bottom: 10px; font-size: 16px;}
+        #answerInput { padding: 8px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; width: 90%; }
+        #submitAnswer { 
+            margin-top: 10px;
+            padding: 8px 15px;
+            font-size: 16px;
+            border-radius: 15px; /* ✅ Rounded corners */
+            cursor: pointer;
+            border: 1px solid #ccc;
         }
-        .qa-content { background-color: white; padding: 20px 30px; border-radius: 10px; text-align: center; }
-        #question { font-weight: bold; margin-bottom: 10px; font-size: 20px;}
-        #answerInput { padding: 8px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; }
 
-        /* ✅ Keyboard Styles */
         .keyboard-controls {
             background-color: var(--board-color);
             padding: 15px;
@@ -175,20 +178,19 @@
             border: 2px solid var(--text-dark);
             font-size: 16px;
             background-color: var(--text-light);
+            margin-bottom: 10px;
         }
         #keyboardContainer {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
             gap: 8px;
-            margin-top: 10px;
-            max-width: 250px;
         }
         .keyboard-button {
             background-color: var(--text-light);
             color: var(--text-dark);
             border: 2px solid var(--text-dark);
             box-shadow: 0 2px 0 var(--text-dark);
-            border-radius: 5px;
+            border-radius: 15px; /* ✅ Rounded corners */
             font-size: 20px;
             width: 40px;
             height: 40px;
@@ -227,6 +229,11 @@
                 <div id="turn-indicator">PLAYER 1'S TURN</div>
                 <div id="timer">30s</div>
             </div>
+            <div id="qa-panel" class="hide">
+                <div id="question"></div>
+                <input type="text" id="answerInput" placeholder="Type translation...">
+                <button id="submitAnswer">Submit</button>
+            </div>
             <div class="keyboard-controls">
                 <select id="languageSelect">
                     <option value="french" selected>French</option>
@@ -236,14 +243,6 @@
                 <div id="keyboardContainer"></div>
             </div>
         </div>
-    </div>
-</div>
-
-<div id="qa-modal" class="hide">
-    <div class="qa-content">
-        <div id="question"></div>
-        <input type="text" id="answerInput" placeholder="Type translation...">
-        <button id="submitAnswer">Submit</button>
     </div>
 </div>
 
@@ -270,7 +269,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const timerEl = document.getElementById('timer');
     const p1ScoreEl = document.getElementById('score1');
     const p2ScoreEl = document.getElementById('score2');
-    const qaModalEl = document.getElementById('qa-modal');
+    const qaPanelEl = document.getElementById('qa-panel'); // ✅ Changed from modal to panel
     const questionEl = document.getElementById('question');
     const answerInputEl = document.getElementById('answerInput');
     const submitAnswerBtn = document.getElementById('submitAnswer');
@@ -315,7 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         currentPlayer = 1;
         updateStatus();
-        generateKeyboard('french'); // Initialize keyboard
+        generateKeyboard('french');
         gameOver = false;
     }
 
@@ -339,7 +338,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function askQuestion() {
         const questionData = getQuestion();
         if (!questionData) { alert("Ran out of vocabulary!"); return; }
-        qaModalEl.classList.remove('hide');
+        
+        // ✅ Show question panel, hide status
+        statusEl.classList.add('hide');
+        qaPanelEl.classList.remove('hide');
+
         questionEl.textContent = `Translate: "${questionData.translation}"`;
         answerInputEl.value = '';
         answerInputEl.dataset.correctAnswer = questionData.term;
@@ -350,7 +353,11 @@ document.addEventListener('DOMContentLoaded', () => {
         resetTimer();
         const userAnswer = answerInputEl.value.trim().toLowerCase();
         const correctAnswer = answerInputEl.dataset.correctAnswer.toLowerCase();
-        qaModalEl.classList.add('hide');
+        
+        // ✅ Hide question panel, show status
+        qaPanelEl.classList.add('hide');
+        statusEl.classList.remove('hide');
+
         if (userAnswer === correctAnswer) {
             dropPiece(activeColumn);
         } else {
@@ -373,11 +380,14 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const piece = document.createElement('div');
         piece.className = `piece ${currentPlayer === 1 ? 'red' : 'yellow'}`;
-        const cellWidth = 80; const gap = 10; const pieceSize = 60; const offset = (cellWidth - pieceSize) / 2;
-        piece.style.left = `${10 + (col * (cellWidth + gap)) + offset}px`;
+        const cellSize = 80; const gap = 10; const pieceSize = 60; const boardPadding = 10;
+        const totalSlotSize = cellSize + gap;
+        const centeringOffset = (cellSize - pieceSize) / 2;
+        piece.style.left = `${boardPadding + (col * totalSlotSize) + centeringOffset}px`;
         piece.style.top = `-80px`;
         boardEl.appendChild(piece);
-        setTimeout(() => { piece.style.top = `${10 + (row * (cellWidth + gap)) + offset}px`; }, 50);
+        setTimeout(() => { piece.style.top = `${boardPadding + (row * totalSlotSize) + centeringOffset}px`; }, 50);
+
         setTimeout(() => {
             if (checkForWin(row, col)) {
                 gameOver = true;
@@ -401,6 +411,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function switchPlayer() {
+        // ✅ Ensure status is visible when switching turns
+        qaPanelEl.classList.add('hide');
+        statusEl.classList.remove('hide');
+        
         currentPlayer = (currentPlayer === 1) ? 2 : 1;
         updateStatus();
         if (gameMode === 'pvc' && currentPlayer === 2 && !gameOver) {
@@ -449,7 +463,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (timeLeft <= 0) {
                 clearInterval(timerId);
                 alert("Time's up! You lose your turn.");
-                qaModalEl.classList.add('hide');
                 switchPlayer();
             }
         }, 1000);
@@ -471,8 +484,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         return checkLine(0, 1) || checkLine(1, 0) || checkLine(1, 1) || checkLine(1, -1);
     }
-
-    // ✅ Keyboard Functions
+    
     function generateKeyboard(language) {
         const keyboardContainer = document.getElementById('keyboardContainer');
         keyboardContainer.innerHTML = '';
@@ -499,7 +511,6 @@ document.addEventListener('DOMContentLoaded', () => {
         answerInputEl.focus();
     }
     
-    // Event Listeners
     document.getElementById('pvp-button').addEventListener('click', () => startGame('pvp'));
     document.getElementById('pvc-button').addEventListener('click', () => startGame('pvc'));
     document.getElementById('restart-btn').addEventListener('click', initializeGame);
