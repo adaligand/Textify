@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vocabulary Spinner</title>
+    <title> Spinner</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         body {
@@ -162,6 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             drawSpinner();
             generateKeyboard('french');
+            promptToSpin();
         }
     });
 
@@ -184,19 +185,16 @@ document.addEventListener('DOMContentLoaded', () => {
         for (let i = 0; i < vocabList.length; i++) {
             const angle = i * arc;
             ctx.fillStyle = colors[i % colors.length];
-
             ctx.beginPath();
             ctx.arc(200, 200, 198, angle, angle + arc, false);
             ctx.arc(200, 200, 0, angle + arc, angle, true);
             ctx.fill();
             ctx.stroke();
-
             ctx.save();
             ctx.fillStyle = "#000";
             ctx.translate(200, 200);
             ctx.rotate(angle + arc / 2);
             ctx.textAlign = "right";
-            // ✅ Display word from Column C on the wheel
             const text = vocabList[i].translation;
             ctx.fillText(text, 180, 5);
             ctx.restore();
@@ -222,8 +220,10 @@ document.addEventListener('DOMContentLoaded', () => {
         currentRotation = finalRotation;
     }
 
+    // ✅ Bug Fix: Removed { once: true } so this event fires after every spin
     canvas.addEventListener('transitionend', () => {
-        // ✅ Ask for Column B, show Column C
+        if (!isSpinning) return; // Only act if we are expecting the spin to end
+        
         selectedTermEl.textContent = `Term for: "${lastSelectedItem.translation}"`;
         answerInputEl.dataset.correctAnswer = lastSelectedItem.term;
         answerInputEl.value = '';
@@ -231,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
         qaContainer.classList.remove('hide');
         answerInputEl.focus();
         isSpinning = false;
-    }, { once: true });
+    });
 
     function handleAnswer() {
         const userAnswer = answerInputEl.value.trim().toLowerCase();
@@ -241,13 +241,32 @@ document.addEventListener('DOMContentLoaded', () => {
             feedbackTextEl.textContent = "Correct! 🎉";
             feedbackTextEl.style.color = "green";
             removeWordBtn.classList.remove('hide');
+            promptToSpin(2000); // Prompt after 2 seconds
         } else {
-            feedbackTextEl.textContent = `Incorrect. Correct answer: "${correctAnswer}"`;
-            feedbackTextEl.style.color = "red";
+            // ✅ Hint System: Show next correct letter instead of full answer
+            let correctPrefixLength = 0;
+            for (let i = 0; i < userAnswer.length; i++) {
+                if (i < correctAnswer.length && userAnswer[i] === correctAnswer[i]) {
+                    correctPrefixLength++;
+                } else {
+                    break;
+                }
+            }
+            const hint = correctAnswer.substring(0, correctPrefixLength + 1);
+            feedbackTextEl.textContent = `Hint: ${hint}...`;
+            feedbackTextEl.style.color = "orange";
             removeWordBtn.classList.add('hide');
         }
-        
         answerInputEl.value = '';
+    }
+    
+    // ✅ New prompt function
+    function promptToSpin(delay = 0) {
+        setTimeout(() => {
+            qaContainer.classList.add('hide');
+            feedbackTextEl.textContent = "Click the wheel to spin!";
+            feedbackTextEl.style.color = "gray";
+        }, delay);
     }
     
     removeWordBtn.addEventListener('click', () => {
@@ -259,11 +278,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         drawSpinner();
-        qaContainer.classList.add('hide');
-        // ✅ Update confirmation message
         feedbackTextEl.textContent = `"${lastSelectedItem.translation}" removed!`;
         feedbackTextEl.style.color = 'blue';
         lastSelectedItem = null;
+        removeWordBtn.classList.add('hide');
+        promptToSpin(2000);
     });
 
     function generateKeyboard(language) {
