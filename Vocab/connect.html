@@ -91,6 +91,7 @@
             position: relative;
         }
         #game-board {
+            position: relative;
             display: grid;
             grid-template-columns: repeat(7, 80px);
             grid-template-rows: repeat(6, 80px);
@@ -105,6 +106,7 @@
             background-color: var(--board-color);
             border-radius: 50%;
             box-shadow: inset 0 4px 0 rgba(0,0,0,0.3);
+            cursor: pointer;
         }
         .piece {
             width: 60px;
@@ -113,11 +115,18 @@
             border: 3px solid black;
             box-shadow: 0 4px 0 var(--text-dark);
             position: absolute;
-            transition: top 0.5s ease-in;
+            transition: top 0.4s ease-in;
         }
         .piece.red { background-color: var(--red-player); }
         .piece.yellow { background-color: var(--yellow-player); }
-
+        .piece.win {
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
         #game-status {
             margin-top: -30px;
             background-color: white;
@@ -220,7 +229,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     vocabList.push({ term: row[1].trim(), translation: row[2].trim() });
                 }
             });
-            // ✅ Requirement lowered to 10 words
             if (vocabList.length < 10) { 
                  mainMenuEl.innerHTML = "<h1>⚠️ Not enough vocabulary. Need at least 10 pairs.</h1>";
                  return;
@@ -242,7 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
         for (let i = 0; i < BOARD_ROWS * BOARD_COLS; i++) {
             const cell = document.createElement('div');
             cell.className = 'cell-hole';
-            cell.dataset.index = i;
+            cell.dataset.col = i % BOARD_COLS;
             boardEl.appendChild(cell);
         }
         currentPlayer = 1;
@@ -262,7 +270,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (gameOver || !e.target.classList.contains('cell-hole')) return;
         if (gameMode === 'pvc' && currentPlayer === 2) return;
 
-        const col = e.target.dataset.index % BOARD_COLS;
+        const col = parseInt(e.target.dataset.col);
         if (board[0][col]) return;
         
         activeColumn = col;
@@ -311,16 +319,19 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const piece = document.createElement('div');
         piece.className = `piece ${currentPlayer === 1 ? 'red' : 'yellow'}`;
-        piece.style.left = `${10 + col * 80}px`;
-        piece.style.top = `-70px`;
+        
+        // ✅ Position piece absolutely relative to the board
+        piece.style.left = `${10 + col * 90}px`; // 10px padding + col * (80px cell + 10px gap)
+        piece.style.top = `-80px`;
         boardEl.appendChild(piece);
 
         setTimeout(() => {
-            piece.style.top = `${10 + row * 80}px`;
+            // ✅ Animate to final top position
+            piece.style.top = `${10 + row * 90}px`;
         }, 50);
 
         setTimeout(() => {
-            if (checkForWin()) {
+            if (checkForWin(row, col)) {
                 gameOver = true;
                 statusEl.innerHTML = `<div class="winner-panel">PLAYER ${currentPlayer} WINS!</div>`;
                 scores[currentPlayer]++;
@@ -331,7 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 switchPlayer();
             }
-        }, 600);
+        }, 500);
     }
     
     function updateScores() {
@@ -350,14 +361,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function cpuMove() {
         let move = -1;
-        for(let c = 0; c < BOARD_COLS; c++) {
-            if(isWinningMove(c, 2)) { move = c; break; }
-        }
-        if(move === -1) {
-            for(let c = 0; c < BOARD_COLS; c++) {
-                if(isWinningMove(c, 1)) { move = c; break; }
-            }
-        }
+        for(let c = 0; c < BOARD_COLS; c++) { if(isWinningMove(c, 2)) { move = c; break; } }
+        if(move === -1) { for(let c = 0; c < BOARD_COLS; c++) { if(isWinningMove(c, 1)) { move = c; break; } } }
         if(move === -1) {
             const validCols = [];
             for(let c = 0; c < BOARD_COLS; c++) { if(!board[0][c]) validCols.push(c); }
@@ -372,7 +377,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if(row === -1) return false;
         
         board[row][col] = player;
-        const win = checkForWin(true);
+        const win = checkForWin(row, col);
         board[row][col] = null;
         return win;
     }
@@ -384,17 +389,23 @@ document.addEventListener('DOMContentLoaded', () => {
         statusEl.innerHTML = `<div>${playerText}'S TURN</div>`;
     }
 
-    function checkForWin(checkOnly = false) {
+    function checkForWin(r, c) {
         const p = currentPlayer;
-        for (let r = 0; r < BOARD_ROWS; r++) {
-            for (let c = 0; c < BOARD_COLS; c++) {
-                if (c + 3 < BOARD_COLS && board[r][c] === p && board[r][c+1] === p && board[r][c+2] === p && board[r][c+3] === p) return true;
-                if (r + 3 < BOARD_ROWS && board[r][c] === p && board[r+1][c] === p && board[r+2][c] === p && board[r+3][c] === p) return true;
-                if (r + 3 < BOARD_ROWS && c + 3 < BOARD_COLS && board[r][c] === p && board[r+1][c+1] === p && board[r+2][c+2] === p && board[r+3][c+3] === p) return true;
-                if (r + 3 < BOARD_ROWS && c - 3 >= 0 && board[r][c] === p && board[r+1][c-1] === p && board[r+2][c-2] === p && board[r+3][c-3] === p) return true;
+        const checkLine = (dr, dc) => {
+            let count = 0;
+            for(let i = -3; i <= 3; i++) {
+                const row = r + i * dr;
+                const col = c + i * dc;
+                if(row >= 0 && row < BOARD_ROWS && col >= 0 && col < BOARD_COLS && board[row][col] === p) {
+                    count++;
+                    if (count === 4) return true;
+                } else {
+                    count = 0;
+                }
             }
-        }
-        return false;
+            return false;
+        };
+        return checkLine(0, 1) || checkLine(1, 0) || checkLine(1, 1) || checkLine(1, -1);
     }
     
     document.getElementById('pvp-button').addEventListener('click', () => startGame('pvp'));
