@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vocabulary Spinner</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .game-wrapper {
+            background-color: white;
+            padding: 20px 40px;
+            border-radius: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        #spinner-container {
+            position: relative;
+            width: 400px;
+            height: 400px;
+            margin: 20px auto;
+        }
+        #spinner-canvas {
+            width: 100%;
+            height: 100%;
+            transition: transform 4s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        #spinner-pointer {
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 20px solid transparent;
+            border-right: 20px solid transparent;
+            border-top: 30px solid #dc3545;
+            z-index: 10;
+        }
+        #spin-button {
+            padding: 10px 30px;
+            font-size: 20px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            border: 2px solid #6c757d;
+            background-color: #f8f9fa;
+        }
+        #spin-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .hide { display: none; }
+
+        #qa-container {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+        }
+        #selected-term { font-size: 22px; font-weight: bold; margin-bottom: 10px;}
+        #answerInput { padding: 8px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; }
+        #feedback { font-weight: bold; min-height: 24px; margin-top: 10px; }
+        
+        .keyboard-controls {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+        }
+        #languageSelect {
+            padding: 5px 10px; border-radius: 10px; font-size: 16px; margin-bottom: 10px;
+        }
+        #keyboardContainer {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+            gap: 8px;
+            max-width: 300px;
+            margin: 0 auto;
+        }
+        .keyboard-button {
+            background-color: white; border: 1px solid #ccc; border-radius: 5px;
+            font-size: 20px; width: 40px; height: 40px; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="game-wrapper">
+    <h1>Vocabulary Spinner</h1>
+    <div id="spinner-container">
+        <div id="spinner-pointer"></div>
+        <canvas id="spinner-canvas" width="400" height="400"></canvas>
+    </div>
+    <button id="spin-button">SPIN</button>
+
+    <div id="qa-container" class="hide">
+        <div id="selected-term"></div>
+        <input type="text" id="answerInput" placeholder="Type translation...">
+        <button id="submitAnswer">Submit</button>
+        <div id="feedback"></div>
+    </div>
+    
+    <div class="keyboard-controls">
+        <select id="languageSelect">
+            <option value="french" selected>French</option>
+            <option value="german">German</option>
+            <option value="spanish">Spanish</option>
+        </select>
+        <div id="keyboardContainer"></div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    let vocabList = [];
+    const colors = ["#89CFF0", "#F0E68C", "#98FB98", "#FFB6C1", "#DDA0DD", "#B0E0E6"];
+    let startAngle = 0;
+    let spinTimeout = null;
+
+    const canvas = document.getElementById('spinner-canvas');
+    const ctx = canvas.getContext('2d');
+    const spinBtn = document.getElementById('spin-button');
+    const qaContainer = document.getElementById('qa-container');
+    const selectedTermEl = document.getElementById('selected-term');
+    const answerInputEl = document.getElementById('answerInput');
+    const submitAnswerBtn = document.getElementById('submitAnswer');
+    const feedbackEl = document.getElementById('feedback');
+    const languageSelect = document.getElementById('languageSelect');
+
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
+        return;
+    }
+
+    Papa.parse(sheetUrl, {
+        download: true, header: false, skipEmptyLines: true,
+        complete: (results) => {
+            results.data.forEach((row, index) => {
+                if (index > 0 && row[1] && row[2]) {
+                    vocabList.push({ term: row[1].trim(), translation: row[2].trim() });
+                }
+            });
+            if (vocabList.length < 2) {
+                document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ Not enough vocabulary. Need at least 2 pairs.</h1>";
+                return;
+            }
+            drawSpinner();
+            generateKeyboard('french');
+        }
+    });
+
+    function drawSpinner() {
+        const arc = Math.PI / (vocabList.length / 2);
+        ctx.clearRect(0, 0, 400, 400);
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+        ctx.font = '14px Arial';
+
+        for (let i = 0; i < vocabList.length; i++) {
+            const angle = startAngle + i * arc;
+            ctx.fillStyle = colors[i % colors.length];
+
+            ctx.beginPath();
+            ctx.arc(200, 200, 200, angle, angle + arc, false);
+            ctx.arc(200, 200, 0, angle + arc, angle, true);
+            ctx.stroke();
+            ctx.fill();
+
+            ctx.save();
+            ctx.fillStyle = "#000";
+            ctx.translate(200 + Math.cos(angle + arc / 2) * 150, 200 + Math.sin(angle + arc / 2) * 150);
+            ctx.rotate(angle + arc / 2 + Math.PI / 2);
+            const text = vocabList[i].term;
+            ctx.fillText(text, -ctx.measureText(text).width / 2, 0);
+            ctx.restore();
+        }
+    }
+
+    function spin() {
+        spinBtn.disabled = true;
+        qaContainer.classList.add('hide');
+
+        const spinAngleStart = Math.random() * 10 + 10; // Random rotations
+        const spinTime = spinAngleStart * 200; // Spin duration based on angle
+        const finalRotation = (canvas.style.transform ? parseFloat(canvas.style.transform.split('(')[1].split('d')[0]) : 0) + (spinAngleStart * 360);
+
+        canvas.style.transform = `rotate(${finalRotation}deg)`;
+
+        clearTimeout(spinTimeout);
+        spinTimeout = setTimeout(() => {
+            const degrees = finalRotation % 360;
+            const arc = 360 / vocabList.length;
+            const arrowPos = (360 - degrees + 90) % 360; // Adjust for pointer at top
+            const selectedIndex = Math.floor(arrowPos / arc);
+            const selectedItem = vocabList[selectedIndex];
+
+            selectedTermEl.textContent = `Term: "${selectedItem.term}"`;
+            answerInputEl.dataset.correctAnswer = selectedItem.translation;
+            answerInputEl.value = '';
+            feedbackEl.textContent = '';
+            qaContainer.classList.remove('hide');
+            answerInputEl.focus();
+        }, spinTime);
+    }
+
+    function handleAnswer() {
+        const userAnswer = answerInputEl.value.trim().toLowerCase();
+        const correctAnswer = answerInputEl.dataset.correctAnswer.toLowerCase();
+
+        if (userAnswer === correctAnswer) {
+            feedbackEl.textContent = "Correct! 🎉";
+            feedbackEl.style.color = "green";
+        } else {
+            feedbackEl.textContent = `Incorrect. The correct answer was: "${correctAnswer}"`;
+            feedbackEl.style.color = "red";
+        }
+        
+        spinBtn.disabled = false;
+        answerInputEl.value = '';
+    }
+    
+    // Keyboard Functions
+    function generateKeyboard(language) {
+        const keyboardContainer = document.getElementById('keyboardContainer');
+        keyboardContainer.innerHTML = '';
+        let chars = [];
+        switch (language) {
+            case 'french': chars = ['à', 'â', 'é', 'è', 'ê', 'î', 'ô', 'û', 'ç']; break;
+            case 'german': chars = ['ä', 'ö', 'ü', 'ß']; break;
+            case 'spanish': chars = ['á', 'é', 'í', 'ó', 'ú', 'ñ']; break;
+        }
+        chars.forEach(c => {
+            const btn = document.createElement('button');
+            btn.textContent = c;
+            btn.className = 'keyboard-button';
+            btn.onclick = () => insertLetter(c);
+            keyboardContainer.appendChild(btn);
+        });
+    }
+
+    function insertLetter(letter) {
+        const start = answerInputEl.selectionStart;
+        const end = answerInputEl.selectionEnd;
+        answerInputEl.value = answerInputEl.value.substring(0, start) + letter + answerInputEl.value.substring(end);
+        answerInputEl.selectionStart = answerInputEl.selectionEnd = start + 1;
+        answerInputEl.focus();
+    }
+
+    spinBtn.addEventListener('click', spin);
+    submitAnswerBtn.addEventListener('click', handleAnswer);
+    answerInputEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleAnswer(); });
+    languageSelect.addEventListener('change', (e) => generateKeyboard(e.target.value));
+});
+</script>
+</body>
+</html>
