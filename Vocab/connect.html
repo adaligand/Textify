@@ -24,40 +24,335 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             text-align: center;
         }
-        #game-board {
-            display: grid;
-            grid-template-columns: repeat(7, 60px);
-            grid-template-rows: repeat(6, 60px);
-            background-color: #007bff;
-            border: 10px solid #0056b3;
-            border-radius: 10px;
-            padding: 10px;
-            gap: 10px;
-            margin: 0 auto; /* Center the board */
+        #game-container {
+            position: relative;
+            width: 560px; /* 7 columns * 80px */
+            height: 540px; /* 6 rows * 80px + header */
         }
-        .cell {
+        #game-board {
+            position: absolute;
+            width: 560px;
+            height: 480px;
+            background-color: #007bff;
+            border-radius: 15px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            display: grid;
+            grid-template-columns: repeat(7, 80px);
+            grid-template-rows: repeat(6, 80px);
+            padding: 10px;
+            box-sizing: border-box;
+            z-index: 1;
+        }
+        .cell-hole {
             width: 60px;
             height: 60px;
-            background-color: white;
+            background-color: #f4f4f9;
             border-radius: 50%;
-            cursor: pointer;
-            transition: background-color 0.3s;
+            margin: 10px;
+            box-shadow: inset 2px 2px 5px rgba(0,0,0,0.3);
         }
-        .cell.red { background-color: #dc3545; }
-        .cell.yellow { background-color: #ffc107; }
-        .cell.win { border: 5px solid #28a745; box-sizing: border-box; }
+        #column-selectors {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 60px;
+            display: flex;
+            z-index: 3;
+        }
+        .column-selector {
+            width: 80px;
+            height: 100%;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 30px;
+            color: transparent;
+            transition: color 0.2s;
+        }
+        .column-selector:hover { color: rgba(255, 255, 255, 0.7); }
+        #pieces-container {
+            position: absolute;
+            top: 60px; /* Below the selectors */
+            left: 0;
+            width: 560px;
+            height: 480px;
+            z-index: 2;
+            pointer-events: none;
+        }
+        .piece {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            margin: 10px;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.4);
+            transition: top 0.5s cubic-bezier(0.5, 0, 0.75, 0.75);
+        }
+        .piece.red { background: radial-gradient(circle at 20px 20px, #ff7b7b, #dc3545); }
+        .piece.yellow { background: radial-gradient(circle at 20px 20px, #ffdd7a, #ffc107); }
+        .piece.win { border: 5px solid #28a745; box-sizing: border-box; }
 
         #game-status {
             font-size: 24px;
             font-weight: bold;
-            margin: 20px 0;
-        }
-        #qa-container {
             margin-top: 20px;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border-radius: 10px;
-            min-height: 100px;
         }
-        #question { font-weight: bold; margin-bottom: 10px; }
-        #
+        #qa-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        .qa-content {
+            background-color: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        #question { font-weight: bold; margin-bottom: 10px; font-size: 20px;}
+        #answerInput { padding: 8px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; }
+        button {
+            margin-top: 10px;
+            padding: 8px 15px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+        }
+        .hide { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="game-wrapper">
+    <h1>Vocabulary Connect 4</h1>
+    <div id="game-container">
+        <div id="column-selectors"></div>
+        <div id="game-board"></div>
+        <div id="pieces-container"></div>
+    </div>
+    <div id="game-status">Loading Vocabulary...</div>
+    <button id="restart" class="hide">Play Again</button>
+
+    <div id="qa-modal" class="hide">
+        <div class="qa-content">
+            <div id="question"></div>
+            <input type="text" id="answerInput" placeholder="Type translation...">
+            <button id="submitAnswer">Submit</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const BOARD_ROWS = 6;
+        const BOARD_COLS = 7;
+        let board = [];
+        let currentPlayer = 'red';
+        let gameOver = false;
+        let vocabList = [];
+        let shuffledVocab = [];
+        let activeColumn = null;
+
+        const boardEl = document.getElementById('game-board');
+        const selectorsEl = document.getElementById('column-selectors');
+        const piecesEl = document.getElementById('pieces-container');
+        const statusEl = document.getElementById('game-status');
+        const qaModalEl = document.getElementById('qa-modal');
+        const questionEl = document.getElementById('question');
+        const answerInputEl = document.getElementById('answerInput');
+        const submitAnswerBtn = document.getElementById('submitAnswer');
+        const restartBtn = document.getElementById('restart');
+
+        const params = new URLSearchParams(window.location.search);
+        const sheetUrl = params.get('sheet');
+
+        if (!sheetUrl) {
+            statusEl.textContent = "⚠️ No sheet URL provided.";
+            return;
+        }
+
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: false,
+            skipEmptyLines: true,
+            complete: (results) => {
+                results.data.forEach((row, index) => {
+                    if (index > 0 && row[1] && row[2]) {
+                        vocabList.push({ term: row[1].trim(), translation: row[2].trim() });
+                    }
+                });
+                if (vocabList.length < 1) {
+                    statusEl.textContent = "⚠️ Not enough data in spreadsheet.";
+                    return;
+                }
+                initializeGame();
+            }
+        });
+
+        function shuffleVocab() {
+            shuffledVocab = [...vocabList].sort(() => Math.random() - 0.5);
+        }
+
+        function getQuestion() {
+            if (shuffledVocab.length === 0) shuffleVocab();
+            return shuffledVocab.pop();
+        }
+
+        function initializeGame() {
+            gameOver = false;
+            currentPlayer = 'red';
+            board = Array(BOARD_ROWS).fill(null).map(() => Array(BOARD_COLS).fill(null));
+            
+            boardEl.innerHTML = '';
+            selectorsEl.innerHTML = '';
+            piecesEl.innerHTML = '';
+
+            for (let i = 0; i < BOARD_ROWS * BOARD_COLS; i++) {
+                boardEl.appendChild(document.createElement('div')).className = 'cell-hole';
+            }
+
+            for (let c = 0; c < BOARD_COLS; c++) {
+                const selector = document.createElement('div');
+                selector.className = 'column-selector';
+                selector.innerHTML = '▼';
+                selector.dataset.col = c;
+                selectorsEl.appendChild(selector);
+            }
+
+            shuffleVocab();
+            updateStatus();
+            restartBtn.classList.add('hide');
+        }
+
+        selectorsEl.addEventListener('click', (e) => {
+            if (gameOver || !e.target.classList.contains('column-selector')) return;
+            activeColumn = parseInt(e.target.dataset.col);
+
+            // Check if column is full
+            if (board[0][activeColumn]) {
+                alert("This column is full!");
+                return;
+            }
+
+            const questionData = getQuestion();
+            qaModalEl.classList.remove('hide');
+            questionEl.textContent = `Translate: "${questionData.translation}"`;
+            answerInputEl.value = '';
+            answerInputEl.dataset.correctAnswer = questionData.term;
+            answerInputEl.focus();
+        });
+
+        submitAnswerBtn.addEventListener('click', handleAnswer);
+        answerInputEl.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleAnswer();
+        });
+
+        function handleAnswer() {
+            const userAnswer = answerInputEl.value.trim().toLowerCase();
+            const correctAnswer = answerInputEl.dataset.correctAnswer.toLowerCase();
+            
+            qaModalEl.classList.add('hide');
+
+            if (userAnswer === correctAnswer) {
+                dropPiece(activeColumn);
+            } else {
+                alert('Incorrect. You lose your turn.');
+                switchPlayer();
+            }
+        }
+        
+        function dropPiece(col) {
+            for (let r = BOARD_ROWS - 1; r >= 0; r--) {
+                if (!board[r][col]) {
+                    board[r][col] = currentPlayer;
+                    
+                    const piece = document.createElement('div');
+                    piece.className = `piece ${currentPlayer}`;
+                    piece.style.left = `${col * 80}px`;
+                    piece.style.top = '-80px'; // Start above the board
+                    piecesEl.appendChild(piece);
+
+                    // Animate drop
+                    setTimeout(() => {
+                        piece.style.top = `${r * 80}px`;
+                    }, 50);
+                    
+                    if (checkForWin()) {
+                        statusEl.textContent = `${currentPlayer.toUpperCase()} WINS!`;
+                        statusEl.style.color = currentPlayer;
+                        gameOver = true;
+                        restartBtn.classList.remove('hide');
+                    } else if (board.flat().every(cell => cell)) {
+                        statusEl.textContent = "It's a Draw!";
+                        statusEl.style.color = '#333';
+                        gameOver = true;
+                        restartBtn.classList.remove('hide');
+                    } else {
+                        switchPlayer();
+                    }
+                    return;
+                }
+            }
+        }
+
+        function switchPlayer() {
+            currentPlayer = (currentPlayer === 'red') ? 'yellow' : 'red';
+            updateStatus();
+        }
+        
+        function updateStatus() {
+            const playerName = (currentPlayer === 'red') ? 'Player 1 (Red)' : 'Player 2 (Yellow)';
+            statusEl.textContent = `${playerName}'s Turn`;
+            statusEl.style.color = (currentPlayer === 'red') ? '#dc3545' : '#ffc107';
+        }
+
+        function checkForWin() {
+            const directions = [ { r: 0, c: 1 }, { r: 1, c: 0 }, { r: 1, c: 1 }, { r: 1, c: -1 } ];
+            for (let r = 0; r < BOARD_ROWS; r++) {
+                for (let c = 0; c < BOARD_COLS; c++) {
+                    if (!board[r][c]) continue;
+                    for (const dir of directions) {
+                        const line = [{r, c}];
+                        for (let i = 1; i < 4; i++) {
+                            const nextR = r + i * dir.r;
+                            const nextC = c + i * dir.c;
+                            if (nextR >= 0 && nextR < BOARD_ROWS && nextC >= 0 && nextC < BOARD_COLS && board[nextR][nextC] === currentPlayer) {
+                                line.push({r: nextR, c: nextC});
+                            } else {
+                                break;
+                            }
+                        }
+                        if (line.length === 4) {
+                            // Find piece elements to add 'win' class
+                            const pieces = document.querySelectorAll(`.${currentPlayer}`);
+                            line.forEach(pos => {
+                                const pieceTop = `${pos.r * 80}px`;
+                                const pieceLeft = `${pos.c * 80}px`;
+                                for(const p of pieces) {
+                                    if(p.style.top === pieceTop && p.style.left === pieceLeft) {
+                                        p.classList.add('win');
+                                    }
+                                }
+                            });
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        restartBtn.addEventListener('click', initializeGame);
+    });
+</script>
+</body>
+</html>
