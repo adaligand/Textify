@@ -26,30 +26,9 @@
         }
         #game-container {
             position: relative;
-            width: 560px; /* 7 columns * 80px */
-            height: 540px; /* 6 rows * 80px + header */
-        }
-        #game-board {
-            position: absolute;
             width: 560px;
-            height: 480px;
-            background-color: #007bff;
-            border-radius: 15px;
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
-            display: grid;
-            grid-template-columns: repeat(7, 80px);
-            grid-template-rows: repeat(6, 80px);
-            padding: 10px;
-            box-sizing: border-box;
-            z-index: 1;
-        }
-        .cell-hole {
-            width: 60px;
-            height: 60px;
-            background-color: #f4f4f9;
-            border-radius: 50%;
-            margin: 10px;
-            box-shadow: inset 2px 2px 5px rgba(0,0,0,0.3);
+            height: 540px;
+            margin: 0 auto;
         }
         #column-selectors {
             position: absolute;
@@ -61,8 +40,7 @@
             z-index: 3;
         }
         .column-selector {
-            width: 80px;
-            height: 100%;
+            flex: 1;
             cursor: pointer;
             display: flex;
             justify-content: center;
@@ -72,23 +50,48 @@
             transition: color 0.2s;
         }
         .column-selector:hover { color: rgba(255, 255, 255, 0.7); }
-        #pieces-container {
+        #game-board {
             position: absolute;
-            top: 60px; /* Below the selectors */
+            top: 60px;
             left: 0;
             width: 560px;
             height: 480px;
+            background-color: #007bff;
+            border-radius: 15px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            grid-template-rows: repeat(6, 1fr);
+            padding: 10px;
+            box-sizing: border-box;
+            z-index: 1;
+        }
+        .cell-hole {
+            background-color: #f4f4f9;
+            border-radius: 50%;
+            box-shadow: inset 2px 2px 5px rgba(0,0,0,0.3);
+        }
+        #pieces-container {
+            position: absolute;
+            top: 60px;
+            left: 10px; /* Align with board padding */
+            right: 10px; /* Align with board padding */
+            bottom: 10px; /* Align with board padding */
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            grid-template-rows: repeat(6, 1fr);
+            gap: 10px;
             z-index: 2;
             pointer-events: none;
         }
         .piece {
-            position: absolute;
             width: 60px;
             height: 60px;
             border-radius: 50%;
-            margin: 10px;
             box-shadow: 2px 2px 5px rgba(0,0,0,0.4);
-            transition: top 0.5s cubic-bezier(0.5, 0, 0.75, 0.75);
+            transform: translateY(-500px); /* Start off-screen */
+            transition: transform 0.5s cubic-bezier(0.5, 0, 0.75, 0.75);
+            margin: auto;
         }
         .piece.red { background: radial-gradient(circle at 20px 20px, #ff7b7b, #dc3545); }
         .piece.yellow { background: radial-gradient(circle at 20px 20px, #ffdd7a, #ffc107); }
@@ -195,6 +198,10 @@
                     return;
                 }
                 initializeGame();
+            },
+            error: (err) => {
+                statusEl.textContent = "⚠️ Error loading data. Make sure your sheet is 'Published to the web'.";
+                console.error("PapaParse Error:", err);
             }
         });
 
@@ -231,29 +238,30 @@
             shuffleVocab();
             updateStatus();
             restartBtn.classList.add('hide');
+            qaModalEl.classList.add('hide');
         }
 
         selectorsEl.addEventListener('click', (e) => {
             if (gameOver || !e.target.classList.contains('column-selector')) return;
+            
             activeColumn = parseInt(e.target.dataset.col);
 
-            // Check if column is full
             if (board[0][activeColumn]) {
                 alert("This column is full!");
                 return;
             }
 
             const questionData = getQuestion();
+            if (!questionData) {
+                alert("Ran out of vocabulary!");
+                return;
+            }
+            
             qaModalEl.classList.remove('hide');
             questionEl.textContent = `Translate: "${questionData.translation}"`;
             answerInputEl.value = '';
             answerInputEl.dataset.correctAnswer = questionData.term;
             answerInputEl.focus();
-        });
-
-        submitAnswerBtn.addEventListener('click', handleAnswer);
-        answerInputEl.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') handleAnswer();
         });
 
         function handleAnswer() {
@@ -270,6 +278,9 @@
             }
         }
         
+        submitAnswerBtn.addEventListener('click', handleAnswer);
+        answerInputEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleAnswer(); });
+
         function dropPiece(col) {
             for (let r = BOARD_ROWS - 1; r >= 0; r--) {
                 if (!board[r][col]) {
@@ -277,13 +288,12 @@
                     
                     const piece = document.createElement('div');
                     piece.className = `piece ${currentPlayer}`;
-                    piece.style.left = `${col * 80}px`;
-                    piece.style.top = '-80px'; // Start above the board
+                    piece.style.gridRowStart = r + 1;
+                    piece.style.gridColumnStart = col + 1;
                     piecesEl.appendChild(piece);
-
-                    // Animate drop
+                    
                     setTimeout(() => {
-                        piece.style.top = `${r * 80}px`;
+                        piece.style.transform = 'translateY(0)';
                     }, 50);
                     
                     if (checkForWin()) {
@@ -332,16 +342,9 @@
                             }
                         }
                         if (line.length === 4) {
-                            // Find piece elements to add 'win' class
-                            const pieces = document.querySelectorAll(`.${currentPlayer}`);
                             line.forEach(pos => {
-                                const pieceTop = `${pos.r * 80}px`;
-                                const pieceLeft = `${pos.c * 80}px`;
-                                for(const p of pieces) {
-                                    if(p.style.top === pieceTop && p.style.left === pieceLeft) {
-                                        p.classList.add('win');
-                                    }
-                                }
+                                const cellIndex = pos.r * BOARD_COLS + pos.c;
+                                piecesEl.children[cellIndex].classList.add('win');
                             });
                             return true;
                         }
