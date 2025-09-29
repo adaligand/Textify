@@ -51,7 +51,7 @@
         padding: 5px;
         box-sizing: border-box;
         color: #333;
-        pointer-events: none; /* ✅ This allows drop events to pass through to the parent cell */
+        pointer-events: none;
     }
     .overlay { 
         position: absolute; 
@@ -89,22 +89,21 @@
         font-size: 16px;
         text-align: center;
         box-sizing: border-box;
-        touch-action: none; /* ADDED: Prevents page scrolling on touch devices */
+        touch-action: none;
     }
-    .word.dragging { /* ADDED: Style for the element being dragged */
+    .word.dragging {
         opacity: 0.5;
     }
-    #turn { margin-top:20px; font-size:20px; font-weight:bold; }
-    #restart { 
-        margin-top:15px; 
-        padding:8px 15px; 
-        font-size:16px; 
-        border:1px solid #ccc; 
-        border-radius:5px; 
-        background-color:#f0f0f0; 
-        cursor:pointer; 
-        display:none;
+
+    /* ADDED: Styles for the visual clone during touch drag */
+    .word-clone {
+        position: fixed; /* Use fixed positioning to move around the viewport */
+        pointer-events: none; /* Let touch events pass through to elements underneath */
+        z-index: 1000; /* Ensure it's on top of everything */
+        opacity: 0.8;
+        transform: rotate(5deg); /* A slight tilt for a nice visual effect */
     }
+
 </style>
 </head>
 <body>
@@ -123,13 +122,17 @@
 let allItemPairs = [];
 let turn = 'X';
 let gameOver = false;
-let draggedItem = null; // ADDED: To track the item being dragged for touch events
+
+// --- MODIFIED: Variables for touch dragging ---
+let draggedItem = null;      // The original element being dragged
+let draggedItemClone = null; // The visual clone that follows the finger
+let offsetX = 0;             // To drag the element from the touch point
+let offsetY = 0;             // not just the top-left corner
 
 const grid = document.getElementById('grid');
 const wordsDiv = document.getElementById('words');
 const turnDiv = document.getElementById('turn');
 const restartBtn = document.getElementById('restart');
-const containerDiv = document.getElementById('container');
 
 const params = new URLSearchParams(window.location.search);
 const sheetUrl = params.get('sheet');
@@ -143,8 +146,7 @@ if (!sheetUrl) {
         skipEmptyLines: true,
         complete: function(results) {
             results.data.forEach((row, index) => {
-                if (index === 0) return; // Skip header row
-                
+                if (index === 0) return;
                 if (row[1] && row[2]) {
                     allItemPairs.push({ 
                         term: row[1].trim(),
@@ -152,15 +154,13 @@ if (!sheetUrl) {
                     });
                 }
             });
-
             if (allItemPairs.length < 9) {
-                document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ Not enough data. The game requires at least 9 rows with text in columns B and C.</h1>";
+                document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ Not enough data. Requires 9+ rows.</h1>";
                 return;
             }
-
             generateGame();
         },
-        error: function(err) {
+        error: (err) => {
             console.error(err);
             document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ Error loading CSV file.</h1>";
         }
@@ -178,20 +178,18 @@ function shuffle(array){
 function checkWinner(){
     const cells = [...document.querySelectorAll('.cell .mark')].map(m=>m.textContent);
     const winPatterns = [
-        [0,1,2],[3,4,5],[6,7,8], // rows
-        [0,3,6],[1,4,7],[2,5,8], // cols
-        [0,4,8],[2,4,6]      // diagonals
+        [0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]
     ];
     for(const pattern of winPatterns){
         const [a,b,c] = pattern;
         if(cells[a] && cells[a]===cells[b] && cells[a]===cells[c]){
-            turnDiv.textContent = cells[a] + " wins!";
+            turnDiv.textContent = `${cells[a]} wins!`;
             gameOver = true;
             restartBtn.style.display = "inline-block";
             return true;
         }
     }
-    if(cells.every(c=>c)){ // draw
+    if(cells.every(c=>c)){
         turnDiv.textContent = "It's a draw!";
         gameOver = true;
         restartBtn.style.display = "inline-block";
@@ -199,7 +197,6 @@ function checkWinner(){
     return false;
 }
 
-// REFACTORED: Moved the drop logic into its own function to be called by both mouse and touch events
 function handleDropLogic(cell, word) {
     if (gameOver) return;
     const mark = cell.querySelector('.mark');
@@ -212,19 +209,15 @@ function handleDropLogic(cell, word) {
         if (wordEl) wordEl.remove();
         if (!checkWinner()) {
             turn = turn === 'X' ? 'O' : 'X';
-            turnDiv.textContent = 'Turn: ' + turn;
+            turnDiv.textContent = `Turn: ${turn}`;
         }
     } else {
         overlay.style.opacity = '0.7';
         setTimeout(() => overlay.style.opacity = '0', 500);
-        
-        // This part is a bit tricky for touch, as the word element might be hidden.
-        // For simplicity, we just switch turns on wrong answers.
         turn = turn === 'X' ? 'O' : 'X';
-        turnDiv.textContent = 'Turn: ' + turn;
+        turnDiv.textContent = `Turn: ${turn}`;
     }
 }
-
 
 function generateGame(){
     grid.innerHTML = '';
@@ -235,92 +228,106 @@ function generateGame(){
     turnDiv.textContent = "Turn: X";
 
     let selected = shuffle([...allItemPairs]).slice(0,9);
-
-    const columns = 3;
-    grid.style.gridTemplateColumns = `repeat(${columns}, 150px)`;
+    grid.style.gridTemplateColumns = `repeat(3, 150px)`;
 
     selected.forEach(pair=>{
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.dataset.correctTerm = pair.term;
-
-        const cellText = document.createElement('div');
-        cellText.className = 'cell-text';
-        cellText.textContent = pair.translation;
-        cell.appendChild(cellText);
-
-        const overlay = document.createElement('div');
-        overlay.className='overlay';
-        cell.appendChild(overlay);
-
-        const mark = document.createElement('div');
-        mark.className='mark';
-        cell.appendChild(mark);
-
-        // --- MOUSE EVENT (Original) ---
+        cell.innerHTML = `
+            <div class="cell-text">${pair.translation}</div>
+            <div class="overlay"></div>
+            <div class="mark"></div>
+        `;
         cell.addEventListener('dragover', e => e.preventDefault());
         cell.addEventListener('drop', e => {
             e.preventDefault();
             const draggedWord = e.dataTransfer.getData('text');
-            handleDropLogic(cell, draggedWord); // MODIFIED: Call the refactored function
+            handleDropLogic(cell, draggedWord);
         });
-
         grid.appendChild(cell);
     });
 
     shuffle(selected).forEach(pair=>{
         const wordEl = document.createElement('div');
-        wordEl.className='word';
+        wordEl.className = 'word';
         wordEl.textContent = pair.term;
         wordEl.setAttribute('draggable','true');
         wordEl.dataset.word = pair.term;
         
-        // --- MOUSE DRAG EVENT (Original) ---
-        wordEl.addEventListener('dragstart',e=>{
+        wordEl.addEventListener('dragstart', e => {
             e.dataTransfer.setData('text', pair.term);
-            draggedItem = e.target;
             setTimeout(() => e.target.classList.add('dragging'), 0);
         });
-        
-        wordEl.addEventListener('dragend', e => {
-            e.target.classList.remove('dragging');
-        });
+        wordEl.addEventListener('dragend', e => e.target.classList.remove('dragging'));
 
-        // --- ADDED: TOUCH EVENT LISTENERS ---
         wordEl.addEventListener('touchstart', e => {
-            e.preventDefault(); // Prevent scrolling
+            if (gameOver) return;
+            e.preventDefault();
+            
             draggedItem = e.target;
-            draggedItem.classList.add('dragging');
+            const rect = draggedItem.getBoundingClientRect();
+            const touch = e.touches[0];
+
+            offsetX = touch.clientX - rect.left;
+            offsetY = touch.clientY - rect.top;
+
+            draggedItemClone = draggedItem.cloneNode(true);
+            draggedItemClone.classList.add('word-clone');
+            
+            // Set initial position and size of the clone
+            draggedItemClone.style.width = `${rect.width}px`;
+            draggedItemClone.style.height = `${rect.height}px`;
+            draggedItemClone.style.left = `${touch.clientX - offsetX}px`;
+            draggedItemClone.style.top = `${touch.clientY - offsetY}px`;
+
+            document.body.appendChild(draggedItemClone);
+            draggedItem.style.visibility = 'hidden'; // Hide original
         }, { passive: false });
         
         wordsDiv.appendChild(wordEl);
     });
-
-    // --- ADDED: GLOBAL TOUCH LISTENERS FOR THE DRAG PROCESS ---
-    document.addEventListener('touchmove', e => {
-        if (!draggedItem) return;
-        // This part is for visual feedback (moving the element), which can be complex.
-        // For now, we'll just track the position for the drop.
-    }, { passive: false });
-
-    document.addEventListener('touchend', e => {
-        if (!draggedItem) return;
-        draggedItem.classList.remove('dragging');
-
-        // Find the element under the touch point
-        const touch = e.changedTouches[0];
-        const elementOver = document.elementFromPoint(touch.clientX, touch.clientY);
-        
-        // Use .closest() to find the parent .cell if we dropped on a child element
-        const dropTarget = elementOver ? elementOver.closest('.cell') : null;
-
-        if (dropTarget) {
-            handleDropLogic(dropTarget, draggedItem.dataset.word);
-        }
-        
-        draggedItem = null;
-    });
 }
+
+// --- MODIFIED: Global touch move and end listeners ---
+document.addEventListener('touchmove', e => {
+    if (!draggedItem || !draggedItemClone) return;
+    e.preventDefault();
+
+    const touch = e.touches[0];
+    const newX = touch.clientX - offsetX;
+    const newY = touch.clientY - offsetY;
+
+    // Update the clone's position to follow the finger
+    draggedItemClone.style.left = `${newX}px`;
+    draggedItemClone.style.top = `${newY}px`;
+}, { passive: false });
+
+document.addEventListener('touchend', e => {
+    if (!draggedItem) return;
+
+    // Cleanup clone
+    if (draggedItemClone) {
+        document.body.removeChild(draggedItemClone);
+    }
+    draggedItemClone = null;
+
+    const touch = e.changedTouches[0];
+    const elementOver = document.elementFromPoint(touch.clientX, touch.clientY);
+    const dropTarget = elementOver ? elementOver.closest('.cell') : null;
+
+    if (dropTarget) {
+        handleDropLogic(dropTarget, draggedItem.dataset.word);
+    }
+    
+    // This is important: if the drop was invalid, the original item is still in the DOM
+    // The handleDropLogic function removes it if it was a correct drop
+    if (draggedItem) {
+        draggedItem.style.visibility = 'visible'; // Show original again
+    }
+    
+    draggedItem = null;
+});
 
 restartBtn.addEventListener('click', generateGame);
 </script>
