@@ -89,6 +89,10 @@
         font-size: 16px;
         text-align: center;
         box-sizing: border-box;
+        touch-action: none; /* ADDED: Prevents page scrolling on touch devices */
+    }
+    .word.dragging { /* ADDED: Style for the element being dragged */
+        opacity: 0.5;
     }
     #turn { margin-top:20px; font-size:20px; font-weight:bold; }
     #restart { 
@@ -119,6 +123,8 @@
 let allItemPairs = [];
 let turn = 'X';
 let gameOver = false;
+let draggedItem = null; // ADDED: To track the item being dragged for touch events
+
 const grid = document.getElementById('grid');
 const wordsDiv = document.getElementById('words');
 const turnDiv = document.getElementById('turn');
@@ -193,6 +199,33 @@ function checkWinner(){
     return false;
 }
 
+// REFACTORED: Moved the drop logic into its own function to be called by both mouse and touch events
+function handleDropLogic(cell, word) {
+    if (gameOver) return;
+    const mark = cell.querySelector('.mark');
+    const overlay = cell.querySelector('.overlay');
+    const wordEl = document.querySelector(`.word[data-word='${word}']`);
+
+    if (word === cell.dataset.correctTerm && !mark.textContent) {
+        mark.textContent = turn;
+        mark.style.color = turn === 'X' ? 'rgba(255,100,100,0.8)' : 'rgba(100,100,255,0.8)';
+        if (wordEl) wordEl.remove();
+        if (!checkWinner()) {
+            turn = turn === 'X' ? 'O' : 'X';
+            turnDiv.textContent = 'Turn: ' + turn;
+        }
+    } else {
+        overlay.style.opacity = '0.7';
+        setTimeout(() => overlay.style.opacity = '0', 500);
+        
+        // This part is a bit tricky for touch, as the word element might be hidden.
+        // For simplicity, we just switch turns on wrong answers.
+        turn = turn === 'X' ? 'O' : 'X';
+        turnDiv.textContent = 'Turn: ' + turn;
+    }
+}
+
+
 function generateGame(){
     grid.innerHTML = '';
     wordsDiv.innerHTML = '';
@@ -224,28 +257,12 @@ function generateGame(){
         mark.className='mark';
         cell.appendChild(mark);
 
-        cell.addEventListener('dragover',e=>e.preventDefault());
-        cell.addEventListener('drop',e=>{
-            if(gameOver) return;
-            const dragged = e.dataTransfer.getData('text');
-            const wordEl = document.querySelector(`.word[data-word='${dragged}']`);
-            
-            if(dragged===cell.dataset.correctTerm && !mark.textContent){
-                mark.textContent = turn;
-                mark.style.color = turn==='X'?'rgba(255,100,100,0.8)':'rgba(100,100,255,0.8)';
-                if(wordEl) wordEl.remove();
-                if(!checkWinner()){
-                    turn = turn==='X'?'O':'X';
-                    turnDiv.textContent = 'Turn: '+turn;
-                }
-            } else {
-                overlay.style.opacity='0.7';
-                setTimeout(()=>overlay.style.opacity='0',500);
-                if(wordEl) wordsDiv.appendChild(wordEl);
-                
-                turn = turn==='X'?'O':'X';
-                turnDiv.textContent = 'Turn: '+turn;
-            }
+        // --- MOUSE EVENT (Original) ---
+        cell.addEventListener('dragover', e => e.preventDefault());
+        cell.addEventListener('drop', e => {
+            e.preventDefault();
+            const draggedWord = e.dataTransfer.getData('text');
+            handleDropLogic(cell, draggedWord); // MODIFIED: Call the refactored function
         });
 
         grid.appendChild(cell);
@@ -256,15 +273,56 @@ function generateGame(){
         wordEl.className='word';
         wordEl.textContent = pair.term;
         wordEl.setAttribute('draggable','true');
-        wordEl.dataset.word=pair.term;
+        wordEl.dataset.word = pair.term;
+        
+        // --- MOUSE DRAG EVENT (Original) ---
         wordEl.addEventListener('dragstart',e=>{
-            e.dataTransfer.setData('text',pair.term);
+            e.dataTransfer.setData('text', pair.term);
+            draggedItem = e.target;
+            setTimeout(() => e.target.classList.add('dragging'), 0);
         });
+        
+        wordEl.addEventListener('dragend', e => {
+            e.target.classList.remove('dragging');
+        });
+
+        // --- ADDED: TOUCH EVENT LISTENERS ---
+        wordEl.addEventListener('touchstart', e => {
+            e.preventDefault(); // Prevent scrolling
+            draggedItem = e.target;
+            draggedItem.classList.add('dragging');
+        }, { passive: false });
+        
         wordsDiv.appendChild(wordEl);
+    });
+
+    // --- ADDED: GLOBAL TOUCH LISTENERS FOR THE DRAG PROCESS ---
+    document.addEventListener('touchmove', e => {
+        if (!draggedItem) return;
+        // This part is for visual feedback (moving the element), which can be complex.
+        // For now, we'll just track the position for the drop.
+    }, { passive: false });
+
+    document.addEventListener('touchend', e => {
+        if (!draggedItem) return;
+        draggedItem.classList.remove('dragging');
+
+        // Find the element under the touch point
+        const touch = e.changedTouches[0];
+        const elementOver = document.elementFromPoint(touch.clientX, touch.clientY);
+        
+        // Use .closest() to find the parent .cell if we dropped on a child element
+        const dropTarget = elementOver ? elementOver.closest('.cell') : null;
+
+        if (dropTarget) {
+            handleDropLogic(dropTarget, draggedItem.dataset.word);
+        }
+        
+        draggedItem = null;
     });
 }
 
-restartBtn.addEventListener('click',generateGame);
+restartBtn.addEventListener('click', generateGame);
 </script>
 </body>
 </html>
