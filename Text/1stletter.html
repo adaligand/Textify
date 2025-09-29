@@ -17,7 +17,7 @@
     }
     .container {
         width: 90%;
-      padding: 40px;
+        padding: 40px;
         box-sizing: border-box;
         background-color: white; /* White background for the game */
         border-radius: 15px; /* Rounded corners */
@@ -207,26 +207,33 @@
             let globalCharIndex = 0;
 
             words.forEach((word) => {
-                if (word.includes("'")) {
-                    let parts = word.split("'");
-                    sentenceWithInputFields += parts[0] + "'";
-                    let part1Index = frenchSentence.indexOf(parts[1], globalCharIndex + parts[0].length);
-                    for (let i = 0; i < parts[1].length; i++) {
-                        sentenceWithInputFields += `<input type="text" maxlength="1" class="missing-word" data-index="${part1Index + i}" oninput="validateCharacter(this)" onfocus="setLastFocusedInput(this)" onkeydown="handleKeyDown(event, this)">`;
-                    }
-                } else {
-                    sentenceWithInputFields += word.charAt(0);
-                    let firstCharIndex = frenchSentence.indexOf(word, globalCharIndex);
-                    for (let i = 1; i < word.length; i++) {
-                        if (punctuations.includes(word[i])) {
-                            sentenceWithInputFields += word[i];
-                        } else {
-                            sentenceWithInputFields += `<input type="text" maxlength="1" class="missing-word" data-index="${firstCharIndex + i}" oninput="validateCharacter(this)" onfocus="setLastFocusedInput(this)" onkeydown="handleKeyDown(event, this)">`;
-                        }
+                if (word.length === 0) return; // Skip empty strings if there are double spaces
+
+                // Find the starting index of the current word in the full sentence.
+                // This is crucial for getting the correct 'data-index' for each character.
+                let firstCharIndex = frenchSentence.indexOf(word, globalCharIndex);
+
+                // Always display the first character of the word.
+                sentenceWithInputFields += word.charAt(0);
+
+                // Loop through the REST of the characters in the word (starting from the second character).
+                for (let i = 1; i < word.length; i++) {
+                    const char = word[i];
+                    const charIndex = firstCharIndex + i; // Calculate the character's global index
+
+                    // If the character is a punctuation mark, just display it.
+                    if (punctuations.includes(char)) {
+                        sentenceWithInputFields += char;
+                    } else {
+                        // Otherwise, create an input field for it.
+                        // This now correctly handles apostrophes, since ' is not in the punctuations array.
+                        sentenceWithInputFields += `<input type="text" maxlength="1" class="missing-word" data-index="${charIndex}" oninput="validateCharacter(this)" onfocus="setLastFocusedInput(this)" onkeydown="handleKeyDown(event, this)">`;
                     }
                 }
-                globalCharIndex += word.length + 1;
-                sentenceWithInputFields += " ";
+                
+                // Update the global index to search for the next word from the correct position.
+                globalCharIndex = firstCharIndex + word.length;
+                sentenceWithInputFields += " "; // Add a space after each word
             });
 
             var exerciseOutput = document.getElementById('exerciseOutput');
@@ -267,12 +274,30 @@
         }
 
         function validateCharacter(input) {
-            var userInput = input.value.trim().toLowerCase();
-            var correctChar = currentFrenchSentence[input.getAttribute('data-index')];
+            const userInput = input.value.trim(); // Get raw input without toLowerCase yet
+            const correctChar = currentFrenchSentence[input.getAttribute('data-index')];
+            
+            // An array of valid apostrophe characters
+            const apostrophes = ["'", "’"]; // Straight (UK) and Curly/Typographic (French)
+            
+            let isMatch = false;
+
+            // First, check if the correct character is supposed to be an apostrophe
+            if (apostrophes.includes(correctChar)) {
+                // If so, check if the user's input is EITHER of the valid apostrophes
+                if (apostrophes.includes(userInput)) {
+                    isMatch = true;
+                }
+            } else {
+                // If it's not an apostrophe, perform the standard case-insensitive check for letters
+                if (userInput.toLowerCase() === correctChar.toLowerCase()) {
+                    isMatch = true;
+                }
+            }
             
             if (userInput === '') {
                 input.classList.remove('correct', 'incorrect');
-            } else if (userInput === correctChar.toLowerCase()) {
+            } else if (isMatch) {
                 input.classList.add('correct');
                 input.classList.remove('incorrect');
                 let nextInput = findNextInput(input);
@@ -286,6 +311,7 @@
             
             checkAllAnswers();
         }
+
 
         function checkAllAnswers() {
             var inputFields = document.querySelectorAll('.missing-word');
