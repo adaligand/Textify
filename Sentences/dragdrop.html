@@ -8,23 +8,22 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #f5f5f5; /* Light grey background */
+            background-color: #f5f5f5;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             margin: 0;
-            /* Prevents unwanted scrolling on touch devices */
-            touch-action: none;
+            touch-action: none; /* Prevents scrolling during drag */
         }
         .container {
             width: 100%;
-            max-width: 800px; /* Constrain width on large screens */
+            max-width: 800px;
             padding: 40px;
             box-sizing: border-box;
-            background-color: white; /* White background for the game */
-            border-radius: 15px; /* Rounded corners */
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+            background-color: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
         .title {
             font-size: 40px;
@@ -51,6 +50,7 @@
             border-radius: 10px;
             cursor: pointer;
             margin: 5px;
+            transition: transform 0.2s, background-color 0.2s;
         }
         button:hover {
             background-color: #A9A9A9;
@@ -71,26 +71,22 @@
         .french-sentence {
             margin-bottom: 20px;
             font-size: 20px;
-            text-align: center; /* This centers the sentence with the dropzones */
+            text-align: center;
         }
         .draggable-word {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             cursor: grab;
-            margin-right: 5px;
+            margin: 0 5px 5px 0;
             font-size: 20px;
-            margin-bottom: 5px;
             border: 1px solid black;
             padding: 2px 10px;
             border-radius: 5px;
             background-color: #f0f0f0;
             height: 30px;
-            line-height: 1.5;
             vertical-align: middle;
-            overflow: hidden;
-            /* Added for smoother touch interaction */
-            user-select: none; 
+            user-select: none;
             -webkit-user-select: none;
         }
         .dropzone-container {
@@ -103,13 +99,24 @@
             min-width: 30px;
             min-height: 30px;
             font-size: 20px;
-            height: auto;
             border-radius: 10px;
             display: inline-block;
             padding: 5px 10px;
             vertical-align: middle;
-            line-height: 1.5;
             margin: 2px;
+            transition: border-color 0.3s, background-color 0.3s;
+        }
+        .dropzone.filled {
+            border-color: #555; /* Neutral color for a filled box */
+            border-style: solid;
+        }
+        .dropzone.correct {
+            border-color: #28a745 !important; /* Green for correct */
+            background-color: #e9f7ef;
+        }
+        .dropzone.incorrect {
+            border-color: #dc3545 !important; /* Red for incorrect */
+            background-color: #fbebed;
         }
         .feedback {
             font-weight: bold;
@@ -121,6 +128,7 @@
         .chunk-container {
             text-align: center;
             margin-top: 10px;
+            min-height: 40px; /* Prevents layout shift */
         }
         .feedback-container {
             display: flex;
@@ -130,6 +138,16 @@
             min-height: 45px;
             margin-top: 10px;
         }
+        .dragging-source {
+            visibility: hidden; /* Hides original but keeps space */
+        }
+        .dragging-clone {
+            position: fixed; /* Allows it to float over everything */
+            pointer-events: none; /* Prevents it from interfering with drop targets */
+            z-index: 1000;
+            opacity: 0.8;
+            transform: translate(-50%, -50%); /* Centers the clone on the finger */
+        }
     </style>
 </head>
 <body>
@@ -137,9 +155,7 @@
         <div class="title">Drag and drop</div>
         <div class="subtitle" id="subtitle">Drag and drop the words into the correct places.</div>
         <div class="counter" id="sentenceCounter"></div>
-
         <div id="exerciseOutput"></div>
-        
         <div class="input-container">
             <div class="feedback-container">
                 <div id="feedback" class="hide"></div>
@@ -153,10 +169,9 @@
     var currentTextIndex = 0;
     var originalChunks = [];
     var sentencePairs = [];
-    var filledDropzonesCount = 0;
-
-    // --- NEW --- Variable to track the element being dragged on touch devices
+    
     let touchDraggedItem = null;
+    let ghostElement = null;
 
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
@@ -178,12 +193,10 @@
                         });
                     }
                 });
-
                 if (sentencePairs.length === 0) {
                     document.getElementById('subtitle').textContent = "⚠️ No data found. Check your column headers are 'French sentences' and 'English sentences'.";
                     return;
                 }
-
                 document.getElementById('subtitle').textContent = "Drag and drop the words into the correct places.";
                 shuffleArray(sentencePairs);
                 generateChunk();
@@ -204,16 +217,15 @@
             return;
         }
 
-        var englishSentence = sentencePairs[currentTextIndex].english;
-        var frenchSentence = sentencePairs[currentTextIndex].french;
+        const englishSentence = sentencePairs[currentTextIndex].english;
+        const frenchSentence = sentencePairs[currentTextIndex].french;
         originalChunks = getWordChunks(frenchSentence);
 
-        var halfChunksCount = Math.ceil(originalChunks.length / 2);
-        var removedChunksIndices = getRandomIndices(originalChunks.length, halfChunksCount);
-        var removedChunks = removedChunksIndices.map(index => originalChunks[index]);
+        const halfChunksCount = Math.ceil(originalChunks.length / 2);
+        const removedChunksIndices = getRandomIndices(originalChunks.length, halfChunksCount);
 
-        var sentenceWithDropzones = '';
-        for (var i = 0; i < originalChunks.length; i++) {
+        let sentenceWithDropzones = '';
+        for (let i = 0; i < originalChunks.length; i++) {
             if (removedChunksIndices.includes(i)) {
                 sentenceWithDropzones += `<div class="dropzone" ondrop="drop(event)" ondragover="allowDrop(event)" onclick="emptyDropzone(event)" data-index="${i}"></div> `;
             } else {
@@ -221,73 +233,22 @@
             }
         }
 
-        var exerciseOutput = document.getElementById('exerciseOutput');
-        exerciseOutput.innerHTML = '';
+        const exerciseOutput = document.getElementById('exerciseOutput');
+        exerciseOutput.innerHTML = `
+            <div class="english-sentence">${englishSentence}</div>
+            <div class="french-sentence">${sentenceWithDropzones}</div>
+            <div class="chunk-container"></div>
+        `;
 
-        var englishSentenceDiv = document.createElement('div');
-        englishSentenceDiv.classList.add('english-sentence');
-        englishSentenceDiv.textContent = englishSentence;
-        exerciseOutput.appendChild(englishSentenceDiv);
-
-        var sentenceDiv = document.createElement('div');
-        sentenceDiv.classList.add('french-sentence');
-        sentenceDiv.innerHTML = sentenceWithDropzones;
-        exerciseOutput.appendChild(sentenceDiv);
-
-        var chunkContainer = document.createElement('div');
-        chunkContainer.classList.add('chunk-container');
-        exerciseOutput.appendChild(chunkContainer);
-
-        shuffleArray(removedChunks).forEach((chunk, i) => {
+        const removedChunks = removedChunksIndices.map(index => originalChunks[index]);
+        shuffleArray(removedChunks).forEach((chunk) => {
             let originalIndex = originalChunks.indexOf(chunk);
-            addDraggableWord(chunk, originalIndex); // Use the helper function
+            addDraggableWord(chunk, originalIndex);
         });
-
-        document.getElementById('feedback').classList.add('hide');
-        document.getElementById('nextButton').classList.add('hide');
-        filledDropzonesCount = 0;
-
-        document.getElementById('sentenceCounter').textContent = (currentTextIndex + 1) + '/' + sentencePairs.length;
+        
+        checkCompletionState();
+        document.getElementById('sentenceCounter').textContent = `${currentTextIndex + 1}/${sentencePairs.length}`;
         document.getElementById('sentenceCounter').classList.remove('hide');
-    }
-
-
-    function nextText() {
-        currentTextIndex++;
-        generateChunk();
-    }
-
-    function resetActivity() {
-        currentTextIndex = 0;
-        shuffleArray(sentencePairs);
-        generateChunk();
-        document.getElementById('nextButton').textContent = 'Next';
-        document.getElementById('resetButton').classList.add('hide');
-    }
-
-    function getWordChunks(text) {
-        return text.split(/\s+/).filter(Boolean);
-    }
-
-    function getRandomIndices(length, count) {
-        var indices = [];
-        while (indices.length < count) {
-            var index = Math.floor(Math.random() * length);
-            if (!indices.includes(index)) {
-                indices.push(index);
-            }
-        }
-        return indices;
-    }
-
-    function shuffleArray(array) {
-        for (var i = array.length - 1; i > 0; i--) {
-            var j = Math.floor(Math.random() * (i + 1));
-            var temp = array[i];
-            array[i] = array[j];
-            array[j] = temp;
-        }
-        return array;
     }
 
     // --- MOUSE DRAG AND DROP ---
@@ -295,138 +256,176 @@
         event.dataTransfer.setData("text", event.target.textContent);
         event.dataTransfer.setData("original-index", event.target.getAttribute('data-original-index'));
     }
-
     function allowDrop(event) {
         event.preventDefault();
     }
-
     function drop(event) {
         event.preventDefault();
-        var data = event.dataTransfer.getData("text");
-        var originalIndex = event.dataTransfer.getData("original-index");
+        const data = event.dataTransfer.getData("text");
+        const originalIndex = event.dataTransfer.getData("original-index");
         placeWordInDropzone(event.target, data, originalIndex);
     }
     
-    // --- NEW: TOUCH EVENT HANDLERS ---
+    // --- TOUCH EVENT HANDLERS ---
     function handleTouchStart(event) {
-        // We only start a drag if it's a single touch.
         if (event.touches.length === 1) {
             touchDraggedItem = event.target;
+            touchDraggedItem.classList.add('dragging-source');
+            ghostElement = touchDraggedItem.cloneNode(true);
+            ghostElement.classList.remove('dragging-source');
+            ghostElement.classList.add('dragging-clone');
+            document.body.appendChild(ghostElement);
+            const touch = event.touches[0];
+            ghostElement.style.left = `${touch.clientX}px`;
+            ghostElement.style.top = `${touch.clientY}px`;
         }
     }
-
     function handleTouchMove(event) {
-        // Prevent the screen from scrolling while the user is dragging a word.
-        if (touchDraggedItem) {
+        if (touchDraggedItem && event.touches.length === 1) {
             event.preventDefault();
+            const touch = event.touches[0];
+            ghostElement.style.left = `${touch.clientX}px`;
+            ghostElement.style.top = `${touch.clientY}px`;
         }
     }
-
     function handleTouchEnd(event) {
         if (!touchDraggedItem) return;
-
-        // Temporarily hide the dragged item to find what's underneath
-        touchDraggedItem.style.display = 'none';
-        let touch = event.changedTouches[0];
-        let dropTarget = document.elementFromPoint(touch.clientX, touch.clientY);
-        touchDraggedItem.style.display = 'inline-flex'; // Show it again
-
+        ghostElement.style.display = 'none';
+        const touch = event.changedTouches[0];
+        const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY);
         if (dropTarget) {
             const wordText = touchDraggedItem.textContent;
             const wordOriginalIndex = touchDraggedItem.getAttribute('data-original-index');
             placeWordInDropzone(dropTarget, wordText, wordOriginalIndex);
         }
-        
-        touchDraggedItem = null; // End the drag operation
+        touchDraggedItem.classList.remove('dragging-source');
+        document.body.removeChild(ghostElement);
+        ghostElement = null;
+        touchDraggedItem = null;
     }
 
-    // --- NEW: REFACTORED LOGIC FOR PLACING WORDS ---
+    // --- CORE LOGIC FUNCTIONS ---
     function placeWordInDropzone(dropTarget, wordText, wordOriginalIndex) {
         if (dropTarget && dropTarget.classList.contains('dropzone') && !dropTarget.textContent) {
             dropTarget.textContent = wordText;
-            
-            if (dropTarget.getAttribute('data-index') === wordOriginalIndex) {
-                dropTarget.style.borderColor = '#28a745'; // Green for correct
-            } else {
-                dropTarget.style.borderColor = '#dc3545'; // Red for incorrect
-            }
-
+            dropTarget.classList.add('filled');
+            dropTarget.setAttribute('data-word-index', wordOriginalIndex);
             removeDraggableWord(wordText);
-            checkAnswers();
+            checkCompletionState();
         }
     }
 
-
     function removeDraggableWord(text) {
-        var chunkContainer = document.querySelector('.chunk-container');
-        var draggableWords = chunkContainer.querySelectorAll('.draggable-word');
-        draggableWords.forEach(function(word) {
-            if (word.textContent === text) {
-                word.remove();
-            }
+        document.querySelectorAll('.draggable-word').forEach(word => {
+            if (word.textContent === text) word.remove();
         });
     }
 
     function emptyDropzone(event) {
-        var target = event.target;
+        const target = event.target;
         if (target.classList.contains('dropzone') && target.textContent) {
-            var word = target.textContent;
+            const word = target.textContent;
+            const originalIndex = target.getAttribute('data-word-index');
             target.textContent = '';
-            target.style.borderColor = '#007bff'; // Reset border color
-            
-            let originalIndex = originalChunks.indexOf(word);
+            target.classList.remove('filled', 'correct', 'incorrect');
+            target.removeAttribute('data-word-index');
             addDraggableWord(word, originalIndex);
-            checkAnswers();
+            checkCompletionState();
         }
     }
 
-    // --- MODIFIED ---
     function addDraggableWord(word, index) {
-        var chunkContainer = document.querySelector('.chunk-container');
-        var chunkElement = document.createElement('div');
+        const chunkContainer = document.querySelector('.chunk-container');
+        const chunkElement = document.createElement('div');
         chunkElement.textContent = word;
-        chunkElement.classList.add('draggable-word');
+        chunkElement.className = 'draggable-word';
         chunkElement.setAttribute('draggable', 'true');
         chunkElement.setAttribute('ondragstart', 'drag(event)');
         chunkElement.setAttribute('data-original-index', index);
-        
-        // --- NEW --- Add touch event listeners
         chunkElement.addEventListener('touchstart', handleTouchStart, { passive: false });
         chunkElement.addEventListener('touchmove', handleTouchMove, { passive: false });
-        chunkElement.addEventListener('touchend', handleTouchEnd, { passive: false });
-        
+        chunkElement.addEventListener('touchend', handleTouchEnd);
         chunkContainer.appendChild(chunkElement);
     }
 
-    function checkAnswers() {
-        var dropzones = document.querySelectorAll('.dropzone');
-        var filledDropzones = Array.from(dropzones).filter(dz => dz.textContent.trim() !== '');
-
-        if (filledDropzones.length === dropzones.length) {
-            var allCorrect = true;
-            dropzones.forEach(dz => {
-                if (dz.style.borderColor.includes('rgb(220, 53, 69)')) { // Check for red color
-                    allCorrect = false;
-                }
-            });
-
-            var feedbackElement = document.getElementById('feedback');
-            if (allCorrect) {
-                feedbackElement.textContent = 'Correct! Well done.';
-                feedbackElement.style.color = '#28a745';
-                if (currentTextIndex >= sentencePairs.length - 1) {
-                    document.getElementById('resetButton').classList.remove('hide');
-                } else {
-                    document.getElementById('nextButton').classList.remove('hide');
-                }
-            } else {
-                feedbackElement.textContent = 'Some words are in the wrong place. Click on a word to try again.';
-                feedbackElement.style.color = '#dc3545';
-            }
-            feedbackElement.classList.remove('hide');
-        } else {
-            document.getElementById('feedback').classList.add('hide');
+    // --- MODIFIED: This function now triggers validation automatically ---
+    function checkCompletionState() {
+        const dropzones = document.querySelectorAll('.dropzone');
+        const filledCount = document.querySelectorAll('.dropzone.filled').length;
+        
+        // Always hide feedback and buttons when the state changes
+        document.getElementById('feedback').classList.add('hide');
+        document.getElementById('nextButton').classList.add('hide');
+        
+        // Reset validation styles if user removes a word
+        dropzones.forEach(dz => dz.classList.remove('correct', 'incorrect'));
+        
+        // If all dropzones are filled, validate immediately
+        if (dropzones.length > 0 && filledCount === dropzones.length) {
+            validateAllAnswers();
         }
+    }
+    
+    // --- MODIFIED: No longer needs to hide the check button ---
+    function validateAllAnswers() {
+        const dropzones = document.querySelectorAll('.dropzone');
+        let allCorrect = true;
+
+        dropzones.forEach(dz => {
+            const dropzoneIndex = dz.getAttribute('data-index');
+            const wordIndex = dz.getAttribute('data-word-index');
+            if (dropzoneIndex === wordIndex) {
+                dz.classList.add('correct');
+            } else {
+                dz.classList.add('incorrect');
+                allCorrect = false;
+            }
+        });
+        
+        const feedbackElement = document.getElementById('feedback');
+        if (allCorrect) {
+            feedbackElement.textContent = 'Correct! Well done.';
+            feedbackElement.style.color = '#28a745';
+            if (currentTextIndex >= sentencePairs.length - 1) {
+                document.getElementById('resetButton').classList.remove('hide');
+            } else {
+                document.getElementById('nextButton').classList.remove('hide');
+            }
+        } else {
+            feedbackElement.textContent = 'Some words are in the wrong place. Click a word to try again.';
+            feedbackElement.style.color = '#dc3545';
+        }
+        
+        feedbackElement.classList.remove('hide');
+    }
+
+    // --- UTILITY AND NAVIGATION FUNCTIONS ---
+    function nextText() {
+        currentTextIndex++;
+        generateChunk();
+    }
+    function resetActivity() {
+        currentTextIndex = 0;
+        shuffleArray(sentencePairs);
+        generateChunk();
+        document.getElementById('resetButton').classList.add('hide');
+    }
+    function getWordChunks(text) {
+        return text.split(/\s+/).filter(Boolean);
+    }
+    function getRandomIndices(length, count) {
+        const indices = new Set();
+        while (indices.size < count) {
+            indices.add(Math.floor(Math.random() * length));
+        }
+        return Array.from(indices);
+    }
+    function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
     }
 </script>
 </body>
