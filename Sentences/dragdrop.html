@@ -14,6 +14,8 @@
             align-items: center;
             min-height: 100vh;
             margin: 0;
+            /* Prevents unwanted scrolling on touch devices */
+            touch-action: none;
         }
         .container {
             width: 100%;
@@ -87,6 +89,9 @@
             line-height: 1.5;
             vertical-align: middle;
             overflow: hidden;
+            /* Added for smoother touch interaction */
+            user-select: none; 
+            -webkit-user-select: none;
         }
         .dropzone-container {
             margin-top: 20px;
@@ -106,7 +111,6 @@
             line-height: 1.5;
             margin: 2px;
         }
-        /* --- CSS RULE MODIFIED HERE --- */
         .feedback {
             font-weight: bold;
             font-size: 20px;
@@ -118,7 +122,6 @@
             text-align: center;
             margin-top: 10px;
         }
-        /* --- NEW CSS RULE ADDED HERE --- */
         .feedback-container {
             display: flex;
             justify-content: center;
@@ -149,8 +152,11 @@
 <script>
     var currentTextIndex = 0;
     var originalChunks = [];
-    var sentencePairs = []; // This will be populated from the CSV
+    var sentencePairs = [];
     var filledDropzonesCount = 0;
+
+    // --- NEW --- Variable to track the element being dragged on touch devices
+    let touchDraggedItem = null;
 
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
@@ -189,68 +195,61 @@
         });
     }
 
-function generateChunk() {
-    if (currentTextIndex >= sentencePairs.length) {
-        document.getElementById('exerciseOutput').innerHTML = '<h2>🎉 Well done! You have completed all sentences.</h2>';
-        document.getElementById('resetButton').classList.remove('hide');
-        document.getElementById('nextButton').classList.add('hide');
-        document.getElementById('sentenceCounter').classList.add('hide');
-        return;
-    }
-
-    var englishSentence = sentencePairs[currentTextIndex].english;
-    var frenchSentence = sentencePairs[currentTextIndex].french;
-    originalChunks = getWordChunks(frenchSentence);
-
-    var halfChunksCount = Math.ceil(originalChunks.length / 2);
-    var removedChunksIndices = getRandomIndices(originalChunks.length, halfChunksCount);
-    var removedChunks = removedChunksIndices.map(index => originalChunks[index]);
-
-    var sentenceWithDropzones = '';
-    for (var i = 0; i < originalChunks.length; i++) {
-        if (removedChunksIndices.includes(i)) {
-            sentenceWithDropzones += `<div class="dropzone" ondrop="drop(event)" ondragover="allowDrop(event)" onclick="emptyDropzone(event)" data-index="${i}"></div> `;
-        } else {
-            sentenceWithDropzones += originalChunks[i] + ' ';
+    function generateChunk() {
+        if (currentTextIndex >= sentencePairs.length) {
+            document.getElementById('exerciseOutput').innerHTML = '<h2>🎉 Well done! You have completed all sentences.</h2>';
+            document.getElementById('resetButton').classList.remove('hide');
+            document.getElementById('nextButton').classList.add('hide');
+            document.getElementById('sentenceCounter').classList.add('hide');
+            return;
         }
+
+        var englishSentence = sentencePairs[currentTextIndex].english;
+        var frenchSentence = sentencePairs[currentTextIndex].french;
+        originalChunks = getWordChunks(frenchSentence);
+
+        var halfChunksCount = Math.ceil(originalChunks.length / 2);
+        var removedChunksIndices = getRandomIndices(originalChunks.length, halfChunksCount);
+        var removedChunks = removedChunksIndices.map(index => originalChunks[index]);
+
+        var sentenceWithDropzones = '';
+        for (var i = 0; i < originalChunks.length; i++) {
+            if (removedChunksIndices.includes(i)) {
+                sentenceWithDropzones += `<div class="dropzone" ondrop="drop(event)" ondragover="allowDrop(event)" onclick="emptyDropzone(event)" data-index="${i}"></div> `;
+            } else {
+                sentenceWithDropzones += originalChunks[i] + ' ';
+            }
+        }
+
+        var exerciseOutput = document.getElementById('exerciseOutput');
+        exerciseOutput.innerHTML = '';
+
+        var englishSentenceDiv = document.createElement('div');
+        englishSentenceDiv.classList.add('english-sentence');
+        englishSentenceDiv.textContent = englishSentence;
+        exerciseOutput.appendChild(englishSentenceDiv);
+
+        var sentenceDiv = document.createElement('div');
+        sentenceDiv.classList.add('french-sentence');
+        sentenceDiv.innerHTML = sentenceWithDropzones;
+        exerciseOutput.appendChild(sentenceDiv);
+
+        var chunkContainer = document.createElement('div');
+        chunkContainer.classList.add('chunk-container');
+        exerciseOutput.appendChild(chunkContainer);
+
+        shuffleArray(removedChunks).forEach((chunk, i) => {
+            let originalIndex = originalChunks.indexOf(chunk);
+            addDraggableWord(chunk, originalIndex); // Use the helper function
+        });
+
+        document.getElementById('feedback').classList.add('hide');
+        document.getElementById('nextButton').classList.add('hide');
+        filledDropzonesCount = 0;
+
+        document.getElementById('sentenceCounter').textContent = (currentTextIndex + 1) + '/' + sentencePairs.length;
+        document.getElementById('sentenceCounter').classList.remove('hide');
     }
-
-    var exerciseOutput = document.getElementById('exerciseOutput');
-    exerciseOutput.innerHTML = '';
-
-    var englishSentenceDiv = document.createElement('div');
-    englishSentenceDiv.classList.add('english-sentence');
-    englishSentenceDiv.textContent = englishSentence;
-    exerciseOutput.appendChild(englishSentenceDiv);
-
-    var sentenceDiv = document.createElement('div');
-    sentenceDiv.classList.add('french-sentence');
-    sentenceDiv.innerHTML = sentenceWithDropzones;
-    exerciseOutput.appendChild(sentenceDiv);
-
-    var chunkContainer = document.createElement('div');
-    chunkContainer.classList.add('chunk-container');
-    exerciseOutput.appendChild(chunkContainer);
-
-    shuffleArray(removedChunks).forEach((chunk, i) => {
-        var chunkElement = document.createElement('div');
-        chunkElement.textContent = chunk;
-        chunkElement.classList.add('draggable-word');
-        chunkElement.setAttribute('draggable', 'true');
-        chunkElement.setAttribute('ondragstart', 'drag(event)');
-        
-        let originalIndex = originalChunks.indexOf(chunk);
-        chunkElement.setAttribute('data-original-index', originalIndex);
-        chunkContainer.appendChild(chunkElement);
-    });
-
-    document.getElementById('feedback').classList.add('hide');
-    document.getElementById('nextButton').classList.add('hide');
-    filledDropzonesCount = 0;
-
-    document.getElementById('sentenceCounter').textContent = (currentTextIndex + 1) + '/' + sentencePairs.length;
-    document.getElementById('sentenceCounter').classList.remove('hide');
-}
 
 
     function nextText() {
@@ -291,6 +290,7 @@ function generateChunk() {
         return array;
     }
 
+    // --- MOUSE DRAG AND DROP ---
     function drag(event) {
         event.dataTransfer.setData("text", event.target.textContent);
         event.dataTransfer.setData("original-index", event.target.getAttribute('data-original-index'));
@@ -304,21 +304,58 @@ function generateChunk() {
         event.preventDefault();
         var data = event.dataTransfer.getData("text");
         var originalIndex = event.dataTransfer.getData("original-index");
-        var target = event.target;
+        placeWordInDropzone(event.target, data, originalIndex);
+    }
+    
+    // --- NEW: TOUCH EVENT HANDLERS ---
+    function handleTouchStart(event) {
+        // We only start a drag if it's a single touch.
+        if (event.touches.length === 1) {
+            touchDraggedItem = event.target;
+        }
+    }
 
-        if (target.classList.contains('dropzone') && !target.textContent) {
-            target.textContent = data;
+    function handleTouchMove(event) {
+        // Prevent the screen from scrolling while the user is dragging a word.
+        if (touchDraggedItem) {
+            event.preventDefault();
+        }
+    }
+
+    function handleTouchEnd(event) {
+        if (!touchDraggedItem) return;
+
+        // Temporarily hide the dragged item to find what's underneath
+        touchDraggedItem.style.display = 'none';
+        let touch = event.changedTouches[0];
+        let dropTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+        touchDraggedItem.style.display = 'inline-flex'; // Show it again
+
+        if (dropTarget) {
+            const wordText = touchDraggedItem.textContent;
+            const wordOriginalIndex = touchDraggedItem.getAttribute('data-original-index');
+            placeWordInDropzone(dropTarget, wordText, wordOriginalIndex);
+        }
+        
+        touchDraggedItem = null; // End the drag operation
+    }
+
+    // --- NEW: REFACTORED LOGIC FOR PLACING WORDS ---
+    function placeWordInDropzone(dropTarget, wordText, wordOriginalIndex) {
+        if (dropTarget && dropTarget.classList.contains('dropzone') && !dropTarget.textContent) {
+            dropTarget.textContent = wordText;
             
-            if (target.getAttribute('data-index') === originalIndex) {
-                 target.style.borderColor = '#28a745'; // Green for correct
+            if (dropTarget.getAttribute('data-index') === wordOriginalIndex) {
+                dropTarget.style.borderColor = '#28a745'; // Green for correct
             } else {
-                 target.style.borderColor = '#dc3545'; // Red for incorrect
+                dropTarget.style.borderColor = '#dc3545'; // Red for incorrect
             }
 
-            removeDraggableWord(data);
+            removeDraggableWord(wordText);
             checkAnswers();
         }
     }
+
 
     function removeDraggableWord(text) {
         var chunkContainer = document.querySelector('.chunk-container');
@@ -343,6 +380,7 @@ function generateChunk() {
         }
     }
 
+    // --- MODIFIED ---
     function addDraggableWord(word, index) {
         var chunkContainer = document.querySelector('.chunk-container');
         var chunkElement = document.createElement('div');
@@ -351,39 +389,45 @@ function generateChunk() {
         chunkElement.setAttribute('draggable', 'true');
         chunkElement.setAttribute('ondragstart', 'drag(event)');
         chunkElement.setAttribute('data-original-index', index);
+        
+        // --- NEW --- Add touch event listeners
+        chunkElement.addEventListener('touchstart', handleTouchStart, { passive: false });
+        chunkElement.addEventListener('touchmove', handleTouchMove, { passive: false });
+        chunkElement.addEventListener('touchend', handleTouchEnd, { passive: false });
+        
         chunkContainer.appendChild(chunkElement);
     }
 
-function checkAnswers() {
-    var dropzones = document.querySelectorAll('.dropzone');
-    var filledDropzones = Array.from(dropzones).filter(dz => dz.textContent.trim() !== '');
+    function checkAnswers() {
+        var dropzones = document.querySelectorAll('.dropzone');
+        var filledDropzones = Array.from(dropzones).filter(dz => dz.textContent.trim() !== '');
 
-    if (filledDropzones.length === dropzones.length) {
-        var allCorrect = true;
-        dropzones.forEach(dz => {
-            if (dz.style.borderColor.includes('rgb(220, 53, 69)')) { // Check for red color
-                allCorrect = false;
-            }
-        });
+        if (filledDropzones.length === dropzones.length) {
+            var allCorrect = true;
+            dropzones.forEach(dz => {
+                if (dz.style.borderColor.includes('rgb(220, 53, 69)')) { // Check for red color
+                    allCorrect = false;
+                }
+            });
 
-        var feedbackElement = document.getElementById('feedback');
-        if (allCorrect) {
-            feedbackElement.textContent = 'Correct! Well done.';
-            feedbackElement.style.color = '#28a745';
-            if (currentTextIndex >= sentencePairs.length - 1) {
-                document.getElementById('resetButton').classList.remove('hide');
+            var feedbackElement = document.getElementById('feedback');
+            if (allCorrect) {
+                feedbackElement.textContent = 'Correct! Well done.';
+                feedbackElement.style.color = '#28a745';
+                if (currentTextIndex >= sentencePairs.length - 1) {
+                    document.getElementById('resetButton').classList.remove('hide');
+                } else {
+                    document.getElementById('nextButton').classList.remove('hide');
+                }
             } else {
-                document.getElementById('nextButton').classList.remove('hide');
+                feedbackElement.textContent = 'Some words are in the wrong place. Click on a word to try again.';
+                feedbackElement.style.color = '#dc3545';
             }
+            feedbackElement.classList.remove('hide');
         } else {
-            feedbackElement.textContent = 'Some words are in the wrong place. Click on a word to try again.';
-            feedbackElement.style.color = '#dc3545';
+            document.getElementById('feedback').classList.add('hide');
         }
-        feedbackElement.classList.remove('hide');
-    } else {
-        document.getElementById('feedback').classList.add('hide');
     }
-}
 </script>
 </body>
 </html>
