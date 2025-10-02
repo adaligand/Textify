@@ -182,14 +182,10 @@
 
     function levenshteinDistance(a, b) {
         const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
-        for (let i = 0; i <= a.length; i += 1) {
-            matrix[0][i] = i;
-        }
-        for (let j = 0; j <= b.length; j += 1) {
-            matrix[j][0] = j;
-        }
-        for (let j = 1; j <= b.length; j += 1) {
-            for (let i = 1; i <= a.length; i += 1) {
+        for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
+        for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
+        for (let j = 1; j <= b.length; j++) {
+            for (let i = 1; i <= a.length; i++) {
                 const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
                 matrix[j][i] = Math.min(
                     matrix[j][i - 1] + 1,
@@ -199,6 +195,20 @@
             }
         }
         return matrix[b.length][a.length];
+    }
+
+    // Simple Soundex-like phonetic encoding for French
+    function phoneticEncode(word) {
+        if (!word) return "";
+        word = word.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // strip accents
+        word = word.toLowerCase();
+        word = word.replace(/ch/g, "sh");
+        word = word.replace(/ou/g, "u");
+        word = word.replace(/ph/g, "f");
+        word = word.replace(/gn/g, "ny");
+        word = word.replace(/ill/g, "y");
+        word = word.replace(/[^a-z]/g, "");
+        return word[0] + word.slice(1).replace(/([aeiouy])\1+/g, "$1");
     }
 
     function initialize() {
@@ -212,7 +222,6 @@
         const total = exerciseSentences.length;
         document.getElementById('counter').textContent = `Sentence ${currentIndex + 1} / ${total}`;
         document.getElementById('sentenceDisplay').textContent = exerciseSentences[currentIndex].sentence;
-        
         document.getElementById('feedback').textContent = '';
         document.getElementById('transcriptOutput').textContent = '';
         document.getElementById('recordButton').classList.remove('hide');
@@ -223,19 +232,11 @@
         if (!isRecording && recognition) {
             const currentLanguage = exerciseSentences[currentIndex].language;
             switch (currentLanguage) {
-                case 'french':
-                    recognition.lang = 'fr-FR';
-                    break;
-                case 'german':
-                    recognition.lang = 'de-DE';
-                    break;
-                case 'spanish':
-                    recognition.lang = 'es-ES';
-                    break;
-                default:
-                    recognition.lang = 'fr-FR'; 
+                case 'french': recognition.lang = 'fr-FR'; break;
+                case 'german': recognition.lang = 'de-DE'; break;
+                case 'spanish': recognition.lang = 'es-ES'; break;
+                default: recognition.lang = 'fr-FR'; 
             }
-            
             try {
                 recognition.start();
                 isRecording = true;
@@ -252,7 +253,6 @@
 
     function handleRecognitionResult(event) {
         const transcript = event.results[0][0].transcript;
-        // The display logic is now handled inside checkPronunciation
         checkPronunciation(transcript);
     }
 
@@ -273,27 +273,35 @@
         const correctSentence = exerciseSentences[currentIndex].sentence;
 
         const punctuationRegex = /[.,?!;:"-]/g;
+        const finalTranscript = normalizeApostrophes(transcript).replace(punctuationRegex, '').toLowerCase().trim();
+        const finalCorrectSentence = normalizeApostrophes(correctSentence).replace(punctuationRegex, '').toLowerCase().trim();
 
-        const finalTranscript = normalizeApostrophes(transcript)
-            .replace(punctuationRegex, '')
-            .toLowerCase()
-            .trim();
+        const transcriptWords = finalTranscript.split(/\s+/);
+        const correctWords = finalCorrectSentence.split(/\s+/);
 
-        const finalCorrectSentence = normalizeApostrophes(correctSentence)
-            .replace(punctuationRegex, '')
-            .toLowerCase()
-            .trim();
+        let matches = 0;
+        let wrongWords = [];
 
-        const distance = levenshteinDistance(finalTranscript, finalCorrectSentence);
-        const maxLength = Math.max(finalTranscript.length, finalCorrectSentence.length);
-        const similarity = ((maxLength - distance) / maxLength) * 100;
-        
-        const threshold = 85;
+        correctWords.forEach((word, i) => {
+            if (transcriptWords[i]) {
+                const dist = levenshteinDistance(transcriptWords[i], word);
+                if (dist <= 2 || phoneticEncode(transcriptWords[i]) === phoneticEncode(word)) {
+                    matches++;
+                } else {
+                    wrongWords.push(word);
+                }
+            } else {
+                wrongWords.push(word);
+            }
+        });
+
+        const similarity = (matches / correctWords.length) * 100;
+        const threshold = correctWords.length > 5 ? 70 : 75;
 
         if (similarity >= threshold) {
-            feedbackEl.textContent = `Correct! (${similarity.toFixed(0)}% match)`;
+            feedbackEl.textContent = `Correct! (${similarity.toFixed(0)}% match with phonetic tolerance)`;
             feedbackEl.style.color = 'green';
-            transcriptOutput.textContent = ''; // Clear the transcript output on correct
+            transcriptOutput.textContent = '';
             document.getElementById('recordButton').classList.add('hide');
             if (currentIndex < exerciseSentences.length - 1) {
                 document.getElementById('nextButton').classList.remove('hide');
@@ -301,10 +309,9 @@
                 feedbackEl.textContent = '🎉 Congratulations! You have completed the exercise.';
             }
         } else {
-            feedbackEl.textContent = `Not quite (${similarity.toFixed(0)}% match), please try again.`;
+            feedbackEl.textContent = `Not quite (${similarity.toFixed(0)}% match). Try again.`;
             feedbackEl.style.color = 'darkorange';
-            // Display the transcript ONLY when the answer is incorrect
-            transcriptOutput.textContent = `I heard: "${transcript}"`;
+            transcriptOutput.textContent = `I heard: "${transcript}"\nMissed: ${wrongWords.join(", ")}`;
         }
     }
 
