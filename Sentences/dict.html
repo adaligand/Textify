@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dictation Activity</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            padding: 30px;
+            box-sizing: border-box;
+            background-color: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        .title {
+            font-size: 36px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        #counter {
+            font-size: 22px;
+            font-weight: bold;
+            color: #666;
+            margin-bottom: 25px;
+        }
+        .hide {
+            display: none;
+        }
+        #answerInput {
+            font-size: 24px;
+            padding: 12px 15px;
+            width: 100%;
+            border-radius: 12px;
+            border: 2px solid #ddd;
+            box-sizing: border-box;
+            margin-top: 20px;
+        }
+        #answerInput:focus {
+            border-color: #007bff;
+            outline: none;
+        }
+        button {
+            font-size: 18px;
+            padding: 12px 25px;
+            margin: 10px 5px;
+            cursor: pointer;
+            border-radius: 10px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            transition: all 0.2s ease-in-out;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #0056b3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+        }
+        #playButton {
+            background-color: #28a745;
+        }
+        #playButton:hover {
+            background-color: #218838;
+        }
+        #feedback {
+            font-size: 20px;
+            font-weight: bold;
+            min-height: 24px;
+            margin-top: 15px;
+        }
+        .keyboard-area {
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+        .keyboard-button {
+            font-size: 18px;
+            padding: 10px 15px;
+            margin: 3px;
+            border: 1px solid #ccc;
+            background-color: #f8f9fa;
+            color: #333;
+            min-width: 45px;
+        }
+        .keyboard-button:hover {
+            background-color: #e2e6ea;
+            border-color: #b3b9be;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title">Dictation Activity</div>
+        <div id="counter">Loading...</div>
+        
+        <button id="playButton" onclick="playAudio()">▶️ Play Audio</button>
+        
+        <input type="text" id="answerInput" placeholder="Type what you hear..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        
+        <div id="feedback"></div>
+        
+        <div>
+            <button id="checkButton" onclick="checkAnswer()">Check</button>
+            <button id="nextButton" class="hide" onclick="nextSentence()">Next</button>
+        </div>
+
+        <div class="keyboard-area">
+            <div id="keyboardContainer"></div>
+        </div>
+    </div>
+
+<script>
+    let currentIndex = 0;
+    let allSentences = [];
+    let exerciseSentences = [];
+
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        document.querySelector('.title').textContent = "⚠️ Error";
+        document.getElementById('counter').textContent = "No Google Sheet URL was provided.";
+    } else {
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true, // UPDATED: Tells PapaParse to read the first row as headers
+            skipEmptyLines: true,
+            complete: function(results) {
+                results.data.forEach(row => {
+                    // UPDATED: Access the column by its header name
+                    if (row["French sentences"] && row["French sentences"].trim()) {
+                        allSentences.push(row["French sentences"].trim());
+                    }
+                });
+
+                if (allSentences.length === 0) {
+                    document.querySelector('.title').textContent = "⚠️ Error";
+                    document.getElementById('counter').textContent = "No sentences found under the 'French sentences' header. Please check your sheet.";
+                    return;
+                }
+                
+                initialize();
+            },
+            error: function(err) {
+                document.querySelector('.title').textContent = "⚠️ Error";
+                document.getElementById('counter').textContent = "Could not load or parse the data from the sheet.";
+                console.error("PapaParse Error:", err);
+            }
+        });
+    }
+
+    function normalizeApostrophes(text) {
+        if (typeof text !== 'string') return '';
+        return text.replace(/’/g, "'");
+    }
+
+    function initialize() {
+        // Shuffle and pick 10 sentences for the exercise
+        allSentences.sort(() => Math.random() - 0.5);
+        exerciseSentences = allSentences.slice(0, Math.min(10, allSentences.length));
+        currentIndex = 0;
+        updateUI();
+        generateKeyboard();
+    }
+
+    function updateUI() {
+        const total = exerciseSentences.length;
+        document.getElementById('counter').textContent = `Sentence ${currentIndex + 1} / ${total}`;
+        
+        const answerInput = document.getElementById('answerInput');
+        answerInput.value = '';
+        answerInput.disabled = false;
+        answerInput.focus();
+
+        document.getElementById('feedback').textContent = '';
+        document.getElementById('checkButton').classList.remove('hide');
+        document.getElementById('nextButton').classList.add('hide');
+    }
+
+    function playAudio() {
+        if (!exerciseSentences[currentIndex]) return;
+
+        const utterance = new SpeechSynthesisUtterance(exerciseSentences[currentIndex]);
+        utterance.lang = 'fr-FR'; // Set language to French
+        utterance.rate = 0.8; // Speak slightly slower for clarity
+        window.speechSynthesis.speak(utterance);
+    }
+
+    function checkAnswer() {
+        const answerInput = document.getElementById('answerInput');
+        const feedbackEl = document.getElementById('feedback');
+        
+        const userAnswer = answerInput.value.trim();
+        const correctAnswer = exerciseSentences[currentIndex];
+
+        if (!userAnswer) {
+            feedbackEl.textContent = 'Please type your answer.';
+            feedbackEl.style.color = 'orange';
+            return;
+        }
+
+        const normalizedUserAnswer = normalizeApostrophes(userAnswer).toLowerCase();
+        const normalizedCorrectAnswer = normalizeApostrophes(correctAnswer).toLowerCase();
+
+        if (normalizedUserAnswer === normalizedCorrectAnswer) {
+            feedbackEl.textContent = 'Correct!';
+            feedbackEl.style.color = 'green';
+            answerInput.disabled = true;
+            document.getElementById('checkButton').classList.add('hide');
+
+            if (currentIndex < exerciseSentences.length - 1) {
+                document.getElementById('nextButton').classList.remove('hide');
+            } else {
+                feedbackEl.textContent = '🎉 Congratulations! You have completed the exercise.';
+            }
+        } else {
+            feedbackEl.style.color = 'darkorange';
+            let correctPrefixLength = 0;
+            for (let i = 0; i < normalizedUserAnswer.length; i++) {
+                if (i < normalizedCorrectAnswer.length && normalizedUserAnswer[i] === normalizedCorrectAnswer[i]) {
+                    correctPrefixLength++;
+                } else {
+                    break;
+                }
+            }
+            const hint = correctAnswer.substring(0, correctPrefixLength + 1);
+            feedbackEl.textContent = `Not quite. Hint: ${hint}...`;
+        }
+    }
+
+    function nextSentence() {
+        currentIndex++;
+        updateUI();
+    }
+    
+    document.getElementById('answerInput').addEventListener('keypress', function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            if (!document.getElementById('checkButton').classList.contains('hide')) {
+                checkAnswer();
+            } else if (!document.getElementById('nextButton').classList.contains('hide')) {
+                nextSentence();
+            }
+        }
+    });
+
+    function generateKeyboard() {
+        const keyboardContainer = document.getElementById('keyboardContainer');
+        keyboardContainer.innerHTML = '';
+        const frenchChars = ['à', 'â', 'é', 'è', 'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'ù', 'ü', 'û', 'ç'];
+        
+        frenchChars.forEach(char => {
+            const button = document.createElement('button');
+            button.textContent = char;
+            button.className = 'keyboard-button';
+            button.onclick = () => insertLetter(char);
+            keyboardContainer.appendChild(button);
+        });
+    }
+
+    function insertLetter(letter) {
+        const input = document.getElementById('answerInput');
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.value = input.value.substring(0, start) + letter + input.value.substring(end);
+        input.selectionStart = input.selectionEnd = start + 1;
+        input.focus();
+    }
+
+</script>
+</body>
+</html>
