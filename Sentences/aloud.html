@@ -107,6 +107,7 @@
 
 <script>
     let currentIndex = 0;
+    // allSentences will now store objects like { sentence: "...", language: "..." }
     let allSentences = [];
     let exerciseSentences = [];
     let recognition;
@@ -121,7 +122,6 @@
     } else {
         recognition = new SpeechRecognition();
         recognition.continuous = false;
-        recognition.lang = 'fr-FR'; // Set to French
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
@@ -148,14 +148,21 @@
             skipEmptyLines: true,
             complete: function(results) {
                 results.data.forEach(row => {
+                    // UPDATED: Load from French, German, and Spanish columns
                     if (row["French sentences"] && row["French sentences"].trim()) {
-                        allSentences.push(row["French sentences"].trim());
+                        allSentences.push({ sentence: row["French sentences"].trim(), language: 'french' });
+                    }
+                    if (row["German sentences"] && row["German sentences"].trim()) {
+                        allSentences.push({ sentence: row["German sentences"].trim(), language: 'german' });
+                    }
+                    if (row["Spanish sentences"] && row["Spanish sentences"].trim()) {
+                        allSentences.push({ sentence: row["Spanish sentences"].trim(), language: 'spanish' });
                     }
                 });
 
                 if (allSentences.length === 0) {
                     document.querySelector('.title').textContent = "⚠️ Error";
-                    document.getElementById('counter').textContent = "No sentences found under the 'French sentences' header.";
+                    document.getElementById('counter').textContent = "No sentences found. Check your sheet for a 'French sentences', 'German sentences', or 'Spanish sentences' header.";
                     return;
                 }
                 
@@ -173,7 +180,6 @@
         return text.replace(/’/g, "'");
     }
 
-    // NEW: Function to calculate similarity
     function levenshteinDistance(a, b) {
         const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
         for (let i = 0; i <= a.length; i += 1) {
@@ -205,7 +211,8 @@
     function updateUI() {
         const total = exerciseSentences.length;
         document.getElementById('counter').textContent = `Sentence ${currentIndex + 1} / ${total}`;
-        document.getElementById('sentenceDisplay').textContent = exerciseSentences[currentIndex];
+        // UPDATED: Display the sentence from the object
+        document.getElementById('sentenceDisplay').textContent = exerciseSentences[currentIndex].sentence;
         
         document.getElementById('feedback').textContent = '';
         document.getElementById('transcriptOutput').textContent = '';
@@ -215,6 +222,22 @@
 
     function toggleRecording() {
         if (!isRecording && recognition) {
+            // UPDATED: Dynamically set the language before recording
+            const currentLanguage = exerciseSentences[currentIndex].language;
+            switch (currentLanguage) {
+                case 'french':
+                    recognition.lang = 'fr-FR';
+                    break;
+                case 'german':
+                    recognition.lang = 'de-DE';
+                    break;
+                case 'spanish':
+                    recognition.lang = 'es-ES';
+                    break;
+                default:
+                    recognition.lang = 'fr-FR'; // Fallback
+            }
+            
             try {
                 recognition.start();
                 isRecording = true;
@@ -248,7 +271,8 @@
 
     function checkPronunciation(transcript) {
         const feedbackEl = document.getElementById('feedback');
-        const correctSentence = exerciseSentences[currentIndex];
+        // UPDATED: Get the sentence string from the object
+        const correctSentence = exerciseSentences[currentIndex].sentence;
 
         const punctuationRegex = /[.,?!;:"-]/g;
 
@@ -262,13 +286,12 @@
             .toLowerCase()
             .trim();
 
-        // Calculate similarity instead of checking for an exact match
         const distance = levenshteinDistance(finalTranscript, finalCorrectSentence);
         const maxLength = Math.max(finalTranscript.length, finalCorrectSentence.length);
         const similarity = ((maxLength - distance) / maxLength) * 100;
         
-        // Set a threshold for correctness (e.g., 95%)
-        const threshold = 95;
+        // UPDATED: Threshold lowered to 90%
+        const threshold = 90;
 
         if (similarity >= threshold) {
             feedbackEl.textContent = `Correct! (${similarity.toFixed(0)}% match)`;
