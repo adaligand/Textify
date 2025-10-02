@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Read Aloud</title>
+    <title>Read Aloud Activity</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         body {
@@ -173,6 +173,28 @@
         return text.replace(/’/g, "'");
     }
 
+    // NEW: Function to calculate similarity
+    function levenshteinDistance(a, b) {
+        const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+        for (let i = 0; i <= a.length; i += 1) {
+            matrix[0][i] = i;
+        }
+        for (let j = 0; j <= b.length; j += 1) {
+            matrix[j][0] = j;
+        }
+        for (let j = 1; j <= b.length; j += 1) {
+            for (let i = 1; i <= a.length; i += 1) {
+                const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
+                matrix[j][i] = Math.min(
+                    matrix[j][i - 1] + 1,      // deletion
+                    matrix[j - 1][i] + 1,      // insertion
+                    matrix[j - 1][i - 1] + indicator, // substitution
+                );
+            }
+        }
+        return matrix[b.length][a.length];
+    }
+
     function initialize() {
         allSentences.sort(() => Math.random() - 0.5);
         exerciseSentences = allSentences.slice(0, Math.min(10, allSentences.length));
@@ -228,13 +250,8 @@
         const feedbackEl = document.getElementById('feedback');
         const correctSentence = exerciseSentences[currentIndex];
 
-        // Regex to find and remove common punctuation marks
         const punctuationRegex = /[.,?!;:"-]/g;
 
-        // 1. Normalize apostrophes (already handled)
-        // 2. Remove punctuation
-        // 3. Convert to lower case
-        // 4. Trim any leading/trailing whitespace
         const finalTranscript = normalizeApostrophes(transcript)
             .replace(punctuationRegex, '')
             .toLowerCase()
@@ -245,8 +262,16 @@
             .toLowerCase()
             .trim();
 
-        if (finalTranscript === finalCorrectSentence) {
-            feedbackEl.textContent = 'Correct!';
+        // Calculate similarity instead of checking for an exact match
+        const distance = levenshteinDistance(finalTranscript, finalCorrectSentence);
+        const maxLength = Math.max(finalTranscript.length, finalCorrectSentence.length);
+        const similarity = ((maxLength - distance) / maxLength) * 100;
+        
+        // Set a threshold for correctness (e.g., 95%)
+        const threshold = 95;
+
+        if (similarity >= threshold) {
+            feedbackEl.textContent = `Correct! (${similarity.toFixed(0)}% match)`;
             feedbackEl.style.color = 'green';
             document.getElementById('recordButton').classList.add('hide');
             if (currentIndex < exerciseSentences.length - 1) {
@@ -255,7 +280,7 @@
                 feedbackEl.textContent = '🎉 Congratulations! You have completed the exercise.';
             }
         } else {
-            feedbackEl.textContent = 'Not quite, please try again.';
+            feedbackEl.textContent = `Not quite (${similarity.toFixed(0)}% match), please try again.`;
             feedbackEl.style.color = 'darkorange';
         }
     }
