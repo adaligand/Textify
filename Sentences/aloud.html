@@ -167,52 +167,61 @@ function handleRecognitionError(event){
   document.getElementById('feedback').style.color='red';
 }
 
-// Main pronunciation checking
-function checkPronunciation(transcript){
-  const feedbackEl=document.getElementById('feedback');
-  const transcriptOutput=document.getElementById('transcriptOutput');
-  const correctSentence=exerciseSentences[currentIndex].sentence;
+// Main pronunciation checking - REVISED FUNCTION
+function checkPronunciation(transcript) {
+    const feedbackEl = document.getElementById('feedback');
+    const transcriptOutput = document.getElementById('transcriptOutput');
+    const correctSentence = exerciseSentences[currentIndex].sentence;
 
-  const punctuation=/[.,?!;:"-]/g;
-  const finalTranscript=normalizeApostrophes(transcript).replace(punctuation,'').toLowerCase().trim();
-  const finalCorrect=normalizeApostrophes(correctSentence).replace(punctuation,'').toLowerCase().trim();
+    const punctuation = /[.,?!;:"-]/g;
+    const finalTranscript = normalizeApostrophes(transcript).replace(punctuation, '').toLowerCase().trim();
+    const finalCorrect = normalizeApostrophes(correctSentence).replace(punctuation, '').toLowerCase().trim();
 
-  const transcriptWords=finalTranscript.split(/\s+/);
-  const correctWords=finalCorrect.split(/\s+/);
+    const transcriptWords = finalTranscript.split(/\s+/);
+    const correctWords = finalCorrect.split(/\s+/);
 
-  let matches=0;
-  let highlightedSentence=[];
+    let matches = 0;
+    let highlightedSentence = [];
 
-  correctWords.forEach((word,i)=>{
-    const learnerWord=transcriptWords[i] ? phoneticRelax(transcriptWords[i]) : null;
-    const targetWord=phoneticRelax(word);
-    const dist=learnerWord ? levenshteinDistance(learnerWord,targetWord) : null;
+    correctWords.forEach((word, i) => {
+        const learnerWord = transcriptWords[i] ? phoneticRelax(transcriptWords[i]) : null;
+        const targetWord = phoneticRelax(word);
+        
+        // **KEY CHANGE HERE: Dynamic Levenshtein Threshold**
+        // The allowed distance is now based on the word's length.
+        // For a 3-letter word like "est", threshold is 1.
+        // For a 9-letter word like "carnaval", threshold is 2.
+        const distThreshold = Math.max(1, Math.floor(targetWord.length / 4));
+        const dist = learnerWord ? levenshteinDistance(learnerWord, targetWord) : null;
 
-    if(learnerWord && (dist<=3 || phoneticEncode(learnerWord)===phoneticEncode(targetWord))){
-      matches++;
-      highlightedSentence.push(`<span class="correct-word">${word}</span>`);
-    } else {
-      highlightedSentence.push(`<span class="wrong-word"
-        onmouseenter="playWord('${word.replace(/'/g,"\\'")}')"
-        onmouseleave="window.speechSynthesis.cancel()"
-        title="${learnerWord ? 'You said: '+transcriptWords[i] : '(not recognized)'}">${word}</span>`);
+        if (learnerWord && (dist <= distThreshold || phoneticEncode(learnerWord) === phoneticEncode(targetWord))) {
+            matches++;
+            highlightedSentence.push(`<span class="correct-word">${word}</span>`);
+        } else {
+            highlightedSentence.push(`<span class="wrong-word"
+                onmouseenter="playWord('${word.replace(/'/g, "\\'")}')"
+                onmouseleave="window.speechSynthesis.cancel()"
+                title="${learnerWord ? 'You said: ' + transcriptWords[i] : '(not recognized)'}">${word}</span>`);
+        }
+    });
+
+    // Use sentence-level similarity fallback
+    const sentenceSim = (1 - levenshteinDistance(finalTranscript, finalCorrect) / Math.max(finalCorrect.length, 1)) * 100;
+    const similarity = Math.max((matches / correctWords.length) * 100, sentenceSim);
+    const threshold = correctWords.length > 5 ? 65 : 70;
+
+    feedbackEl.textContent = `Pronunciation score: ${similarity.toFixed(0)}%`;
+    feedbackEl.style.color = similarity >= threshold ? 'green' : 'darkorange';
+    transcriptOutput.innerHTML = highlightedSentence.join(" ");
+
+    if (similarity >= threshold) {
+        document.getElementById('recordButton').classList.add('hide');
+        if (currentIndex < exerciseSentences.length - 1) {
+            document.getElementById('nextButton').classList.remove('hide');
+        } else {
+            feedbackEl.textContent = '🎉 Congratulations! You have completed the exercise.';
+        }
     }
-  });
-
-  // Use sentence-level similarity fallback
-  const sentenceSim=(1-levenshteinDistance(finalTranscript,finalCorrect)/Math.max(finalCorrect.length,1))*100;
-  const similarity=Math.max((matches/correctWords.length)*100,sentenceSim);
-  const threshold=correctWords.length>5?65:70;
-
-  feedbackEl.textContent=`Pronunciation score: ${similarity.toFixed(0)}%`;
-  feedbackEl.style.color=similarity>=threshold?'green':'darkorange';
-  transcriptOutput.innerHTML=highlightedSentence.join(" ");
-
-  if(similarity>=threshold){
-    document.getElementById('recordButton').classList.add('hide');
-    if(currentIndex<exerciseSentences.length-1) document.getElementById('nextButton').classList.remove('hide');
-    else feedbackEl.textContent='🎉 Congratulations! You have completed the exercise.';
-  }
 }
 
 function nextSentence(){
