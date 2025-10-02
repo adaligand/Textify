@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Read Aloud Activity</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            padding: 30px;
+            box-sizing: border-box;
+            background-color: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        .title {
+            font-size: 36px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        #counter {
+            font-size: 22px;
+            font-weight: bold;
+            color: #666;
+            margin-bottom: 25px;
+        }
+        .hide {
+            display: none;
+        }
+        #sentenceDisplay {
+            font-size: 28px;
+            font-weight: bold;
+            color: #007bff;
+            margin: 30px 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+        button {
+            font-size: 18px;
+            padding: 12px 25px;
+            margin: 10px 5px;
+            cursor: pointer;
+            border-radius: 10px;
+            border: 2px solid #ccc;
+            background-color: #f8f9fa;
+            color: #333;
+            transition: all 0.2s ease-in-out;
+            font-weight: bold;
+            min-width: 180px;
+        }
+        button:hover {
+            background-color: #e2e6ea;
+            border-color: #b3b9be;
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        #recordButton.recording {
+            background-color: #dc3545;
+            border-color: #c82333;
+            color: white;
+        }
+        #feedback, #transcriptOutput {
+            font-size: 20px;
+            font-weight: bold;
+            min-height: 24px;
+            margin-top: 15px;
+        }
+        #transcriptOutput {
+            color: #888;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title">Read Aloud</div>
+        <div id="counter">Loading...</div>
+        
+        <div id="sentenceDisplay">Please wait for sentences to load.</div>
+        
+        <button id="recordButton" onclick="toggleRecording()">Start Recording</button>
+        
+        <div id="feedback"></div>
+        <div id="transcriptOutput"></div>
+        
+        <div>
+            <button id="nextButton" class="hide" onclick="nextSentence()">Next</button>
+        </div>
+    </div>
+
+<script>
+    let currentIndex = 0;
+    let allSentences = [];
+    let exerciseSentences = [];
+    let recognition;
+    let isRecording = false;
+
+    // --- Check for browser support ---
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        document.querySelector('.title').textContent = "⚠️ Browser Not Supported";
+        document.getElementById('sentenceDisplay').textContent = "Sorry, your browser does not support speech recognition. Please try Google Chrome or Edge.";
+        document.getElementById('recordButton').disabled = true;
+    } else {
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onresult = handleRecognitionResult;
+        recognition.onerror = handleRecognitionError;
+        recognition.onend = () => {
+            isRecording = false;
+            document.getElementById('recordButton').textContent = 'Start Recording';
+            document.getElementById('recordButton').classList.remove('recording');
+        };
+    }
+    
+    // --- Data Loading ---
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        document.querySelector('.title').textContent = "⚠️ Error";
+        document.getElementById('counter').textContent = "No Google Sheet URL was provided.";
+    } else {
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                results.data.forEach(row => {
+                    // Only look for the "French sentences" header
+                    if (row["French sentences"] && row["French sentences"].trim()) {
+                        // Always label the sentence as 'german'
+                        allSentences.push({ sentence: row["French sentences"].trim(), language: 'german' });
+                    }
+                });
+
+                if (allSentences.length === 0) {
+                    document.querySelector('.title').textContent = "⚠️ Error";
+                    document.getElementById('counter').textContent = "No sentences found under the 'French sentences' header.";
+                    return;
+                }
+                
+                initialize();
+            },
+            error: function(err) {
+                document.querySelector('.title').textContent = "⚠️ Error";
+                document.getElementById('counter').textContent = "Could not load data from the sheet.";
+            }
+        });
+    }
+
+    function normalizeApostrophes(text) {
+        if (typeof text !== 'string') return '';
+        return text.replace(/’/g, "'");
+    }
+
+    function levenshteinDistance(a, b) {
+        const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+        for (let i = 0; i <= a.length; i += 1) {
+            matrix[0][i] = i;
+        }
+        for (let j = 0; j <= b.length; j += 1) {
+            matrix[j][0] = j;
+        }
+        for (let j = 1; j <= b.length; j += 1) {
+            for (let i = 1; i <= a.length; i += 1) {
+                const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
+                matrix[j][i] = Math.min(
+                    matrix[j][i - 1] + 1,      // deletion
+                    matrix[j - 1][i] + 1,      // insertion
+                    matrix[j - 1][i - 1] + indicator, // substitution
+                );
+            }
+        }
+        return matrix[b.length][a.length];
+    }
+
+    function initialize() {
+        allSentences.sort(() => Math.random() - 0.5);
+        exerciseSentences = allSentences.slice(0, Math.min(10, allSentences.length));
+        currentIndex = 0;
+        updateUI();
+    }
+
+    function updateUI() {
+        const total = exerciseSentences.length;
+        document.getElementById('counter').textContent = `Sentence ${currentIndex + 1} / ${total}`;
+        document.getElementById('sentenceDisplay').textContent = exerciseSentences[currentIndex].sentence;
+        
+        document.getElementById('feedback').textContent = '';
+        document.getElementById('transcriptOutput').textContent = '';
+        document.getElementById('recordButton').classList.remove('hide');
+        document.getElementById('nextButton').classList.add('hide');
+    }
+
+    function toggleRecording() {
+        if (!isRecording && recognition) {
+            // Always set the recognition language to German
+            recognition.lang = 'de-DE';
+            
+            try {
+                recognition.start();
+                isRecording = true;
+                document.getElementById('recordButton').textContent = 'Recording...';
+                document.getElementById('recordButton').classList.add('recording');
+                document.getElementById('feedback').textContent = 'Listening...';
+                document.getElementById('transcriptOutput').textContent = '';
+            } catch (e) {
+                console.error("Recognition start error:", e);
+                isRecording = false;
+            }
+        }
+    }
+
+    function handleRecognitionResult(event) {
+        const transcript = event.results[0][0].transcript;
+        checkPronunciation(transcript);
+    }
+
+    function handleRecognitionError(event) {
+        let errorMessage = `Error: ${event.error}`;
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+            errorMessage = "Microphone access denied. Please allow microphone access in your browser settings.";
+        } else if (event.error === 'no-speech') {
+            errorMessage = "No speech was detected. Please try again.";
+        }
+        document.getElementById('feedback').textContent = errorMessage;
+        document.getElementById('feedback').style.color = 'red';
+    }
+
+    function checkPronunciation(transcript) {
+        const feedbackEl = document.getElementById('feedback');
+        const transcriptOutput = document.getElementById('transcriptOutput');
+        const correctSentence = exerciseSentences[currentIndex].sentence;
+
+        const punctuationRegex = /[.,?!;:"-]/g;
+
+        const finalTranscript = normalizeApostrophes(transcript)
+            .replace(punctuationRegex, '')
+            .toLowerCase()
+            .trim();
+
+        const finalCorrectSentence = normalizeApostrophes(correctSentence)
+            .replace(punctuationRegex, '')
+            .toLowerCase()
+            .trim();
+
+        const distance = levenshteinDistance(finalTranscript, finalCorrectSentence);
+        const maxLength = Math.max(finalTranscript.length, finalCorrectSentence.length);
+        const similarity = ((maxLength - distance) / maxLength) * 100;
+        
+        const threshold = 90;
+
+        if (similarity >= threshold) {
+            feedbackEl.textContent = `Correct! (${similarity.toFixed(0)}% match)`;
+            feedbackEl.style.color = 'green';
+            transcriptOutput.textContent = '';
+            document.getElementById('recordButton').classList.add('hide');
+            if (currentIndex < exerciseSentences.length - 1) {
+                document.getElementById('nextButton').classList.remove('hide');
+            } else {
+                feedbackEl.textContent = '🎉 Congratulations! You have completed the exercise.';
+            }
+        } else {
+            feedbackEl.textContent = `Not quite (${similarity.toFixed(0)}% match), please try again.`;
+            feedbackEl.style.color = 'darkorange';
+            transcriptOutput.textContent = `I heard: "${transcript}"`;
+        }
+    }
+
+    function nextSentence() {
+        currentIndex++;
+        updateUI();
+    }
+</script>
+</body>
+</html>
