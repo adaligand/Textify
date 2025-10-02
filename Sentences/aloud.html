@@ -39,9 +39,7 @@
       color: #666;
       margin-bottom: 25px;
     }
-    .hide {
-      display: none;
-    }
+    .hide { display: none; }
     #sentenceDisplay {
       font-size: 28px;
       font-weight: bold;
@@ -65,58 +63,27 @@
       font-weight: bold;
       min-width: 180px;
     }
-    button:hover {
-      background-color: #e2e6ea;
-      border-color: #b3b9be;
-      transform: translateY(-2px);
-    }
-    button:disabled {
-      background-color: #ccc;
-      cursor: not-allowed;
-      transform: none;
-    }
-    #recordButton.recording {
-      background-color: #dc3545;
-      border-color: #c82333;
-      color: white;
-    }
-    #feedback, #transcriptOutput {
-      font-size: 20px;
-      font-weight: bold;
-      min-height: 24px;
-      margin-top: 15px;
-    }
-    #transcriptOutput {
-      color: #333;
-      font-style: normal;
-    }
-    .correct-word {
-      color: green;
-      font-weight: bold;
-    }
-    .wrong-word {
-      color: red;
-      font-weight: bold;
-      cursor: help;
-    }
+    button:hover { background-color: #e2e6ea; border-color: #b3b9be; transform: translateY(-2px); }
+    button:disabled { background-color: #ccc; cursor: not-allowed; transform: none; }
+    #recordButton.recording { background-color: #dc3545; border-color: #c82333; color: white; }
+    #feedback, #transcriptOutput { font-size: 20px; font-weight: bold; min-height: 24px; margin-top: 15px; }
+    #transcriptOutput { color: #333; font-style: normal; }
+    .correct-word { color: green; font-weight: bold; }
+    .wrong-word { color: red; font-weight: bold; cursor: help; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="title">Read Aloud - French</div>
-    <div id="counter">Loading...</div>
-
-    <div id="sentenceDisplay">Please wait for sentences to load.</div>
-
-    <button id="recordButton" onclick="toggleRecording()">Start Recording</button>
-
-    <div id="feedback"></div>
-    <div id="transcriptOutput"></div>
-
-    <div>
-      <button id="nextButton" class="hide" onclick="nextSentence()">Next</button>
-    </div>
+<div class="container">
+  <div class="title">Read Aloud - French</div>
+  <div id="counter">Loading...</div>
+  <div id="sentenceDisplay">Please wait for sentences to load.</div>
+  <button id="recordButton" onclick="toggleRecording()">Start Recording</button>
+  <div id="feedback"></div>
+  <div id="transcriptOutput"></div>
+  <div>
+    <button id="nextButton" class="hide" onclick="nextSentence()">Next</button>
   </div>
+</div>
 
 <script>
 let currentIndex = 0;
@@ -145,6 +112,7 @@ if (!SpeechRecognition) {
   };
 }
 
+// Load Google Sheet
 const params = new URLSearchParams(window.location.search);
 const sheetUrl = params.get('sheet');
 
@@ -162,190 +130,162 @@ if (!sheetUrl) {
           allSentences.push({ sentence: row["French sentences"].trim(), language: 'french' });
         }
       });
-
       if (allSentences.length === 0) {
         document.querySelector('.title').textContent = "⚠️ Error";
         document.getElementById('counter').textContent = "No sentences found. Check your sheet.";
         return;
       }
-
       initialize();
     },
-    error: function(err) {
+    error: function() {
       document.querySelector('.title').textContent = "⚠️ Error";
       document.getElementById('counter').textContent = "Could not load data from the sheet.";
     }
   });
 }
 
-function normalizeApostrophes(text) {
-  if (typeof text !== 'string') return '';
-  return text.replace(/’/g, "'");
-}
+function normalizeApostrophes(text) { return text.replace(/’/g, "'"); }
 
 function levenshteinDistance(a, b) {
-  const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
-  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
-  for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
-  for (let j = 1; j <= b.length; j++) {
-    for (let i = 1; i <= a.length; i++) {
-      const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
+  const matrix = Array(b.length+1).fill(null).map(() => Array(a.length+1).fill(null));
+  for(let i=0;i<=a.length;i++) matrix[0][i]=i;
+  for(let j=0;j<=b.length;j++) matrix[j][0]=j;
+  for(let j=1;j<=b.length;j++){
+    for(let i=1;i<=a.length;i++){
+      const indicator = a[i-1]===b[j-1]?0:1;
       matrix[j][i] = Math.min(
-        matrix[j][i - 1] + 1,
-        matrix[j - 1][i] + 1,
-        matrix[j - 1][i - 1] + indicator,
+        matrix[j][i-1]+1,
+        matrix[j-1][i]+1,
+        matrix[j-1][i-1]+indicator
       );
     }
   }
   return matrix[b.length][a.length];
 }
 
-// Simple phonetic encoding
-function phoneticEncode(word) {
-  return word.toLowerCase()
-    .replace(/[aeiouy]/g, "")
-    .replace(/ph/g, "f")
-    .replace(/ck/g, "k")
-    .replace(/sh/g, "ch")
-    .replace(/[^a-z]/g, "");
-}
+function phoneticEncode(word){ return word.toLowerCase().replace(/[aeiouy]/g,"").replace(/ph/g,"f").replace(/ck/g,"k").replace(/sh/g,"ch").replace(/[^a-z]/g,""); }
+function phoneticRelax(word){ let w=word.toLowerCase(); w=w.replace(/r/g,"ʁ"); w=w.replace(/rouj|roush|rouge?/g,"rouge"); return w; }
 
-// Accent / mispronunciation tolerance
-function phoneticRelax(word) {
-  let w = word.toLowerCase();
-  // Treat English R as French R
-  w = w.replace(/r/g, "ʁ");
-  // Normalize common ASR mis-hearings
-  w = w.replace(/rouj|roush|rouge?/g, "rouge");
-  return w;
-}
-
-// Play correct French word
-function playWord(word) {
-  if ('speechSynthesis' in window) {
+// Play French word with stop previous speech
+function playWord(word){
+  if('speechSynthesis' in window){
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(word);
-    utterance.lang = 'fr-FR';
-    utterance.rate = 0.9;
+    utterance.lang='fr-FR';
+    utterance.rate=0.9;
     window.speechSynthesis.speak(utterance);
   }
 }
 
 function initialize() {
-  allSentences.sort(() => Math.random() - 0.5);
-  exerciseSentences = allSentences.slice(0, Math.min(10, allSentences.length));
+  allSentences.sort(()=>Math.random()-0.5);
+  exerciseSentences = allSentences.slice(0,Math.min(10,allSentences.length));
   currentIndex = 0;
   updateUI();
 }
 
 function updateUI() {
-  const total = exerciseSentences.length;
-  document.getElementById('counter').textContent = `Sentence ${currentIndex + 1} / ${total}`;
+  document.getElementById('counter').textContent = `Sentence ${currentIndex+1} / ${exerciseSentences.length}`;
   document.getElementById('sentenceDisplay').textContent = exerciseSentences[currentIndex].sentence;
-
-  document.getElementById('feedback').textContent = '';
-  document.getElementById('transcriptOutput').textContent = '';
+  document.getElementById('feedback').textContent='';
+  document.getElementById('transcriptOutput').textContent='';
   document.getElementById('recordButton').classList.remove('hide');
   document.getElementById('nextButton').classList.add('hide');
 }
 
 function toggleRecording() {
-  if (!isRecording && recognition) {
-    recognition.lang = 'fr-FR';
-    try {
+  if(!isRecording && recognition){
+    recognition.lang='fr-FR';
+    try{
       recognition.start();
-      isRecording = true;
-      document.getElementById('recordButton').textContent = 'Recording...';
+      isRecording=true;
+      document.getElementById('recordButton').textContent='Recording...';
       document.getElementById('recordButton').classList.add('recording');
-      document.getElementById('feedback').textContent = 'Listening...';
-      document.getElementById('transcriptOutput').textContent = '';
-    } catch (e) {
-      console.error("Recognition start error:", e);
-      isRecording = false;
+      document.getElementById('feedback').textContent='Listening...';
+      document.getElementById('transcriptOutput').textContent='';
+    } catch(e){
+      console.error(e);
+      isRecording=false;
     }
   }
 }
 
-function handleRecognitionResult(event) {
-  const transcript = event.results[0][0].transcript;
+function handleRecognitionResult(event){
+  const transcript=event.results[0][0].transcript;
   checkPronunciation(transcript);
 }
 
-function handleRecognitionError(event) {
-  let errorMessage = `Error: ${event.error}`;
-  if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-    errorMessage = "Microphone access denied. Please allow microphone access.";
-  } else if (event.error === 'no-speech') {
-    errorMessage = "No speech detected. Try again.";
-  }
-  document.getElementById('feedback').textContent = errorMessage;
-  document.getElementById('feedback').style.color = 'red';
+function handleRecognitionError(event){
+  let errorMessage=`Error: ${event.error}`;
+  if(event.error==='not-allowed'||event.error==='service-not-allowed') errorMessage="Microphone access denied.";
+  else if(event.error==='no-speech') errorMessage="No speech detected. Try again.";
+  document.getElementById('feedback').textContent=errorMessage;
+  document.getElementById('feedback').style.color='red';
 }
 
-function checkPronunciation(transcript) {
-  const feedbackEl = document.getElementById('feedback');
-  const transcriptOutput = document.getElementById('transcriptOutput');
-  const correctSentence = exerciseSentences[currentIndex].sentence;
+function checkPronunciation(transcript){
+  const feedbackEl=document.getElementById('feedback');
+  const transcriptOutput=document.getElementById('transcriptOutput');
+  const correctSentence=exerciseSentences[currentIndex].sentence;
 
-  const punctuationRegex = /[.,?!;:"-]/g;
-  const finalTranscript = normalizeApostrophes(transcript).replace(punctuationRegex, '').toLowerCase().trim();
-  const finalCorrectSentence = normalizeApostrophes(correctSentence).replace(punctuationRegex, '').toLowerCase().trim();
+  const punctuationRegex=/[.,?!;:"-]/g;
+  const finalTranscript=normalizeApostrophes(transcript).replace(punctuationRegex,'').toLowerCase().trim();
+  const finalCorrectSentence=normalizeApostrophes(correctSentence).replace(punctuationRegex,'').toLowerCase().trim();
 
-  const transcriptWords = finalTranscript.split(/\s+/);
-  const correctWords = finalCorrectSentence.split(/\s+/);
+  const transcriptWords=finalTranscript.split(/\s+/);
+  const correctWords=finalCorrectSentence.split(/\s+/);
 
-  let matches = 0;
-  let highlightedSentence = [];
+  let matches=0;
+  let highlightedSentence=[];
 
-  correctWords.forEach((word, i) => {
-    if (transcriptWords[i]) {
-      const learnerWord = phoneticRelax(transcriptWords[i]);
-      const targetWord = phoneticRelax(word);
-
-      const dist = levenshteinDistance(learnerWord, targetWord);
-      if (dist <= 2 || phoneticEncode(learnerWord) === phoneticEncode(targetWord)) {
+  correctWords.forEach((word,i)=>{
+    if(transcriptWords[i]){
+      const learnerWord=phoneticRelax(transcriptWords[i]);
+      const targetWord=phoneticRelax(word);
+      const dist=levenshteinDistance(learnerWord,targetWord);
+      if(dist<=2||phoneticEncode(learnerWord)===phoneticEncode(targetWord)){
         matches++;
         highlightedSentence.push(`<span class="correct-word">${word}</span>`);
       } else {
         highlightedSentence.push(`
           <span class="wrong-word" 
-                onmouseenter="playWord('${word.replace(/'/g, "\\'")}')"
+                onmouseenter="playWord('${word.replace(/'/g,"\\'")}')"
+                onmouseleave="window.speechSynthesis.cancel()"
                 title="You said: '${transcriptWords[i]}'">
-                ${word}
+            ${word}
           </span>
         `);
       }
     } else {
       highlightedSentence.push(`
         <span class="wrong-word" 
-              onmouseenter="playWord('${word.replace(/'/g, "\\'")}')"
+              onmouseenter="playWord('${word.replace(/'/g,"\\'")}')"
+              onmouseleave="window.speechSynthesis.cancel()"
               title="(no word detected)">
-              ${word}
+          ${word}
         </span>
       `);
     }
   });
 
-  const similarity = (matches / correctWords.length) * 100;
-  const threshold = correctWords.length > 5 ? 70 : 75;
+  const similarity=(matches/correctWords.length)*100;
+  const threshold=correctWords.length>5?70:75;
 
-  if (similarity >= threshold) {
-    feedbackEl.textContent = `Correct! (${similarity.toFixed(0)}% match)`;
-    feedbackEl.style.color = 'green';
-    transcriptOutput.innerHTML = highlightedSentence.join(" ");
+  if(similarity>=threshold){
+    feedbackEl.textContent=`Correct! (${similarity.toFixed(0)}% match)`;
+    feedbackEl.style.color='green';
+    transcriptOutput.innerHTML=highlightedSentence.join(" ");
     document.getElementById('recordButton').classList.add('hide');
-    if (currentIndex < exerciseSentences.length - 1) {
-      document.getElementById('nextButton').classList.remove('hide');
-    } else {
-      feedbackEl.textContent = '🎉 Congratulations! You have completed the exercise.';
-    }
+    if(currentIndex<exerciseSentences.length-1) document.getElementById('nextButton').classList.remove('hide');
+    else feedbackEl.textContent='🎉 Congratulations! You have completed the exercise.';
   } else {
-    feedbackEl.textContent = `Not quite (${similarity.toFixed(0)}% match). Try again.`;
-    feedbackEl.style.color = 'darkorange';
-    transcriptOutput.innerHTML = `I heard: "${transcript}"<br>Expected: ${highlightedSentence.join(" ")}`;
+    feedbackEl.textContent=`Not quite (${similarity.toFixed(0)}% match). Try again.`;
+    feedbackEl.style.color='darkorange';
+    transcriptOutput.innerHTML=`I heard: "${transcript}"<br>Expected: ${highlightedSentence.join(" ")}`;
   }
 }
 
-function nextSentence() {
+function nextSentence(){
   currentIndex++;
   updateUI();
 }
