@@ -167,14 +167,14 @@ function handleRecognitionError(event){
   document.getElementById('feedback').style.color='red';
 }
 
-// Main pronunciation checking - REVISED FUNCTION
+// Main pronunciation checking - ADVANCED VERSION
 function checkPronunciation(transcript) {
     const feedbackEl = document.getElementById('feedback');
     const transcriptOutput = document.getElementById('transcriptOutput');
     const correctSentence = exerciseSentences[currentIndex].sentence;
 
     const punctuation = /[.,?!;:"-]/g;
-    const finalTranscript = normalizeApostrophes(transcript).replace(punctuation, '').toLowerCase().trim();
+    const finalTranscript = normalizeApostrophes(transcript).replace( punctuation, '').toLowerCase().trim();
     const finalCorrect = normalizeApostrophes(correctSentence).replace(punctuation, '').toLowerCase().trim();
 
     const transcriptWords = finalTranscript.split(/\s+/);
@@ -182,32 +182,46 @@ function checkPronunciation(transcript) {
 
     let matches = 0;
     let highlightedSentence = [];
+    
+    // This array will keep track of which spoken words have already been successfully matched.
+    const usedTranscriptWords = new Array(transcriptWords.length).fill(false);
+    let searchFromIndex = 0; // We search forward to maintain word order.
 
-    correctWords.forEach((word, i) => {
-        const learnerWord = transcriptWords[i] ? phoneticRelax(transcriptWords[i]) : null;
+    correctWords.forEach((word) => {
         const targetWord = phoneticRelax(word);
-        
-        // **KEY CHANGE HERE: Dynamic Levenshtein Threshold**
-        // The allowed distance is now based on the word's length.
-        // For a 3-letter word like "est", threshold is 1.
-        // For a 9-letter word like "carnaval", threshold is 2.
-        const distThreshold = Math.max(1, Math.floor(targetWord.length / 4));
-        const dist = learnerWord ? levenshteinDistance(learnerWord, targetWord) : null;
+        let foundMatch = false;
 
-        if (learnerWord && (dist <= distThreshold || phoneticEncode(learnerWord) === phoneticEncode(targetWord))) {
-            matches++;
-            highlightedSentence.push(`<span class="correct-word">${word}</span>`);
-        } else {
+        // Search for the correct word in the transcript, starting from the last matched position
+        for (let i = searchFromIndex; i < transcriptWords.length; i++) {
+            if (!usedTranscriptWords[i]) {
+                const learnerWord = phoneticRelax(transcriptWords[i]);
+                const distThreshold = Math.max(1, Math.floor(targetWord.length / 4));
+                const dist = levenshteinDistance(learnerWord, targetWord);
+
+                if (dist <= distThreshold || phoneticEncode(learnerWord) === phoneticEncode(targetWord)) {
+                    matches++;
+                    highlightedSentence.push(`<span class="correct-word">${word}</span>`);
+                    
+                    // Mark this word as used and update the starting point for the next search.
+                    usedTranscriptWords[i] = true;
+                    searchFromIndex = i + 1; 
+                    foundMatch = true;
+                    break; // Exit the inner loop once a match is found
+                }
+            }
+        }
+
+        if (!foundMatch) {
+            // If no suitable match was found in the entire transcript, mark the word as wrong.
             highlightedSentence.push(`<span class="wrong-word"
                 onmouseenter="playWord('${word.replace(/'/g, "\\'")}')"
                 onmouseleave="window.speechSynthesis.cancel()"
-                title="${learnerWord ? 'You said: ' + transcriptWords[i] : '(not recognized)'}">${word}</span>`);
+                title="(word not recognized)">${word}</span>`);
         }
     });
 
-    // Use sentence-level similarity fallback
-    const sentenceSim = (1 - levenshteinDistance(finalTranscript, finalCorrect) / Math.max(finalCorrect.length, 1)) * 100;
-    const similarity = Math.max((matches / correctWords.length) * 100, sentenceSim);
+    // Scoring logic is now based on the more accurate matching.
+    const similarity = (matches / correctWords.length) * 100;
     const threshold = correctWords.length > 5 ? 65 : 70;
 
     feedbackEl.textContent = `Pronunciation score: ${similarity.toFixed(0)}%`;
