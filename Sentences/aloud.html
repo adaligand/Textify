@@ -116,7 +116,6 @@
     let recognition;
     let isRecording = false;
 
-    // --- Check for browser support ---
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
         document.querySelector('.title').textContent = "⚠️ Browser Not Supported";
@@ -136,22 +135,7 @@
             document.getElementById('recordButton').classList.remove('recording');
         };
     }
-
-    // --- NEW: Function to guess the language based on unique characters ---
-    function detectLanguage(sentence) {
-        // German is often distinct with 'ß' or common umlauts
-        if (/[ßäöü]/.test(sentence)) {
-            return 'german';
-        }
-        // Spanish is distinct with 'ñ', '¿', '¡' or its specific accents
-        if (/[ñ¿¡áíóú]/.test(sentence)) {
-            return 'spanish';
-        }
-        // If no highly specific characters are found, default to French
-        return 'french';
-    }
     
-    // --- Data Loading ---
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
 
@@ -165,17 +149,20 @@
             skipEmptyLines: true,
             complete: function(results) {
                 results.data.forEach(row => {
-                    // UPDATED: Read from the single column and detect the language
-                    const sentence = row["French sentences"];
-                    if (sentence && sentence.trim()) {
-                        const lang = detectLanguage(sentence);
-                        allSentences.push({ sentence: sentence.trim(), language: lang });
+                    if (row["French sentences"] && row["French sentences"].trim()) {
+                        allSentences.push({ sentence: row["French sentences"].trim(), language: 'french' });
+                    }
+                    if (row["German sentences"] && row["German sentences"].trim()) {
+                        allSentences.push({ sentence: row["German sentences"].trim(), language: 'german' });
+                    }
+                    if (row["Spanish sentences"] && row["Spanish sentences"].trim()) {
+                        allSentences.push({ sentence: row["Spanish sentences"].trim(), language: 'spanish' });
                     }
                 });
 
                 if (allSentences.length === 0) {
                     document.querySelector('.title').textContent = "⚠️ Error";
-                    document.getElementById('counter').textContent = "No sentences found under the 'French sentences' header.";
+                    document.getElementById('counter').textContent = "No sentences found. Check your sheet for a 'French sentences', 'German sentences', or 'Spanish sentences' header.";
                     return;
                 }
                 
@@ -205,9 +192,9 @@
             for (let i = 1; i <= a.length; i += 1) {
                 const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
                 matrix[j][i] = Math.min(
-                    matrix[j][i - 1] + 1,      // deletion
-                    matrix[j - 1][i] + 1,      // insertion
-                    matrix[j - 1][i - 1] + indicator, // substitution
+                    matrix[j][i - 1] + 1,
+                    matrix[j - 1][i] + 1,
+                    matrix[j - 1][i - 1] + indicator,
                 );
             }
         }
@@ -265,6 +252,7 @@
 
     function handleRecognitionResult(event) {
         const transcript = event.results[0][0].transcript;
+        // The display logic is now handled inside checkPronunciation
         checkPronunciation(transcript);
     }
 
@@ -305,7 +293,7 @@
         if (similarity >= threshold) {
             feedbackEl.textContent = `Correct! (${similarity.toFixed(0)}% match)`;
             feedbackEl.style.color = 'green';
-            transcriptOutput.textContent = '';
+            transcriptOutput.textContent = ''; // Clear the transcript output on correct
             document.getElementById('recordButton').classList.add('hide');
             if (currentIndex < exerciseSentences.length - 1) {
                 document.getElementById('nextButton').classList.remove('hide');
@@ -315,6 +303,7 @@
         } else {
             feedbackEl.textContent = `Not quite (${similarity.toFixed(0)}% match), please try again.`;
             feedbackEl.style.color = 'darkorange';
+            // Display the transcript ONLY when the answer is incorrect
             transcriptOutput.textContent = `I heard: "${transcript}"`;
         }
     }
