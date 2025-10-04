@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Large Format Flashcard & List Formatter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px 0;
+        }
+        .container {
+            width: 90%;
+            max-width: 800px;
+            padding: 40px;
+            box-sizing: border-box;
+            background-color: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        .title {
+            font-size: 40px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            font-size: 20px;
+            margin-bottom: 30px;
+            color: #555;
+        }
+        .input-section {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 250px;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+            resize: vertical;
+        }
+        .controls {
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #f9f9f9;
+            color: #000000;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #e9e9e9;
+        }
+        #vocab-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 18px;
+            table-layout: fixed;
+        }
+        #vocab-table th, #vocab-table td {
+            width: 50%;
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+            overflow-wrap: break-word;
+        }
+        #vocab-table th {
+            background-color: #f2f2f2;
+            cursor: pointer;
+            text-align: center;
+        }
+        .print-only {
+            display: none;
+        }
+
+        @media print {
+            @page {
+                size: landscape; /* Changed to landscape orientation */
+                margin: 1cm;
+            }
+            body {
+                background-color: white;
+                padding: 0;
+                margin: 0;
+            }
+            .container {
+                box-shadow: none;
+                border: none;
+                width: 100%;
+                max-width: 100%;
+                padding: 0;
+            }
+            .no-print {
+                display: none !important;
+            }
+            
+            #list-for-print, #flashcards-for-print {
+                display: none;
+            }
+
+            body.print-list-active #list-for-print {
+                display: block !important;
+            }
+            body.print-flashcards-active #flashcards-for-print {
+                display: block !important;
+            }
+
+            #list-for-print table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 14pt;
+                table-layout: fixed;
+            }
+            #list-for-print th, #list-for-print td {
+                width: 50%;
+                border: 1px solid #000;
+                padding: 8px;
+                text-align: left;
+            }
+            #list-for-print th {
+                text-align: center;
+            }
+
+            .flashcard-page {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                grid-template-rows: repeat(2, 1fr); /* Changed from 4 to 2 for a 2x2 grid */
+                gap: 0;
+                height: 98vh;
+                width: 100%;
+                page-break-after: always;
+            }
+            .flashcard {
+                box-sizing: border-box;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 15px;
+                text-align: center;
+                font-size: 28pt; /* Increased font size for bigger cards */
+                overflow: hidden;
+                word-wrap: break-word;
+            }
+            .flashcard.front {
+                border: 1px dashed #999;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title no-print">Flashcard maker</div>
+        
+        <div class="input-section no-print">
+            <textarea id="frontsInput" placeholder="Front of cards (one per line)" oninput="updateAllLayouts()"></textarea>
+            <textarea id="backsInput" placeholder="Back of cards (one per line)" oninput="updateAllLayouts()"></textarea>
+        </div>
+
+        <div class="controls no-print">
+            <button onclick="printList()">🖨️ Print as List</button>
+            <button onclick="printFlashcards()">🖨️ Print as Flashcards</button>
+        </div>
+
+        <table id="vocab-table" class="no-print">
+            <thead>
+                <tr>
+                    <th onclick="sortTable(0)">Term</th>
+                    <th onclick="sortTable(1)">Translation</th>
+                </tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+
+        <div id="list-for-print" class="print-only"></div>
+        <div id="flashcards-for-print" class="print-only"></div>
+    </div>
+
+<script>
+    let vocabList = [];
+
+    function updateAllLayouts() {
+        const frontsText = document.getElementById('frontsInput').value;
+        const backsText = document.getElementById('backsInput').value;
+        
+        const fronts = frontsText.split('\n');
+        const backs = backsText.split('\n');
+        const maxLength = Math.max(fronts.length, backs.length);
+
+        vocabList = [];
+        for (let i = 0; i < maxLength; i++) {
+            vocabList.push({
+                term: fronts[i] || '',
+                translation: backs[i] || ''
+            });
+        }
+
+        displayOnScreenList();
+        preparePrintLayouts();
+    }
+
+    function displayOnScreenList() {
+        const tableBody = document.querySelector("#vocab-table tbody");
+        tableBody.innerHTML = '';
+        if (vocabList.length === 1 && vocabList[0].term === '' && vocabList[0].translation === '') {
+            return;
+        }
+        vocabList.forEach(item => {
+            const row = tableBody.insertRow();
+            row.insertCell(0).textContent = item.term;
+            row.insertCell(1).textContent = item.translation;
+        });
+    }
+
+    function preparePrintLayouts() {
+        const listContainer = document.getElementById('list-for-print');
+        let listTableHTML = '<table><thead><tr><th>Term</th><th>Translation</th></tr></thead><tbody>';
+        vocabList.forEach(item => {
+            listTableHTML += `<tr><td>${item.term}</td><td>${item.translation}</td></tr>`;
+        });
+        listTableHTML += '</tbody></table>';
+        listContainer.innerHTML = listTableHTML;
+
+        const flashcardContainer = document.getElementById('flashcards-for-print');
+        let flashcardHTML = '';
+        const cardsPerPage = 4; // Changed from 8 to 4
+        
+        for (let i = 0; i < vocabList.length; i += cardsPerPage) {
+            const pageItems = vocabList.slice(i, i + cardsPerPage);
+            
+            flashcardHTML += '<div class="flashcard-page">';
+            pageItems.forEach(item => {
+                flashcardHTML += `<div class="flashcard front">${item.term}</div>`;
+            });
+            for (let k = pageItems.length; k < cardsPerPage; k++) {
+                flashcardHTML += `<div class="flashcard front"></div>`;
+            }
+            flashcardHTML += '</div>';
+
+            flashcardHTML += '<div class="flashcard-page">';
+            const backSideOrder = [];
+            for (let j = 0; j < pageItems.length; j += 2) {
+                if (pageItems[j + 1]) {
+                    backSideOrder.push(pageItems[j + 1].translation);
+                    backSideOrder.push(pageItems[j].translation);
+                } else {
+                    backSideOrder.push('');
+                    backSideOrder.push(pageItems[j].translation);
+                }
+            }
+            while (backSideOrder.length < cardsPerPage) {
+                backSideOrder.push('');
+            }
+            
+            backSideOrder.forEach(translationText => {
+                flashcardHTML += `<div class="flashcard back">${translationText}</div>`;
+            });
+            flashcardHTML += '</div>';
+        }
+        flashcardContainer.innerHTML = flashcardHTML;
+    }
+
+    function printList() {
+        document.body.classList.remove('print-flashcards-active');
+        document.body.classList.add('print-list-active');
+        window.print();
+    }
+
+    function printFlashcards() {
+        document.body.classList.remove('print-list-active');
+        document.body.classList.add('print-flashcards-active');
+        window.print();
+    }
+    
+    function sortTable(columnIndex) {
+        const key = columnIndex === 0 ? 'term' : 'translation';
+        const isAscending = document.querySelector(`#vocab-table th:nth-child(${columnIndex + 1})`).classList.toggle('asc');
+        
+        vocabList.sort((a, b) => {
+            const valA = a[key].toLowerCase();
+            const valB = b[key].toLowerCase();
+            if (valA < valB) return isAscending ? -1 : 1;
+            if (valA > valB) return isAscending ? 1 : -1;
+            return 0;
+        });
+        
+        displayOnScreenList();
+        preparePrintLayouts();
+    }
+
+    updateAllLayouts();
+</script>
+</body>
+</html>
