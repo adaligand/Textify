@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beat The Robot</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f3f8; }
+        .container { max-width: 1200px; margin: 20px auto; padding: 20px; background: white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        
+        /* --- Setup Screen --- */
+        #level-selector-container .card { border: none; }
+        #level-selector-container .card-header { text-align: center; }
+        #level-selector-container h1 { font-size: 2.5em; margin-top: 10px; }
+        .btn-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 20px; }
+        .btn-group .btn { background: #eef; border: 2px solid #dde; padding: 10px 20px; font-weight: bold; cursor: pointer; border-radius: 8px; transition: all 0.2s; }
+        .btn-group .btn-chosen { background: #b1de5d; border-color: #8bc34a; transform: scale(1.05); }
+        .btn-start { background-color: #ff9800; color: white; font-size: 1.5em; padding: 15px 40px; border-radius: 50px; cursor: pointer; border: none; }
+
+        /* --- Game Screen --- */
+        #game-container { display: none; }
+        .game-panel { padding: 20px; border-radius: 8px; }
+        .player { background-color: #f0f8ff; }
+        .computer { background-color: #fff0f5; }
+        .panel-title { font-size: 2em; text-align: center; margin-bottom: 20px; }
+        .source-sentence-container { text-align: center; margin-bottom: 20px; }
+        .source-sentence-label { font-size: 1.1em; color: #555; }
+        .source-sentence { font-size: 1.5em; font-weight: bold; color: #333; }
+        .question-container { font-size: 1.5em; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 5px; min-height: 100px; }
+        .word-wrapper { display: inline-flex; flex-wrap: nowrap; align-items: center; margin: 0 5px;}
+
+        .single-letter { width: 25px; height: 35px; text-align: center; font-size: 1em; border: none; border-bottom: 2px solid #ccc; background: transparent; margin: 0 1px; }
+        .single-letter:focus { outline: none; border-bottom-color: #007bff; }
+        .correct-answer { border-bottom-color: #28a745 !important; }
+        .wrong-answer { border-bottom-color: #dc3545 !important; }
+        .static-char, .punctuation { display: inline-block; padding: 0 2px; }
+        .computer .question-container { color: #aaa; }
+        
+        /* --- Overlays and Status --- */
+        .status-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; color: white; font-size: 4em; font-weight: bold; border-radius: 8px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+        .player .status-overlay { background: rgba(40, 167, 69, 0.8); }
+        .computer .status-overlay { background: rgba(220, 53, 69, 0.8); }
+        .status-overlay.visible { opacity: 1; }
+
+        /* --- Language and Keyboard --- */
+        #languageSelect { padding: 10px; font-size: 1em; border-radius: 8px; border: 2px solid #dde; }
+        .keyboard-container { display: flex; justify-content: center; flex-wrap: wrap; margin-top: 20px; gap: 5px; }
+        .keyboard-button { font-size: 1.2em; padding: 10px 15px; border: none; border-radius: 5px; background-color: #f0f0f0; cursor: pointer; box-shadow: 0 2px 2px rgba(0,0,0,0.2); transition: all 0.2s; }
+        .keyboard-button:hover { background-color: #ddd; transform: translateY(-2px); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="level-selector-container">
+        <div class="card">
+            <div class="card-header">
+                <img src="https://uk.language-gym.com/themes/mdb/assets/images/sentencetrainer/robot.png" style="width: 150px" alt="Robot mascot"/>
+                <h1>Beat The Robot</h1>
+                <p id="subtitle">Loading sentences...</p>
+            </div>
+            <div class="card-body">
+                <div class="btn-group">
+                    <select id="languageSelect">
+                        <option value="french">French</option>
+                        <option value="german">German</option>
+                        <option value="spanish">Spanish</option>
+                    </select>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-difficulty btn-chosen" data-speed="800">Easy</button>
+                    <button class="btn btn-difficulty" data-speed="500">Normal</button>
+                    <button class="btn btn-difficulty" data-speed="300">Fast</button>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-mode btn-chosen" data-mode="vowels">Vowels</button>
+                    <button class="btn btn-mode" data-mode="consonants">Consonants</button>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-direction btn-chosen" data-direction="to">English to Target</button>
+                    <button class="btn btn-direction" data-direction="from">Target to English</button>
+                </div>
+            </div>
+            <div class="card-footer" style="text-align:center;">
+                <button class="btn-start" disabled>Start</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="game-container">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div class="game-panel player" style="position:relative;">
+                <h2 class="panel-title">You</h2>
+                <div class="source-sentence-container">
+                    <div class="source-sentence-label">Translate this:</div>
+                    <div class="source-sentence"></div>
+                </div>
+                <div class="question-container"></div>
+                <div class="status-overlay">You Win!</div>
+            </div>
+            <div class="game-panel computer" style="position:relative;">
+                <h2 class="panel-title">Robot</h2>
+                <div class="source-sentence-container">
+                    <div class="source-sentence-label">Translate this:</div>
+                    <div class="source-sentence"></div>
+                </div>
+                <div class="question-container"></div>
+                <div class="status-overlay">Robot Wins!</div>
+            </div>
+        </div>
+        <div class="keyboard-container"></div>
+    </div>
+</div>
+
+<script>
+    const settings = {
+        speed: 800,
+        mode: 'vowels',
+        direction: 'to',
+        language: 'french'
+    };
+    let sentencePairs = [];
+    let currentSentence = null;
+    let robotInterval = null;
+    let gameInProgress = false;
+    let focusedInput = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const params = new URLSearchParams(window.location.search);
+        const sheetUrl = params.get('sheet');
+
+        if (!sheetUrl) {
+            document.getElementById('subtitle').textContent = "⚠️ Please provide a Google Sheet URL in the '?sheet=' parameter.";
+            return;
+        }
+
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: (results) => {
+                results.data.forEach(row => {
+                    // Fetch from column E (English) and F (Target Language)
+                    if (row.E && row.F) {
+                        sentencePairs.push({ english: row.E.trim(), target: row.F.trim() });
+                    }
+                });
+                if (sentencePairs.length > 0) {
+                    document.getElementById('subtitle').textContent = `Loaded ${sentencePairs.length} sentences. Ready to play!`;
+                    document.querySelector('.btn-start').disabled = false;
+                } else {
+                    document.getElementById('subtitle').textContent = "⚠️ No sentences found in columns E and F. Please check your sheet.";
+                }
+            }
+        });
+
+        // Setup screen event listeners
+        document.querySelectorAll('.btn-difficulty').forEach(btn => btn.addEventListener('click', () => setChoice(btn, 'speed', 'difficulty')));
+        document.querySelectorAll('.btn-mode').forEach(btn => btn.addEventListener('click', () => setChoice(btn, 'mode', 'mode')));
+        document.querySelectorAll('.btn-direction').forEach(btn => btn.addEventListener('click', () => setChoice(btn, 'direction', 'direction')));
+        document.querySelector('.btn-start').addEventListener('click', startGame);
+        document.getElementById('languageSelect').addEventListener('change', (e) => {
+            settings.language = e.target.value;
+            generateKeyboard();
+        });
+
+        generateKeyboard(); // Initial keyboard generation
+    });
+    
+    function setChoice(element, settingKey, groupClass) {
+        document.querySelectorAll(`.btn-${groupClass}`).forEach(b => b.classList.remove('btn-chosen'));
+        element.classList.add('btn-chosen');
+        settings[settingKey] = element.dataset[settingKey] || element.dataset.speed;
+    }
+
+    function startGame() {
+        document.getElementById('level-selector-container').style.display = 'none';
+        document.getElementById('game-container').style.display = 'block';
+        startNewRound();
+    }
+
+    function startNewRound() {
+        gameInProgress = true;
+        clearTimeout(robotInterval);
+
+        // Hide overlays
+        document.querySelectorAll('.status-overlay').forEach(o => o.classList.remove('visible'));
+        
+        // Pick a sentence
+        currentSentence = sentencePairs[Math.floor(Math.random() * sentencePairs.length)];
+        const sourceText = settings.direction === 'to' ? currentSentence.english : currentSentence.target;
+        const targetText = settings.direction === 'to' ? currentSentence.target : currentSentence.english;
+        
+        // Update source sentences for both panels
+        document.querySelectorAll('.source-sentence').forEach(el => el.textContent = sourceText);
+        
+        // Setup boards
+        setupPlayerBoard(targetText);
+        setupRobotBoard(targetText);
+        
+        // Start the robot
+        startRobotTyping(targetText);
+    }
+    
+    function createSentenceHTML(text, isPlayer) {
+        let html = '';
+        const words = text.split(' ');
+        words.forEach(word => {
+            html += '<div class="word-wrapper">';
+            for (const char of word) {
+                if (/[a-zA-ZÀ-ÿ]/.test(char)) { // Check if it's a letter (including accented ones)
+                    const isVowel = 'aeiouAEIOUàáâäèéêëìíîïòóôöùúûü'.includes(char);
+                    const shouldBeInput = (settings.mode === 'vowels' && isVowel) || (settings.mode === 'consonants' && !isVowel);
+                    if (isPlayer && shouldBeInput) {
+                        html += `<input type="text" class="single-letter" maxlength="1" data-original="${char}">`;
+                    } else {
+                        html += `<span class="static-char">${char}</span>`;
+                    }
+                } else { // Punctuation
+                    html += `<span class="punctuation">${char}</span>`;
+                }
+            }
+            html += '</div>';
+        });
+        return html;
+    }
+
+    function setupPlayerBoard(targetText) {
+        const container = document.querySelector('.player .question-container');
+        container.innerHTML = createSentenceHTML(targetText, true);
+        
+        const inputs = container.querySelectorAll('input.single-letter');
+        inputs.forEach((input, index) => {
+            input.addEventListener('input', () => handlePlayerInput(input, index, inputs));
+            input.addEventListener('focus', () => { focusedInput = input; });
+        });
+        if (inputs.length > 0) inputs[0].focus();
+    }
+    
+    function handlePlayerInput(input, index, inputs) {
+        const originalChar = input.dataset.original.toLowerCase();
+        const enteredChar = input.value.toLowerCase();
+
+        if (enteredChar === originalChar) {
+            input.classList.remove('wrong-answer');
+            input.classList.add('correct-answer');
+            if (index < inputs.length - 1) {
+                inputs[index + 1].focus();
+            }
+            checkPlayerWin(inputs);
+        } else {
+            input.classList.add('wrong-answer');
+        }
+    }
+
+    function checkPlayerWin(inputs) {
+        if (!gameInProgress) return;
+        const allCorrect = Array.from(inputs).every(inp => inp.value.toLowerCase() === inp.dataset.original.toLowerCase());
+        if (allCorrect) {
+            gameInProgress = false;
+            clearTimeout(robotInterval);
+            document.querySelector('.player .status-overlay').classList.add('visible');
+            setTimeout(startNewRound, 2500);
+        }
+    }
+
+    function setupRobotBoard(targetText) {
+        const container = document.querySelector('.computer .question-container');
+        container.innerHTML = createSentenceHTML(targetText, false);
+    }
+
+    function startRobotTyping(targetText) {
+        const robotChars = document.querySelectorAll('.computer .static-char');
+        let charIndex = 0;
+        
+        robotInterval = setInterval(() => {
+            if (charIndex < robotChars.length) {
+                robotChars[charIndex].style.color = '#000'; // Reveal character
+                charIndex++;
+            } else {
+                // Robot finished
+                clearTimeout(robotInterval);
+                if (gameInProgress) {
+                    gameInProgress = false;
+                    document.querySelector('.computer .status-overlay').classList.add('visible');
+                    // Reveal correct answers for player
+                    document.querySelectorAll('.player input.single-letter').forEach(inp => {
+                       if (!inp.value) inp.value = inp.dataset.original;
+                       if (inp.value.toLowerCase() !== inp.dataset.original.toLowerCase()) inp.classList.add('wrong-answer');
+                       else inp.classList.add('correct-answer');
+                    });
+                    setTimeout(startNewRound, 2500);
+                }
+            }
+        }, settings.speed);
+    }
+
+    function generateKeyboard() {
+        const keyboardContainer = document.querySelector('.keyboard-container');
+        keyboardContainer.innerHTML = '';
+        const lang = settings.language;
+        let chars = [];
+        switch (lang) {
+            case 'german': chars = ['ä', 'ö', 'ü', 'ß']; break;
+            case 'french': chars = ['à', 'â', 'é', 'è', 'ê', 'ë', 'î', 'ï', 'ô', 'ù', 'û', 'ü', 'ç']; break;
+            case 'spanish': chars = ['á', 'é', 'í', 'ó', 'ú', 'ñ', 'ü']; break;
+        }
+        chars.forEach(c => {
+            const btn = document.createElement('button');
+            btn.textContent = c;
+            btn.className = 'keyboard-button';
+            btn.onclick = () => insertCharacter(c);
+            keyboardContainer.appendChild(btn);
+        });
+    }
+
+    function insertCharacter(char) {
+        if (focusedInput) {
+            focusedInput.value = char;
+            // Manually trigger the input event to check the answer
+            focusedInput.dispatchEvent(new Event('input'));
+        }
+    }
+
+</script>
+
+</body>
+</html>
