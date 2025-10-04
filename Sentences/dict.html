@@ -21,8 +21,7 @@
             width: 100%;
             max-width: 800px;
             padding: 30px;
-            box-sizing: border-box;
-            background-color: #ffffff;
+            background-color: #fff;
             border-radius: 20px;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
             text-align: center;
@@ -38,22 +37,6 @@
             font-weight: bold;
             color: #666;
             margin-bottom: 25px;
-        }
-        .hide {
-            display: none;
-        }
-        #answerInput {
-            font-size: 24px;
-            padding: 12px 15px;
-            width: 100%;
-            border-radius: 12px;
-            border: 2px solid #ddd;
-            box-sizing: border-box;
-            margin-top: 20px;
-        }
-        #answerInput:focus {
-            border-color: #007bff;
-            outline: none;
         }
         button {
             font-size: 18px;
@@ -82,6 +65,14 @@
             background-color: #0056b3;
             border-color: #0056b3;
         }
+        #answerInput {
+            font-size: 24px;
+            padding: 12px 15px;
+            width: 100%;
+            border-radius: 12px;
+            border: 2px solid #ddd;
+            margin-top: 20px;
+        }
         #feedback {
             font-size: 20px;
             font-weight: bold;
@@ -101,18 +92,23 @@
             border-radius: 10px;
             background-color: #eee;
             cursor: pointer;
-            color: #333;
         }
         .keyboard-button:hover {
             background-color: #A9A9A9;
             transform: translateY(-4px);
         }
-        .button-row {
+        .top-controls {
             display: flex;
             justify-content: center;
             align-items: center;
             gap: 10px;
-            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        select {
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
         }
     </style>
 </head>
@@ -121,12 +117,16 @@
     <div class="title">Dictation Activity</div>
     <div id="counter">Loading...</div>
 
-    <div class="button-row">
+    <div class="top-controls">
         <button id="playButton" onclick="playAudio()">▶️ Play Audio</button>
-        <button id="languageButton" onclick="toggleLanguage()">French</button>
+        <select id="languageSelect" onchange="onLanguageChange()">
+            <option value="french" selected>French</option>
+            <option value="german">German</option>
+            <option value="spanish">Spanish</option>
+        </select>
     </div>
 
-    <input type="text" id="answerInput" placeholder="Type what you hear..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    <input type="text" id="answerInput" placeholder="Type what you hear..." autocomplete="off" spellcheck="false">
 
     <div id="feedback"></div>
 
@@ -165,23 +165,22 @@ if (!sheetUrl) {
                     allSentences.push(row["French sentences"].trim());
                 }
             });
-
             if (allSentences.length === 0) {
                 document.querySelector('.title').textContent = "⚠️ Error";
-                document.getElementById('counter').textContent = "No sentences found under the 'French sentences' header.";
+                document.getElementById('counter').textContent = "No sentences found.";
                 return;
             }
-
             initialize();
         },
         error: function(err) {
             document.querySelector('.title').textContent = "⚠️ Error";
-            document.getElementById('counter').textContent = "Could not load or parse the data.";
-            console.error("PapaParse Error:", err);
+            document.getElementById('counter').textContent = "Error loading data.";
+            console.error(err);
         }
     });
 }
 
+// Voice setup
 function loadVoices() {
     voices = window.speechSynthesis.getVoices();
     function findVoice(langCode, preferredNames = []) {
@@ -197,19 +196,10 @@ function loadVoices() {
         german: findVoice('de', ['google deutsch', 'markus', 'petra']),
         spanish: findVoice('es', ['google español', 'conchita', 'lucia', 'enrique']),
     };
-    console.log('✅ Auto-selected voices:', {
-        French: voiceMap.french?.name,
-        German: voiceMap.german?.name,
-        Spanish: voiceMap.spanish?.name,
-    });
+    console.log('Voices loaded:', voiceMap);
 }
 window.speechSynthesis.onvoiceschanged = loadVoices;
 if (speechSynthesis.getVoices().length) loadVoices();
-
-function normalizeApostrophes(text) {
-    if (typeof text !== 'string') return '';
-    return text.replace(/’/g, "'");
-}
 
 function initialize() {
     allSentences.sort(() => Math.random() - 0.5);
@@ -217,6 +207,7 @@ function initialize() {
     currentIndex = 0;
     updateUI();
     generateKeyboard();
+    playAudio(); // auto-play on start
 }
 
 function updateUI() {
@@ -229,20 +220,11 @@ function updateUI() {
     document.getElementById('feedback').textContent = '';
     document.getElementById('checkButton').classList.remove('hide');
     document.getElementById('nextButton').classList.add('hide');
+    playAudio(); // auto-play new sentence
 }
 
-function toggleLanguage() {
-    const button = document.getElementById('languageButton');
-    if (currentLanguage === 'french') {
-        currentLanguage = 'german';
-        button.textContent = 'German';
-    } else if (currentLanguage === 'german') {
-        currentLanguage = 'spanish';
-        button.textContent = 'Spanish';
-    } else {
-        currentLanguage = 'french';
-        button.textContent = 'French';
-    }
+function onLanguageChange() {
+    currentLanguage = document.getElementById('languageSelect').value;
     generateKeyboard();
 }
 
@@ -268,24 +250,14 @@ function checkAnswer() {
     const feedbackEl = document.getElementById('feedback');
     const userAnswer = answerInput.value.trim();
     const correctAnswer = exerciseSentences[currentIndex];
-
     if (!userAnswer) {
         feedbackEl.textContent = 'Please type your answer.';
         feedbackEl.style.color = 'orange';
         return;
     }
-
     const punctuationRegex = /[.,?!;:"-]/g;
-    const finalUserAnswer = normalizeApostrophes(userAnswer)
-        .replace(punctuationRegex, '')
-        .toLowerCase()
-        .trim();
-    const finalCorrectAnswer = normalizeApostrophes(correctAnswer)
-        .replace(punctuationRegex, '')
-        .toLowerCase()
-        .trim();
-
-    if (finalUserAnswer === finalCorrectAnswer) {
+    const normalize = t => t.replace(/’/g, "'").replace(punctuationRegex, '').toLowerCase().trim();
+    if (normalize(userAnswer) === normalize(correctAnswer)) {
         feedbackEl.textContent = 'Correct!';
         feedbackEl.style.color = 'green';
         answerInput.disabled = true;
@@ -293,15 +265,16 @@ function checkAnswer() {
         if (currentIndex < exerciseSentences.length - 1) {
             document.getElementById('nextButton').classList.remove('hide');
         } else {
-            feedbackEl.textContent = '🎉 Congratulations! You have completed the exercise.';
+            feedbackEl.textContent = '🎉 Congratulations! You finished!';
         }
     } else {
         feedbackEl.style.color = 'darkorange';
         let correctPrefixLength = 0;
-        for (let i = 0; i < finalUserAnswer.length; i++) {
-            if (i < finalCorrectAnswer.length && finalUserAnswer[i] === finalCorrectAnswer[i]) {
-                correctPrefixLength++;
-            } else break;
+        const finalCorrect = normalize(correctAnswer);
+        const finalUser = normalize(userAnswer);
+        for (let i = 0; i < finalUser.length; i++) {
+            if (i < finalCorrect.length && finalUser[i] === finalCorrect[i]) correctPrefixLength++;
+            else break;
         }
         const hint = correctAnswer.substring(0, correctPrefixLength + 1);
         feedbackEl.textContent = `Not quite. Hint: ${hint}...`;
@@ -313,14 +286,11 @@ function nextSentence() {
     updateUI();
 }
 
-document.getElementById('answerInput').addEventListener('keypress', function(event) {
-    if (event.key === 'Enter') {
-        event.preventDefault();
-        if (!document.getElementById('checkButton').classList.contains('hide')) {
-            checkAnswer();
-        } else if (!document.getElementById('nextButton').classList.contains('hide')) {
-            nextSentence();
-        }
+document.getElementById('answerInput').addEventListener('keypress', e => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        if (!document.getElementById('checkButton').classList.contains('hide')) checkAnswer();
+        else if (!document.getElementById('nextButton').classList.contains('hide')) nextSentence();
     }
 });
 
