@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Read Aloud Activity - French (British tolerant)</title>
+<title>Read Aloud Activity - French (Corrected)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
 body { font-family: Arial, sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
@@ -41,6 +41,7 @@ let allSentences = [];
 let exerciseSentences = [];
 let recognition;
 let isRecording = false;
+let recognitionTimeout; // Watchdog timer to prevent getting stuck
 
 // Speech recognition setup
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -58,6 +59,7 @@ if (!SpeechRecognition) {
   recognition.onresult = handleRecognitionResult;
   recognition.onerror = handleRecognitionError;
   recognition.onend = () => {
+    clearTimeout(recognitionTimeout); // Important: Cancel the watchdog timer on normal completion
     isRecording = false;
     document.getElementById('recordButton').textContent = 'Start Recording';
     document.getElementById('recordButton').classList.remove('recording');
@@ -100,14 +102,24 @@ if (!sheetUrl) {
 function normalizeApostrophes(text){ return text.replace(/’/g,"'"); }
 function levenshteinDistance(a,b){const m=Array(b.length+1).fill().map(()=>Array(a.length+1).fill(null));for(let i=0;i<=a.length;i++)m[0][i]=i;for(let j=0;j<=b.length;j++)m[j][0]=j;for(let j=1;j<=b.length;j++){for(let i=1;i<=a.length;i++){const indicator=a[i-1]===b[j-1]?0:1;m[j][i]=Math.min(m[j][i-1]+1,m[j-1][i]+1,m[j-1][i-1]+indicator);}}return m[b.length][a.length];}
 function phoneticEncode(word){return word.toLowerCase().replace(/[aeiouy]/g,"").replace(/ph/g,"f").replace(/ck/g,"k").replace(/sh/g,"ch").replace(/[^a-z]/g,"");}
-function phoneticRelax(word){
-  let w=word.toLowerCase();
-  w=w.replace(/r/g,"ʁ");
-  w=w.replace(/[éèêë]/g,"e");
-  w=w.replace(/[àâ]/g,"a");
-  w=w.replace(/[ïî]/g,"i");
-  w=w.replace(/[ô]/g,"o");
-  return w;
+
+function normalizeFrench(word) {
+    let w = word.toLowerCase().trim();
+    w = w.replace(/[éèêë]/g, "e");
+    w = w.replace(/[àâ]/g, "a");
+    w = w.replace(/[ïî]/g, "i");
+    w = w.replace(/[ô]/g, "o");
+    w = w.replace(/[ùûü]/g, "u");
+    w = w.replace(/ç/g, "c");
+    w = w.replace(/œ/g, "oe");
+
+    if (w.length > 5 && w.endsWith('ent')) {
+        w = w.slice(0, -3);
+    }
+    if (w.length > 3 && w.endsWith('s')) {
+        w = w.slice(0, -1);
+    }
+    return w;
 }
 
 // Hover pronunciation
@@ -147,6 +159,18 @@ function toggleRecording(){
       document.getElementById('recordButton').classList.add('recording');
       document.getElementById('feedback').textContent='Listening...';
       document.getElementById('transcriptOutput').textContent='';
+
+      // Start a watchdog timer to prevent the app from getting stuck.
+      recognitionTimeout = setTimeout(() => {
+          if (isRecording) {
+              console.warn("Recognition timed out.");
+              recognition.stop(); // This will trigger the 'onend' event
+              const feedbackEl = document.getElementById('feedback');
+              feedbackEl.textContent = "Recording timed out. Please try again.";
+              feedbackEl.style.color = 'red';
+          }
+      }, 15000); // 15 seconds timeout
+
     } catch(e){
       console.error(e);
       isRecording=false;
@@ -167,14 +191,14 @@ function handleRecognitionError(event){
   document.getElementById('feedback').style.color='red';
 }
 
-// Main pronunciation checking - ADVANCED VERSION
+// Main pronunciation checking - FULLY CORRECTED VERSION
 function checkPronunciation(transcript) {
     const feedbackEl = document.getElementById('feedback');
     const transcriptOutput = document.getElementById('transcriptOutput');
     const correctSentence = exerciseSentences[currentIndex].sentence;
 
     const punctuation = /[.,?!;:"-]/g;
-    const finalTranscript = normalizeApostrophes(transcript).replace( punctuation, '').toLowerCase().trim();
+    const finalTranscript = normalizeApostrophes(transcript).replace(punctuation, '').toLowerCase().trim();
     const finalCorrect = normalizeApostrophes(correctSentence).replace(punctuation, '').toLowerCase().trim();
 
     const transcriptWords = finalTranscript.split(/\s+/);
@@ -182,37 +206,41 @@ function checkPronunciation(transcript) {
 
     let matches = 0;
     let highlightedSentence = [];
-    
-    // This array will keep track of which spoken words have already been successfully matched.
     const usedTranscriptWords = new Array(transcriptWords.length).fill(false);
-    let searchFromIndex = 0; // We search forward to maintain word order.
+    let searchFromIndex = 0;
 
     correctWords.forEach((word) => {
-        const targetWord = phoneticRelax(word);
+        const targetWord = normalizeFrench(word);
         let foundMatch = false;
 
-        // Search for the correct word in the transcript, starting from the last matched position
         for (let i = searchFromIndex; i < transcriptWords.length; i++) {
             if (!usedTranscriptWords[i]) {
-                const learnerWord = phoneticRelax(transcriptWords[i]);
-                const distThreshold = Math.max(1, Math.floor(targetWord.length / 4));
-                const dist = levenshteinDistance(learnerWord, targetWord);
+                const learnerWord = normalizeFrench(transcriptWords[i]);
+                let isMatch = false;
 
-                if (dist <= distThreshold || phoneticEncode(learnerWord) === phoneticEncode(targetWord)) {
+                // Tiered Accuracy Logic
+                if (targetWord.length <= 2) {
+                    isMatch = (targetWord === learnerWord);
+                } else if (targetWord.length <= 4) {
+                    isMatch = (levenshteinDistance(learnerWord, targetWord) <= 1);
+                } else {
+                    const distThreshold = Math.max(1, Math.floor(targetWord.length / 4));
+                    const dist = levenshteinDistance(learnerWord, targetWord);
+                    isMatch = (dist <= distThreshold || phoneticEncode(learnerWord) === phoneticEncode(targetWord));
+                }
+
+                if (isMatch) {
                     matches++;
                     highlightedSentence.push(`<span class="correct-word">${word}</span>`);
-                    
-                    // Mark this word as used and update the starting point for the next search.
                     usedTranscriptWords[i] = true;
-                    searchFromIndex = i + 1; 
+                    searchFromIndex = i + 1;
                     foundMatch = true;
-                    break; // Exit the inner loop once a match is found
+                    break;
                 }
             }
         }
 
         if (!foundMatch) {
-            // If no suitable match was found in the entire transcript, mark the word as wrong.
             highlightedSentence.push(`<span class="wrong-word"
                 onmouseenter="playWord('${word.replace(/'/g, "\\'")}')"
                 onmouseleave="window.speechSynthesis.cancel()"
@@ -220,7 +248,6 @@ function checkPronunciation(transcript) {
         }
     });
 
-    // Scoring logic is now based on the more accurate matching.
     const similarity = (matches / correctWords.length) * 100;
     const threshold = correctWords.length > 5 ? 65 : 70;
 
