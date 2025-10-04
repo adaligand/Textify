@@ -33,10 +33,9 @@
 
         .single-letter { width: 25px; height: 35px; text-align: center; font-size: 1em; border: none; border-bottom: 2px solid #ccc; background: transparent; margin: 0 1px; }
         .single-letter:focus { outline: none; border-bottom-color: #007bff; }
-        .correct-answer { border-bottom-color: #28a745 !important; }
+        .correct-answer { border-bottom-color: #28a745 !important; color: #28a745; }
         .wrong-answer { border-bottom-color: #dc3545 !important; }
         .static-char, .punctuation { display: inline-block; padding: 0 2px; }
-        .computer .question-container { color: #aaa; }
         
         /* --- Overlays and Status --- */
         .status-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; color: white; font-size: 4em; font-weight: bold; border-radius: 8px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
@@ -45,10 +44,15 @@
         .status-overlay.visible { opacity: 1; }
 
         /* --- Language and Keyboard --- */
-        #languageSelect { padding: 10px; font-size: 1em; border-radius: 8px; border: 2px solid #dde; }
+        #languageSelect { padding: 10px; font-size: 1em; border-radius: 8px; border: 2px solid #dde; margin-bottom: 15px; }
         .keyboard-container { display: flex; justify-content: center; flex-wrap: wrap; margin-top: 20px; gap: 5px; }
         .keyboard-button { font-size: 1.2em; padding: 10px 15px; border: none; border-radius: 5px; background-color: #f0f0f0; cursor: pointer; box-shadow: 0 2px 2px rgba(0,0,0,0.2); transition: all 0.2s; }
         .keyboard-button:hover { background-color: #ddd; transform: translateY(-2px); }
+
+        /* Hide language select on setup screen */
+        #level-selector-container #languageSelectContainer { display: none; }
+        /* Show language select on game screen */
+        #game-container #languageSelectContainer { display: block; text-align: center; } 
     </style>
 </head>
 <body>
@@ -57,18 +61,10 @@
     <div id="level-selector-container">
         <div class="card">
             <div class="card-header">
-                <img src="https://uk.language-gym.com/themes/mdb/assets/images/sentencetrainer/robot.png" style="width: 150px" alt="Robot mascot"/>
                 <h1>Beat The Robot</h1>
                 <p id="subtitle">Loading sentences...</p>
             </div>
             <div class="card-body">
-                <div class="btn-group">
-                    <select id="languageSelect">
-                        <option value="french">French</option>
-                        <option value="german">German</option>
-                        <option value="spanish">Spanish</option>
-                    </select>
-                </div>
                 <div class="btn-group">
                     <button class="btn btn-difficulty btn-chosen" data-speed="800">Easy</button>
                     <button class="btn btn-difficulty" data-speed="500">Normal</button>
@@ -110,6 +106,14 @@
                 <div class="status-overlay">Robot Wins!</div>
             </div>
         </div>
+        
+        <div id="languageSelectContainer" style="text-align: center; margin-top: 20px;">
+            <select id="languageSelect">
+                <option value="french">French</option>
+                <option value="german">German</option>
+                <option value="spanish">Spanish</option>
+            </select>
+        </div>
         <div class="keyboard-container"></div>
     </div>
 </div>
@@ -138,12 +142,14 @@
 
         Papa.parse(sheetUrl, {
             download: true,
-            header: false, // Set to false to use column indexes
+            header: false,
             skipEmptyLines: true,
             complete: (results) => {
-                // PapaParse returns an array of arrays when header is false
                 const data = results.data;
-                data.forEach(row => {
+                // Slice the data array at index 1 to remove the header row
+                const contentRows = data.slice(1);
+
+                contentRows.forEach(row => {
                     // Fetch from column F (index 5) and G (index 6)
                     if (row[5] && row[6]) {
                         sentencePairs.push({ target: row[5].trim(), english: row[6].trim() });
@@ -154,7 +160,7 @@
                     document.getElementById('subtitle').textContent = `Loaded ${sentencePairs.length} sentences. Ready to play!`;
                     document.querySelector('.btn-start').disabled = false;
                 } else {
-                    document.getElementById('subtitle').textContent = "⚠️ No sentences found in columns F and G. Please check your sheet.";
+                    document.getElementById('subtitle').textContent = "⚠️ No sentences found in columns F and G (after skipping header). Please check your sheet.";
                 }
             }
         });
@@ -168,8 +174,6 @@
             settings.language = e.target.value;
             generateKeyboard();
         });
-
-        generateKeyboard(); // Initial keyboard generation
     });
     
     function setChoice(element, settingKey, groupClass) {
@@ -181,12 +185,13 @@
     function startGame() {
         document.getElementById('level-selector-container').style.display = 'none';
         document.getElementById('game-container').style.display = 'block';
+        generateKeyboard();
         startNewRound();
     }
 
     function startNewRound() {
         gameInProgress = true;
-        clearTimeout(robotInterval);
+        clearInterval(robotInterval);
 
         document.querySelectorAll('.status-overlay').forEach(o => o.classList.remove('visible'));
         
@@ -199,7 +204,7 @@
         setupPlayerBoard(targetText);
         setupRobotBoard(targetText);
         
-        startRobotTyping(targetText);
+        startRobotTyping();
     }
     
     function createSentenceHTML(text, isPlayer) {
@@ -209,9 +214,9 @@
             html += '<div class="word-wrapper">';
             for (const char of word) {
                 if (/[a-zA-ZÀ-ÿ]/.test(char)) {
-                    const isVowel = 'aeiouAEIOUàáâäèéêëìíîïòóôöùúûü'.includes(char);
+                    const isVowel = 'aeiouAEIOUàáâäèéêëìíîïòóôöùúûü'.includes(char.toLowerCase());
                     const shouldBeInput = (settings.mode === 'vowels' && isVowel) || (settings.mode === 'consonants' && !isVowel);
-                    if (isPlayer && shouldBeInput) {
+                    if (shouldBeInput) {
                         html += `<input type="text" class="single-letter" maxlength="1" data-original="${char}">`;
                     } else {
                         html += `<span class="static-char">${char}</span>`;
@@ -234,7 +239,9 @@
             input.addEventListener('input', () => handlePlayerInput(input, index, inputs));
             input.addEventListener('focus', () => { focusedInput = input; });
         });
-        if (inputs.length > 0) inputs[0].focus();
+        if (inputs.length > 0) {
+            inputs[0].focus();
+        }
     }
     
     function handlePlayerInput(input, index, inputs) {
@@ -258,7 +265,7 @@
         const allCorrect = Array.from(inputs).every(inp => inp.value.toLowerCase() === inp.dataset.original.toLowerCase());
         if (allCorrect) {
             gameInProgress = false;
-            clearTimeout(robotInterval);
+            clearInterval(robotInterval);
             document.querySelector('.player .status-overlay').classList.add('visible');
             setTimeout(startNewRound, 2500);
         }
@@ -266,26 +273,35 @@
 
     function setupRobotBoard(targetText) {
         const container = document.querySelector('.computer .question-container');
-        container.innerHTML = createSentenceHTML(targetText, false);
+        // Create the robot's board with the same blanks as the player
+        container.innerHTML = createSentenceHTML(targetText, true);
+        // Disable all inputs on the robot's side
+        container.querySelectorAll('input.single-letter').forEach(input => {
+            input.disabled = true;
+        });
     }
 
-    function startRobotTyping(targetText) {
-        const robotChars = document.querySelectorAll('.computer .static-char');
-        let charIndex = 0;
+    function startRobotTyping() {
+        const robotInputs = document.querySelectorAll('.computer input.single-letter');
+        let inputIndex = 0;
         
         robotInterval = setInterval(() => {
-            if (charIndex < robotChars.length) {
-                robotChars[charIndex].style.color = '#000';
-                charIndex++;
+            if (inputIndex < robotInputs.length) {
+                const currentInput = robotInputs[inputIndex];
+                // Fill the robot's input with the correct letter
+                currentInput.value = currentInput.dataset.original;
+                currentInput.classList.add('correct-answer');
+                inputIndex++;
             } else {
-                clearTimeout(robotInterval);
+                // Robot finished
+                clearInterval(robotInterval);
                 if (gameInProgress) {
                     gameInProgress = false;
                     document.querySelector('.computer .status-overlay').classList.add('visible');
                     document.querySelectorAll('.player input.single-letter').forEach(inp => {
                        if (!inp.value) inp.value = inp.dataset.original;
                        if (inp.value.toLowerCase() !== inp.dataset.original.toLowerCase()) inp.classList.add('wrong-answer');
-                       else inp.classList.add('correct-answer');
+                       else if (!inp.classList.contains('correct-answer')) inp.classList.add('correct-answer');
                     });
                     setTimeout(startNewRound, 2500);
                 }
@@ -296,7 +312,8 @@
     function generateKeyboard() {
         const keyboardContainer = document.querySelector('.keyboard-container');
         keyboardContainer.innerHTML = '';
-        const lang = settings.language;
+        const lang = document.getElementById('languageSelect').value;
+        settings.language = lang;
         let chars = [];
         switch (lang) {
             case 'german': chars = ['ä', 'ö', 'ü', 'ß']; break;
