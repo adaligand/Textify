@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Read Aloud Activity - French (Advanced)</title>
+<title>Read Aloud Activity - French (Strict Version)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
 body { font-family: Arial, sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
@@ -77,8 +77,9 @@ if (sheetUrl) {
                 .map(row => row["French sentences"]?.trim())
                 .filter(Boolean)
                 .map(sentence => ({ sentence }));
-            if (allSentences.length > 0) initialize();
-            else {
+            if (allSentences.length > 0) {
+                initialize();
+            } else {
                 document.getElementById('counter').textContent = "No sentences found. Check your sheet.";
             }
         },
@@ -91,25 +92,22 @@ if (sheetUrl) {
 
 // --- UTILITIES ---
 function normalizeApostrophes(text){ return text.replace(/’/g,"'"); }
-function levenshteinDistance(a,b){const m=Array(b.length+1).fill().map(()=>Array(a.length+1).fill(null));for(let i=0;i<=a.length;i++)m[0][i]=i;for(let j=0;j<=b.length;j++)m[j][0]=j;for(let j=1;j<=b.length;j++){for(let i=1;i<=a.length;i++){const indicator=a[i-1]===b[j-1]?0:1;m[j][i]=Math.min(m[j][i-1]+1,m[j-1][i]+1,m[j-1][i-1]+indicator);}}return m[b.length][a.length];}
+function levenshteinDistance(a,b){const m=Array(b.length+1).fill(null).map(()=>Array(a.length+1).fill(null));for(let i=0;i<=a.length;i++){m[0][i]=i}for(let j=0;j<=b.length;j++){m[j][0]=j}for(let j=1;j<=b.length;j++){for(let i=1;i<=a.length;i++){const c=a[i-1]===b[j-1]?0:1;m[j][i]=Math.min(m[j][i-1]+1,m[j-1][i]+1,m[j-1][i-1]+c)}}return m[b.length][a.length]}
 function phoneticEncode(word){return word.toLowerCase().replace(/[aeiouy]/g,"").replace(/ph/g,"f").replace(/ck/g,"k").replace(/sh/g,"ch").replace(/[^a-z]/g,"");}
 
-// UPGRADED: Advanced normalization for better phonetic matching
+// REVISED: Stricter normalization for more precise checking.
+// This version ONLY normalizes accents, forcing a much more accurate match.
 function normalizeFrench(word) {
     let w = word.toLowerCase().trim();
-    // Vowel normalization
-    w = w.replace(/[àâ]/g, "a").replace(/[éèêë]/g, "e").replace(/[ïî]/g, "i").replace(/[ô]/g, "o").replace(/[ùûü]/g, "u");
-    w = w.replace(/ç/g, "c").replace(/œ/g, "oe");
     
-    // Phonetic groupings for common learner issues
-    w = w.replace(/an|en|am|em/g, "A"); // Nasal 'an'/'en' sound
-    w = w.replace(/in|im|ain|aim|ein/g, "I"); // Nasal 'in'/'ain' sound
-    w = w.replace(/on|om/g, "O"); // Nasal 'on' sound
-    w = w.replace(/er$|é$|ez$/g, "E"); // Common verb endings sounding like 'ay'
-    
-    // Silent endings
-    if (w.length > 5 && w.endsWith('ent')) w = w.slice(0, -3);
-    if (w.length > 3 && w.endsWith('s')) w = w.slice(0, -1);
+    // Normalize accents but leave all consonants and vowels otherwise intact.
+    w = w.replace(/[àâ]/g, "a");
+    w = w.replace(/[éèêë]/g, "e");
+    w = w.replace(/[ïî]/g, "i");
+    w = w.replace(/[ô]/g, "o");
+    w = w.replace(/[ùûü]/g, "u");
+    w = w.replace(/ç/g, "c");
+    w = w.replace(/œ/g, "oe");
     
     return w;
 }
@@ -171,6 +169,7 @@ function handleRecognitionError(event){
   document.getElementById('feedback').style.color = 'red';
 }
 
+// REVISED: Hover hint removed for a cleaner UI.
 function checkPronunciation(transcript) {
     const feedbackEl = document.getElementById('feedback');
     const transcriptOutput = document.getElementById('transcriptOutput');
@@ -180,7 +179,7 @@ function checkPronunciation(transcript) {
     const finalTranscript = normalizeApostrophes(transcript).replace(punctuation, '').toLowerCase().trim();
     const finalCorrect = normalizeApostrophes(correctSentence).replace(punctuation, '').toLowerCase().trim();
 
-    const transcriptWords = finalTranscript.split(/\s+/).filter(Boolean); // filter(Boolean) removes any empty strings
+    const transcriptWords = finalTranscript.split(/\s+/).filter(Boolean);
     const correctWords = finalCorrect.split(/\s+/).filter(Boolean);
 
     let matches = 0;
@@ -219,14 +218,11 @@ function checkPronunciation(transcript) {
             usedTranscriptWords[bestMatchIndex] = true;
             searchFromIndex = bestMatchIndex + 1;
         } else {
-            // Find the closest spoken word for more accurate feedback
-            let closestSpokenWord = transcriptWords[searchFromIndex] || "(nothing)";
+            // Hint removed as requested.
             highlightedSentence.push(`<span class="wrong-word"
                 onmouseenter="playWord('${word.replace(/'/g, "\\'")}')"
-                onmouseleave="window.speechSynthesis.cancel()"
-                title="Expected: ${word}\nHeard something like: ${closestSpokenWord}">${word}</span>`);
+                onmouseleave="window.speechSynthesis.cancel()">${word}</span>`);
             
-            // BUG FIX: Advance the index even on a mismatch to prevent it from getting stuck.
             searchFromIndex++;
         }
     });
