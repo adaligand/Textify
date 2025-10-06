@@ -23,7 +23,7 @@
         border-radius: 15px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         width: 95%;
-        max-width: 1200px; /* Added max-width for better structure */
+        max-width: 1200px;
         text-align: center;
     }
     h1,h2 { text-align:center; margin:0; }
@@ -58,7 +58,7 @@
     #wheelCanvas { cursor: pointer; border-radius: 50%; }
     #winnerMessage { text-align:center; font-size:24px; font-weight:bold; margin-top:20px; color:green; }
     #newGameBtn { display:block; margin:20px auto; padding:10px 20px; font-size:20px; border-radius:10px; cursor:pointer; }
-    /* --- NEW MENU STYLES --- */
+    /* --- MENU STYLES --- */
     #main-menu { text-align: center; margin-top: 50px; }
     .menu-button {
         display: block;
@@ -76,7 +76,7 @@
     }
     .menu-button:hover { background-color: #2980b9; }
     .hide { display: none !important; }
-    /* --- END NEW MENU STYLES --- */
+    /* --- END MENU STYLES --- */
 
     @media (max-width:1100px){#wheelContainer{width:300px;height:300px;}}
     @media (max-width:800px){.game-container{flex-direction:column;align-items:center;}#letters{order:2;margin:10px 0;}#wheelContainer{order:3;margin:10px 0;}.scores{flex-direction:row;gap:10px;order:1;width:100%;justify-content:space-around;}}
@@ -120,7 +120,8 @@ const wheelCanvas = document.getElementById("wheelCanvas"), ctx = wheelCanvas.ge
 wheelCanvas.addEventListener("click", spinWheel);
 
 const lettersDiv = document.getElementById("letters");
-const score1Display = document.getElementById("score1"), score2Display = document.getElementById("score2");
+const score1Display = document.getElementById("score1");
+let score2Display = document.getElementById("score2"); // Must be let because it can be re-assigned
 const score1Box = document.getElementById("score1Box"), score2Box = document.getElementById("score2Box");
 const hiddenDisplay = document.getElementById("hiddenSentence");
 const winnerMessage = document.getElementById("winnerMessage");
@@ -130,8 +131,13 @@ const gameArea = document.getElementById("game-area");
 const pvcBtn = document.getElementById("pvc-button");
 const pvpBtn = document.getElementById("pvp-button");
 
+// Add event listeners for the menu buttons
 pvcBtn.addEventListener('click', () => startGame('pvc'));
 pvpBtn.addEventListener('click', () => startGame('pvp'));
+newGameBtn.addEventListener("click", () => {
+    // This handler will be correctly set to endGame's version, but here for safety
+    showMenu();
+});
 
 const params = new URLSearchParams(window.location.search);
 const sheetUrl = params.get('sheet');
@@ -141,22 +147,26 @@ const sheetUrl = params.get('sheet');
 function showMenu() {
     mainMenu.classList.remove('hide');
     gameArea.classList.add('hide');
+    newGameBtn.textContent = "New Game"; // Reset button text
+    newGameBtn.onclick = () => showMenu(); // Reset button handler
 }
 
 function startGame(mode) {
     gameMode = mode;
-    // Update Player 2's name/title in the score box
-    document.getElementById('score2Box').innerHTML = (gameMode === 'pvc' ? 'Computer: ' : 'Player 2: ') + `$<span id="score2">0</span>`;
-    // Re-assign element since innerHTML changed
-    score2Display = document.getElementById("score2"); 
+    
+    // --- FIX 1: Update Player 2's display and re-assign the element ---
+    const player2Name = (gameMode === 'pvc' ? 'Computer' : 'Player 2');
+    score2Box.innerHTML = `${player2Name}: $<span id="score2">0</span>`;
+    score2Display = document.getElementById("score2"); // Re-assign the element
+    // -----------------------------------------------------------------
 
     if (allSentences.length > 0) {
         mainMenu.classList.add('hide');
         gameArea.classList.remove('hide');
         initGame();
     } else {
+        // If data is still loading, show a message
         hiddenDisplay.textContent = "Loading sentences...";
-        // Proceed with CSV loading, which will call initGame on success
     }
 }
 
@@ -171,7 +181,7 @@ if (!sheetUrl) {
             results.data.forEach((row, index) => {
                 if (index === 0) return; 
                 if (row[5] && row[5].trim() !== "") {
-                    allSentences.push(row[5].trim().toUpperCase()); // Convert to uppercase here
+                    allSentences.push(row[5].trim().toUpperCase());
                 }
             });
 
@@ -179,7 +189,7 @@ if (!sheetUrl) {
                 hiddenDisplay.textContent = "⚠️ No data found in Column F.";
                 return;
             }
-            showMenu();
+            showMenu(); // Show menu once data is loaded
         },
         error: function (err) {
             hiddenDisplay.textContent = "⚠️ Error loading the CSV file.";
@@ -233,11 +243,10 @@ function initGame() {
     wheelValue = 0;
     winnerMessage.textContent = "";
     newGameBtn.style.display = "none";
+    newGameBtn.textContent = "New Game"; // Reset button text
     updateScores();
     updateActiveScore();
     currentSentence = allSentences[Math.floor(Math.random() * allSentences.length)];
-    // Ensure all letters are UPPERCASE to simplify case-insensitive checks
-    // The sentence was converted to uppercase during data loading.
     hidden = currentSentence.split("").map(c => (/\p{L}/u.test(c) ? "_" : c));
     updateHiddenDisplay();
     createLetterButtons();
@@ -272,7 +281,7 @@ function updateHiddenDisplay() {
 function createLetterButtons() {
     const allLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ";
     lettersDiv.innerHTML = "";
-    unguessedLetters = []; // Reset unguessed letters list for PVC
+    unguessedLetters = [];
     for (let l of allLetters) {
         const btn = document.createElement("button");
         btn.textContent = l;
@@ -287,8 +296,7 @@ function spinWheel() {
     if (spinning || !canSpin) return;
     spinning = true;
     canSpin = false;
-    // Hide buttons before spin and show after
-    lettersDiv.classList.remove("show"); 
+    lettersDiv.classList.remove("show");
 
     const sliceAngle = 2 * Math.PI / values.length;
     const index = Math.floor(Math.random() * values.length);
@@ -317,9 +325,8 @@ function spinWheel() {
             drawWheel();
             wheelValue = values[index];
             
-            // Check if it's the computer's turn after the spin
             if (gameMode === 'pvc' && currentPlayer === 2) {
-                setTimeout(cpuTurn, 1000); // Give a slight pause before the CPU guesses
+                setTimeout(cpuTurn, 1000);
             }
         }
     }
@@ -337,7 +344,6 @@ function guessLetter(letter, btn) {
     }
 
     const indexes = [];
-    // Current sentence is already uppercase
     for (let i = 0; i < currentSentence.length; i++) {
         if (currentSentence[i] === letter) indexes.push(i);
     }
@@ -351,7 +357,6 @@ function guessLetter(letter, btn) {
             canSpin = true;
             updateActiveScore();
 
-            // If it's a CPU game and now the CPU's turn, make it spin
             if (gameMode === 'pvc' && currentPlayer === 2) {
                 setTimeout(spinWheel, 600);
             }
@@ -370,19 +375,17 @@ function guessLetter(letter, btn) {
             
             if (i === indexes.length - 1) {
                 if (!hidden.includes("_")) {
-                    // Game Over - Sentence solved
                     endGame();
                     return;
                 }
                 
                 // Keep turn logic (no switch)
                 setTimeout(() => {
-                    wheelValue = 0; // The current player gets to spin again
+                    wheelValue = 0;
                     lettersDiv.classList.remove("show");
                     canSpin = true;
                     updateActiveScore();
                     
-                    // If it's a CPU game and the CPU hit a letter, make it spin again
                     if (gameMode === 'pvc' && currentPlayer === 2) {
                         setTimeout(spinWheel, 600);
                     }
@@ -394,7 +397,6 @@ function guessLetter(letter, btn) {
 
 function cpuTurn() {
     if (unguessedLetters.length === 0) {
-        // Should not happen if game is not over, but as a fallback
         endGame();
         return;
     }
@@ -408,7 +410,6 @@ function cpuTurn() {
     const btn = buttons.find(b => b.textContent.toUpperCase() === letterToGuess);
     
     if (btn) {
-        // The guessLetter logic will handle the outcome (score, next turn, etc.)
         guessLetter(letterToGuess, btn);
     }
 }
@@ -424,12 +425,18 @@ function endGame() {
     }
     newGameBtn.style.display = "block";
     lettersDiv.classList.remove("show");
-    // Change new game button to go back to the menu
+    
+    // --- FIX 2: Correctly set the new game button to go back to the menu ---
     newGameBtn.textContent = "Back to Menu";
     newGameBtn.onclick = showMenu;
+    // ----------------------------------------------------------------------
 }
 
-function updateScores() { score1Display.textContent = scores[1]; score2Display.textContent = scores[2]; }
+function updateScores() { 
+    score1Display.textContent = scores[1]; 
+    // Use the re-assigned variable here
+    if(score2Display) score2Display.textContent = scores[2]; 
+}
 function updateActiveScore() { 
     if (currentPlayer === 1) { 
         score1Box.classList.add("active"); score2Box.classList.remove("active"); 
@@ -438,10 +445,11 @@ function updateActiveScore() {
     } 
 }
 
-newGameBtn.addEventListener("click", showMenu); // Default to menu after game over
+// --- FIX 3: Event listener for new game button is now a call to showMenu in endGame ---
 
 document.addEventListener("keydown", e => {
-    if (!canSpin || currentPlayer === 2 && gameMode === 'pvc') return; // Disable keyboard for CPU turn
+    // Only allow spinning if it's Player 1's turn
+    if (!canSpin || (currentPlayer === 2 && gameMode === 'pvc')) return;
     let key = e.key.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     key = key.toUpperCase();
     const buttons = Array.from(document.querySelectorAll(".letter-button"));
