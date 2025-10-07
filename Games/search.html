@@ -38,71 +38,90 @@
             font-size: 2.5em;
         }
 
-        /* --- Grid Styles --- */
-        #wordSearchGrid {
-            display: grid;
-            flex: 1 1 500px; /* Gives the grid more space */
-            max-width: 500px; 
-            margin: 0 auto; /* Center the grid */
+        /* --- Grid & Overlay Container --- */
+        #grid-and-overlay-container {
+            position: relative;
+            flex: 1 1 600px; /* Make the grid container larger */
+            max-width: 600px; /* Fixed max width for the grid area */
+            margin: 0 auto;
+            aspect-ratio: 1 / 1; /* Keep it square */
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-        .grid-cell {
-            /* Sizing and typography */
+
+        /* --- Grid Letters --- */
+        #wordSearchGrid {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
-            min-height: 30px; /* Minimum height for better tap target */
-            text-align: center;
-            line-height: 1.5em; /* Adjusted by JS for cell size */
-            font-size: 1.2em;
+            display: grid;
+            z-index: 1; /* Letters below the drawing canvas */
+        }
+        .grid-cell {
+            display: flex; /* Use flex to center content */
+            justify-content: center;
+            align-items: center;
+            font-size: 1.6em; /* Bigger font for larger grid */
             font-weight: bold;
             color: #333;
-            
-            /* Appearance and interaction */
-            background-color: #fff;
-            border: 1px solid #ddd;
+            background-color: transparent; /* No background by default */
+            border: none; /* No visible borders */
             cursor: pointer;
             user-select: none;
-            transition: background-color 0.1s, color 0.1s;
+            transition: background-color 0.1s;
         }
-        .grid-cell:hover:not(.found) {
-            background-color: #f0f0f0;
+        .grid-cell:hover:not(.found-text) { /* Keep hover for cells not part of a found word */
+            background-color: rgba(100, 100, 100, 0.1); /* Subtle hover */
         }
-        .grid-cell.selected {
-            background-color: #ffeaa7; /* Soft yellow for selection */
-            color: #333;
+        /* Temporary selection highlight for individual cells */
+        .grid-cell.selected-temp {
+            background-color: rgba(255, 237, 153, 0.5); /* Semi-transparent selection */
         }
-        .grid-cell.found {
-            background-color: #2ecc71; /* Green for found words */
-            color: white;
-            cursor: default;
+        /* New class for cells that are part of a found word */
+        .grid-cell.found-text {
+            color: white; /* Text color changes for found words */
+        }
+
+        /* --- Canvas Overlay for Drawing Lines --- */
+        #drawingCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2; /* Drawing on top of letters */
+            pointer-events: none; /* Allows mouse events to pass through to the grid cells below */
         }
 
         /* --- Word List Styles (Right side) --- */
         #wordList {
-            flex: 1 1 350px;
-            padding: 20px;
-            background-color: #ecf0f1;
+            flex: 1 1 300px; /* Reduced space for word list */
+            padding: 10px 15px; /* Reduced padding */
+            background-color: white; /* Match overall container background */
             border-radius: 10px;
-            box-shadow: inset 0 0 5px rgba(0,0,0,0.05);
         }
-        #wordList h2 {
-            margin-top: 0;
-            color: #3498db; /* Match header color */
-            font-size: 1.8em;
-            border-bottom: 2px solid #ccc;
-            padding-bottom: 10px;
+        /* No h2 for word list headline */
+        .word-item-wrapper {
+            margin-bottom: 8px; /* Space between word boxes */
         }
         .word-item {
-            padding: 8px 0;
-            font-size: 1.2em;
+            display: inline-block; /* Make it a box */
+            padding: 8px 12px;
+            font-size: 1.1em;
             color: #555;
+            background-color: #ecf0f1; /* Light grey box */
+            border-radius: 8px; /* Rounded corners */
             transition: all 0.3s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         .word-item.found {
-            text-decoration: line-through;
-            color: #95a5a6; /* Greyed out */
-            font-style: italic;
-            opacity: 0.7;
+            text-decoration: none; /* No strikethrough for image-like style */
+            color: white;
+            background-color: #2ecc71; /* Green background for found */
+            font-style: normal;
+            opacity: 1;
+            box-shadow: 0 2px 5px rgba(46, 204, 113, 0.3); /* Subtle green shadow */
         }
 
         /* --- Message Styles --- */
@@ -116,19 +135,27 @@
         }
 
         /* --- Responsive Adjustments --- */
-        @media (max-width: 800px) {
+        @media (max-width: 900px) {
             .game-container {
                 flex-direction: column;
                 align-items: center;
             }
-            #wordSearchGrid {
+            #grid-and-overlay-container {
                 order: 1;
-                max-width: 100%;
+                max-width: 90%; /* Allow grid to take more width on smaller screens */
             }
             #wordList {
                 order: 2;
-                width: 100%;
+                width: 90%;
                 margin-top: 20px;
+                text-align: center; /* Center word boxes */
+            }
+            .word-item {
+                 font-size: 1em; /* Smaller font for words on mobile */
+                 padding: 6px 10px;
+            }
+            .grid-cell {
+                font-size: 1.2em; /* Smaller font for grid letters on mobile */
             }
         }
     </style>
@@ -136,9 +163,11 @@
 <body>
     <div class="game-container">
         <h1>Word Search</h1>
-        <div id="wordSearchGrid">Loading...</div>
+        <div id="grid-and-overlay-container">
+            <div id="wordSearchGrid">Loading...</div>
+            <canvas id="drawingCanvas"></canvas>
+        </div>
         <div id="wordList">
-            <h2>Words to Find (English):</h2>
             <div id="translationList">Awaiting data...</div>
         </div>
         <div id="message"></div>
@@ -152,18 +181,25 @@
         const englishColumn = 2; // Column C (index 2)
 
         // --- Game State ---
-        let wordPairs = []; // [{foreign: "Mots", english: "Words", found: false}]
+        let wordPairs = []; // [{foreign: "Mots", english: "Words", found: false, startCell: null, endCell: null}]
         let grid = [];
-        let selectedCells = [];
+        let selectedCells = []; // Stores actual cell DOM elements
         let isMouseDown = false;
         let foundCount = 0;
 
         // --- DOM Elements ---
+        const gridAndOverlayContainer = document.getElementById('grid-and-overlay-container');
         const gridElement = document.getElementById('wordSearchGrid');
         const translationListElement = document.getElementById('translationList');
         const messageElement = document.getElementById('message');
+        const drawingCanvas = document.getElementById('drawingCanvas');
+        const ctx = drawingCanvas.getContext('2d');
+
         const params = new URLSearchParams(window.location.search);
         const sheetUrl = params.get('sheet');
+
+        let cellWidth = 0; // Will be calculated after grid is rendered
+        let cellHeight = 0;
 
         // --- Data Loading and Initialization ---
 
@@ -181,16 +217,17 @@
                     const data = results.data.slice(1); // Skip header row
                     let availableWords = data
                         .map(row => ({
-                            // Clean foreign word: uppercase and remove non-alphabetic/non-accented characters
                             foreign: row[foreignColumn] ? row[foreignColumn].trim().toUpperCase().replace(/[^A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ]/g, '') : '',
                             english: row[englishColumn] ? row[englishColumn].trim() : ''
                         }))
                         .filter(pair => pair.foreign.length >= 3 && pair.foreign.length <= GRID_SIZE);
 
-                    // Select a maximum number of words
+                    // Select a maximum number of words, and add placeholder for start/end cells
                     wordPairs = availableWords.slice(0, MAX_WORDS).map(pair => ({
                         ...pair,
-                        found: false
+                        found: false,
+                        startCell: null, // Store actual grid cells for drawing
+                        endCell: null
                     }));
 
                     if (wordPairs.length === 0) {
@@ -214,38 +251,41 @@
             { row: 1, col: 0 },    // Vertical (down)
             { row: 1, col: 1 },    // Diagonal (down-right)
             { row: 1, col: -1 },   // Diagonal (down-left)
-            { row: 0, col: -1 },   // Horizontal (left) <-- Added reverse directions
+            { row: 0, col: -1 },   // Horizontal (left)
             { row: -1, col: 0 },   // Vertical (up)
             { row: -1, col: -1 },  // Diagonal (up-left)
             { row: -1, col: 1 },   // Diagonal (up-right)
         ];
 
         function initializeGrid() {
-            // 1. Setup empty grid and styles
             grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
             
-            // Set grid template for proper cell sizing
             gridElement.style.gridTemplateColumns = `repeat(${GRID_SIZE}, 1fr)`;
             gridElement.innerHTML = '';
             
-            // 2. Attempt to place words
-            let placedWords = [];
-            
-            // Sort words by length descending to help placement
-            wordPairs.sort((a, b) => b.foreign.length - a.foreign.length).forEach(wordPair => {
+            let placedWordsDetails = []; // To store the actual placement info for validation
+
+            // Shuffle wordPairs to randomize placement order for better distribution
+            wordPairs.sort(() => Math.random() - 0.5);
+
+            wordPairs.forEach(wordPair => {
                 const word = wordPair.foreign;
                 let success = false;
                 
-                // Try placement up to 100 times
-                for (let attempt = 0; attempt < 100; attempt++) {
-                    const row = Math.floor(Math.random() * GRID_SIZE);
-                    const col = Math.floor(Math.random() * GRID_SIZE);
+                // Try placement up to 200 times
+                for (let attempt = 0; attempt < 200; attempt++) {
+                    const startRow = Math.floor(Math.random() * GRID_SIZE);
+                    const startCol = Math.floor(Math.random() * GRID_SIZE);
                     const dirIndex = Math.floor(Math.random() * directions.length);
                     const dir = directions[dirIndex];
 
-                    if (canPlaceWord(word, row, col, dir)) {
-                        placeWord(word, row, col, dir);
-                        placedWords.push(wordPair);
+                    if (canPlaceWord(word, startRow, startCol, dir)) {
+                        placeWord(word, startRow, startCol, dir);
+                        placedWordsDetails.push({
+                            word: word,
+                            start: { row: startRow, col: startCol },
+                            end: { row: startRow + (word.length - 1) * dir.row, col: startCol + (word.length - 1) * dir.col }
+                        });
                         success = true;
                         break;
                     }
@@ -255,9 +295,18 @@
                 }
             });
 
-            wordPairs = placedWords; // Only keep words that were successfully placed
+            // Update wordPairs with their actual grid positions
+            wordPairs = wordPairs.filter(pair => placedWordsDetails.some(pd => pd.word === pair.foreign));
+            wordPairs.forEach(pair => {
+                const details = placedWordsDetails.find(pd => pd.word === pair.foreign);
+                if (details) {
+                    pair.startCoords = details.start;
+                    pair.endCoords = details.end;
+                }
+            });
 
-            // 3. Fill remaining empty cells with random letters
+
+            // Fill remaining empty cells with random letters
             const fillerLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ";
             for (let r = 0; r < GRID_SIZE; r++) {
                 for (let c = 0; c < GRID_SIZE; c++) {
@@ -268,7 +317,7 @@
                 }
             }
 
-            // 4. Render the grid
+            // Render the grid
             for (let r = 0; r < GRID_SIZE; r++) {
                 for (let c = 0; c < GRID_SIZE; c++) {
                     const cell = document.createElement('div');
@@ -280,13 +329,23 @@
                 }
             }
             
-            // Calculate and set the line-height for cells to ensure text is centered vertically
-            // This must run AFTER cells are added to the DOM and the CSS has sized them.
-            if (gridElement.firstChild) {
-                const cellHeight = gridElement.firstChild.clientHeight;
-                document.querySelectorAll('.grid-cell').forEach(cell => {
-                    cell.style.lineHeight = `${cellHeight}px`;
-                });
+            // Adjust canvas size to match the grid's runtime size
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+        }
+
+        function resizeCanvas() {
+            const containerRect = gridAndOverlayContainer.getBoundingClientRect();
+            drawingCanvas.width = containerRect.width;
+            drawingCanvas.height = containerRect.height;
+            
+            // Recalculate cell dimensions
+            cellWidth = containerRect.width / GRID_SIZE;
+            cellHeight = containerRect.height / GRID_SIZE;
+
+            // Redraw all found words if any exist
+            if (foundCount > 0) {
+                drawFoundWordsOnCanvas();
             }
         }
 
@@ -318,12 +377,15 @@
         function renderWordList() {
             translationListElement.innerHTML = '';
             wordPairs.forEach((pair, index) => {
-                const item = document.createElement('div');
+                const wrapper = document.createElement('div');
+                wrapper.className = 'word-item-wrapper';
+
+                const item = document.createElement('span');
                 item.className = `word-item ${pair.found ? 'found' : ''}`;
                 item.id = `word-item-${index}`;
-                // Display English translation to be found
                 item.textContent = pair.english; 
-                translationListElement.appendChild(item);
+                wrapper.appendChild(item);
+                translationListElement.appendChild(wrapper);
             });
         }
 
@@ -336,17 +398,23 @@
         }
 
         function setupSelectionListeners() {
-            // Use touch events for mobile compatibility
+            // Mouse events
             gridElement.addEventListener('mousedown', startSelection);
             gridElement.addEventListener('mouseup', endSelection);
             document.addEventListener('mouseup', endSelection); 
             gridElement.addEventListener('mouseover', moveSelection);
 
+            // Touch events
             gridElement.addEventListener('touchstart', (e) => {
                 e.preventDefault();
-                startSelection({ target: e.target, clientX: e.touches[0].clientX, clientY: e.touches[0].clientY });
+                const touch = e.touches[0];
+                const target = document.elementFromPoint(touch.clientX, touch.clientY);
+                if (target && target.classList.contains('grid-cell')) {
+                    startSelection({ target: target });
+                }
             }, { passive: false });
             gridElement.addEventListener('touchend', endSelection);
+            gridElement.addEventListener('touchcancel', endSelection); // Important for touches
             gridElement.addEventListener('touchmove', (e) => {
                 e.preventDefault();
                 const touch = e.touches[0];
@@ -357,53 +425,56 @@
             }, { passive: false });
         }
 
+        function getCellFromEventTarget(target) {
+            return target.closest('.grid-cell');
+        }
+
         function startSelection(e) {
-            if (!e.target.classList.contains('grid-cell') || e.target.classList.contains('found')) return;
+            const cell = getCellFromEventTarget(e.target);
+            if (!cell || cell.classList.contains('found-text')) return;
 
             isMouseDown = true;
             clearSelection();
-            selectCell(e.target);
+            messageElement.textContent = ""; // Clear previous message
+            selectCell(cell);
         }
 
         function moveSelection(e) {
-            if (!isMouseDown || !e.target.classList.contains('grid-cell')) return;
+            if (!isMouseDown) return;
 
-            const newCell = e.target;
-            
+            const newCell = getCellFromEventTarget(e.target);
+            if (!newCell || selectedCells.includes(newCell)) return; // Don't re-select same cell
+
             if (selectedCells.length === 0) {
                 selectCell(newCell);
-            } else if (selectedCells.length === 1) {
-                // If only one cell is selected, allow the second cell to establish the direction
-                selectCell(newCell);
-            } else if (selectedCells.length >= 2) {
-                const lastCell = selectedCells[selectedCells.length - 1];
-                
-                // Get the direction established by the first two cells
-                const dir = getDirection(selectedCells[0], selectedCells[1]);
-                if (!dir) return;
-
-                // Determine the expected next cell
-                const expectedR = parseInt(lastCell.dataset.row) + dir.row;
-                const expectedC = parseInt(lastCell.dataset.col) + dir.col;
-                const currentR = parseInt(newCell.dataset.row);
-                const currentC = parseInt(newCell.dataset.col);
-
-                // Check if the new cell is the next cell in the established straight line
-                if (currentR === expectedR && currentC === expectedC) {
-                    selectCell(newCell);
-                } else if (newCell === selectedCells[selectedCells.length - 2]) {
-                    // Allows going back one step to refine selection
-                    lastCell.classList.remove('selected');
-                    selectedCells.pop();
-                }
+                return;
             }
+
+            const firstCell = selectedCells[0];
+            const lastCell = selectedCells[selectedCells.length - 1];
+
+            // Only allow selection of adjacent cells in a straight line from the first cell
+            const dir = getDirection(firstCell, newCell);
+            if (!dir) return; // Must be in a straight line from the start
+
+            // Check if all cells in between the first and newCell (inclusive) are selectable
+            const potentialCells = getCellsInLine(firstCell, newCell);
+            if (potentialCells.some(c => c.classList.contains('found-text'))) {
+                return; // Cannot select through already found words
+            }
+
+            // Clear previous selection and re-select the new straight line
+            selectedCells.forEach(c => c.classList.remove('selected-temp'));
+            selectedCells = [];
+            potentialCells.forEach(c => selectCell(c));
         }
+
 
         function endSelection() {
             if (!isMouseDown) return;
             isMouseDown = false;
 
-            if (selectedCells.length < 3) { 
+            if (selectedCells.length < 2) { // Need at least 2 cells to form a line/word segment
                 clearSelection();
                 return;
             }
@@ -411,21 +482,21 @@
             const selectedWord = selectedCells.map(cell => cell.textContent).join('');
             checkWord(selectedWord);
             
-            if (!selectedCells[0].classList.contains('found')) {
-                // Clear selection if the word wasn't found
+            if (!selectedCells[0].classList.contains('found-text')) {
+                // Clear temporary selection if the word wasn't found
                 clearSelection();
             }
         }
 
         function selectCell(cell) {
-            if (selectedCells.includes(cell)) return;
-
-            cell.classList.add('selected');
-            selectedCells.push(cell);
+            if (!cell.classList.contains('selected-temp')) {
+                cell.classList.add('selected-temp');
+                selectedCells.push(cell);
+            }
         }
 
         function clearSelection() {
-            selectedCells.forEach(cell => cell.classList.remove('selected'));
+            selectedCells.forEach(cell => cell.classList.remove('selected-temp'));
             selectedCells = [];
         }
 
@@ -438,48 +509,86 @@
             const dR = r2 - r1;
             const dC = c2 - c1;
 
-            // Normalize differences to -1, 0, or 1
             const dirR = Math.sign(dR);
             const dirC = Math.sign(dC);
 
-            // Check if it's a straight line (horizontal, vertical, or diagonal)
-            if (Math.abs(dR) === 0 && Math.abs(dC) > 0 || // Horizontal
-                Math.abs(dC) === 0 && Math.abs(dR) > 0 || // Vertical
-                Math.abs(dR) === Math.abs(dC) && Math.abs(dR) > 0) // Diagonal
+            // Only allow true straight lines (horizontal, vertical, or diagonal)
+            if ((dR === 0 && dC !== 0) || // Horizontal
+                (dC === 0 && dR !== 0) || // Vertical
+                (Math.abs(dR) === Math.abs(dC) && dR !== 0)) // Diagonal
             {
                 return { row: dirR, col: dirC };
             }
-
             return null; // Not a straight line
         }
 
+        // Returns an array of cell DOM elements in a straight line from startCell to endCell
+        function getCellsInLine(startCell, endCell) {
+            const r1 = parseInt(startCell.dataset.row);
+            const c1 = parseInt(startCell.dataset.col);
+            const r2 = parseInt(endCell.dataset.row);
+            const c2 = parseInt(endCell.dataset.col);
+
+            const dir = getDirection(startCell, endCell);
+            if (!dir) return []; // Not a straight line
+
+            const cellsInLine = [];
+            let currR = r1;
+            let currC = c1;
+
+            // Traverse the grid cells along the detected direction
+            while (true) {
+                const cell = gridElement.querySelector(`[data-row="${currR}"][data-col="${currC}"]`);
+                if (cell) {
+                    cellsInLine.push(cell);
+                }
+
+                if (currR === r2 && currC === c2) break; // Reached the end cell
+
+                // Move to the next cell in the direction
+                currR += dir.row;
+                currC += dir.col;
+            }
+            return cellsInLine;
+        }
+
+
         function checkWord(selectedWord) {
-            
-            let foundIndex = -1;
+            let foundMatch = null;
             
             wordPairs.forEach((pair, index) => {
-                // Check if the selected word (forward or reversed) matches the foreign word
-                const forwardMatch = pair.foreign === selectedWord;
-                const reversedMatch = pair.foreign === selectedWord.split('').reverse().join('');
+                if (pair.found) return; // Skip already found words
 
-                if ((forwardMatch || reversedMatch) && !pair.found) {
-                    foundIndex = index;
+                const forwardMatch = pair.foreign === selectedWord;
+                const reversedSelectedWord = selectedWord.split('').reverse().join('');
+                const reversedMatch = pair.foreign === reversedSelectedWord;
+
+                if (forwardMatch || reversedMatch) {
+                    foundMatch = { pair: pair, index: index, reversed: reversedMatch };
                 }
             });
 
-            if (foundIndex !== -1) {
-                wordPairs[foundIndex].found = true;
+            if (foundMatch) {
+                const { pair, index } = foundMatch;
+                pair.found = true;
                 foundCount++;
 
-                // Apply "found" class to cells
+                // Mark grid cells as part of a found word
                 selectedCells.forEach(cell => {
-                    cell.classList.remove('selected');
-                    cell.classList.add('found');
+                    cell.classList.remove('selected-temp');
+                    cell.classList.add('found-text');
                 });
+                
+                // Store actual cells for redrawing (if needed on resize)
+                pair.startCell = selectedCells[0];
+                pair.endCell = selectedCells[selectedCells.length - 1];
 
-                // Update word list
-                document.getElementById(`word-item-${foundIndex}`).classList.add('found');
-                messageElement.textContent = `Found: ${wordPairs[foundIndex].english}! (The French word was ${wordPairs[foundIndex].foreign})`;
+                // Draw the line on the canvas
+                drawLineForFoundWord(pair.startCell, pair.endCell);
+
+                // Update word list item
+                document.getElementById(`word-item-${index}`).classList.add('found');
+                messageElement.textContent = `Found: ${pair.english}! (The French word was ${pair.foreign})`;
 
                 if (foundCount === wordPairs.length) {
                     messageElement.textContent = "🎉 Congratulations! You found all the words! 🎉";
@@ -488,6 +597,41 @@
                 messageElement.textContent = "Not a match. Try again!";
             }
         }
+
+        // --- Canvas Drawing Functions ---
+
+        function drawLineForFoundWord(startCell, endCell) {
+            if (!startCell || !endCell) return;
+
+            const startR = parseInt(startCell.dataset.row);
+            const startC = parseInt(startCell.dataset.col);
+            const endR = parseInt(endCell.dataset.row);
+            const endC = parseInt(endCell.dataset.col);
+
+            // Calculate center points of start and end cells
+            const startX = (startC + 0.5) * cellWidth;
+            const startY = (startR + 0.5) * cellHeight;
+            const endX = (endC + 0.5) * cellWidth;
+            const endY = (endR + 0.5) * cellHeight;
+
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.strokeStyle = '#2ecc71'; // Green color for found words
+            ctx.lineWidth = 15; // Thick line
+            ctx.lineCap = 'round'; // Rounded ends
+            ctx.stroke();
+        }
+
+        function drawFoundWordsOnCanvas() {
+            ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height); // Clear existing drawings
+            wordPairs.forEach(pair => {
+                if (pair.found && pair.startCell && pair.endCell) {
+                    drawLineForFoundWord(pair.startCell, pair.endCell);
+                }
+            });
+        }
+
 
         // --- Start the game ---
         loadWords();
