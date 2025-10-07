@@ -205,6 +205,8 @@ let draggedItem = null;
 let draggedItemClone = null;
 let offsetX = 0;
 let offsetY = 0;
+// ADDED: Flag to prevent human interaction during CPU move animation
+let isAnimating = false; 
 
 const grid = document.getElementById('grid');
 const wordsDiv = document.getElementById('words');
@@ -226,7 +228,6 @@ restartBtn.addEventListener('click', () => generateGame(gameMode));
 function showMenu() {
     mainMenu.classList.remove('hide');
     gameArea.classList.add('hide');
-    // Also reset the indicator just in case
     turnIndicatorPanel.textContent = ''; 
     restartBtn.style.display = 'none';
 }
@@ -236,13 +237,9 @@ function startGame(mode) {
     mainMenu.classList.add('hide');
     gameArea.classList.remove('hide');
     
-    // Check if data is loaded, otherwise just show loading error
     if (!sheetUrl) {
         document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
     } else if (allItemPairs.length === 0) {
-         // This assumes the Papa.parse call is in progress or failed. 
-         // A more robust app would handle this, but for now, we'll wait 
-         // for the data load or show the loading message.
          document.querySelector('.game-wrapper').innerHTML = "<h1>Loading data...</h1>";
     } else {
         generateGame(gameMode);
@@ -332,7 +329,7 @@ function switchTurn() {
  * @param {string} word - The term (word) being dropped.
  */
 function handleDropLogic(cell, word) {
-    if (gameOver) return;
+    if (gameOver || isAnimating) return; // Prevent moves during animation
     const mark = cell.querySelector('.mark');
     const overlay = cell.querySelector('.overlay');
     const wordEl = document.querySelector(`.word[data-word="${word}"]`);
@@ -341,6 +338,7 @@ function handleDropLogic(cell, word) {
     if (mark.textContent) return; 
 
     // Check if the current player is 'O' (Computer) and it's a human drop in PVC mode
+    // The 'cpu-move' class is essential for allowing the computer's own action
     if (gameMode === 'pvc' && turn === 'O' && !cell.classList.contains('cpu-move')) {
         // Human cannot move when it's the computer's turn
         return;
@@ -379,6 +377,7 @@ function generateGame(mode){
     wordsDiv.innerHTML = '';
     turn = 'X';
     gameOver = false;
+    isAnimating = false; // Reset animation flag
     restartBtn.style.display = "none";
     turnIndicatorPanel.textContent = `Turn: Player X`;
     gameMode = mode; // Ensure gameMode is set
@@ -417,7 +416,7 @@ function generateGame(mode){
         
         // Drag events (for mouse)
         wordEl.addEventListener('dragstart', e => {
-            if (gameOver || (gameMode === 'pvc' && turn === 'O')) {
+            if (gameOver || isAnimating || (gameMode === 'pvc' && turn === 'O')) {
                 e.preventDefault();
                 return;
             }
@@ -428,7 +427,7 @@ function generateGame(mode){
 
         // Touch events (for mobile)
         wordEl.addEventListener('touchstart', e => {
-            if (gameOver || (gameMode === 'pvc' && turn === 'O')) return;
+            if (gameOver || isAnimating || (gameMode === 'pvc' && turn === 'O')) return;
             e.preventDefault();
             
             draggedItem = e.target;
@@ -467,7 +466,6 @@ function computerMove() {
     const remainingWords = Array.from(document.querySelectorAll('#words .word'));
 
     if (availableCells.length === 0 || remainingWords.length === 0) {
-        // Should only happen on a draw, but just in case
         checkWinner();
         return;
     }
@@ -475,14 +473,14 @@ function computerMove() {
     // 1. Check for immediate win
     let winningMove = findWinningOrBlockingMove(availableCells, remainingWords, 'O');
     if (winningMove) {
-        makeComputerMove(winningMove.cell, winningMove.word);
+        animateAndExecuteMove(winningMove.cell, winningMove.word);
         return;
     }
 
     // 2. Block player 'X'
     let blockingMove = findWinningOrBlockingMove(availableCells, remainingWords, 'X');
     if (blockingMove) {
-        makeComputerMove(blockingMove.cell, blockingMove.word);
+        animateAndExecuteMove(blockingMove.cell, blockingMove.word);
         return;
     }
 
@@ -491,7 +489,7 @@ function computerMove() {
     if (centerCell && !centerCell.querySelector('.mark').textContent) {
         const correctWord = remainingWords.find(wordEl => wordEl.dataset.word === centerCell.dataset.correctTerm);
         if (correctWord) {
-            makeComputerMove(centerCell, correctWord.dataset.word);
+            animateAndExecuteMove(centerCell, correctWord.dataset.word);
             return;
         }
     }
@@ -502,7 +500,7 @@ function computerMove() {
     if (availableCorners.length > 0) {
         const cell = availableCorners[Math.floor(Math.random() * availableCorners.length)];
         const word = remainingWords.find(wordEl => wordEl.dataset.word === cell.dataset.correctTerm).dataset.word;
-        makeComputerMove(cell, word);
+        animateAndExecuteMove(cell, word);
         return;
     }
 
@@ -511,11 +509,11 @@ function computerMove() {
     if (possibleMoves.length > 0) {
         const cell = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
         const word = remainingWords.find(wordEl => wordEl.dataset.word === cell.dataset.correctTerm).dataset.word;
-        makeComputerMove(cell, word);
+        animateAndExecuteMove(cell, word);
         return;
     }
     
-    // Fallback: This should ideally not happen if all logic is right, but forces a turn switch/draw
+    // Fallback: Wrong move, just switch turn
     switchTurn(); 
 }
 
@@ -545,26 +543,58 @@ function findWinningOrBlockingMove(availableCells, remainingWords, playerMark) {
     return null;
 }
 
-function makeComputerMove(cell, word) {
-    // Add a temporary class to allow the computer's move to be processed by handleDropLogic
-    cell.classList.add('cpu-move'); 
-    
-    // Visually simulate the "drop" by removing the word immediately before calling drop logic
+// NEW: Function to animate the word move
+function animateAndExecuteMove(cell, word) {
     const wordEl = document.querySelector(`.word[data-word="${word}"]`);
-    if (wordEl) {
-        // Optional: you could add a subtle animation for the word disappearing here
-        wordEl.remove();
+    if (!wordEl) {
+        // Should only happen if the logic failed to find a word
+        handleDropLogic(cell, word); 
+        return;
     }
+
+    isAnimating = true;
+    const startRect = wordEl.getBoundingClientRect();
+    const endRect = cell.getBoundingClientRect();
+
+    // Create clone for animation
+    const clone = wordEl.cloneNode(true);
+    clone.classList.add('word-clone');
+    clone.style.width = `${startRect.width}px`;
+    clone.style.height = `${startRect.height}px`;
+    clone.style.left = `${startRect.left}px`;
+    clone.style.top = `${startRect.top}px`;
     
-    // Execute the core logic
-    handleDropLogic(cell, word);
+    // Add transition property for smooth movement
+    clone.style.transition = 'all 0.5s ease-in-out'; 
+    document.body.appendChild(clone);
+    wordEl.style.opacity = '0.3'; // Dim the original word
+
+    // Animate the clone to the cell position
+    setTimeout(() => {
+        clone.style.left = `${endRect.left + (endRect.width / 2) - (startRect.width / 2)}px`;
+        clone.style.top = `${endRect.top + (endRect.height / 2) - (startRect.height / 2)}px`;
+        clone.style.transform = 'scale(0.8)';
+    }, 50); // Small delay to allow CSS transition to register
+
+    // After animation, remove clone and execute the actual game logic
+    setTimeout(() => {
+        wordEl.remove();
+        document.body.removeChild(clone);
+        wordEl.style.opacity = '1'; 
+        
+        // Execute the core logic
+        cell.classList.add('cpu-move');
+        handleDropLogic(cell, word);
+        isAnimating = false;
+
+    }, 550); // Matches the animation duration (0.5s) plus a small buffer
 }
 // --- END COMPUTER LOGIC ---
 
 
-// --- TOUCH/DRAG HANDLERS (Unchanged from original code) ---
+// --- TOUCH/DRAG HANDLERS ---
 document.addEventListener('touchmove', e => {
-    if (!draggedItem || !draggedItemClone) return;
+    if (!draggedItem || !draggedItemClone || isAnimating) return;
     e.preventDefault();
 
     const touch = e.touches[0];
@@ -576,7 +606,7 @@ document.addEventListener('touchmove', e => {
 }, { passive: false });
 
 document.addEventListener('touchend', e => {
-    if (!draggedItem) return;
+    if (!draggedItem || isAnimating) return;
 
     if (draggedItemClone) {
         document.body.removeChild(draggedItemClone);
