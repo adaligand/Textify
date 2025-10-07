@@ -95,7 +95,7 @@
         align-items:center;
         font-size:120px;
         font-weight:bold;
-        color:rgba(249, 249, 8, 0.871); 
+        color:rgba(100,100,255,0.8); /* Changed to O color for consistency */
         pointer-events:none;
         user-select:none;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
@@ -124,8 +124,9 @@
         position: fixed;
         pointer-events: none;
         z-index: 1000;
-        opacity: 0.8;
-        transform: rotate(5deg);
+        opacity: 0.9; /* Made slightly less transparent */
+        transform: rotate(0deg); /* Removed rotation for cleaner drag */
+        /* IMPORTANT: The transition duration is now set in JS */
     }
     
     .player-score { 
@@ -329,7 +330,13 @@ function switchTurn() {
  * @param {string} word - The term (word) being dropped.
  */
 function handleDropLogic(cell, word) {
-    if (gameOver || isAnimating) return; // Prevent moves during animation
+    // Only block if a human is trying to interact outside of the computer's logic execution
+    // The CPU must be able to call this function *after* its animation finishes.
+    if (gameOver) return; 
+    
+    // The logic below is for drag/drop prevention during animation
+    if (isAnimating && !cell.classList.contains('cpu-move')) return; 
+
     const mark = cell.querySelector('.mark');
     const overlay = cell.querySelector('.overlay');
     const wordEl = document.querySelector(`.word[data-word="${word}"]`);
@@ -338,7 +345,6 @@ function handleDropLogic(cell, word) {
     if (mark.textContent) return; 
 
     // Check if the current player is 'O' (Computer) and it's a human drop in PVC mode
-    // The 'cpu-move' class is essential for allowing the computer's own action
     if (gameMode === 'pvc' && turn === 'O' && !cell.classList.contains('cpu-move')) {
         // Human cannot move when it's the computer's turn
         return;
@@ -543,17 +549,23 @@ function findWinningOrBlockingMove(availableCells, remainingWords, playerMark) {
     return null;
 }
 
-// NEW: Function to animate the word move
+/**
+ * NEW: Function to animate the word move (Now 1.5s slow)
+ */
 function animateAndExecuteMove(cell, word) {
     const wordEl = document.querySelector(`.word[data-word="${word}"]`);
     if (!wordEl) {
         // Should only happen if the logic failed to find a word
+        // Add cpu-move class before calling handleDropLogic so it won't be blocked.
+        cell.classList.add('cpu-move'); 
         handleDropLogic(cell, word); 
         return;
     }
-// --- UPDATED DURATION ---
+
+    // --- UPDATED DURATION FOR SLOWER ANIMATION ---
     const ANIMATION_DURATION_MS = 1500; // 1.5 seconds for slower movement
     const POST_ANIMATION_DELAY_MS = 50; // Small buffer
+
     isAnimating = true;
     const startRect = wordEl.getBoundingClientRect();
     const endRect = cell.getBoundingClientRect();
@@ -566,8 +578,8 @@ function animateAndExecuteMove(cell, word) {
     clone.style.left = `${startRect.left}px`;
     clone.style.top = `${startRect.top}px`;
     
-    // Add transition property for smooth movement
-    clone.style.transition = 'all 0.5s ease-in-out'; 
+    // Set transition property to the new, longer duration
+    clone.style.transition = `all ${ANIMATION_DURATION_MS / 1000}s ease-in-out`; 
     document.body.appendChild(clone);
     wordEl.style.opacity = '0.3'; // Dim the original word
 
@@ -576,7 +588,7 @@ function animateAndExecuteMove(cell, word) {
         clone.style.left = `${endRect.left + (endRect.width / 2) - (startRect.width / 2)}px`;
         clone.style.top = `${endRect.top + (endRect.height / 2) - (startRect.height / 2)}px`;
         clone.style.transform = 'scale(0.8)';
-    }, 50); // Small delay to allow CSS transition to register
+    }, POST_ANIMATION_DELAY_MS); // Small delay to allow CSS transition to register
 
     // After animation, remove clone and execute the actual game logic
     setTimeout(() => {
@@ -589,7 +601,7 @@ function animateAndExecuteMove(cell, word) {
         handleDropLogic(cell, word);
         isAnimating = false;
 
-    }, 550); // Matches the animation duration (0.5s) plus a small buffer
+    }, ANIMATION_DURATION_MS + POST_ANIMATION_DELAY_MS); // Wait for the full animation time
 }
 // --- END COMPUTER LOGIC ---
 
