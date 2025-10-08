@@ -69,9 +69,8 @@
         }
         #user-transcription {
             font-size: 1.2em;
-            color: #555;
-            font-style: italic;
             margin-bottom: 10px;
+            line-height: 1.6;
         }
         #feedback-message {
             font-size: 1.5em;
@@ -95,6 +94,20 @@
         }
         .hide {
             display: none;
+        }
+
+        /* Styles for word feedback */
+        .word-feedback {
+            font-style: italic;
+        }
+        .word-feedback.correct {
+            color: #28a745;
+        }
+        .word-feedback.incorrect {
+            color: #dc3545;
+            font-weight: bold;
+            text-decoration: underline;
+            cursor: help;
         }
     </style>
 </head>
@@ -125,18 +138,19 @@
     const retryButton = document.getElementById('retry-button');
     const nextButton = document.getElementById('next-button');
 
-    // 1. Check for browser support and initialize SpeechRecognition
     document.addEventListener('DOMContentLoaded', () => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            sentenceDisplay.textContent = "Sorry, your browser does not support Speech Recognition.";
+        const speechSynthesis = window.speechSynthesis;
+
+        if (!SpeechRecognition || !speechSynthesis) {
+            sentenceDisplay.textContent = "Sorry, your browser does not support the Web Speech API.";
             recordButton.disabled = true;
             return;
         }
         
         recognition = new SpeechRecognition();
         recognition.continuous = false;
-        recognition.lang = 'fr-FR'; // Default language, can be changed
+        recognition.lang = 'fr-FR';
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
@@ -147,7 +161,6 @@
 
         recognition.onresult = (event) => {
             const transcript = event.results[0][0].transcript;
-            userTranscription.textContent = `You said: "${transcript}"`;
             checkAnswer(transcript);
         };
 
@@ -169,11 +182,20 @@
 
         retryButton.addEventListener('click', () => resetFeedback());
         nextButton.addEventListener('click', loadNextSentence);
+        
+        // Event delegation for hover-to-speak
+        userTranscription.addEventListener('mouseover', (event) => {
+            if (event.target.classList.contains('incorrect')) {
+                const wordToSpeak = event.target.dataset.speak;
+                if (wordToSpeak) {
+                    speakWord(wordToSpeak);
+                }
+            }
+        });
 
         fetchSentences();
     });
 
-    // 2. Fetch sentences from Google Sheet
     function fetchSentences() {
         const params = new URLSearchParams(window.location.search);
         const sheetUrl = params.get('sheet');
@@ -209,12 +231,11 @@
         });
     }
 
-    // 3. Game Logic
     function loadNextSentence() {
         if (sentences.length === 0) return;
         currentSentenceIndex++;
         if (currentSentenceIndex >= sentences.length) {
-            currentSentenceIndex = 0; // Loop back to the start
+            currentSentenceIndex = 0;
         }
         sentenceDisplay.textContent = sentences[currentSentenceIndex];
         resetFeedback();
@@ -225,18 +246,46 @@
     }
 
     function checkAnswer(transcript) {
-        const correctText = normalizeText(sentences[currentSentenceIndex]);
-        const userText = normalizeText(transcript);
+        const correctSentence = sentences[currentSentenceIndex];
+        const correctWords = normalizeText(correctSentence).split(' ').filter(w => w);
+        const userWords = normalizeText(transcript).split(' ').filter(w => w);
 
-        if (userText === correctText) {
+        let correctCount = 0;
+        let feedbackHtml = '';
+
+        correctWords.forEach((correctWord, index) => {
+            if (userWords[index] && userWords[index] === correctWord) {
+                correctCount++;
+                feedbackHtml += `<span class="word-feedback correct">${correctSentence.split(' ')[index]}</span> `;
+            } else {
+                // Use the original cased word from the sentence for display and speaking
+                const originalWord = correctSentence.split(' ')[index];
+                feedbackHtml += `<span class="word-feedback incorrect" data-speak="${originalWord}">${originalWord}</span> `;
+            }
+        });
+
+        userTranscription.innerHTML = feedbackHtml;
+        const accuracy = Math.round((correctCount / correctWords.length) * 100);
+
+        if (accuracy === 100) {
             feedbackMessage.textContent = 'Correct!';
             feedbackMessage.className = 'correct';
             showNavigation('next');
         } else {
-            feedbackMessage.textContent = 'Incorrect. Please try again.';
+            feedbackMessage.innerHTML = `Incorrect. &nbsp; <small>Accuracy: ${accuracy}%</small>`;
             feedbackMessage.className = 'incorrect';
             showNavigation('retry');
         }
+    }
+
+    function speakWord(word) {
+        if (speechSynthesis.speaking) {
+            // Don't interrupt if it's already speaking
+            return;
+        }
+        const utterance = new SpeechSynthesisUtterance(word);
+        utterance.lang = recognition.lang; // Use the same language as recognition
+        speechSynthesis.speak(utterance);
     }
 
     function showNavigation(type) {
