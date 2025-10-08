@@ -31,6 +31,17 @@
             color: #333;
             margin-bottom: 30px;
             min-height: 50px;
+            transition: color 0.3s;
+        }
+        /* Style for when the sentence is clickable */
+        #sentence-display.speakable {
+            color: #007bff;
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+        }
+        #sentence-display.speakable:hover {
+            color: #0056b3;
         }
         #record-button {
             background-color: #007bff;
@@ -109,7 +120,7 @@
             cursor: help;
         }
         .word-feedback.suspicious {
-            color: #ff9800; /* Orange for unclear pronunciation */
+            color: #ff9800;
             font-weight: bold;
             text-decoration: underline;
             text-decoration-style: dotted;
@@ -178,8 +189,9 @@
             recordButton.innerHTML = '<i class="fas fa-microphone"></i>';
             
             if (!resultFound) {
-                feedbackMessage.textContent = 'Could not understand. Please try speaking more clearly.';
+                feedbackMessage.textContent = 'Could not understand. Click the sentence to hear it, then try again.';
                 feedbackMessage.className = 'incorrect';
+                sentenceDisplay.classList.add('speakable'); // Make sentence clickable
                 showNavigation('retry');
             }
         };
@@ -188,7 +200,8 @@
             resultFound = true;
             let errorMessage = 'An error occurred. Please try again.';
             if (event.error === 'no-speech') {
-                errorMessage = 'No speech was detected. Please try again.';
+                errorMessage = 'No speech was detected. Click the sentence to hear it, then try again.';
+                sentenceDisplay.classList.add('speakable'); // Make sentence clickable
             } else if (event.error === 'not-allowed') {
                 errorMessage = 'Microphone access was denied. Please allow access in your browser settings.';
             }
@@ -209,10 +222,14 @@
         userTranscription.addEventListener('mouseover', (event) => {
             const target = event.target;
             if (target.classList.contains('incorrect') || target.classList.contains('suspicious')) {
-                const wordToSpeak = target.dataset.speak;
-                if (wordToSpeak) {
-                    speakWord(wordToSpeak);
-                }
+                speakWord(target.dataset.speak);
+            }
+        });
+
+        // Add a single click listener to the sentence display
+        sentenceDisplay.addEventListener('click', () => {
+            if (sentenceDisplay.classList.contains('speakable')) {
+                speakWord(sentences[currentSentenceIndex]);
             }
         });
 
@@ -269,33 +286,30 @@
     }
 
     function checkAnswer(transcript, confidence) {
-        const CONFIDENCE_THRESHOLD = 0.85; // Adjust this value between 0.0 and 1.0
+        const CONFIDENCE_THRESHOLD = 0.85;
         const correctSentence = sentences[currentSentenceIndex];
-        const correctWords = normalizeText(correctSentence).split(' ').filter(w => w);
-        const userWords = normalizeText(transcript).split(' ').filter(w => w);
         const originalWords = correctSentence.split(' ');
-
-        let correctCount = 0;
-        let feedbackHtml = '';
-
         const isTextMatch = normalizeText(transcript) === normalizeText(correctSentence);
 
+        let feedbackHtml = '';
+
         if (isTextMatch && confidence >= CONFIDENCE_THRESHOLD) {
-            // High confidence, perfect match
             feedbackHtml = originalWords.map(word => `<span class="word-feedback correct">${word}</span>`).join(' ');
             feedbackMessage.textContent = 'Correct!';
             feedbackMessage.className = 'correct';
             showNavigation('next');
 
         } else if (isTextMatch && confidence < CONFIDENCE_THRESHOLD) {
-            // Text matches, but low confidence suggests unclear pronunciation
             feedbackHtml = originalWords.map(word => `<span class="word-feedback suspicious" data-speak="${word}">${word}</span>`).join(' ');
             feedbackMessage.innerHTML = `Text is correct, but pronunciation was unclear. <small>Confidence: ${Math.round(confidence * 100)}%</small>`;
             feedbackMessage.className = 'suspicious';
-            showNavigation('next'); // Allow moving on since the text was right
+            showNavigation('next');
 
         } else {
-            // Text does not match, show detailed diff
+            const correctWords = normalizeText(correctSentence).split(' ').filter(w => w);
+            const userWords = normalizeText(transcript).split(' ').filter(w => w);
+            let correctCount = 0;
+
             correctWords.forEach((correctWord, index) => {
                 if (userWords[index] && userWords[index] === correctWord) {
                     correctCount++;
@@ -315,6 +329,7 @@
     }
 
     function speakWord(word) {
+        if (!word) return;
         speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(word);
         utterance.lang = recognition.lang;
@@ -331,6 +346,7 @@
         recordButton.disabled = false;
         userTranscription.textContent = '';
         feedbackMessage.textContent = '';
+        sentenceDisplay.classList.remove('speakable'); // Remove clickable state
         retryButton.classList.add('hide');
         nextButton.classList.add('hide');
     }
