@@ -33,7 +33,6 @@
             min-height: 50px;
             transition: color 0.3s;
         }
-        /* Style for when the sentence is clickable */
         #sentence-display.speakable {
             color: #007bff;
             cursor: pointer;
@@ -108,7 +107,6 @@
             display: none;
         }
 
-        /* Styles for word feedback */
         .word-feedback.correct {
             color: #28a745;
             font-style: italic;
@@ -172,10 +170,7 @@
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
-        recognition.onstart = () => {
-            recordButton.classList.add('listening');
-            recordButton.innerHTML = '<i class="fas fa-wave-square"></i>';
-        };
+        recognition.onstart = () => { recordButton.classList.add('listening'); recordButton.innerHTML = '<i class="fas fa-wave-square"></i>'; };
 
         recognition.onresult = (event) => {
             resultFound = true;
@@ -187,11 +182,10 @@
         recognition.onend = () => {
             recordButton.classList.remove('listening');
             recordButton.innerHTML = '<i class="fas fa-microphone"></i>';
-            
             if (!resultFound) {
                 feedbackMessage.textContent = 'Could not understand. Click the sentence to hear it, then try again.';
                 feedbackMessage.className = 'incorrect';
-                sentenceDisplay.classList.add('speakable'); // Make sentence clickable
+                sentenceDisplay.classList.add('speakable');
                 showNavigation('retry');
             }
         };
@@ -201,7 +195,7 @@
             let errorMessage = 'An error occurred. Please try again.';
             if (event.error === 'no-speech') {
                 errorMessage = 'No speech was detected. Click the sentence to hear it, then try again.';
-                sentenceDisplay.classList.add('speakable'); // Make sentence clickable
+                sentenceDisplay.classList.add('speakable');
             } else if (event.error === 'not-allowed') {
                 errorMessage = 'Microphone access was denied. Please allow access in your browser settings.';
             }
@@ -210,12 +204,7 @@
             showNavigation('retry');
         };
 
-        recordButton.addEventListener('click', () => {
-            resultFound = false;
-            resetFeedback();
-            recognition.start();
-        });
-
+        recordButton.addEventListener('click', () => { resultFound = false; resetFeedback(); recognition.start(); });
         retryButton.addEventListener('click', () => resetFeedback());
         nextButton.addEventListener('click', loadNextSentence);
         
@@ -226,7 +215,6 @@
             }
         });
 
-        // Add a single click listener to the sentence display
         sentenceDisplay.addEventListener('click', () => {
             if (sentenceDisplay.classList.contains('speakable')) {
                 speakWord(sentences[currentSentenceIndex]);
@@ -239,13 +227,11 @@
     function fetchSentences() {
         const params = new URLSearchParams(window.location.search);
         const sheetUrl = params.get('sheet');
-
         if (!sheetUrl) {
             sentenceDisplay.textContent = "⚠️ Please provide a Google Sheet URL in the '?sheet=' parameter.";
             recordButton.disabled = true;
             return;
         }
-
         Papa.parse(sheetUrl, {
             download: true,
             header: false,
@@ -257,7 +243,6 @@
                         sentences.push(row[5].trim());
                     }
                 });
-
                 if (sentences.length > 0) {
                     loadNextSentence();
                 } else {
@@ -265,18 +250,13 @@
                     recordButton.disabled = true;
                 }
             },
-            error: () => {
-                sentenceDisplay.textContent = "⚠️ Failed to load spreadsheet. Check the URL and publish settings.";
-            }
+            error: () => { sentenceDisplay.textContent = "⚠️ Failed to load spreadsheet. Check the URL and publish settings."; }
         });
     }
 
     function loadNextSentence() {
         if (sentences.length === 0) return;
-        currentSentenceIndex++;
-        if (currentSentenceIndex >= sentences.length) {
-            currentSentenceIndex = 0;
-        }
+        currentSentenceIndex = (currentSentenceIndex + 1) % sentences.length;
         sentenceDisplay.textContent = sentences[currentSentenceIndex];
         resetFeedback();
     }
@@ -289,43 +269,52 @@
         const CONFIDENCE_THRESHOLD = 0.85;
         const correctSentence = sentences[currentSentenceIndex];
         const originalWords = correctSentence.split(' ');
-        const isTextMatch = normalizeText(transcript) === normalizeText(correctSentence);
-
+        
+        // --- NEW SMARTER COMPARISON LOGIC ---
+        const correctWordsNorm = normalizeText(correctSentence).split(' ').filter(w => w);
+        const userWordsNorm = normalizeText(transcript).split(' ').filter(w => w);
+        let tempUserWords = [...userWordsNorm]; // Create a mutable copy
+        let correctCount = 0;
         let feedbackHtml = '';
 
-        if (isTextMatch && confidence >= CONFIDENCE_THRESHOLD) {
-            feedbackHtml = originalWords.map(word => `<span class="word-feedback correct">${word}</span>`).join(' ');
-            feedbackMessage.textContent = 'Correct!';
-            feedbackMessage.className = 'correct';
-            showNavigation('next');
+        const wordResults = correctWordsNorm.map(correctWord => {
+            const indexInUserText = tempUserWords.indexOf(correctWord);
+            if (indexInUserText > -1) {
+                correctCount++;
+                // Remove the word from the temporary array so it can't be matched again
+                tempUserWords.splice(indexInUserText, 1);
+                return { status: 'correct' };
+            } else {
+                return { status: 'incorrect' };
+            }
+        });
+        
+        originalWords.forEach((originalWord, index) => {
+             if (wordResults[index] && wordResults[index].status === 'correct') {
+                feedbackHtml += `<span class="word-feedback correct">${originalWord}</span> `;
+             } else {
+                feedbackHtml += `<span class="word-feedback incorrect" data-speak="${originalWord}">${originalWord}</span> `;
+             }
+        });
+        
+        userTranscription.innerHTML = feedbackHtml;
+        const accuracy = Math.round((correctCount / correctWordsNorm.length) * 100);
 
-        } else if (isTextMatch && confidence < CONFIDENCE_THRESHOLD) {
-            feedbackHtml = originalWords.map(word => `<span class="word-feedback suspicious" data-speak="${word}">${word}</span>`).join(' ');
-            feedbackMessage.innerHTML = `Text is correct, but pronunciation was unclear. <small>Confidence: ${Math.round(confidence * 100)}%</small>`;
-            feedbackMessage.className = 'suspicious';
+        if (accuracy === 100) {
+            if (confidence >= CONFIDENCE_THRESHOLD) {
+                feedbackMessage.textContent = 'Correct!';
+                feedbackMessage.className = 'correct';
+            } else {
+                userTranscription.innerHTML = originalWords.map(word => `<span class="word-feedback suspicious" data-speak="${word}">${word}</span>`).join(' ');
+                feedbackMessage.innerHTML = `Text is correct, but pronunciation was unclear. <small>Confidence: ${Math.round(confidence * 100)}%</small>`;
+                feedbackMessage.className = 'suspicious';
+            }
             showNavigation('next');
-
         } else {
-            const correctWords = normalizeText(correctSentence).split(' ').filter(w => w);
-            const userWords = normalizeText(transcript).split(' ').filter(w => w);
-            let correctCount = 0;
-
-            correctWords.forEach((correctWord, index) => {
-                if (userWords[index] && userWords[index] === correctWord) {
-                    correctCount++;
-                    feedbackHtml += `<span class="word-feedback correct">${originalWords[index]}</span> `;
-                } else {
-                    const originalWord = originalWords[index] || '';
-                    feedbackHtml += `<span class="word-feedback incorrect" data-speak="${originalWord}">${originalWord}</span> `;
-                }
-            });
-            const accuracy = Math.round((correctCount / correctWords.length) * 100);
             feedbackMessage.innerHTML = `Not quite. &nbsp; <small>Accuracy: ${accuracy}%</small>`;
             feedbackMessage.className = 'incorrect';
             showNavigation('retry');
         }
-        
-        userTranscription.innerHTML = feedbackHtml;
     }
 
     function speakWord(word) {
@@ -346,7 +335,7 @@
         recordButton.disabled = false;
         userTranscription.textContent = '';
         feedbackMessage.textContent = '';
-        sentenceDisplay.classList.remove('speakable'); // Remove clickable state
+        sentenceDisplay.classList.remove('speakable');
         retryButton.classList.add('hide');
         nextButton.classList.add('hide');
     }
