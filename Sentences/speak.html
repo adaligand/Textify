@@ -96,7 +96,6 @@
             display: none;
         }
 
-        /* Styles for word feedback */
         .word-feedback {
             font-style: italic;
         }
@@ -130,6 +129,7 @@
     let sentences = [];
     let currentSentenceIndex = -1;
     let recognition;
+    let resultFound = false; // Flag to track if a result was processed
 
     const sentenceDisplay = document.getElementById('sentence-display');
     const recordButton = document.getElementById('record-button');
@@ -160,6 +160,7 @@
         };
 
         recognition.onresult = (event) => {
+            resultFound = true; // A result was successfully captured
             const transcript = event.results[0][0].transcript;
             checkAnswer(transcript);
         };
@@ -167,15 +168,30 @@
         recognition.onend = () => {
             recordButton.classList.remove('listening');
             recordButton.innerHTML = '<i class="fas fa-microphone"></i>';
+            
+            // If the recording ends and no result was processed, give feedback
+            if (!resultFound) {
+                feedbackMessage.textContent = 'Could not understand. Please try speaking more clearly.';
+                feedbackMessage.className = 'incorrect';
+                showNavigation('retry');
+            }
         };
 
         recognition.onerror = (event) => {
-            feedbackMessage.textContent = 'Error or no speech detected. Please try again.';
+            resultFound = true; // An error is a type of result, so set the flag
+            let errorMessage = 'An error occurred. Please try again.';
+            if (event.error === 'no-speech') {
+                errorMessage = 'No speech was detected. Please try again.';
+            } else if (event.error === 'not-allowed') {
+                errorMessage = 'Microphone access was denied. Please allow access in your browser settings.';
+            }
+            feedbackMessage.textContent = errorMessage;
             feedbackMessage.className = 'incorrect';
             showNavigation('retry');
         };
 
         recordButton.addEventListener('click', () => {
+            resultFound = false; // Reset the flag before each new recording
             resetFeedback();
             recognition.start();
         });
@@ -183,7 +199,6 @@
         retryButton.addEventListener('click', () => resetFeedback());
         nextButton.addEventListener('click', loadNextSentence);
         
-        // Event delegation for hover-to-speak
         userTranscription.addEventListener('mouseover', (event) => {
             if (event.target.classList.contains('incorrect')) {
                 const wordToSpeak = event.target.dataset.speak;
@@ -253,13 +268,14 @@
         let correctCount = 0;
         let feedbackHtml = '';
 
+        const originalWords = correctSentence.split(' ');
+
         correctWords.forEach((correctWord, index) => {
             if (userWords[index] && userWords[index] === correctWord) {
                 correctCount++;
-                feedbackHtml += `<span class="word-feedback correct">${correctSentence.split(' ')[index]}</span> `;
+                feedbackHtml += `<span class="word-feedback correct">${originalWords[index]}</span> `;
             } else {
-                // Use the original cased word from the sentence for display and speaking
-                const originalWord = correctSentence.split(' ')[index];
+                const originalWord = originalWords[index] || '';
                 feedbackHtml += `<span class="word-feedback incorrect" data-speak="${originalWord}">${originalWord}</span> `;
             }
         });
@@ -272,7 +288,7 @@
             feedbackMessage.className = 'correct';
             showNavigation('next');
         } else {
-            feedbackMessage.innerHTML = `Incorrect. &nbsp; <small>Accuracy: ${accuracy}%</small>`;
+            feedbackMessage.innerHTML = `Not quite. &nbsp; <small>Accuracy: ${accuracy}%</small>`;
             feedbackMessage.className = 'incorrect';
             showNavigation('retry');
         }
@@ -280,11 +296,10 @@
 
     function speakWord(word) {
         if (speechSynthesis.speaking) {
-            // Don't interrupt if it's already speaking
-            return;
+            speechSynthesis.cancel();
         }
         const utterance = new SpeechSynthesisUtterance(word);
-        utterance.lang = recognition.lang; // Use the same language as recognition
+        utterance.lang = recognition.lang;
         speechSynthesis.speak(utterance);
     }
 
