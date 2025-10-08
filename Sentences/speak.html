@@ -78,6 +78,7 @@
         }
         #feedback-message.correct { color: #28a745; }
         #feedback-message.incorrect { color: #dc3545; }
+        #feedback-message.suspicious { color: #ff9800; }
         .navigation-buttons button {
             background-color: #f9f9f9;
             color: #000000;
@@ -97,16 +98,21 @@
         }
 
         /* Styles for word feedback */
-        .word-feedback {
-            font-style: italic;
-        }
         .word-feedback.correct {
             color: #28a745;
+            font-style: italic;
         }
         .word-feedback.incorrect {
             color: #dc3545;
             font-weight: bold;
             text-decoration: underline;
+            cursor: help;
+        }
+        .word-feedback.suspicious {
+            color: #ff9800; /* Orange for unclear pronunciation */
+            font-weight: bold;
+            text-decoration: underline;
+            text-decoration-style: dotted;
             cursor: help;
         }
     </style>
@@ -163,7 +169,8 @@
         recognition.onresult = (event) => {
             resultFound = true;
             const transcript = event.results[0][0].transcript;
-            checkAnswer(transcript);
+            const confidence = event.results[0][0].confidence;
+            checkAnswer(transcript, confidence);
         };
 
         recognition.onend = () => {
@@ -200,8 +207,9 @@
         nextButton.addEventListener('click', loadNextSentence);
         
         userTranscription.addEventListener('mouseover', (event) => {
-            if (event.target.classList.contains('incorrect')) {
-                const wordToSpeak = event.target.dataset.speak;
+            const target = event.target;
+            if (target.classList.contains('incorrect') || target.classList.contains('suspicious')) {
+                const wordToSpeak = target.dataset.speak;
                 if (wordToSpeak) {
                     speakWord(wordToSpeak);
                 }
@@ -260,45 +268,54 @@
         return text.toLowerCase().replace(/[.,\/#!?$%\^&\*;:{}=\-_`~()]/g, "").trim();
     }
 
-    function checkAnswer(transcript) {
+    function checkAnswer(transcript, confidence) {
+        const CONFIDENCE_THRESHOLD = 0.85; // Adjust this value between 0.0 and 1.0
         const correctSentence = sentences[currentSentenceIndex];
         const correctWords = normalizeText(correctSentence).split(' ').filter(w => w);
         const userWords = normalizeText(transcript).split(' ').filter(w => w);
+        const originalWords = correctSentence.split(' ');
 
         let correctCount = 0;
         let feedbackHtml = '';
 
-        const originalWords = correctSentence.split(' ');
+        const isTextMatch = normalizeText(transcript) === normalizeText(correctSentence);
 
-        correctWords.forEach((correctWord, index) => {
-            if (userWords[index] && userWords[index] === correctWord) {
-                correctCount++;
-                feedbackHtml += `<span class="word-feedback correct">${originalWords[index]}</span> `;
-            } else {
-                const originalWord = originalWords[index] || '';
-                feedbackHtml += `<span class="word-feedback incorrect" data-speak="${originalWord}">${originalWord}</span> `;
-            }
-        });
-
-        userTranscription.innerHTML = feedbackHtml;
-        const accuracy = Math.round((correctCount / correctWords.length) * 100);
-
-        if (accuracy === 100) {
+        if (isTextMatch && confidence >= CONFIDENCE_THRESHOLD) {
+            // High confidence, perfect match
+            feedbackHtml = originalWords.map(word => `<span class="word-feedback correct">${word}</span>`).join(' ');
             feedbackMessage.textContent = 'Correct!';
             feedbackMessage.className = 'correct';
             showNavigation('next');
+
+        } else if (isTextMatch && confidence < CONFIDENCE_THRESHOLD) {
+            // Text matches, but low confidence suggests unclear pronunciation
+            feedbackHtml = originalWords.map(word => `<span class="word-feedback suspicious" data-speak="${word}">${word}</span>`).join(' ');
+            feedbackMessage.innerHTML = `Text is correct, but pronunciation was unclear. <small>Confidence: ${Math.round(confidence * 100)}%</small>`;
+            feedbackMessage.className = 'suspicious';
+            showNavigation('next'); // Allow moving on since the text was right
+
         } else {
+            // Text does not match, show detailed diff
+            correctWords.forEach((correctWord, index) => {
+                if (userWords[index] && userWords[index] === correctWord) {
+                    correctCount++;
+                    feedbackHtml += `<span class="word-feedback correct">${originalWords[index]}</span> `;
+                } else {
+                    const originalWord = originalWords[index] || '';
+                    feedbackHtml += `<span class="word-feedback incorrect" data-speak="${originalWord}">${originalWord}</span> `;
+                }
+            });
+            const accuracy = Math.round((correctCount / correctWords.length) * 100);
             feedbackMessage.innerHTML = `Not quite. &nbsp; <small>Accuracy: ${accuracy}%</small>`;
             feedbackMessage.className = 'incorrect';
             showNavigation('retry');
         }
+        
+        userTranscription.innerHTML = feedbackHtml;
     }
 
     function speakWord(word) {
-        // Cancel any currently playing or queued speech immediately.
         speechSynthesis.cancel();
-        
-        // Create and speak the new word.
         const utterance = new SpeechSynthesisUtterance(word);
         utterance.lang = recognition.lang;
         speechSynthesis.speak(utterance);
