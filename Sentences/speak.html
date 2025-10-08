@@ -264,25 +264,80 @@
     function normalizeText(text) {
         return text.toLowerCase().replace(/[.,\/#!?$%\^&\*;:{}=\-_`~()]/g, "").trim();
     }
+    
+    // Levenshtein distance function for "fuzzy" comparison
+    const levenshtein = (s1, s2) => {
+        let longer = s1;
+        let shorter = s2;
+        if (s1.length < s2.length) {
+            longer = s2;
+            shorter = s1;
+        }
+        let longerLength = longer.length;
+        if (longerLength === 0) {
+            return 1.0;
+        }
+        return (longerLength - editDistance(longer, shorter)) / parseFloat(longerLength);
+    };
+
+    const editDistance = (s1, s2) => {
+        s1 = s1.toLowerCase();
+        s2 = s2.toLowerCase();
+        const costs = [];
+        for (let i = 0; i <= s1.length; i++) {
+            let lastValue = i;
+            for (let j = 0; j <= s2.length; j++) {
+                if (i === 0) {
+                    costs[j] = j;
+                } else {
+                    if (j > 0) {
+                        let newValue = costs[j - 1];
+                        if (s1.charAt(i - 1) !== s2.charAt(j - 1)) {
+                            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                        }
+                        costs[j - 1] = lastValue;
+                        lastValue = newValue;
+                    }
+                }
+            }
+            if (i > 0) {
+                costs[s2.length] = lastValue;
+            }
+        }
+        return costs[s2.length];
+    };
+
 
     function checkAnswer(transcript, confidence) {
-        const CONFIDENCE_THRESHOLD = 0.85;
+        const FUZZY_THRESHOLD = 0.8; // How similar words must be to match (e.g., 0.8 = 80% similar)
+        const CONFIDENCE_THRESHOLD = 0.85; 
+
         const correctSentence = sentences[currentSentenceIndex];
-        const originalWords = correctSentence.split(' ');
-        
-        // --- NEW SMARTER COMPARISON LOGIC ---
-        const correctWordsNorm = normalizeText(correctSentence).split(' ').filter(w => w);
+        const originalWords = correctSentence.split(' ').filter(w => w);
+        const correctWordsNorm = originalWords.map(normalizeText);
         const userWordsNorm = normalizeText(transcript).split(' ').filter(w => w);
-        let tempUserWords = [...userWordsNorm]; // Create a mutable copy
+        
+        let tempUserWords = [...userWordsNorm];
         let correctCount = 0;
         let feedbackHtml = '';
 
         const wordResults = correctWordsNorm.map(correctWord => {
-            const indexInUserText = tempUserWords.indexOf(correctWord);
-            if (indexInUserText > -1) {
+            // Find the best fuzzy match for the current correct word in the user's transcript
+            let bestMatchIndex = -1;
+            let highestSimilarity = 0;
+
+            tempUserWords.forEach((userWord, index) => {
+                const similarity = levenshtein(correctWord, userWord);
+                if (similarity > highestSimilarity) {
+                    highestSimilarity = similarity;
+                    bestMatchIndex = index;
+                }
+            });
+
+            if (highestSimilarity >= FUZZY_THRESHOLD) {
                 correctCount++;
-                // Remove the word from the temporary array so it can't be matched again
-                tempUserWords.splice(indexInUserText, 1);
+                // Remove the matched word so it can't be matched again
+                tempUserWords.splice(bestMatchIndex, 1);
                 return { status: 'correct' };
             } else {
                 return { status: 'incorrect' };
