@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Speak the Words - From Spreadsheet</title>
+    <link rel="stylesheet" href="https://h5p.org/sites/all/modules/h5p/library/styles/h5p.css" />
+    <script src="https://h5p.org/sites/all/modules/h5p/library/js/jquery.js"></script>
+    <script src="https://h5p.org/sites/all/modules/h5p/library/js/h5p.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f3f8; }
+        .h5p-container-wrapper {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        #h5p-container {
+            font-size: 1.2em;
+            color: #555;
+            text-align: center;
+            min-height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+
+<div class="h5p-container-wrapper">
+    <div id="h5p-container">Loading sentences from your spreadsheet...</div>
+</div>
+
+<script>
+    // This is the template for the H5P activity's data structure.
+    // We will dynamically replace the 'questions' array.
+    const h5pTemplateData = {
+        "contents": {
+            "cid-12345": { // A placeholder content ID
+                "displayOptions": {},
+                "fullScreen": "0",
+                "jsonContent": "{\"introduction\":{\"showIntroPage\":false},\"questions\":[],\"l10n\":{\"retryLabel\":\"Recommencer\",\"showSolutionLabel\":\"Montrer la solution\",\"speakLabel\":\"Cliquer et parler\",\"listeningLabel\":\"Enregistrement...\",\"correctAnswer\":\"Correct !\",\"incorrectAnswer\":\"Incorrect. Essayer encore.\",\"unsupportedBrowser\":\"Malheureusement, votre navigateur ne prend pas en charge la reconnaissance vocale.\",\"helpText\":\"Cliquez sur le bouton et lisez la phrase à haute voix\",\"startButtonLabel\":\"Start\"},\"behaviour\":{\"enableRetry\":true,\"enableSolution\":true}}",
+                "library": "H5P.SpeakTheWordsSet 1.9",
+                "metadata": { "title": "Speak the Sentences" }
+            }
+        },
+        "url": "https://h5p.org/h5p/embed/692886" // Generic H5P embed URL
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const h5pContainer = document.getElementById('h5p-container');
+        const params = new URLSearchParams(window.location.search);
+        const sheetUrl = params.get('sheet');
+
+        if (!sheetUrl) {
+            h5pContainer.textContent = "⚠️ Please provide a Google Sheet URL in the '?sheet=' parameter.";
+            return;
+        }
+
+        // Use PapaParse to fetch and process the spreadsheet data
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: false,
+            skipEmptyLines: true,
+            complete: (results) => {
+                const sentences = [];
+                const contentRows = results.data.slice(1); // Skip header row
+
+                contentRows.forEach(row => {
+                    // Get sentence from Column E (index 4)
+                    if (row[4] && row[4].trim() !== '') {
+                        sentences.push(row[4].trim());
+                    }
+                });
+
+                if (sentences.length === 0) {
+                    h5pContainer.textContent = "⚠️ No sentences found in Column E (after skipping header). Please check your sheet.";
+                    return;
+                }
+
+                // Now, dynamically build the H5P activity
+                loadH5PActivity(sentences);
+            },
+            error: () => {
+                h5pContainer.textContent = "⚠️ Error loading the spreadsheet. Please check the URL and that it's published correctly.";
+            }
+        });
+    });
+
+    function loadH5PActivity(sentences) {
+        const contentId = Object.keys(h5pTemplateData.contents)[0];
+        
+        // Parse the JSON string from our template
+        const h5pJson = JSON.parse(h5pTemplateData.contents[contentId].jsonContent);
+        
+        // Clear any default questions and populate with sentences from the sheet
+        h5pJson.questions = [];
+        sentences.forEach(sentence => {
+            h5pJson.questions.push({
+                "question": sentence,
+                "acceptedAnswers": [sentence] // Set the accepted answer to be the sentence itself
+            });
+        });
+
+        // Update the JSON string in our main data object
+        h5pTemplateData.contents[contentId].jsonContent = JSON.stringify(h5pJson);
+
+        // Load all the necessary H5P libraries and then embed the activity
+        H5P.getCore().then(() => {
+            // Clear the "Loading..." message
+            document.getElementById('h5p-container').innerHTML = '';
+            
+            // Use H5P.embed to place the interactive content in our container
+            H5P.embed(
+                document.getElementById('h5p-container'),
+                h5pTemplateData,
+                contentId
+            );
+        });
+    }
+</script>
+
+</body>
+</html>
