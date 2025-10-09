@@ -169,11 +169,12 @@
 
 <script>
     // 🛑 CONFIGURATION: SPREADSHEET URLs 🛑
+    // REPLACE 'YOUR_..._SHEET_URL' with your actual public Google Sheet CSV links.
     const spreadsheetUrls = {
         'GCSE French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSCNeq329ih6SxLZ2TowPzpk61gJLFy-UAVAb8ivBs9DNEOdmtRQ29bWh__n53MdE-C8hs_XOV3iIkT/pub?output=csv', 
         'GCSE German': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTlddh1-sO5-s5CPJt_a1H1ltX9orRCFvosUPVBJIqjxXc0nB3c4-f19sUNF5s6lIof7TnBIevleWJA/pub?output=csv',
-        'AS French':   'YOUR_AS_FRENCH_SHEET_URL',     
-        'A2 French':   'YOUR_A2_FRENCH_SHEET_URL'      
+        'AS French':   'YOUR_AS_FRENCH_SHEET_URL',     // <--- REPLACE THIS
+        'A2 French':   'YOUR_A2_FRENCH_SHEET_URL'      // <--- REPLACE THIS
     };
 
     // --- DOM Elements ---
@@ -194,9 +195,7 @@
     const printArea = document.getElementById('print-area');
     const backToHubBtn = document.getElementById('back-to-hub-btn');
 
-    let vocabSets = {};
-    
-    // The fixed themeMap is no longer needed!
+    let vocabSets = {}; // Structure: { 'Topic Name': { 'Set Number': [{target: 'x', english: 'y'}, ...] } }
 
     // --- INITIALIZATION ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -233,18 +232,18 @@
         // Event Listeners for Quiz Controls
         generateBtn.addEventListener('click', generateTest);
         revealBtn.addEventListener('click', revealAnswers);
-        themeSelect.addEventListener('change', updateSetDropdown);
+        // Theme change handler will update the set dropdown
+        themeSelect.addEventListener('change', updateSetDropdown); 
         printBtn.addEventListener('click', () => window.print());
         backToHubBtn.addEventListener('click', () => window.location.href = window.location.pathname); 
     });
 
-    // --- DATA LOADING (Updated to new column structure) ---
+    // --- DATA LOADING (Updated for Columns A, B, D, E) ---
     function loadVocabData(url) {
         Papa.parse(url, {
             download: true, header: false, skipEmptyLines: true,
             complete: (results) => {
                 let currentTopicName = null;
-                let currentSetWords = [];
                 vocabSets = {}; // Reset sets
 
                 results.data.forEach(row => {
@@ -253,18 +252,16 @@
                     const targetWord = row[3] ? row[3].trim() : '';      // Column D: Target Language
                     const englishWord = row[4] ? row[4].trim() : '';     // Column E: English
 
-                    // Check for a new Topic Name (Column A)
+                    // Use Topic Name from Column A as the main key
                     if (topicInRow !== '') {
-                        // The 'theme' (topic) is the main key, and sets are sub-keys
                         currentTopicName = topicInRow;
                         if (!vocabSets[currentTopicName]) {
                             vocabSets[currentTopicName] = {};
                         }
                     }
                     
-                    // Check for a valid Set Number and words (Column B, D, E)
+                    // Store the word under the Set Number (Column B) within the Topic
                     if (currentTopicName && setNumberInRow !== '' && targetWord !== '' && englishWord !== '') {
-                        // Store the words under the Set Number inside the Topic
                         if (!vocabSets[currentTopicName][setNumberInRow]) {
                              vocabSets[currentTopicName][setNumberInRow] = [];
                         }
@@ -290,7 +287,7 @@
         });
     }
     
-    // --- QUIZ LOGIC (Updated to use dynamic topics) ---
+    // --- QUIZ LOGIC ---
 
     function initializeSelectors() {
         // Get the list of all unique Topic Names (the main keys of vocabSets)
@@ -311,11 +308,14 @@
             return;
         }
 
+        // CRITICAL: Call updateSetDropdown to load the sets for the default selected theme
         updateSetDropdown();
     }
 
     function updateSetDropdown() {
-        const selectedTopic = themeSelect.value;
+        // Use the currently selected theme, or default to the first available topic if nothing is selected yet.
+        const selectedTopic = themeSelect.value || Object.keys(vocabSets)[0]; 
+
         setSelect.innerHTML = '';
         setSelect2.innerHTML = '';
 
@@ -324,10 +324,20 @@
         noneOption.textContent = "-- None --";
         setSelect2.appendChild(noneOption);
 
-        if (!selectedTopic || !vocabSets[selectedTopic]) return;
+        if (!selectedTopic || !vocabSets[selectedTopic]) {
+            setSelect.innerHTML = '<option>-- Select a Theme --</option>';
+            return;
+        }
 
-        // The sets are now the keys inside the selected topic object
-        const setsInTopic = Object.keys(vocabSets[selectedTopic]).sort();
+        // The sets are the keys (set numbers) inside the selected topic object
+        const setsInTopic = Object.keys(vocabSets[selectedTopic]).sort((a, b) => {
+            // Smart sort to handle set numbers like '1.1', '1.10', '2.1' correctly
+            const numA = parseFloat(a);
+            const numB = parseFloat(b);
+            if (numA !== numB) return numA - numB;
+            return a.localeCompare(b);
+        });
+
 
         setsInTopic.forEach(setNumber => {
             const wordCount = vocabSets[selectedTopic][setNumber].length;
@@ -360,6 +370,7 @@
 
         const shuffled = [...uniqueCombinedSet].sort(() => 0.5 - Math.random());
         
+        // Generate a test list of 10 words total (5 Target->English, 5 English->Target)
         const targetQuestionItems = shuffled.slice(0, 5); 
         const englishQuestionItems = shuffled.slice(5, 10);
 
@@ -423,5 +434,6 @@
     }
 
 </script>
+
 </body>
 </html>
