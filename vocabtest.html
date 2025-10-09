@@ -168,12 +168,12 @@
 </div>
 
 <script>
-    // --- CONFIGURATION: SPREADSHEET URLs ---
+    // 🛑 CONFIGURATION: SPREADSHEET URLs 🛑
     const spreadsheetUrls = {
-        'GCSE French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSCNeq329ih6SxLZ2TowPzpk61gJLFy-UAVAb8ivBs9DNEOdmtRQ29bWh__n53MdE-C8hs_XOV3iIkT/pub?output=csv', // REPLACE with your actual GCSE French URL
-        'GCSE German': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTlddh1-sO5-s5CPJt_a1H1ltX9orRCFvosUPVBJIqjxXc0nB3c4-f19sUNF5s6lIof7TnBIevleWJA/pub?output=csv', // REPLACE
-        'AS French': 'YOUR_AS_FRENCH_SHEET_URL',     // REPLACE
-        'A2 French': 'YOUR_A2_FRENCH_SHEET_URL'      // REPLACE
+        'GCSE French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSCNeq329ih6SxLZ2TowPzpk61gJLFy-UAVAb8ivBs9DNEOdmtRQ29bWh__n53MdE-C8hs_XOV3iIkT/pub?output=csv', 
+        'GCSE German': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTlddh1-sO5-s5CPJt_a1H1ltX9orRCFvosUPVBJIqjxXc0nB3c4-f19sUNF5s6lIof7TnBIevleWJA/pub?output=csv',
+        'AS French':   'YOUR_AS_FRENCH_SHEET_URL',     
+        'A2 French':   'YOUR_A2_FRENCH_SHEET_URL'      
     };
 
     // --- DOM Elements ---
@@ -195,10 +195,8 @@
     const backToHubBtn = document.getElementById('back-to-hub-btn');
 
     let vocabSets = {};
-    const themeMap = {
-        '1': '1-Personal world', '2': '2-Lifestyle', '3': '3-Neighbourhood',
-        '4': '4-Media & Tech', '5': '5-Study & future', '6': '6-Travel and Tourism'
-    };
+    
+    // The fixed themeMap is no longer needed!
 
     // --- INITIALIZATION ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -207,13 +205,13 @@
         const quizType = params.get('type');
 
         if (sheetUrl && quizType) {
-            // QUIZ MODE: Hide selection, show quiz, load data
+            // QUIZ MODE
             selectionScreen.classList.add('hide');
             quizWrapper.classList.remove('hide');
             mainTitle.textContent = `${quizType} Vocabulary Test`;
             loadVocabData(sheetUrl);
         } else {
-            // SELECTION MODE: Show selection screen
+            // SELECTION MODE
             quizWrapper.classList.add('hide');
             selectionScreen.classList.remove('hide');
             mainTitle.textContent = "Select Your Vocabulary Set";
@@ -223,7 +221,6 @@
                 const type = tile.dataset.quizType;
                 if (spreadsheetUrls[type] && !spreadsheetUrls[type].includes('YOUR_')) {
                     tile.addEventListener('click', () => {
-                        // Redirect to the same page with the sheet and type parameters
                         window.location.href = `?sheet=${encodeURIComponent(spreadsheetUrls[type])}&type=${encodeURIComponent(type)}`;
                     });
                 } else {
@@ -238,61 +235,87 @@
         revealBtn.addEventListener('click', revealAnswers);
         themeSelect.addEventListener('change', updateSetDropdown);
         printBtn.addEventListener('click', () => window.print());
-        backToHubBtn.addEventListener('click', () => window.location.href = window.location.pathname);
+        backToHubBtn.addEventListener('click', () => window.location.href = window.location.pathname); 
     });
 
-    // --- DATA LOADING ---
+    // --- DATA LOADING (Updated to new column structure) ---
     function loadVocabData(url) {
         Papa.parse(url, {
             download: true, header: false, skipEmptyLines: true,
             complete: (results) => {
-                let currentSetName = null;
+                let currentTopicName = null;
                 let currentSetWords = [];
+                vocabSets = {}; // Reset sets
 
                 results.data.forEach(row => {
-                    const setNameInRow = row[0] ? row[0].trim() : '';
-                    const targetWord = row[2] ? row[2].trim() : ''; 
-                    const englishWord = row[3] ? row[3].trim() : '';
+                    const topicInRow = row[0] ? row[0].trim() : '';      // Column A: Topic Name
+                    const setNumberInRow = row[1] ? row[1].trim() : '';  // Column B: Set Number
+                    const targetWord = row[3] ? row[3].trim() : '';      // Column D: Target Language
+                    const englishWord = row[4] ? row[4].trim() : '';     // Column E: English
 
-                    if (setNameInRow !== '') {
-                        if (currentSetName && currentSetWords.length > 0) vocabSets[currentSetName] = currentSetWords;
-                        currentSetName = setNameInRow;
-                        currentSetWords = [];
+                    // Check for a new Topic Name (Column A)
+                    if (topicInRow !== '') {
+                        // The 'theme' (topic) is the main key, and sets are sub-keys
+                        currentTopicName = topicInRow;
+                        if (!vocabSets[currentTopicName]) {
+                            vocabSets[currentTopicName] = {};
+                        }
                     }
-                    if (targetWord !== '' && englishWord !== '') {
-                        currentSetWords.push({ target: targetWord, english: englishWord });
+                    
+                    // Check for a valid Set Number and words (Column B, D, E)
+                    if (currentTopicName && setNumberInRow !== '' && targetWord !== '' && englishWord !== '') {
+                        // Store the words under the Set Number inside the Topic
+                        if (!vocabSets[currentTopicName][setNumberInRow]) {
+                             vocabSets[currentTopicName][setNumberInRow] = [];
+                        }
+                        vocabSets[currentTopicName][setNumberInRow].push({ target: targetWord, english: englishWord });
                     }
                 });
-                if (currentSetName && currentSetWords.length > 0) vocabSets[currentSetName] = currentSetWords;
                 
                 if (Object.keys(vocabSets).length > 0) {
                     initializeSelectors();
                     loadingMessage.classList.add('hide');
                     setupControls.classList.remove('hide');
                 } else {
-                    loadingMessage.textContent = "⚠️ No vocabulary sets found. Check Columns A, C, and D.";
+                    loadingMessage.textContent = "⚠️ No vocabulary sets found. Check Columns A, B, D, and E.";
+                    alert("⚠️ No vocabulary sets found. Returning to selection screen.");
+                    window.location.href = window.location.pathname;
                 }
             },
-            error: () => { loadingMessage.textContent = "⚠️ Failed to load spreadsheet."; }
+            error: () => { 
+                loadingMessage.textContent = "⚠️ Failed to load spreadsheet."; 
+                alert("⚠️ Failed to load spreadsheet. Check the URL and public sharing settings. Returning to selection screen.");
+                window.location.href = window.location.pathname;
+            }
         });
     }
     
-    // --- QUIZ LOGIC (Unchanged) ---
+    // --- QUIZ LOGIC (Updated to use dynamic topics) ---
 
     function initializeSelectors() {
-        const themes = [...new Set(Object.keys(vocabSets).map(setName => setName.split('.')[0]))];
+        // Get the list of all unique Topic Names (the main keys of vocabSets)
+        const topicNames = Object.keys(vocabSets);
+        
         themeSelect.innerHTML = '';
-        themes.sort((a, b) => a - b).forEach(theme => {
+        
+        // Populate the Theme dropdown with the unique topic names
+        topicNames.sort().forEach(topic => {
             const option = document.createElement('option');
-            option.value = theme;
-            option.textContent = themeMap[theme] || `Theme ${theme}`;
+            option.value = topic;
+            option.textContent = topic;
             themeSelect.appendChild(option);
         });
+
+        if(topicNames.length === 0) {
+            themeSelect.innerHTML = '<option>No Topics Loaded</option>';
+            return;
+        }
+
         updateSetDropdown();
     }
 
     function updateSetDropdown() {
-        const selectedTheme = themeSelect.value;
+        const selectedTopic = themeSelect.value;
         setSelect.innerHTML = '';
         setSelect2.innerHTML = '';
 
@@ -301,12 +324,17 @@
         noneOption.textContent = "-- None --";
         setSelect2.appendChild(noneOption);
 
-        const setsInTheme = Object.keys(vocabSets).filter(setName => setName.startsWith(selectedTheme + '.') || setName === selectedTheme).sort();
+        if (!selectedTopic || !vocabSets[selectedTopic]) return;
 
-        setsInTheme.forEach(setName => {
+        // The sets are now the keys inside the selected topic object
+        const setsInTopic = Object.keys(vocabSets[selectedTopic]).sort();
+
+        setsInTopic.forEach(setNumber => {
+            const wordCount = vocabSets[selectedTopic][setNumber].length;
+            
             const option1 = document.createElement('option');
-             option1.value = setName;
-             option1.textContent = `${setName} (${vocabSets[setName].length} words)`;
+             option1.value = setNumber;
+             option1.textContent = `${setNumber} (${wordCount} words)`;
              setSelect.appendChild(option1);
              
              const option2 = option1.cloneNode(true);
@@ -315,14 +343,16 @@
     }
 
     function generateTest() {
-        const selectedSetName1 = setSelect.value;
-        const selectedSetName2 = setSelect2.value;
+        const selectedTopic = themeSelect.value;
+        const selectedSetNumber1 = setSelect.value;
+        const selectedSetNumber2 = setSelect2.value;
         
-        if (!selectedSetName1) return;
+        if (!selectedSetNumber1 || !selectedTopic) return;
 
-        let combinedSet = [...vocabSets[selectedSetName1]];
-        if (selectedSetName2 && selectedSetName2 !== "") {
-            combinedSet = combinedSet.concat(vocabSets[selectedSetName2]);
+        let combinedSet = [...vocabSets[selectedTopic][selectedSetNumber1]];
+        if (selectedSetNumber2 && selectedSetNumber2 !== "") {
+            // Concatenate the second set from the same topic
+            combinedSet = combinedSet.concat(vocabSets[selectedTopic][selectedSetNumber2]);
         }
         
         const uniqueCombinedSet = Array.from(new Map(combinedSet.map(item => [item.target, item])).values());
@@ -393,6 +423,5 @@
     }
 
 </script>
-
 </body>
 </html>
