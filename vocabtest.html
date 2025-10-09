@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vocabulary Test</title>
+    <title>Vocabulary Test Hub</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         /* General Styles */
@@ -195,7 +195,8 @@
     const printArea = document.getElementById('print-area');
     const backToHubBtn = document.getElementById('back-to-hub-btn');
 
-    let vocabSets = {}; // Structure: { 'Topic Name': { 'Set Number': [{target: 'x', english: 'y'}, ...] } }
+    // Structure: { 'Topic Name': { 'Set Number': [{target: 'x', english: 'y'}, ...] } }
+    let vocabSets = {}; 
 
     // --- INITIALIZATION ---
     document.addEventListener('DOMContentLoaded', () => {
@@ -232,18 +233,18 @@
         // Event Listeners for Quiz Controls
         generateBtn.addEventListener('click', generateTest);
         revealBtn.addEventListener('click', revealAnswers);
-        // Theme change handler will update the set dropdown
         themeSelect.addEventListener('change', updateSetDropdown); 
         printBtn.addEventListener('click', () => window.print());
         backToHubBtn.addEventListener('click', () => window.location.href = window.location.pathname); 
     });
 
-    // --- DATA LOADING (Updated for Columns A, B, D, E) ---
+    // --- DATA LOADING (Corrected to handle sparse data) ---
     function loadVocabData(url) {
         Papa.parse(url, {
             download: true, header: false, skipEmptyLines: true,
             complete: (results) => {
                 let currentTopicName = null;
+                let currentSetNumber = null; // New variable to hold the last seen set number
                 vocabSets = {}; // Reset sets
 
                 results.data.forEach(row => {
@@ -252,20 +253,31 @@
                     const targetWord = row[3] ? row[3].trim() : '';      // Column D: Target Language
                     const englishWord = row[4] ? row[4].trim() : '';     // Column E: English
 
-                    // Use Topic Name from Column A as the main key
+                    // 1. UPDATE CURRENT TOPIC AND SET NUMBER
+
+                    // If a Topic Name is found in Column A, update currentTopicName
                     if (topicInRow !== '') {
                         currentTopicName = topicInRow;
                         if (!vocabSets[currentTopicName]) {
                             vocabSets[currentTopicName] = {};
                         }
                     }
+
+                    // If a Set Number is found in Column B, update currentSetNumber
+                    if (setNumberInRow !== '') {
+                        currentSetNumber = setNumberInRow;
+                    }
                     
-                    // Store the word under the Set Number (Column B) within the Topic
-                    if (currentTopicName && setNumberInRow !== '' && targetWord !== '' && englishWord !== '') {
-                        if (!vocabSets[currentTopicName][setNumberInRow]) {
-                             vocabSets[currentTopicName][setNumberInRow] = [];
+                    // 2. STORE VOCAB WORD
+
+                    // Only store the word if we have a valid topic, a set number, and the actual words
+                    if (currentTopicName && currentSetNumber && targetWord !== '' && englishWord !== '') {
+                        // Ensure the set structure exists under the current topic
+                        if (!vocabSets[currentTopicName][currentSetNumber]) {
+                             vocabSets[currentTopicName][currentSetNumber] = [];
                         }
-                        vocabSets[currentTopicName][setNumberInRow].push({ target: targetWord, english: englishWord });
+                        // Add the word to the current set
+                        vocabSets[currentTopicName][currentSetNumber].push({ target: targetWord, english: englishWord });
                     }
                 });
                 
@@ -290,12 +302,9 @@
     // --- QUIZ LOGIC ---
 
     function initializeSelectors() {
-        // Get the list of all unique Topic Names (the main keys of vocabSets)
         const topicNames = Object.keys(vocabSets);
-        
         themeSelect.innerHTML = '';
         
-        // Populate the Theme dropdown with the unique topic names
         topicNames.sort().forEach(topic => {
             const option = document.createElement('option');
             option.value = topic;
@@ -308,12 +317,12 @@
             return;
         }
 
-        // CRITICAL: Call updateSetDropdown to load the sets for the default selected theme
+        // CRITICAL FIX: Load the sets for the default selected theme
         updateSetDropdown();
     }
 
     function updateSetDropdown() {
-        // Use the currently selected theme, or default to the first available topic if nothing is selected yet.
+        // Use the currently selected theme, or default to the first available topic if none selected.
         const selectedTopic = themeSelect.value || Object.keys(vocabSets)[0]; 
 
         setSelect.innerHTML = '';
@@ -329,9 +338,8 @@
             return;
         }
 
-        // The sets are the keys (set numbers) inside the selected topic object
         const setsInTopic = Object.keys(vocabSets[selectedTopic]).sort((a, b) => {
-            // Smart sort to handle set numbers like '1.1', '1.10', '2.1' correctly
+            // Smart sort to handle set numbers like '1.10' vs '1.2'
             const numA = parseFloat(a);
             const numB = parseFloat(b);
             if (numA !== numB) return numA - numB;
@@ -361,7 +369,6 @@
 
         let combinedSet = [...vocabSets[selectedTopic][selectedSetNumber1]];
         if (selectedSetNumber2 && selectedSetNumber2 !== "") {
-            // Concatenate the second set from the same topic
             combinedSet = combinedSet.concat(vocabSets[selectedTopic][selectedSetNumber2]);
         }
         
