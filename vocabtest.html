@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vocabulary Test</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+/* existing styles kept unchanged */
+body {font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;background-color: #f4f7f6;color: #333;font-size: 22px;margin: 0;padding: 20px;}
+.container {width: 95%;max-width: 1400px;margin: 0 auto;padding: 30px;background: white;border-radius: 12px;box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);}
+.hide {display:none;}
+button, select, input {width:100%;font-size:1em;padding:12px 15px;border-radius:8px;border:1px solid #ccc;}
+button {background-color:#2980b9;color:#fff;border:none;cursor:pointer;}
+button:hover {background-color:#3498db;}
+#sheet-selector-screen {text-align:center;margin-top:100px;}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- NEW: Sheet selection screen -->
+  <div id="sheet-selector-screen">
+    <h1>Select a Vocabulary Spreadsheet</h1>
+    <label for="sheet-select">Choose Spreadsheet:</label>
+    <select id="sheet-select">
+      <option value="">-- Select from list --</option>
+      <option value="https://docs.google.com/spreadsheets/d/e/2PACX-1vSCNeq329ih6SxLZ2TowPzpk61gJLFy-UAVAb8ivBs9DNEOdmtRQ29bWh__n53MdE-C8hs_XOV3iIkT/pub?output=csv">GCSE FR</option>
+      <option value="https://docs.google.com/spreadsheets/d/e/2PACX-1vTlddh1-sO5-s5CPJt_a1H1ltX9orRCFvosUPVBJIqjxXc0nB3c4-f19sUNF5s6lIof7TnBIevleWJA/pub?output=csv">GCSE GN</option>
+      <option value="https://docs.google.com/spreadsheets/d/your_class3/export?format=csv">Class 3 Vocabulary</option>
+    </select>
+
+    <p>or paste a Google Sheet CSV link:</p>
+    <input type="text" id="custom-sheet-url" placeholder="https://docs.google.com/spreadsheets/.../export?format=csv" />
+    <button id="load-sheet-btn">Load Spreadsheet</button>
+  </div>
+
+  <!-- existing UI -->
+  <p id="loading-message" class="hide" style="text-align:center;">Loading sets from your spreadsheet...</p>
+  <div class="main-content-wrapper">
+    <div class="test-panel">
+      <div id="test-container" class="hide">
+        <table>
+          <thead><tr><th>No.</th><th>Target Language</th><th>English</th></tr></thead>
+          <tbody id="test-body"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="controls-panel">
+      <h1 id="title">Vocabulary Test</h1>
+      <div id="setup-controls" class="control-group hide">
+        <label for="theme-select">1. Choose Theme:</label>
+        <select id="theme-select"></select>
+        <label for="set-select">2. Choose Set:</label>
+        <select id="set-select"></select>
+        <label for="set-select-2">3. 2nd set (Optional):</label>
+        <select id="set-select-2"></select>
+        <button id="generate-btn">Generate List</button>
+      </div>
+      <div id="test-controls" class="control-group hide">
+        <button id="reveal-btn">Reveal Answers</button>
+        <button id="print-btn">🖨️ Print Test</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="print-area" class="hide"></div>
+</div>
+
+<script>
+const sheetSelectorScreen = document.getElementById('sheet-selector-screen');
+const sheetSelect = document.getElementById('sheet-select');
+const customSheetUrl = document.getElementById('custom-sheet-url');
+const loadSheetBtn = document.getElementById('load-sheet-btn');
+const loadingMessage = document.getElementById('loading-message');
+const setupControls = document.getElementById('setup-controls');
+const themeSelect = document.getElementById('theme-select');
+const setSelect = document.getElementById('set-select');
+const setSelect2 = document.getElementById('set-select-2');
+const generateBtn = document.getElementById('generate-btn');
+const testContainer = document.getElementById('test-container');
+const testBody = document.getElementById('test-body');
+const testControls = document.getElementById('test-controls');
+const revealBtn = document.getElementById('reveal-btn');
+const printBtn = document.getElementById('print-btn');
+const printArea = document.getElementById('print-area');
+
+let vocabSets = {};
+const themeMap = {'1': '1-Personal world','2': '2-Lifestyle','3': '3-Neighbourhood','4': '4-Media & Tech','5': '5-Study & future','6': '6-Travel and Tourism'};
+
+document.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(window.location.search);
+  const sheetUrl = params.get('sheet');
+  if (sheetUrl) {
+    sheetSelectorScreen.classList.add('hide');
+    loadSpreadsheet(sheetUrl);
+  } else {
+    sheetSelectorScreen.classList.remove('hide');
+  }
+});
+
+loadSheetBtn.addEventListener('click', () => {
+  const url = customSheetUrl.value.trim() || sheetSelect.value;
+  if (!url) return alert("Please select or paste a Google Sheet link.");
+  sheetSelectorScreen.classList.add('hide');
+  loadSpreadsheet(url);
+});
+
+function loadSpreadsheet(sheetUrl) {
+  loadingMessage.classList.remove('hide');
+  Papa.parse(sheetUrl, {
+    download: true, header: false, skipEmptyLines: true,
+    complete: (results) => {
+      vocabSets = {};
+      let currentSetName = null;
+      let currentSetWords = [];
+      results.data.forEach(row => {
+        const setNameInRow = row[0]?.trim() || '';
+        const targetWord = row[2]?.trim() || '';
+        const englishWord = row[3]?.trim() || '';
+        if (setNameInRow) {
+          if (currentSetName && currentSetWords.length) vocabSets[currentSetName] = currentSetWords;
+          currentSetName = setNameInRow;
+          currentSetWords = [];
+        }
+        if (targetWord && englishWord) currentSetWords.push({ target: targetWord, english: englishWord });
+      });
+      if (currentSetName && currentSetWords.length) vocabSets[currentSetName] = currentSetWords;
+      if (Object.keys(vocabSets).length > 0) {
+        initializeSelectors();
+        loadingMessage.classList.add('hide');
+        setupControls.classList.remove('hide');
+      } else loadingMessage.textContent = "⚠️ No vocabulary sets found. Check Columns A, C, and D.";
+    },
+    error: () => { loadingMessage.textContent = "⚠️ Failed to load spreadsheet."; }
+  });
+}
+
+generateBtn.addEventListener('click', generateTest);
+revealBtn.addEventListener('click', revealAnswers);
+themeSelect.addEventListener('change', updateSetDropdown);
+printBtn.addEventListener('click', () => window.print());
+
+function initializeSelectors() {
+  const themes = [...new Set(Object.keys(vocabSets).map(s => s.split('.')[0]))];
+  themeSelect.innerHTML = '';
+  themes.sort((a,b)=>a-b).forEach(theme => {
+    const option = document.createElement('option');
+    option.value = theme;
+    option.textContent = themeMap[theme] || `Theme ${theme}`;
+    themeSelect.appendChild(option);
+  });
+  updateSetDropdown();
+}
+
+function updateSetDropdown() {
+  const selectedTheme = themeSelect.value;
+  setSelect.innerHTML = '';
+  setSelect2.innerHTML = '';
+  const noneOption = document.createElement('option');
+  noneOption.value = "";
+  noneOption.textContent = "-- None --";
+  setSelect2.appendChild(noneOption);
+  const setsInTheme = Object.keys(vocabSets).filter(s => s.startsWith(selectedTheme + '.') || s === selectedTheme).sort();
+  setsInTheme.forEach(setName => {
+    const option1 = document.createElement('option');
+    option1.value = setName;
+    option1.textContent = `${setName} (${vocabSets[setName].length} words)`;
+    setSelect.appendChild(option1);
+    const option2 = option1.cloneNode(true);
+    setSelect2.appendChild(option2);
+  });
+}
+
+function generateTest() {
+  const s1 = setSelect.value;
+  const s2 = setSelect2.value;
+  if (!s1) return;
+  let combinedSet = [...vocabSets[s1]];
+  if (s2) combinedSet = combinedSet.concat(vocabSets[s2]);
+  const unique = Array.from(new Map(combinedSet.map(i => [i.target, i])).values());
+  if (!unique.length) return;
+  const shuffled = [...unique].sort(() => 0.5 - Math.random());
+  const part1 = shuffled.slice(0, 5);
+  const part2 = shuffled.slice(5, 10);
+  testBody.innerHTML = '';
+  part1.forEach((item, i) => testBody.insertAdjacentHTML('beforeend', `<tr><td class="num-cell">${i+1}</td><td>${item.target}</td><td class="answer-cell"><span class="answer">${item.english}</span></td></tr>`));
+  part2.forEach((item, i) => testBody.insertAdjacentHTML('beforeend', `<tr><td class="num-cell">${part1.length+i+1}</td><td class="answer-cell"><span class="answer">${item.target}</span></td><td>${item.english}</td></tr>`));
+  const onScreenTable = document.querySelector('#test-container table');
+  const html = `<table>${onScreenTable.querySelector('thead').outerHTML}${onScreenTable.querySelector('tbody').innerHTML}</table>`;
+  printArea.innerHTML = `<div class="print-table-wrapper">${html}</div><div class="print-table-wrapper">${html}</div>`;
+  testContainer.classList.remove('hide');
+  testControls.classList.remove('hide');
+  revealBtn.textContent = 'Reveal Answers';
+  document.querySelectorAll('.answer').forEach(s => s.classList.remove('visible'));
+}
+
+function revealAnswers() {
+  const answers = document.querySelectorAll('.answer');
+  if (!answers.length) return;
+  const isHidden = !answers[0].classList.contains('visible');
+  answers.forEach(a => a.classList.toggle('visible', isHidden));
+  revealBtn.textContent = isHidden ? 'Hide Answers' : 'Reveal Answers';
+}
+</script>
+</body>
+</html>
