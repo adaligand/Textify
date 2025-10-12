@@ -519,7 +519,7 @@ function loadData(url, options) {
     return new Promise((resolve, reject) => {
         Papa.parse(url, { download: true, skipEmptyLines: true, ...options,
             complete: (results) => resolve(results.data),
-            error: (err) => reject(err),
+            error: (err) => reject(new Error(`Failed to load data from ${url}: ${err.message}`)),
         });
     });
 }
@@ -528,35 +528,41 @@ async function initializeApp() {
     [readingBtn, listeningBtn, vocabBtn, sentenceBtn].forEach(btn => btn.disabled = true);
     readingBtn.textContent = 'Loading...';
     sentenceBtn.textContent = 'Loading...';
+    vocabBtn.textContent = 'Loading...';
 
     populateClassSelector();
     resetVocabDropdowns(true);
     populateGameSelector();
     vocabBtn.disabled = false;
+    vocabBtn.textContent = 'Vocabulary Test';
 
-    // --- Load Practice Data ---
-    try {
-        const practiceData = await loadData(practiceSheetUrl, { header: true });
-        practice_allQuestions = practiceData.map(q => ({
+    const promises = [
+        loadData(practiceSheetUrl, { header: true }),
+        loadData(sentenceSheetUrl, { header: false })
+    ];
+
+    const results = await Promise.allSettled(promises);
+    const [practiceResult, sentenceResult] = results;
+
+    if (practiceResult.status === 'fulfilled') {
+        practice_allQuestions = practiceResult.value.map(q => ({
             Skill: q.Skill, Theme: q.Theme, Question: q.Question, Content: q.Content
         })).filter(q => q.Skill && q.Theme && q.Content);
         
         readingBtn.disabled = false;
         listeningBtn.disabled = false;
         readingBtn.textContent = 'Reading Practice';
-    } catch (error) {
-        console.error("Failed to load PRACTICE spreadsheet data:", error);
+    } else {
+        console.error("Failed to load PRACTICE spreadsheet data:", practiceResult.reason);
         readingBtn.textContent = 'Practice Unavailable';
         readingBtn.style.backgroundColor = '#c0392b';
         listeningBtn.disabled = true;
     }
 
-    // --- Load Sentence Data ---
-    try {
-        const sentenceData = await loadData(sentenceSheetUrl, { header: false });
+    if (sentenceResult.status === 'fulfilled') {
         sentenceSets = {};
         let currentSentenceTheme = null, currentSentenceTopic = null;
-        sentenceData.forEach(row => {
+        sentenceResult.value.forEach(row => {
             if (!row || row.length < 5) return;
             const [themeInRow, topicInRow, , target, english] = row.map(cell => cell?.trim());
             if (themeInRow) currentSentenceTheme = themeInRow;
@@ -571,8 +577,8 @@ async function initializeApp() {
         
         sentenceBtn.disabled = false;
         sentenceBtn.textContent = 'Sentence Games';
-    } catch (error) {
-        console.error("Failed to load SENTENCE spreadsheet data:", error);
+    } else {
+        console.error("Failed to load SENTENCE spreadsheet data:", sentenceResult.reason);
         sentenceBtn.textContent = 'Sentences Unavailable';
         sentenceBtn.style.backgroundColor = '#c0392b';
     }
@@ -679,6 +685,13 @@ function practice_generateQuestion() {
 }
 
 // --- Vocabulary Section Logic ---
+function populateClassSelector() {
+    classSelect.innerHTML = '<option value="">-- Select a Class --</option>';
+    Object.keys(vocabSpreadsheetUrls).sort().forEach(name => {
+        classSelect.add(new Option(name, name));
+    });
+}
+
 classSelect.addEventListener('change', () => {
     const selectedClass = classSelect.value;
     vocab_testContainer.classList.add('hide'); 
