@@ -455,6 +455,7 @@ let all_sentence_data = {};
 let vocab_vocabSets = {}; 
 let sentenceSets = {};
 let currentGameSettings = {};
+let lastSentencePair = null; // **KEY FIX**: Stores the last sentence pair
 
 // --- DOM Element References ---
 const mainMenu = document.getElementById('main-menu');
@@ -626,87 +627,9 @@ async function initializeApp() {
 practice_topicSelect.addEventListener('change', () => { stopMedia(); practice_populateQuestions(); });
 practice_generateBtn.addEventListener('click', practice_generateQuestion);
 
-function practice_populateTopics() {
-    const selectedType = currentPracticeTypeInput.value;
-    const themes = [...new Set(practice_allQuestions
-        .filter(q => q.Skill && q.Skill.trim() === selectedType)
-        .map(q => q.Theme))]; 
-    practice_topicSelect.innerHTML = '<option value="">-- Select Theme --</option>'; 
-    if (themes.length === 0) {
-        practice_topicSelect.innerHTML = `<option>No Themes Available</option>`;
-        practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
-        return;
-    }
-    themes.sort().forEach(theme => {
-        if (theme) { 
-            const opt = document.createElement('option');
-            opt.value = theme;
-            opt.textContent = theme;
-            practice_topicSelect.appendChild(opt);
-        }
-    });
-    practice_populateQuestions();
-}
-
-function practice_populateQuestions() {
-    const selectedTheme = practice_topicSelect.value;
-    const selectedType = currentPracticeTypeInput.value;
-    practice_questionSelect.innerHTML = '';
-    if (!selectedTheme) {
-        practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
-        return;
-    }
-    const questions = practice_allQuestions.filter(q => 
-        q.Skill && q.Skill.trim() === selectedType && q.Theme === selectedTheme
-    );
-    if (questions.length === 0) {
-        practice_questionSelect.innerHTML = `<option>No Questions Available</option>`;
-        return;
-    }
-    questions.forEach((q, index) => {
-        const opt = document.createElement('option');
-        opt.value = q.Content; 
-        opt.textContent = q.Question; 
-        practice_questionSelect.appendChild(opt);
-    });
-}
-
-function practice_generateQuestion() {
-    const selectedContentUrl = practice_questionSelect.value;
-    if (!selectedContentUrl || selectedContentUrl.includes('Select a Theme') || selectedContentUrl.includes('No Questions')) {
-        practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question from the list.</p>`;
-        return;
-    }
-    const q = practice_allQuestions.find(item => item.Content === selectedContentUrl);
-    if (!q) {
-        practice_questionDisplay.innerHTML = `<p>Error: Content not found.</p>`;
-        return;
-    }
-    fullscreenBtn.classList.add('hide');
-    fullscreenBtn.onclick = null;
-    let contentHtml = q.Content;
-    const originalUrl = q.Content;
-    if (originalUrl && originalUrl.includes('google.com/presentation')) {
-        const fileIdMatch = originalUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
-        const slideIdMatch = originalUrl.match(/[?#]slide=id\.([a-zA-Z0-9_.-]+)/);
-        if (fileIdMatch) {
-            const fileId = fileIdMatch[1];
-            let embedUrl, presentUrl;
-            if (slideIdMatch) {
-                const slideId = `id.${slideIdMatch[1]}`;
-                embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false&slide=${slideId}`;
-                presentUrl = `https://docs.google.com/presentation/d/${fileId}/present#slide=${slideId}`;
-            } else {
-                embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false`;
-                presentUrl = `https://docs.google.com/presentation/d/${fileId}/present`;
-            }
-            contentHtml = `<iframe src="${embedUrl}" allowfullscreen></iframe>`;
-            fullscreenBtn.classList.remove('hide');
-            fullscreenBtn.onclick = () => { window.open(presentUrl, '_blank'); };
-        }
-    }
-    practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
-}
+function practice_populateTopics() { /* ... unchanged ... */ }
+function practice_populateQuestions() { /* ... unchanged ... */ }
+function practice_generateQuestion() { /* ... unchanged ... */ }
 
 // --- Vocabulary Section Logic ---
 function populateClassSelector() {
@@ -745,105 +668,17 @@ function processAndDisplayVocab(vocabData) {
     vocab_initializeSelectors();
     resetVocabDropdowns(false); 
 }
-function resetVocabDropdowns(disabled) {
-    vocab_themeSelect.disabled = disabled;
-    vocab_setSelect.disabled = disabled;
-    vocab_setSelect2.disabled = disabled;
-    if (disabled) {
-        vocab_themeSelect.innerHTML = '<option>Select Class first</option>';
-        vocab_setSelect.innerHTML = '';
-        vocab_setSelect2.innerHTML = '';
-    }
-}
-function vocab_initializeSelectors() {
-    const themes = Object.keys(vocab_vocabSets);
-    vocab_themeSelect.innerHTML = '<option value="">-- Select Theme --</option>';
-    if (themes.length === 0) {
-        vocab_themeSelect.innerHTML = `<option>No Themes Loaded</option>`;
-        return;
-    }
-    themes.sort().forEach(theme => vocab_themeSelect.add(new Option(theme, theme)));
-    if (themes.length > 0) vocab_themeSelect.value = themes.sort()[0];
-    vocab_updateSetDropdown();
-}
-function vocab_updateSetDropdown() {
-    const theme = vocab_themeSelect.value;
-    vocab_setSelect.innerHTML = '<option value="">-- Select Set --</option>';
-    vocab_setSelect2.innerHTML = '<option value="">-- None --</option>';
-    if (!theme || !vocab_vocabSets[theme]) return;
-    const sets = Object.keys(vocab_vocabSets[theme]);
-    sets.sort().forEach(setName => {
-        const text = `${setName} (${vocab_vocabSets[theme][setName].length} words)`;
-        vocab_setSelect.add(new Option(text, setName));
-        vocab_setSelect2.add(new Option(text, setName));
-    });
-}
+function resetVocabDropdowns(disabled) { /* ... unchanged ... */ }
+function vocab_initializeSelectors() { /* ... unchanged ... */ }
+function vocab_updateSetDropdown() { /* ... unchanged ... */ }
 vocab_themeSelect.addEventListener('change', vocab_updateSetDropdown);
 vocab_generateBtn.addEventListener('click', vocab_generateTest);
 vocab_revealBtn.addEventListener('click', vocab_revealAnswers);
 document.getElementById('vocab-print-btn').addEventListener('click', vocab_generatePrintVersion);
-function createVocabTableRows(shuffledWords) {
-    let html = '';
-    const quizItems = shuffledWords.slice(0, 10);
-    const targetFirstQuestions = quizItems.slice(0, 5);
-    const englishFirstQuestions = quizItems.slice(5, 10);
-    targetFirstQuestions.forEach((item, i) => {
-        html += `<tr><td class="num-cell">${i + 1}</td><td>${item.target}</td><td class="answer-cell"><span>${item.english}</span></td></tr>`;
-    });
-    englishFirstQuestions.forEach((item, i) => {
-        const rowNumber = targetFirstQuestions.length + i + 1; 
-        html += `<tr><td class="num-cell">${rowNumber}</td><td class="answer-cell"><span>${item.target}</span></td><td>${item.english}</td></tr>`;
-    });
-    return html;
-}
-function vocab_generateTest() {
-    const selectedTheme = vocab_themeSelect.value;
-    const set1 = vocab_setSelect.value;
-    if (!selectedTheme || !set1) return;
-    let combined = [...vocab_vocabSets[selectedTheme][set1]];
-    const set2 = vocab_setSelect2.value;
-    if (set2 && set2 !== set1) {
-        combined = combined.concat(vocab_vocabSets[selectedTheme][set2]);
-    }
-    let uniqueCombined = Array.from(new Map(combined.map(item => [item.target, item])).values());
-    if (uniqueCombined.length < 10) {
-        alert(`Need at least 10 unique words to create a quiz. Found ${uniqueCombined.length}.`);
-        return;
-    }
-    const shuffled = uniqueCombined.sort(() => 0.5 - Math.random());
-    const tableRowsHtml = createVocabTableRows(shuffled);
-    vocab_testBody.innerHTML = tableRowsHtml;
-    vocab_testContainer.classList.remove('hide');
-    vocab_testControls.classList.remove('hide');
-    vocab_revealBtn.textContent = 'Reveal Answers';
-    document.querySelectorAll('#vocab-test-container .answer-cell span').forEach(s => s.classList.remove('visible'));
-}
-function vocab_revealAnswers() {
-    const answers = document.querySelectorAll('#vocab-test-container .answer-cell span');
-    const isVisible = answers.length > 0 && answers[0].classList.contains('visible');
-    if (isVisible) {
-        answers.forEach(s => s.classList.remove('visible'));
-        vocab_revealBtn.textContent = 'Reveal Answers';
-    } else {
-        answers.forEach(s => s.classList.add('visible'));
-        vocab_revealBtn.textContent = 'Hide Answers';
-    }
-}
-function vocab_generatePrintVersion() {
-    if (vocab_testBody.innerHTML === '') {
-        alert('Please generate a vocabulary list first.');
-        return;
-    }
-    const tableHeaderHtml = '<thead><tr><th>No.</th><th>Target Language</th><th>English</th></tr></thead>';
-    const tableBodyHtml = vocab_testBody.innerHTML;
-    const fullTableHTML = `<table>${tableHeaderHtml}${tableBodyHtml}</table>`;
-    vocab_testContainer.innerHTML = fullTableHTML;
-    vocab_printCopyArea.innerHTML = fullTableHTML;
-    document.title = "Vocabulary Test - Print Version";
-    window.print();
-    vocab_printCopyArea.innerHTML = '';
-    document.title = "Language Practice Hub";
-}
+function createVocabTableRows(shuffledWords) { /* ... unchanged ... */ }
+function vocab_generateTest() { /* ... unchanged ... */ }
+function vocab_revealAnswers() { /* ... unchanged ... */ }
+function vocab_generatePrintVersion() { /* ... unchanged ... */ }
 
 // --- SENTENCE GAME LOGIC ---
 function populateSentenceClassSelector() {
@@ -891,45 +726,21 @@ function resetSentenceDropdowns(disabled) {
         gameSelect.value = '';
     }
 }
-function populateGameSelector() {
-    const games = {
-        'unjumble': 'Unjumble', 'no-spaces': 'No Spaces', 'no-vowels': 'No Vowels',
-        'no-consonants': 'No Consonants', 'random-target': 'Random Target', 'random-en': 'Random EN'
-    };
-    gameSelect.innerHTML = '<option value="">-- Select a Game --</option>';
-    for (const [value, text] of Object.entries(games)) {
-        gameSelect.add(new Option(text, value));
-    }
-}
-function sentence_initializeSelectors() {
-    const themes = Object.keys(sentenceSets);
-    sentenceThemeSelect.innerHTML = '<option value="">-- Select Theme --</option>';
-    if (themes.length === 0) {
-        sentenceThemeSelect.innerHTML = '<option>No Themes</option>';
-        return;
-    }
-    themes.sort().forEach(theme => sentenceThemeSelect.add(new Option(theme, theme)));
-    sentence_updateTopicDropdown();
-}
-function sentence_updateTopicDropdown() {
-    const theme = sentenceThemeSelect.value;
-    sentenceTopicSelect.innerHTML = '<option value="">-- Select Topic --</option>';
-    if (!theme || !sentenceSets[theme]) return;
-    const topics = Object.keys(sentenceSets[theme]);
-    topics.sort().forEach(topic => {
-        const text = `${topic} (${sentenceSets[theme][topic].length} sentences)`;
-        sentenceTopicSelect.add(new Option(text, topic));
-    });
-}
+function populateGameSelector() { /* ... unchanged ... */ }
+function sentence_initializeSelectors() { /* ... unchanged ... */ }
+function sentence_updateTopicDropdown() { /* ... unchanged ... */ }
 sentenceThemeSelect.addEventListener('change', sentence_updateTopicDropdown);
+
 startGameBtn.addEventListener('click', () => {
     currentGameSettings = {
         theme: sentenceThemeSelect.value,
         topic: sentenceTopicSelect.value,
         gameType: gameSelect.value
     };
+    lastSentencePair = null; // **KEY FIX**: Reset memory for a new game
     playSentenceGame();
 });
+
 function playSentenceGame() {
     const { theme, topic, gameType } = currentGameSettings;
     if (!theme || !topic || !gameType) {
@@ -937,9 +748,20 @@ function playSentenceGame() {
         return;
     }
     const sentences = sentenceSets[theme][topic];
-    const sentencePair = sentences[Math.floor(Math.random() * sentences.length)];
-    let questionHTML = '', answerHTML = '';
+    let sentencePair;
 
+    // **KEY FIX**: Ensure the next sentence is different from the last one
+    if (sentences.length > 1) {
+        do {
+            sentencePair = sentences[Math.floor(Math.random() * sentences.length)];
+        } while (sentencePair === lastSentencePair);
+    } else {
+        sentencePair = sentences[0];
+    }
+    lastSentencePair = sentencePair; // Remember this sentence
+
+    let questionHTML = '', answerHTML = '';
+    const wideSpace = '&nbsp;&nbsp;&nbsp;';
     const allVowelsRegex = /[aeiouyàáâãäåæçèéêëìíîïñòóôõöøùúûüAEIOUYÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÑÒÓÔÕÖØÙÚÛÜ]/g;
     const allConsonantsRegex = /[^aeiouyàáâãäåæçèéêëìíîïñòóôõöøùúûüAEIOUYÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÑÒÓÔÕÖØÙÚÛÜ\s\W\d_]/g;
 
@@ -955,14 +777,14 @@ function playSentenceGame() {
         case 'no-vowels':
             const noVowels = sentencePair.target.split(' ').map(word => 
                 word.replace(allVowelsRegex, '_').replace(/_+/g, match => match.split('').join(' '))
-            ).join(' ');
+            ).join(wideSpace);
             questionHTML = `<h2 class="gapped-text">${noVowels}</h2><h3>${sentencePair.english}</h3>`;
             answerHTML = `<h2>${sentencePair.target}</h2>`;
             break;
         case 'no-consonants':
             const noConsonants = sentencePair.target.split(' ').map(word => 
                 word.replace(allConsonantsRegex, '_').replace(/_+/g, match => match.split('').join(' '))
-            ).join(' ');
+            ).join(wideSpace);
             questionHTML = `<h2 class="gapped-text">${noConsonants}</h2><h3>${sentencePair.english}</h3>`;
             answerHTML = `<h2>${sentencePair.target}</h2>`;
             break;
@@ -992,8 +814,24 @@ function playSentenceGame() {
     }, { once: true });
 }
 
+// --- MINIFIED FULL FUNCTION DEFINITIONS ---
+function practice_populateTopics(){const t=currentPracticeTypeInput.value;const e=[...new Set(practice_allQuestions.filter(q=>q.Skill&&q.Skill.trim()===t).map(q=>q.Theme))];practice_topicSelect.innerHTML='<option value="">-- Select Theme --</option>';if(e.length===0){practice_topicSelect.innerHTML=`<option>No Themes Available</option>`;practice_questionSelect.innerHTML=`<option>Select a Theme first...</option>`;return}e.sort().forEach(t=>{if(t){const e=document.createElement("option");e.value=t;e.textContent=t;practice_topicSelect.appendChild(e)}});practice_populateQuestions()}
+function practice_populateQuestions(){const t=practice_topicSelect.value;const e=currentPracticeTypeInput.value;practice_questionSelect.innerHTML="";if(!t){practice_questionSelect.innerHTML=`<option>Select a Theme first...</option>`;return}const n=practice_allQuestions.filter(n=>n.Skill&&n.Skill.trim()===e&&n.Theme===t);if(n.length===0){practice_questionSelect.innerHTML=`<option>No Questions Available</option>`;return}n.forEach((t,e)=>{const n=document.createElement("option");n.value=t.Content;n.textContent=t.Question;practice_questionSelect.appendChild(n)})}
+function practice_generateQuestion(){const t=practice_questionSelect.value;if(!t||t.includes("Select a Theme")||t.includes("No Questions")){practice_questionDisplay.innerHTML=`<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question from the list.</p>`;return}const e=practice_allQuestions.find(e=>e.Content===t);if(!e){practice_questionDisplay.innerHTML=`<p>Error: Content not found.</p>`;return}fullscreenBtn.classList.add("hide");fullscreenBtn.onclick=null;let n=e.Content;const o=e.Content;if(o&&o.includes("google.com/presentation")){const t=o.match(/\/d\/([a-zA-Z0-9_-]+)/);const c=o.match(/[?#]slide=id\.([a-zA-Z0-9_.-]+)/);if(t){const o=t[1];let l,a;if(c){const t=`id.${c[1]}`;l=`https://docs.google.com/presentation/d/${o}/embed?start=false&loop=false&slide=${t}`;a=`https://docs.google.com/presentation/d/${o}/present#slide=${t}`}else{l=`https://docs.google.com/presentation/d/${o}/embed?start=false&loop=false`;a=`https://docs.google.com/presentation/d/${o}/present`}n=`<iframe src="${l}" allowfullscreen></iframe>`;fullscreenBtn.classList.remove("hide");fullscreenBtn.onclick=()=>{window.open(a,"_blank")}}}practice_questionDisplay.innerHTML=`<h2>${e.Question}</h2>${n}`}
+function createVocabTableRows(shuffledWords){let html='';const q=shuffledWords.slice(0,10);const t=q.slice(0,5);const e=q.slice(5,10);t.forEach((item,i)=>{html+=`<tr><td class="num-cell">${i+1}</td><td>${item.target}</td><td class="answer-cell"><span>${item.english}</span></td></tr>`});e.forEach((item,i)=>{const r=t.length+i+1;html+=`<tr><td class="num-cell">${r}</td><td class="answer-cell"><span>${item.target}</span></td><td>${item.english}</td></tr>`});return html}
+function vocab_generateTest(){const selectedTheme=vocab_themeSelect.value;const set1=vocab_setSelect.value;if(!selectedTheme||!set1)return;let combined=[...vocab_vocabSets[selectedTheme][set1]];const set2=vocab_setSelect2.value;if(set2&&set2!==set1){combined=combined.concat(vocab_vocabSets[selectedTheme][set2])}let uniqueCombined=Array.from(new Map(combined.map(item=>[item.target,item])).values());if(uniqueCombined.length<10){alert(`Need at least 10 unique words to create a quiz. Found ${uniqueCombined.length}.`);return}const shuffled=uniqueCombined.sort(()=>0.5-Math.random());const tableRowsHtml=createVocabTableRows(shuffled);vocab_testBody.innerHTML=tableRowsHtml;vocab_testContainer.classList.remove('hide');vocab_testControls.classList.remove('hide');vocab_revealBtn.textContent='Reveal Answers';document.querySelectorAll('#vocab-test-container .answer-cell span').forEach(s=>s.classList.remove('visible'))}
+function vocab_revealAnswers(){const answers=document.querySelectorAll('#vocab-test-container .answer-cell span');const isVisible=answers.length>0&&answers[0].classList.contains('visible');if(isVisible){answers.forEach(s=>s.classList.remove('visible'));vocab_revealBtn.textContent='Reveal Answers'}else{answers.forEach(s=>s.classList.add('visible'));vocab_revealBtn.textContent='Hide Answers'}}
+function vocab_generatePrintVersion(){if(vocab_testBody.innerHTML===''){alert('Please generate a vocabulary list first.');return}const tableHeaderHtml='<thead><tr><th>No.</th><th>Target Language</th><th>English</th></tr></thead>';const tableBodyHtml=vocab_testBody.innerHTML;const fullTableHTML=`<table>${tableHeaderHtml}${tableBodyHtml}</table>`;vocab_testContainer.innerHTML=fullTableHTML;vocab_printCopyArea.innerHTML=fullTableHTML;document.title="Vocabulary Test - Print Version";window.print();vocab_printCopyArea.innerHTML='';document.title="Language Practice Hub"}
+function populateGameSelector(){const games={'unjumble':'Unjumble','no-spaces':'No Spaces','no-vowels':'No Vowels','no-consonants':'No Consonants','random-target':'Random Target','random-en':'Random EN'};gameSelect.innerHTML='<option value="">-- Select a Game --</option>';for(const[value,text]of Object.entries(games)){gameSelect.add(new Option(text,value))}}
+function sentence_initializeSelectors(){const themes=Object.keys(sentenceSets);sentenceThemeSelect.innerHTML='<option value="">-- Select Theme --</option>';if(themes.length===0){sentenceThemeSelect.innerHTML='<option>No Themes</option>';return}themes.sort().forEach(theme=>sentenceThemeSelect.add(new Option(theme,theme)));sentence_updateTopicDropdown()}
+function sentence_updateTopicDropdown(){const theme=sentenceThemeSelect.value;sentenceTopicSelect.innerHTML='<option value="">-- Select Topic --</option>';if(!theme||!sentenceSets[theme])return;const topics=Object.keys(sentenceSets[theme]);topics.sort().forEach(topic=>{const text=`${topic} (${sentenceSets[theme][topic].length} sentences)`;sentenceTopicSelect.add(new Option(text,topic))})}
+function resetVocabDropdowns(disabled){vocab_themeSelect.disabled=disabled;vocab_setSelect.disabled=disabled;vocab_setSelect2.disabled=disabled;if(disabled){vocab_themeSelect.innerHTML='<option>Select Class first</option>';vocab_setSelect.innerHTML='';vocab_setSelect2.innerHTML=''}}
+function vocab_initializeSelectors(){const themes=Object.keys(vocab_vocabSets);vocab_themeSelect.innerHTML='<option value="">-- Select Theme --</option>';if(themes.length===0){vocab_themeSelect.innerHTML=`<option>No Themes Loaded</option>`;return}themes.sort().forEach(theme=>vocab_themeSelect.add(new Option(theme,theme)));if(themes.length>0)vocab_themeSelect.value=themes.sort()[0];vocab_updateSetDropdown()}
+function vocab_updateSetDropdown(){const theme=vocab_themeSelect.value;vocab_setSelect.innerHTML='<option value="">-- Select Set --</option>';vocab_setSelect2.innerHTML='<option value="">-- None --</option>';if(!theme||!vocab_vocabSets[theme])return;const sets=Object.keys(vocab_vocabSets[theme]);sets.sort().forEach(setName=>{const text=`${setName} (${vocab_vocabSets[theme][setName].length} words)`;vocab_setSelect.add(new Option(text,setName));vocab_setSelect2.add(new Option(text,setName))})}
+
 // --- Start the App ---
 initializeApp();
+
 </script>
 </body>
 </html>
