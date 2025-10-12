@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Language  Hub</title>
+  <title>Language cHub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     body {
@@ -129,6 +129,29 @@
       flex-direction: column;
       gap: 15px;
     }
+    
+    /* MODIFICATION 2: Change layout for side-by-side dropdowns */
+    #vocab-setup-controls {
+      display: grid;
+      grid-template-columns: auto 1fr; /* Two columns: label (auto) and select (1fr) */
+      gap: 15px;
+      align-items: center; /* Vertically align items */
+    }
+    
+    #vocab-setup-controls label {
+        /* Remove margin-bottom as grid handles spacing */
+        margin-bottom: 0;
+        /* Ensure the label is on the left */
+        text-align: right;
+    }
+    
+    #vocab-setup-controls button {
+        /* Make button span two columns */
+        grid-column: 1 / -1;
+    }
+    /* END MODIFICATION 2 */
+    
+    
     #vocab-test-container table {
       width: 100%;
       border-collapse: collapse;
@@ -241,12 +264,10 @@
         <label for="topic-select">Choose a Theme:</label>
         <select id="topic-select"><option>Loading Themes...</option></select>
       </div>
-      <!-- NEW QUESTION SELECTOR -->
       <div class="practice-control-group">
         <label for="question-select">Choose a Question:</label>
         <select id="question-select"><option>Select a Theme first...</option></select>
       </div>
-      <!-- END NEW QUESTION SELECTOR -->
       <button id="generate-practice-btn" class="btn-primary">Load Question</button>
       <button id="fullscreen-btn" class="btn-primary hide">🔈 Open Full Screen</button>
       <button class="btn-primary back-btn">Back to Main Menu</button>
@@ -271,8 +292,8 @@
       <div class="vocab-controls-panel" id="vocab-controls-panel">
         <h1>Vocabulary Test</h1>
         <div id="vocab-setup-controls" class="vocab-control-group">
-          <label for="vocab-theme-select">1. Choose Theme:</label><select id="vocab-theme-select"></select>
-          <label for="vocab-set-select">2. Choose Set:</label><select id="vocab-set-select"></select>
+          <label for="vocab-theme-select">1. Theme:</label><select id="vocab-theme-select"></select>
+          <label for="vocab-set-select">2. Set:</label><select id="vocab-set-select"></select>
           <label for="vocab-set-select-2">3. 2nd set (Optional):</label><select id="vocab-set-select-2"></select>
           <button id="vocab-generate-btn" class="btn-primary">Generate List</button>
         </div>
@@ -396,14 +417,24 @@ async function initializeApp() {
                 currentTheme = themeInRow;
             }
 
-            if (currentTheme && set) {
-                if (currentKey && currentWords.length > 0) {
-                    vocab_vocabSets[currentKey] = currentWords;
-                }
-                currentKey = `${currentTheme}.${set}`;
-                currentWords = [];
+            if (currentTheme && set && !target && !english) { // Check for Theme/Set row without word data
+                 if (currentKey && currentWords.length > 0) {
+                     vocab_vocabSets[currentKey] = currentWords;
+                 }
+                 currentKey = `${currentTheme}.${set}`;
+                 currentWords = [];
+            } else if (currentTheme && set && target && english) { // Handle the first word in a set/theme block
+                 if (currentKey && currentKey !== `${currentTheme}.${set}`) {
+                      if (currentWords.length > 0) {
+                         vocab_vocabSets[currentKey] = currentWords;
+                      }
+                      currentKey = `${currentTheme}.${set}`;
+                      currentWords = [];
+                 } else if (!currentKey) {
+                      currentKey = `${currentTheme}.${set}`;
+                 }
             }
-
+            
             if (currentKey && target && english) {
                 currentWords.push({ target, english });
             }
@@ -489,7 +520,7 @@ function practice_populateQuestions() {
 function practice_generateQuestion() {
     const selectedContentUrl = practice_questionSelect.value;
     
-    if (!selectedContentUrl) {
+    if (!selectedContentUrl || selectedContentUrl.includes('Select a Theme') || selectedContentUrl.includes('No Questions')) {
         practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question from the list.</p>`;
         return;
     }
@@ -566,7 +597,7 @@ function vocab_initializeSelectors() {
 
 function vocab_updateSetDropdown() {
     const theme = vocab_themeSelect.value;
-    vocab_setSelect.innerHTML = '';
+    vocab_setSelect.innerHTML = '<option value="">-- Select Set --</option>';
     vocab_setSelect2.innerHTML = '';
     
     const none = document.createElement('option');
@@ -576,7 +607,7 @@ function vocab_updateSetDropdown() {
 
     if (!theme) return;
 
-    const sets = [...new Set(Object.keys(vocab_vocabSets).filter(k => k.startsWith(theme + '.')).map(k => k))];
+    const sets = [...new Set(Object.keys(vocab_vocabSets).filter(k => k.startsWith(theme + '.')))];
     sets.sort().forEach(setName => {
         const opt1 = document.createElement('option');
         opt1.value = setName;
@@ -600,11 +631,12 @@ function vocab_generateTest() {
 
     let combined = [...vocab_vocabSets[set1]];
     const set2 = vocab_setSelect2.value;
-    if (set2) {
+    // Check set2 is actually selected and is different from set1
+    if (set2 && set2 !== set1) {
         combined = combined.concat(vocab_vocabSets[set2]);
     }
     
-    // De-duplicate
+    // De-duplicate (using target word as key)
     let uniqueCombined = Array.from(new Map(combined.map(item => [item.target, item])).values());
     if (uniqueCombined.length === 0) return;
 
@@ -613,14 +645,14 @@ function vocab_generateTest() {
     
     vocab_testBody.innerHTML = '';
 
-    // Take the first 5 (or fewer) for Target -> English questions (Column 2 is question, Column 3 is answer)
+    // Take up to the first 5 for Target -> English questions
     const targetFirstQuestions = shuffled.slice(0, 5);
     targetFirstQuestions.forEach((item, i) => {
         const row = vocab_testBody.insertRow();
         row.innerHTML = `<td class="num-cell">${i + 1}</td><td>${item.target}</td><td class="answer-cell"><span>${item.english}</span></td>`;
     });
 
-    // Take the next 5 (or fewer) for English -> Target questions (Column 3 is question, Column 2 is answer)
+    // Take up to the next 5 for English -> Target questions
     const englishFirstQuestions = shuffled.slice(5, 10);
     englishFirstQuestions.forEach((item, i) => {
         const row = vocab_testBody.insertRow();
@@ -632,13 +664,28 @@ function vocab_generateTest() {
     vocab_testContainer.classList.remove('hide');
     vocab_testControls.classList.remove('hide');
     vocab_printArea.classList.add('hide');
-    // Ensure answers start hidden
+    
+    // Reset button text and ensure answers start hidden
+    vocab_revealBtn.textContent = 'Reveal Answers';
     document.querySelectorAll('#vocab-test-container .answer-cell span').forEach(s => s.classList.remove('visible'));
 }
 
+// MODIFICATION 1: Toggle logic for Reveal Answers button
 function vocab_revealAnswers() {
-    document.querySelectorAll('#vocab-test-container .answer-cell span').forEach(s => s.classList.toggle('visible'));
+    const answers = document.querySelectorAll('#vocab-test-container .answer-cell span');
+    const isVisible = answers.length > 0 && answers[0].classList.contains('visible');
+    
+    if (isVisible) {
+        // Hide answers
+        answers.forEach(s => s.classList.remove('visible'));
+        vocab_revealBtn.textContent = 'Reveal Answers';
+    } else {
+        // Show answers
+        answers.forEach(s => s.classList.add('visible'));
+        vocab_revealBtn.textContent = 'Hide Answers';
+    }
 }
+// END MODIFICATION 1
 
 function vocab_generatePrintVersion() {
     // Rely entirely on the @media print CSS block to control what is visible.
