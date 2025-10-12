@@ -234,8 +234,9 @@
             display: block !important; 
             width: 100% !important;
             box-shadow: none !important;
-            height: auto !important; /* Ensure height isn't forcing a page break */
+            height: auto !important; 
             min-height: auto !important; /* THE KEY FIX */
+            overflow: hidden !important; /* Prevents overflow from pushing to new page */
         }
 
         /* 3. Hide ALL UI/Control Elements */
@@ -251,6 +252,7 @@
             padding: 0;
             height: auto !important;
             min-height: auto !important;
+            overflow: hidden !important; /* Also apply to the main content wrapper */
         }
         .vocab-main-wrapper {
              display: block !important; 
@@ -490,7 +492,7 @@ async function initializeApp() {
             Content: q.Content
         })).filter(q => q.Skill && q.Theme && q.Content);
 
-        // --- VOCAB PARSING FIX (Kept from last iteration) ---
+        // --- VOCAB PARSING ---
         vocab_vocabSets = {};
         let currentTheme = null; 
         let currentSet = null; 
@@ -498,10 +500,10 @@ async function initializeApp() {
         vocabData.forEach(row => {
             if (!row || row.length < 5) return; 
 
-            const themeInRow = row[0]?.trim();
-            const setInRow = row[1]?.trim();
-            const target = row[3]?.trim();
-            const english = row[4]?.trim();
+            const themeInRow = row[0]?.trim(); // Column A
+            const setInRow = row[1]?.trim();   // Column B
+            const target = row[3]?.trim();     // Column D
+            const english = row[4]?.trim();    // Column E
 
             if (themeInRow) {
                 currentTheme = themeInRow;
@@ -513,14 +515,18 @@ async function initializeApp() {
             }
 
             if (currentTheme && currentSet && target && english) {
-                const key = `${currentTheme}.${currentSet}`;
-                if (!vocab_vocabSets[key]) {
-                    vocab_vocabSets[key] = [];
+                // Key is Theme Name (from Column A)
+                if (!vocab_vocabSets[currentTheme]) {
+                    vocab_vocabSets[currentTheme] = {};
                 }
-                vocab_vocabSets[key].push({ target, english });
+                // Nested key is Set Name (from Column B)
+                if (!vocab_vocabSets[currentTheme][currentSet]) {
+                    vocab_vocabSets[currentTheme][currentSet] = [];
+                }
+                vocab_vocabSets[currentTheme][currentSet].push({ target, english });
             }
         });
-        // --- END VOCAB PARSING FIX ---
+        // --- END VOCAB PARSING ---
         
         vocab_initializeSelectors();
 
@@ -641,25 +647,32 @@ function practice_generateQuestion() {
 
 
 // --- Vocabulary Section Logic ---
-const vocab_themeMap = {
-    '1': '1-Personal world',
-    '2': '2-Lifestyle',
-    '3': '3-Neighbourhood',
-    '4': '4-Media & Tech',
-    '5': '5-Study & future',
-    '6': '6-Travel and Tourism'
-};
+// REMOVED: const vocab_themeMap (now pulling dynamically from data)
 
 function vocab_initializeSelectors() {
-    const themes = [...new Set(Object.keys(vocab_vocabSets).map(k => k.split('.')[0]))];
+    // Get unique themes (keys of vocab_vocabSets)
+    const themes = Object.keys(vocab_vocabSets);
     
     vocab_themeSelect.innerHTML = '<option value="">-- Select Theme --</option>';
+    
+    if (themes.length === 0) {
+        vocab_themeSelect.innerHTML = `<option>No Themes Loaded</option>`;
+        return;
+    }
+    
     themes.sort().forEach(theme => {
         const opt = document.createElement('option');
         opt.value = theme;
-        opt.textContent = vocab_themeMap[theme] || `Theme ${theme}`;
+        // Use the theme name directly from the data
+        opt.textContent = theme; 
         vocab_themeSelect.appendChild(opt);
     });
+    
+    // Select the first theme if available
+    if (themes.length > 0) {
+        vocab_themeSelect.value = themes.sort()[0];
+    }
+    
     vocab_updateSetDropdown();
 }
 
@@ -673,19 +686,21 @@ function vocab_updateSetDropdown() {
     none.textContent = '-- None --';
     vocab_setSelect2.appendChild(none);
 
-    if (!theme) return;
+    if (!theme || !vocab_vocabSets[theme]) return;
 
-    const sets = Object.keys(vocab_vocabSets).filter(k => k.startsWith(theme + '.'));
+    // Get set names (keys of the nested object)
+    const sets = Object.keys(vocab_vocabSets[theme]);
     
     sets.sort().forEach(setName => {
+        const wordCount = vocab_vocabSets[theme][setName].length;
+
         const opt1 = document.createElement('option');
         opt1.value = setName;
-        
-        const topicName = setName.substring(setName.indexOf('.') + 1);
-        
-        opt1.textContent = `${topicName} (${vocab_vocabSets[setName].length} words)`;
+        opt1.textContent = `${setName} (${wordCount} words)`;
         vocab_setSelect.appendChild(opt1);
-        vocab_setSelect2.appendChild(opt1.cloneNode(true));
+        
+        const opt2 = opt1.cloneNode(true);
+        vocab_setSelect2.appendChild(opt2);
     });
 }
 
@@ -713,13 +728,16 @@ function createVocabTableRows(shuffledWords) {
 }
 
 function vocab_generateTest() {
+    const selectedTheme = vocab_themeSelect.value;
     const set1 = vocab_setSelect.value;
-    if (!set1) return;
+    
+    if (!selectedTheme || !set1) return;
 
-    let combined = [...vocab_vocabSets[set1]];
+    let combined = [...vocab_vocabSets[selectedTheme][set1]];
     const set2 = vocab_setSelect2.value;
+    
     if (set2 && set2 !== set1) {
-        combined = combined.concat(vocab_vocabSets[set2]);
+        combined = combined.concat(vocab_vocabSets[selectedTheme][set2]);
     }
     
     let uniqueCombined = Array.from(new Map(combined.map(item => [item.target, item])).values());
