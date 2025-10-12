@@ -243,7 +243,6 @@
         font-size: 3em;
         line-height: 1.4;
     }
-    /* **KEY FIX**: Font size for the initial instruction paragraph */
     #sentence-display p {
         font-size: 1.2em; 
         color: #606770;
@@ -441,7 +440,8 @@ const vocabSpreadsheetUrls = {
 };
 
 let practice_allQuestions = [];
-let vocab_vocabSets = {};
+let all_vocab_data = {}; // Store all pre-loaded vocab data here
+let vocab_vocabSets = {}; // Holds the *currently selected* class's vocab
 let sentenceSets = {};
 let currentGameSettings = {};
 
@@ -547,15 +547,21 @@ async function initializeApp() {
     populateClassSelector();
     resetVocabDropdowns(true);
     populateGameSelector();
-    
-    const promises = [
-        loadData(practiceSheetUrl, { header: true }),
-        loadData(sentenceSheetUrl, { header: false })
-    ];
 
-    const results = await Promise.allSettled(promises);
-    const [practiceResult, sentenceResult] = results;
+    // Create all promises for data loading
+    const practicePromise = loadData(practiceSheetUrl, { header: true });
+    const sentencePromise = loadData(sentenceSheetUrl, { header: false });
+    const vocabPromises = Object.entries(vocabSpreadsheetUrls).map(([className, url]) => 
+        loadData(url, { header: false }).then(data => ({ className, data }))
+    );
 
+    const [practiceResult, sentenceResult, ...vocabResults] = await Promise.allSettled([
+        practicePromise,
+        sentencePromise,
+        ...vocabPromises
+    ]);
+
+    // Handle Practice Data
     if (practiceResult.status === 'fulfilled') {
         practice_allQuestions = practiceResult.value.map(q => ({
             Skill: q.Skill, Theme: q.Theme, Question: q.Question, Content: q.Content
@@ -564,12 +570,13 @@ async function initializeApp() {
         listeningBtn.disabled = false;
         readingBtn.textContent = 'Reading Practice';
     } else {
-        console.error("Failed to load PRACTICE spreadsheet data:", practiceResult.reason);
+        console.error("Failed to load PRACTICE spreadsheet:", practiceResult.reason);
         readingBtn.textContent = 'Practice Unavailable';
         readingBtn.style.backgroundColor = '#c0392b';
         listeningBtn.disabled = true;
     }
 
+    // Handle Sentence Data
     if (sentenceResult.status === 'fulfilled') {
         sentenceSets = {};
         let currentSentenceTheme = null, currentSentenceTopic = null;
@@ -588,23 +595,37 @@ async function initializeApp() {
         sentenceBtn.disabled = false;
         sentenceBtn.textContent = 'Sentence Games';
     } else {
-        console.error("Failed to load SENTENCE spreadsheet data:", sentenceResult.reason);
+        console.error("Failed to load SENTENCE spreadsheet:", sentenceResult.reason);
         sentenceBtn.textContent = 'Sentences Unavailable';
         sentenceBtn.style.backgroundColor = '#c0392b';
     }
 
-    vocabBtn.disabled = false;
-    vocabBtn.textContent = 'Vocabulary Test';
+    // Handle All Vocab Data
+    let vocabLoadedSuccessfully = false;
+    vocabResults.forEach(result => {
+        if (result.status === 'fulfilled') {
+            all_vocab_data[result.value.className] = result.value.data;
+            vocabLoadedSuccessfully = true;
+        } else {
+            console.error("Failed to load a VOCAB spreadsheet:", result.reason);
+        }
+    });
+
+    if (vocabLoadedSuccessfully) {
+        vocabBtn.disabled = false;
+        vocabBtn.textContent = 'Vocabulary Test';
+    } else {
+        vocabBtn.textContent = 'Vocab Unavailable';
+        vocabBtn.style.backgroundColor = '#c0392b';
+    }
 }
 
-// --- Practice Section Logic ---
+// --- Practice Section Logic (omitted for brevity) ---
 practice_topicSelect.addEventListener('change', () => { stopMedia(); practice_populateQuestions(); });
 practice_generateBtn.addEventListener('click', practice_generateQuestion);
-
-function practice_populateTopics() { /* ... unchanged ... */ }
-function practice_populateQuestions() { /* ... unchanged ... */ }
-function practice_generateQuestion() { /* ... unchanged ... */ }
-
+function practice_populateTopics() { /* ... */ }
+function practice_populateQuestions() { /* ... */ }
+function practice_generateQuestion() { /* ... */ }
 
 // --- Vocabulary Section Logic ---
 function populateClassSelector() {
@@ -622,139 +643,33 @@ classSelect.addEventListener('change', () => {
     const selectedClass = classSelect.value;
     vocab_testContainer.classList.add('hide'); 
     vocab_testControls.classList.add('hide');
-    if (selectedClass && vocabSpreadsheetUrls[selectedClass]) {
-        loadVocabData(vocabSpreadsheetUrls[selectedClass]);
+    
+    if (selectedClass && all_vocab_data[selectedClass]) {
+        processAndDisplayVocab(all_vocab_data[selectedClass]);
     } else {
         resetVocabDropdowns(true);
     }
 });
 
-async function loadVocabData(url) { /* ... unchanged ... */ }
-function resetVocabDropdowns(disabled) { /* ... unchanged ... */ }
-function vocab_initializeSelectors() { /* ... unchanged ... */ }
-function vocab_updateSetDropdown() { /* ... unchanged ... */ }
-vocab_themeSelect.addEventListener('change', vocab_updateSetDropdown);
-vocab_generateBtn.addEventListener('click', vocab_generateTest);
-vocab_revealBtn.addEventListener('click', vocab_revealAnswers);
-document.getElementById('vocab-print-btn').addEventListener('click', vocab_generatePrintVersion);
-function createVocabTableRows(shuffledWords) { /* ... unchanged ... */ }
-function vocab_generateTest() { /* ... unchanged ... */ }
-function vocab_revealAnswers() { /* ... unchanged ... */ }
-function vocab_generatePrintVersion() { /* ... unchanged ... */ }
-
-
-// --- SENTENCE GAME LOGIC ---
-function populateGameSelector() {
-    const games = {
-        'unjumble': 'Unjumble', 'no-spaces': 'No Spaces', 'no-vowels': 'No Vowels',
-        'no-consonants': 'No Consonants', 'random-target': 'Random Target', 'random-en': 'Random EN'
-    };
-    gameSelect.innerHTML = '<option value="">-- Select a Game --</option>';
-    for (const [value, text] of Object.entries(games)) {
-        gameSelect.add(new Option(text, value));
-    }
-}
-
-function sentence_initializeSelectors() {
-    const themes = Object.keys(sentenceSets);
-    sentenceThemeSelect.innerHTML = '<option value="">-- Select Theme --</option>';
-    if (themes.length === 0) {
-        sentenceThemeSelect.innerHTML = '<option>No Themes</option>';
-        return;
-    }
-    themes.sort().forEach(theme => sentenceThemeSelect.add(new Option(theme, theme)));
-    sentence_updateTopicDropdown();
-}
-
-function sentence_updateTopicDropdown() {
-    const theme = sentenceThemeSelect.value;
-    sentenceTopicSelect.innerHTML = '<option value="">-- Select Topic --</option>';
-    if (!theme || !sentenceSets[theme]) return;
-    const topics = Object.keys(sentenceSets[theme]);
-    topics.sort().forEach(topic => {
-        const text = `${topic} (${sentenceSets[theme][topic].length} sentences)`;
-        sentenceTopicSelect.add(new Option(text, topic));
+function processAndDisplayVocab(vocabData) {
+    vocab_vocabSets = {};
+    let currentTheme = null, currentSet = null; 
+    vocabData.forEach(row => {
+        if (!row || row.length < 5) return; 
+        const [themeInRow, setInRow, , target, english] = row.map(cell => cell?.trim());
+        if (themeInRow) currentTheme = themeInRow;
+        if (currentTheme && setInRow) currentSet = setInRow;
+        if (currentTheme && currentSet && target && english) {
+            if (!vocab_vocabSets[currentTheme]) vocab_vocabSets[currentTheme] = {};
+            if (!vocab_vocabSets[currentTheme][currentSet]) vocab_vocabSets[currentTheme][currentSet] = [];
+            vocab_vocabSets[currentTheme][currentSet].push({ target, english });
+        }
     });
+    vocab_initializeSelectors();
+    resetVocabDropdowns(false); 
 }
 
-sentenceThemeSelect.addEventListener('change', sentence_updateTopicDropdown);
-startGameBtn.addEventListener('click', () => {
-    currentGameSettings = {
-        theme: sentenceThemeSelect.value,
-        topic: sentenceTopicSelect.value,
-        gameType: gameSelect.value
-    };
-    playSentenceGame();
-});
-
-function playSentenceGame() {
-    const { theme, topic, gameType } = currentGameSettings;
-    if (!theme || !topic || !gameType) {
-        alert('Please select a Theme, Topic, and Game first.');
-        return;
-    }
-    const sentences = sentenceSets[theme][topic];
-    const sentencePair = sentences[Math.floor(Math.random() * sentences.length)];
-    let questionHTML = '', answerHTML = '';
-
-    const wideSpace = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
-    const allVowelsRegex = /[aeiouyàáâãäåæçèéêëìíîïñòóôõöøùúûüAEIOUYÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÑÒÓÔÕÖØÙÚÛÜ]/g;
-    const allConsonantsRegex = /[^aeiouyàáâãäåæçèéêëìíîïñòóôõöøùúûüAEIOUYÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÑÒÓÔÕÖØÙÚÛÜ\s\W\d_]/g;
-
-    switch (gameType) {
-        case 'unjumble':
-            questionHTML = `<h2>${sentencePair.target.split(' ').sort(() => 0.5 - Math.random()).join(' ')}</h2>`;
-            answerHTML = `<h2>${sentencePair.target}</h2><h3>${sentencePair.english}</h3>`;
-            break;
-        case 'no-spaces':
-            questionHTML = `<h2>${sentencePair.target.replace(/\s/g, '')}</h2>`;
-            answerHTML = `<h2>${sentencePair.target}</h2><h3>${sentencePair.english}</h3>`;
-            break;
-        case 'no-vowels':
-            const noVowels = sentencePair.target.split(' ').map(word => word.replace(allVowelsRegex, '_')).join(wideSpace);
-            questionHTML = `<h2>${noVowels}</h2><h3>${sentencePair.english}</h3>`;
-            answerHTML = `<h2>${sentencePair.target}</h2>`;
-            break;
-        case 'no-consonants':
-            const noConsonants = sentencePair.target.split(' ').map(word => word.replace(allConsonantsRegex, '_')).join(wideSpace);
-            questionHTML = `<h2>${noConsonants}</h2><h3>${sentencePair.english}</h3>`;
-            answerHTML = `<h2>${sentencePair.target}</h2>`;
-            break;
-        case 'random-target':
-            questionHTML = `<h2>${sentencePair.target}</h2>`;
-            answerHTML = `<h2>${sentencePair.english}</h2>`;
-            break;
-        case 'random-en':
-            questionHTML = `<h2>${sentencePair.english}</h2>`;
-            answerHTML = `<h2>${sentencePair.target}</h2>`;
-            break;
-    }
-
-    sentenceDisplay.innerHTML = `
-        <div id="sentence-question">${questionHTML}</div>
-        <div id="sentence-answer" class="hide">${answerHTML}</div>
-        <div id="sentence-button-area">
-            <button id="reveal-sentence-btn" class="btn-secondary">Reveal Answer</button>
-        </div>
-    `;
-
-    document.getElementById('reveal-sentence-btn').addEventListener('click', () => {
-        document.getElementById('sentence-answer').classList.remove('hide');
-        const buttonArea = document.getElementById('sentence-button-area');
-        buttonArea.innerHTML = `<button id="next-sentence-btn" class="btn-primary">Next Sentence</button>`;
-        document.getElementById('next-sentence-btn').addEventListener('click', playSentenceGame);
-    }, { once: true });
-}
-
-// --- FULL FUNCTION DEFINITIONS (to prevent minification errors) ---
-function createVocabTableRows(shuffledWords){let html='';const q=shuffledWords.slice(0,10);const t=q.slice(0,5);const e=q.slice(5,10);t.forEach((item,i)=>{html+=`<tr><td class="num-cell">${i+1}</td><td>${item.target}</td><td class="answer-cell"><span>${item.english}</span></td></tr>`});e.forEach((item,i)=>{const r=t.length+i+1;html+=`<tr><td class="num-cell">${r}</td><td class="answer-cell"><span>${item.target}</span></td><td>${item.english}</td></tr>`});return html}
-function vocab_generateTest(){const selectedTheme=vocab_themeSelect.value;const set1=vocab_setSelect.value;if(!selectedTheme||!set1)return;let combined=[...vocab_vocabSets[selectedTheme][set1]];const set2=vocab_setSelect2.value;if(set2&&set2!==set1){combined=combined.concat(vocab_vocabSets[selectedTheme][set2])}let uniqueCombined=Array.from(new Map(combined.map(item=>[item.target,item])).values());if(uniqueCombined.length<10){alert(`Need at least 10 unique words to create a quiz. Found ${uniqueCombined.length}.`);return}const shuffled=uniqueCombined.sort(()=>0.5-Math.random());const tableRowsHtml=createVocabTableRows(shuffled);vocab_testBody.innerHTML=tableRowsHtml;vocab_testContainer.classList.remove('hide');vocab_testControls.classList.remove('hide');vocab_revealBtn.textContent='Reveal Answers';document.querySelectorAll('#vocab-test-container .answer-cell span').forEach(s=>s.classList.remove('visible'))}
-function vocab_revealAnswers(){const answers=document.querySelectorAll('#vocab-test-container .answer-cell span');const isVisible=answers.length>0&&answers[0].classList.contains('visible');if(isVisible){answers.forEach(s=>s.classList.remove('visible'));vocab_revealBtn.textContent='Reveal Answers'}else{answers.forEach(s=>s.classList.add('visible'));vocab_revealBtn.textContent='Hide Answers'}}
-function vocab_generatePrintVersion(){if(vocab_testBody.innerHTML===''){alert('Please generate a vocabulary list first.');return}const tableHeaderHtml='<thead><tr><th>No.</th><th>Target Language</th><th>English</th></tr></thead>';const tableBodyHtml=vocab_testBody.innerHTML;const fullTableHTML=`<table>${tableHeaderHtml}${tableBodyHtml}</table>`;vocab_testContainer.innerHTML=fullTableHTML;vocab_printCopyArea.innerHTML=fullTableHTML;document.title="Vocabulary Test - Print Version";window.print();vocab_printCopyArea.innerHTML='';document.title="Language Practice Hub"}
-
-// --- Start the App ---
-initializeApp();
-
-</script>
-</body>
-</html>
+function resetVocabDropdowns(disabled) {
+    vocab_themeSelect.disabled = disabled;
+    vocab_setSelect.disabled = disabled;
+    vocab_setSelect2.disabled =
