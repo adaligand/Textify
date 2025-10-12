@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Languaged Hub</title>
+  <title>MFL Starters Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     body {
@@ -208,7 +208,6 @@
       padding: 12px;
       text-align: left;
     }
-    /* **KEY FIX**: Center all table headers */
     #vocab-test-container th {
         text-align: center;
     }
@@ -258,6 +257,25 @@
     #sentence-question h2.gapped-text {
         word-spacing: 0.5em;
     }
+.gapped-text span.underscore {
+  display: inline-block;
+  width: 0.55em;          /* roughly matches width of a regular glyph */
+  margin-right: 0.05em;   /* adds a natural inter-letter gap */
+  letter-spacing: 0;      /* reset letter spacing for balance */
+  text-align: center;
+}
+.gapped-text {
+  font-family: monospace;
+  letter-spacing: 0.05em;
+  word-spacing: 0;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: keep-all;   /* 🔒 keeps each word together */
+}
+.gapped-text span.word {
+  white-space: nowrap;    /* 🔒 ensures the whole word stays on one line */
+  display: inline-block;
+}
     #sentence-answer h2 {
         color: #27ae60;
         font-weight: bold;
@@ -331,8 +349,7 @@
             padding: 4px 6px; 
             vertical-align: top;
         }
-        
-        /* This rule now inherits the centered text from the main style */
+
         #vocab-test-container th:first-child, #vocab-print-copy-area th:first-child {
             width: 40px; 
         }
@@ -346,13 +363,13 @@
 <body>
 <div class="container">
   <div id="main-menu">
-    <h1>Language Practice Hub</h1>
+    <h1>ADG starter Hub</h1>
     <p>Please choose an activity</p>
     <div class="menu-buttons">
       <button id="reading-btn" class="menu-button">Reading Practice</button>
       <button id="listening-btn" class="menu-button">Listening Practice</button>
       <button id="vocab-btn" class="menu-button">Vocabulary Test</button>
-      <button id="sentence-btn" class="menu-button">Sentence Practice</button>
+      <button id="sentence-btn" class="menu-button">Sentence Games</button>
     </div>
   </div>
 
@@ -631,17 +648,93 @@ async function initializeApp() {
 // --- Practice Section Logic ---
 practice_topicSelect.addEventListener('change', () => { stopMedia(); practice_populateQuestions(); });
 practice_generateBtn.addEventListener('click', practice_generateQuestion);
-function practice_populateTopics() { /* ... unchanged ... */ }
-function practice_populateQuestions() { /* ... unchanged ... */ }
-function practice_generateQuestion() { /* ... unchanged ... */ }
-
+function practice_populateTopics() {
+    const selectedType = currentPracticeTypeInput.value;
+    const themes = [...new Set(practice_allQuestions
+        .filter(q => q.Skill && q.Skill.trim() === selectedType)
+        .map(q => q.Theme))]; 
+    practice_topicSelect.innerHTML = '<option value="">-- Select Theme --</option>'; 
+    if (themes.length === 0) {
+        practice_topicSelect.innerHTML = `<option>No Themes Available</option>`;
+        practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
+        return;
+    }
+    themes.sort().forEach(theme => {
+        if (theme) { 
+            const opt = document.createElement('option');
+            opt.value = theme;
+            opt.textContent = theme;
+            practice_topicSelect.appendChild(opt);
+        }
+    });
+    practice_populateQuestions();
+}
+function practice_populateQuestions() {
+    const selectedTheme = practice_topicSelect.value;
+    const selectedType = currentPracticeTypeInput.value;
+    practice_questionSelect.innerHTML = '';
+    if (!selectedTheme) {
+        practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
+        return;
+    }
+    const questions = practice_allQuestions.filter(q => 
+        q.Skill && q.Skill.trim() === selectedType && q.Theme === selectedTheme
+    );
+    if (questions.length === 0) {
+        practice_questionSelect.innerHTML = `<option>No Questions Available</option>`;
+        return;
+    }
+    questions.forEach((q, index) => {
+        const opt = document.createElement('option');
+        opt.value = q.Content; 
+        opt.textContent = q.Question; 
+        practice_questionSelect.appendChild(opt);
+    });
+}
+function practice_generateQuestion() {
+    const selectedContentUrl = practice_questionSelect.value;
+    if (!selectedContentUrl || selectedContentUrl.includes('Select a Theme') || selectedContentUrl.includes('No Questions')) {
+        practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question from the list.</p>`;
+        return;
+    }
+    const q = practice_allQuestions.find(item => item.Content === selectedContentUrl);
+    if (!q) {
+        practice_questionDisplay.innerHTML = `<p>Error: Content not found.</p>`;
+        return;
+    }
+    fullscreenBtn.classList.add('hide');
+    fullscreenBtn.onclick = null;
+    let contentHtml = q.Content;
+    const originalUrl = q.Content;
+    if (originalUrl && originalUrl.includes('google.com/presentation')) {
+        const fileIdMatch = originalUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        const slideIdMatch = originalUrl.match(/[?#]slide=id\.([a-zA-Z0-9_.-]+)/);
+        if (fileIdMatch) {
+            const fileId = fileIdMatch[1];
+            let embedUrl, presentUrl;
+            if (slideIdMatch) {
+                const slideId = `id.${slideIdMatch[1]}`;
+                embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false&slide=${slideId}`;
+                presentUrl = `https://docs.google.com/presentation/d/${fileId}/present#slide=${slideId}`;
+            } else {
+                embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false`;
+                presentUrl = `https://docs.google.com/presentation/d/${fileId}/present`;
+            }
+            contentHtml = `<iframe src="${embedUrl}" allowfullscreen></iframe>`;
+            fullscreenBtn.classList.remove('hide');
+            fullscreenBtn.onclick = () => { window.open(presentUrl, '_blank'); };
+        }
+    }
+    practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
+}
 // --- Vocabulary Section Logic ---
 function populateClassSelector() {
     const classOrder = ['Y9 French', 'GCSE French', 'AS French', 'A2 French', 'Y9 German', 'GCSE German'];
     classSelect.innerHTML = '<option value="">-- Select a Class --</option>';
     classOrder.forEach((name, index) => {
         if (vocabSpreadsheetUrls[name]) {
-            classSelect.add(new Option(`${index + 1}- ${name}`, name));
+            const optionText = `${index + 1}- ${name}`;
+            classSelect.add(new Option(optionText, name));
         }
     });
 }
@@ -672,17 +765,105 @@ function processAndDisplayVocab(vocabData) {
     vocab_initializeSelectors();
     resetVocabDropdowns(false); 
 }
-function resetVocabDropdowns(disabled) { /* ... unchanged ... */ }
-function vocab_initializeSelectors() { /* ... unchanged ... */ }
-function vocab_updateSetDropdown() { /* ... unchanged ... */ }
+function resetVocabDropdowns(disabled) {
+    vocab_themeSelect.disabled = disabled;
+    vocab_setSelect.disabled = disabled;
+    vocab_setSelect2.disabled = disabled;
+    if (disabled) {
+        vocab_themeSelect.innerHTML = '<option>Select Class first</option>';
+        vocab_setSelect.innerHTML = '';
+        vocab_setSelect2.innerHTML = '';
+    }
+}
+function vocab_initializeSelectors() {
+    const themes = Object.keys(vocab_vocabSets);
+    vocab_themeSelect.innerHTML = '<option value="">-- Select Theme --</option>';
+    if (themes.length === 0) {
+        vocab_themeSelect.innerHTML = `<option>No Themes Loaded</option>`;
+        return;
+    }
+    themes.sort().forEach(theme => vocab_themeSelect.add(new Option(theme, theme)));
+    if (themes.length > 0) vocab_themeSelect.value = themes.sort()[0];
+    vocab_updateSetDropdown();
+}
+function vocab_updateSetDropdown() {
+    const theme = vocab_themeSelect.value;
+    vocab_setSelect.innerHTML = '<option value="">-- Select Set --</option>';
+    vocab_setSelect2.innerHTML = '<option value="">-- None --</option>';
+    if (!theme || !vocab_vocabSets[theme]) return;
+    const sets = Object.keys(vocab_vocabSets[theme]);
+    sets.sort().forEach(setName => {
+        const text = `${setName} (${vocab_vocabSets[theme][setName].length} words)`;
+        vocab_setSelect.add(new Option(text, setName));
+        vocab_setSelect2.add(new Option(text, setName));
+    });
+}
 vocab_themeSelect.addEventListener('change', vocab_updateSetDropdown);
 vocab_generateBtn.addEventListener('click', vocab_generateTest);
 vocab_revealBtn.addEventListener('click', vocab_revealAnswers);
 document.getElementById('vocab-print-btn').addEventListener('click', vocab_generatePrintVersion);
-function createVocabTableRows(shuffledWords) { /* ... unchanged ... */ }
-function vocab_generateTest() { /* ... unchanged ... */ }
-function vocab_revealAnswers() { /* ... unchanged ... */ }
-function vocab_generatePrintVersion() { /* ... unchanged ... */ }
+function createVocabTableRows(shuffledWords) {
+    let html = '';
+    const quizItems = shuffledWords.slice(0, 10);
+    const targetFirstQuestions = quizItems.slice(0, 5);
+    const englishFirstQuestions = quizItems.slice(5, 10);
+    targetFirstQuestions.forEach((item, i) => {
+        html += `<tr><td class="num-cell">${i + 1}</td><td>${item.target}</td><td class="answer-cell"><span>${item.english}</span></td></tr>`;
+    });
+    englishFirstQuestions.forEach((item, i) => {
+        const rowNumber = targetFirstQuestions.length + i + 1; 
+        html += `<tr><td class="num-cell">${rowNumber}</td><td class="answer-cell"><span>${item.target}</span></td><td>${item.english}</td></tr>`;
+    });
+    return html;
+}
+function vocab_generateTest() {
+    const selectedTheme = vocab_themeSelect.value;
+    const set1 = vocab_setSelect.value;
+    if (!selectedTheme || !set1) return;
+    let combined = [...vocab_vocabSets[selectedTheme][set1]];
+    const set2 = vocab_setSelect2.value;
+    if (set2 && set2 !== set1) {
+        combined = combined.concat(vocab_vocabSets[selectedTheme][set2]);
+    }
+    let uniqueCombined = Array.from(new Map(combined.map(item => [item.target, item])).values());
+    if (uniqueCombined.length < 10) {
+        alert(`Need at least 10 unique words to create a quiz. Found ${uniqueCombined.length}.`);
+        return;
+    }
+    const shuffled = uniqueCombined.sort(() => 0.5 - Math.random());
+    const tableRowsHtml = createVocabTableRows(shuffled);
+    vocab_testBody.innerHTML = tableRowsHtml;
+    vocab_testContainer.classList.remove('hide');
+    vocab_testControls.classList.remove('hide');
+    vocab_revealBtn.textContent = 'Reveal Answers';
+    document.querySelectorAll('#vocab-test-container .answer-cell span').forEach(s => s.classList.remove('visible'));
+}
+function vocab_revealAnswers() {
+    const answers = document.querySelectorAll('#vocab-test-container .answer-cell span');
+    const isVisible = answers.length > 0 && answers[0].classList.contains('visible');
+    if (isVisible) {
+        answers.forEach(s => s.classList.remove('visible'));
+        vocab_revealBtn.textContent = 'Reveal Answers';
+    } else {
+        answers.forEach(s => s.classList.add('visible'));
+        vocab_revealBtn.textContent = 'Hide Answers';
+    }
+}
+function vocab_generatePrintVersion() {
+    if (vocab_testBody.innerHTML === '') {
+        alert('Please generate a vocabulary list first.');
+        return;
+    }
+    const tableHeaderHtml = '<thead><tr><th>No.</th><th>Target Language</th><th>English</th></tr></thead>';
+    const tableBodyHtml = vocab_testBody.innerHTML;
+    const fullTableHTML = `<table>${tableHeaderHtml}${tableBodyHtml}</table>`;
+    vocab_testContainer.innerHTML = fullTableHTML;
+    vocab_printCopyArea.innerHTML = fullTableHTML;
+    document.title = "Vocabulary Test - Print Version";
+    window.print();
+    vocab_printCopyArea.innerHTML = '';
+    document.title = "Language Practice Hub";
+}
 
 // --- SENTENCE GAME LOGIC ---
 function populateSentenceClassSelector() {
@@ -774,20 +955,28 @@ function playSentenceGame() {
             questionHTML = `<h2>${sentencePair.target.replace(/\s/g, '')}</h2>`;
             answerHTML = `<h2>${sentencePair.target}</h2><h3>${sentencePair.english}</h3>`;
             break;
-        case 'no-vowels':
-            const noVowels = sentencePair.target.split(' ').map(word => 
-                word.replace(allVowelsRegex, '_').replace(/_+/g, match => match.split('').join(' '))
-            ).join(' ');
-            questionHTML = `<h2 class="gapped-text">${noVowels}</h2><h3>${sentencePair.english}</h3>`;
-            answerHTML = `<h2>${sentencePair.target}</h2>`;
-            break;
-        case 'no-consonants':
-            const noConsonants = sentencePair.target.split(' ').map(word => 
-                word.replace(allConsonantsRegex, '_').replace(/_+/g, match => match.split('').join(' '))
-            ).join(' ');
-            questionHTML = `<h2 class="gapped-text">${noConsonants}</h2><h3>${sentencePair.english}</h3>`;
-            answerHTML = `<h2>${sentencePair.target}</h2>`;
-            break;
+case 'no-vowels':
+  const noVowels = sentencePair.target
+    .split(' ')
+    .map(word =>
+      `<span class="word">${word.replace(allVowelsRegex, '<span class="underscore">_</span>')}</span>`
+    )
+    .join(' ');
+  questionHTML = `<h2 class="gapped-text">${noVowels}</h2><h3>${sentencePair.english}</h3>`;
+  answerHTML = `<h2>${sentencePair.target}</h2>`;
+  break;
+
+case 'no-consonants':
+  const noConsonants = sentencePair.target
+    .split(' ')
+    .map(word =>
+      `<span class="word">${word.replace(allConsonantsRegex, '<span class="underscore">_</span>')}</span>`
+    )
+    .join(' ');
+  questionHTML = `<h2 class="gapped-text">${noConsonants}</h2><h3>${sentencePair.english}</h3>`;
+  answerHTML = `<h2>${sentencePair.target}</h2>`;
+  break;
+
         case 'random-target':
             questionHTML = `<h2>${sentencePair.target}</h2>`;
             answerHTML = `<h2>${sentencePair.english}</h2>`;
@@ -807,7 +996,12 @@ function playSentenceGame() {
     `;
 
     document.getElementById('reveal-sentence-btn').addEventListener('click', () => {
-        document.getElementById('sentence-answer').classList.remove('hide');
+        const isGappedGame = gameType === 'no-vowels' || gameType === 'no-consonants';
+        if (isGappedGame) {
+            document.querySelector('#sentence-question h2').innerHTML = sentencePair.target;
+        } else {
+            document.getElementById('sentence-answer').classList.remove('hide');
+        }
         const buttonArea = document.getElementById('sentence-button-area');
         buttonArea.innerHTML = `<button id="next-sentence-btn" class="btn-primary">Next Sentence</button>`;
         document.getElementById('next-sentence-btn').addEventListener('click', playSentenceGame);
@@ -832,8 +1026,6 @@ function vocab_updateSetDropdown(){const theme=vocab_themeSelect.value;vocab_set
 
 // --- Start the App ---
 initializeApp();
-
 </script>
 </body>
 </html>
-
