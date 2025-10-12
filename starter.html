@@ -111,7 +111,7 @@
       border: none;
     }
 
-    /* --- VOCAB CLASS SELECTION --- (New styles merged from standalone code)*/
+    /* --- VOCAB CLASS SELECTION --- */
     #vocab-selection-screen {
         display: flex;
         flex-wrap: wrap;
@@ -122,12 +122,12 @@
     .selection-tile {
         flex: 0 0 45%; 
         min-width: 300px;
-        background-color: #4b2a65; /* Darker purple for hub integration */
+        background-color: #4b2a65; 
         color: white;
         padding: 40px 20px;
         border-radius: 15px;
         text-align: center;
-        font-size: 1.5em; /* Slightly smaller than standalone */
+        font-size: 1.5em; 
         font-weight: bold;
         cursor: pointer;
         transition: background-color 0.2s, transform 0.2s, box-shadow 0.2s;
@@ -183,8 +183,11 @@
     /* --- PRINT --- */
     @media print {
         @page { size: A4 landscape; margin: 1cm; }
-        .container, #main-menu, #practice-section, #vocab-controls-panel { display: none !important; }
-        
+        
+        /* Hide everything not in the vocab section when printing a vocab test */
+        .container > :not(#vocab-section) { display: none !important; }
+
+        /* Make vocab section visible and reset its padding/margin */
         #vocab-section { 
             display: block !important; 
             position: absolute; 
@@ -194,6 +197,11 @@
             padding: 0; 
             margin: 0;
         }
+
+        /* Hide screen-specific controls and tables */
+        #vocab-title, #vocab-test-wrapper .vocab-controls-panel, #vocab-test-container {
+            display: none !important;
+        }
 
         /* Use the print-area element for the print content */
         #vocab-print-area {
@@ -300,7 +308,7 @@
                         <button id="vocab-reveal-btn" class="btn-primary">Reveal Answers</button>
                         <button id="vocab-print-btn" class="btn-primary">🖨️ Print Test</button>
                     </div>
-                    <button id="vocab-back-btn" class="btn-primary">Back to Class Select</button>
+                    <button id="vocab-back-btn" class="btn-secondary">Back to Class Select</button>
                 </div>
             </div>
       </div>
@@ -309,7 +317,7 @@
 
 <script>
 // --- CONFIGURATION: SPREADSHEET URLs ---
-// These are the 6 vocab spreadsheet URLs that define your "classes"
+// These define your "classes" and the source data.
 const spreadsheetUrls = {
     'Y9 French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRnDLxwYIiKui39_UjS66eQtrFttct-nEpnEcD06p15Bm9iNpxdFihDfj6BxggMLLukIyJ72SeF_EEM/pub?output=csv', 
     'GCSE French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSCNeq329ih6SxLZ2TowPzpk61gJLFy-UAVAb8ivBs9DNEOdmtRQ29bWh__n53MdE-C8hs_XOV3iIkT/pub?output=csv', 
@@ -319,14 +327,12 @@ const spreadsheetUrls = {
     'GCSE German': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTlddh1-sO5-s5CPJt_a1H1ltX9orRCFvosUPVBJIqjxXc0nB3c4-f19sUNF5s6lIof7TnBIevleWJA/pub?output=csv'
 };
 
-
-// --- Hub URLs and Global Variables (Keeping practice sheet)---
+// Practice Hub Spreadsheet URL (Unchanged)
 const practiceSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRvNFlHDx-4cZbDzwKy5Yb_DKeSxS2wSXxyX1Ua6pGcf27yFjmqOPz9jQ_rzoV3-zoZI9lw4EIfmdXH/pub?output=csv";
 let practice_allQuestions = [];
 
 // Vocab Globals
-let vocab_vocabSets = {}; // Structure: { 'Topic Name': { 'Set Number': [{target: 'x', english: 'y'}, ...] } }
-let vocab_currentSheetUrl = null; 
+let vocab_vocabSets = {}; 
 let vocab_currentQuizType = null;
 
 
@@ -337,9 +343,9 @@ const vocabSection = document.getElementById('vocab-section');
 const readingBtn = document.getElementById('reading-btn');
 const listeningBtn = document.getElementById('listening-btn');
 const vocabBtn = document.getElementById('vocab-btn');
-const currentPracticeTypeInput = document.getElementById('current-practice-type');
 
-// Practice Section Refs
+// Practice Section Refs (partial list for brevity)
+const currentPracticeTypeInput = document.getElementById('current-practice-type');
 const practice_topicSelect = document.getElementById('topic-select'); 
 const practice_questionSelect = document.getElementById('question-select'); 
 const practice_generateBtn = document.getElementById('generate-practice-btn');
@@ -366,13 +372,7 @@ const vocab_printArea = document.getElementById('vocab-print-area');
 const vocab_backBtn = document.getElementById('vocab-back-btn');
 
 
-// --- Navigation ---
-readingBtn.addEventListener('click', () => showPractice('Reading'));
-listeningBtn.addEventListener('click', () => showPractice('Listening'));
-vocabBtn.addEventListener('click', showVocabSelect);
-document.querySelectorAll('.back-btn').forEach(btn => btn.addEventListener('click', showMainMenu));
-vocab_backBtn.addEventListener('click', showVocabSelect); // Navigate back to the Class selection screen
-
+// --- Navigation Functions ---
 
 function showMainMenu() {
     mainMenu.classList.remove('hide');
@@ -389,7 +389,6 @@ function showPractice(type) {
     practice_populateTopics();
 }
 
-// NEW FUNCTION: Show the Class Selection Screen
 function showVocabSelect() {
     mainMenu.classList.add('hide');
     practiceSection.classList.add('hide');
@@ -403,10 +402,8 @@ function showVocabSelect() {
     vocab_testControls.classList.add('hide');
 }
 
-// Function to handle the class selection click and start the quiz loading
 function startVocabQuiz(quizType, url) {
     vocab_currentQuizType = quizType;
-    vocab_currentSheetUrl = url;
     
     // Hide selection, show quiz wrapper
     vocab_selectionScreen.classList.add('hide');
@@ -427,7 +424,16 @@ function startVocabQuiz(quizType, url) {
 }
 
 
-// --- Data Loading ---
+// --- Event Listeners for Navigation ---
+readingBtn.addEventListener('click', () => showPractice('Reading'));
+listeningBtn.addEventListener('click', () => showPractice('Listening'));
+vocabBtn.addEventListener('click', showVocabSelect);
+document.querySelectorAll('.back-btn').forEach(btn => btn.addEventListener('click', showMainMenu));
+vocab_backBtn.addEventListener('click', showVocabSelect); // Navigate back to the Class selection screen
+
+
+// --- Core Data Loading Functions ---
+
 function loadData(url, options) {
     return new Promise((resolve, reject) => {
         Papa.parse(url, {
@@ -440,7 +446,6 @@ function loadData(url, options) {
     });
 }
 
-// Standalone Vocab's loadVocabData logic (adapted)
 function loadVocabData(url) {
     Papa.parse(url, {
         download: true, header: false, skipEmptyLines: true,
@@ -485,7 +490,6 @@ function loadVocabData(url) {
         },
         error: () => { 
             vocab_loadingMessage.textContent = `⚠️ Failed to load spreadsheet for ${vocab_currentQuizType}. Check the URL and public sharing settings.`;
-            // If load fails, give an easy way to go back to class select
             vocab_backBtn.textContent = 'Go Back to Class Select'; 
         }
     });
@@ -510,7 +514,7 @@ async function initializeApp() {
 
         // Populate the initial Vocab Class selection tiles
         const vocabSelectionContainer = document.getElementById('vocab-selection-screen');
-        vocabSelectionContainer.innerHTML = ''; // Clear the initial content (if any)
+        vocabSelectionContainer.innerHTML = ''; 
         Object.keys(spreadsheetUrls).forEach(className => {
             const tile = document.createElement('div');
             tile.className = 'selection-tile';
@@ -529,7 +533,7 @@ async function initializeApp() {
         readingBtn.disabled = false;
         listeningBtn.disabled = false;
         vocabBtn.disabled = false;
-        readingBtn.textContent = 'Reading Practice';
+        readingBtn.textContent = 'Reading Practice'; // Reset text
 
     } catch (error) {
         console.error("Failed to load spreadsheet data:", error);
@@ -537,7 +541,7 @@ async function initializeApp() {
     }
 }
 
-// --- Practice Section Logic (Remains unchanged) ---
+// --- Practice Section Logic (Unchanged for brevity) ---
 practice_topicSelect.addEventListener('change', practice_populateQuestions);
 practice_generateBtn.addEventListener('click', practice_generateQuestion);
 
@@ -639,7 +643,7 @@ function practice_generateQuestion() {
     practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
 }
 
-// --- Vocabulary Section Logic (MODIFIED to use standalone code's functions) ---
+// --- Vocabulary Section Logic ---
 
 function vocab_initializeSelectors() {
     const topicNames = Object.keys(vocab_vocabSets);
@@ -751,6 +755,7 @@ function vocab_generateTest() {
     const tableBodyHTML = onScreenTable.querySelector('tbody').innerHTML;
     const fullTableHTML = `<table>${tableHeaderHTML}${tableBodyHTML}</table>`;
 
+    // Insert two copies into the print area. Print CSS handles hiding answers and layout.
     vocab_printArea.innerHTML = `
         <div class="print-table-wrapper">${fullTableHTML}</div>
         <div class="print-table-wrapper">${fullTableHTML}</div>
@@ -780,7 +785,7 @@ function vocab_generatePrintVersion() {
 }
 
 
-// --- Start the App ---
+// --- Start the App on Load ---
 initializeApp();
 
 </script>
