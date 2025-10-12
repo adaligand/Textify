@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Language cHub</title>
+  <title>Language Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     body {
@@ -306,7 +306,6 @@
     </div>
   </div>
 </div>
-
 <script>
 // --- URLs and Global Variables ---
 const practiceSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRvNFlHDx-4cZbDzwKy5Yb_DKeSxS2wSXxyX1Ua6pGcf27yFjmqOPz9jQ_rzoV3-zoZI9lw4EIfmdXH/pub?output=csv";
@@ -399,50 +398,43 @@ async function initializeApp() {
             Content: q.Content
         })).filter(q => q.Skill && q.Theme && q.Content);
 
-
+        // --- VOCAB PARSING FIX ---
         vocab_vocabSets = {};
         let currentTheme = null; 
-        let currentKey = null;
-        let currentWords = [];
+        let currentSet = null; 
 
+        // The CSV structure uses an initial row for Theme (Col 0) and Set (Col 1), 
+        // then subsequent rows for words (Col 3, Col 4).
         vocabData.forEach(row => {
             if (!row || row.length < 5) return; 
 
             const themeInRow = row[0]?.trim();
-            const set = row[1]?.trim();
+            const setInRow = row[1]?.trim();
             const target = row[3]?.trim();
             const english = row[4]?.trim();
 
+            // 1. Update currentTheme if a new one is found in column A
             if (themeInRow) {
                 currentTheme = themeInRow;
+                // If a new theme starts, the set must also be defined in this row
+                if (setInRow) {
+                    currentSet = setInRow;
+                }
+            } else if (setInRow) {
+                // 2. Update currentSet if a new one is found in column B (and Theme is established)
+                currentSet = setInRow;
             }
 
-            if (currentTheme && set && !target && !english) { // Check for Theme/Set row without word data
-                 if (currentKey && currentWords.length > 0) {
-                     vocab_vocabSets[currentKey] = currentWords;
-                 }
-                 currentKey = `${currentTheme}.${set}`;
-                 currentWords = [];
-            } else if (currentTheme && set && target && english) { // Handle the first word in a set/theme block
-                 if (currentKey && currentKey !== `${currentTheme}.${set}`) {
-                      if (currentWords.length > 0) {
-                         vocab_vocabSets[currentKey] = currentWords;
-                      }
-                      currentKey = `${currentTheme}.${set}`;
-                      currentWords = [];
-                 } else if (!currentKey) {
-                      currentKey = `${currentTheme}.${set}`;
-                 }
-            }
-            
-            if (currentKey && target && english) {
-                currentWords.push({ target, english });
+            // 3. Process word data if a current Theme and Set are defined, and we have the words
+            if (currentTheme && currentSet && target && english) {
+                const key = `${currentTheme}.${currentSet}`;
+                if (!vocab_vocabSets[key]) {
+                    vocab_vocabSets[key] = [];
+                }
+                vocab_vocabSets[key].push({ target, english });
             }
         });
-
-        if (currentKey && currentWords.length > 0) {
-            vocab_vocabSets[currentKey] = currentWords;
-        }
+        // --- END VOCAB PARSING FIX ---
         
         vocab_initializeSelectors();
 
@@ -457,7 +449,7 @@ async function initializeApp() {
     }
 }
 
-// --- Practice Section Logic ---
+// --- Practice Section Logic (omitted for brevity, assume unchanged) ---
 practice_topicSelect.addEventListener('change', practice_populateQuestions);
 practice_generateBtn.addEventListener('click', practice_generateQuestion);
 
@@ -573,6 +565,7 @@ function practice_generateQuestion() {
     practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
 }
 
+
 // --- Vocabulary Section Logic ---
 const vocab_themeMap = {
     '1': '1-Personal world',
@@ -584,7 +577,9 @@ const vocab_themeMap = {
 };
 
 function vocab_initializeSelectors() {
+    // Extract unique theme keys from the vocab_vocabSets
     const themes = [...new Set(Object.keys(vocab_vocabSets).map(k => k.split('.')[0]))];
+    
     vocab_themeSelect.innerHTML = '<option value="">-- Select Theme --</option>';
     themes.sort().forEach(theme => {
         const opt = document.createElement('option');
@@ -597,6 +592,7 @@ function vocab_initializeSelectors() {
 
 function vocab_updateSetDropdown() {
     const theme = vocab_themeSelect.value;
+    // Ensure the primary set select has a default option
     vocab_setSelect.innerHTML = '<option value="">-- Select Set --</option>';
     vocab_setSelect2.innerHTML = '';
     
@@ -607,7 +603,9 @@ function vocab_updateSetDropdown() {
 
     if (!theme) return;
 
-    const sets = [...new Set(Object.keys(vocab_vocabSets).filter(k => k.startsWith(theme + '.')))];
+    // Filter keys by the selected theme
+    const sets = Object.keys(vocab_vocabSets).filter(k => k.startsWith(theme + '.'));
+    
     sets.sort().forEach(setName => {
         const opt1 = document.createElement('option');
         opt1.value = setName;
@@ -670,7 +668,6 @@ function vocab_generateTest() {
     document.querySelectorAll('#vocab-test-container .answer-cell span').forEach(s => s.classList.remove('visible'));
 }
 
-// MODIFICATION 1: Toggle logic for Reveal Answers button
 function vocab_revealAnswers() {
     const answers = document.querySelectorAll('#vocab-test-container .answer-cell span');
     const isVisible = answers.length > 0 && answers[0].classList.contains('visible');
@@ -685,7 +682,6 @@ function vocab_revealAnswers() {
         vocab_revealBtn.textContent = 'Hide Answers';
     }
 }
-// END MODIFICATION 1
 
 function vocab_generatePrintVersion() {
     // Rely entirely on the @media print CSS block to control what is visible.
@@ -705,3 +701,4 @@ initializeApp();
 </script>
 </body>
 </html>
+
