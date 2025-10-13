@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Starters Hub</title>
+  <title>MFL 1Starters Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     body {
@@ -287,7 +287,7 @@
     /* --- INDEPENDENT PRINT STYLES --- */
     @media print {
         body, .container {
-            padding: 0; margin: 0;
+            padding: 0 !important; margin: 0 !important;
             background: none !important;
             box-shadow: none !important;
         }
@@ -307,16 +307,13 @@
         }
 
         /* --- Rule Set 1: VOCAB TEST Printing (RESTORED) --- */
-        @page {
-            size: A4 landscape;
-            margin: 1cm;
-        }
         .vocab-test-panel.printable-area {
+            @page { size: A4 landscape; margin: 1cm; }
             display: flex !important;
             flex-direction: row;
             justify-content: space-between;
             gap: 20px;
-            height: 95vh; /* Fill page height */
+            height: 95vh;
         }
         .vocab-test-panel.printable-area #vocab-test-container,
         .vocab-test-panel.printable-area #vocab-print-copy-area {
@@ -330,11 +327,12 @@
             height: 100%;
             border-collapse: collapse;
             font-size: 11pt;
+            table-layout: fixed;
         }
         .vocab-test-panel.printable-area th,
         .vocab-test-panel.printable-area td {
             border: 1px solid #000;
-            padding: 4px;
+            padding: 4px 6px;
             vertical-align: top;
         }
         .vocab-test-panel.printable-area .answer-cell span {
@@ -343,6 +341,7 @@
 
         /* --- Rule Set 2: DICTATION Printing --- */
         #dictation-worksheet.printable-area {
+            @page { size: A4 landscape; margin: 1cm; }
             display: flex;
             justify-content: space-between;
             gap: 20px;
@@ -481,6 +480,7 @@ let vocab_vocabSets = {};
 let sentenceSets = {};
 let currentGameSettings = {};
 let lastSentencePair = null;
+let currentVocabWords = []; // For storing words for printing
 
 // --- DOM Element References ---
 const mainMenu = document.getElementById('main-menu');
@@ -810,83 +810,74 @@ vocab_generateBtn.addEventListener('click', vocab_generateTest);
 vocab_revealBtn.addEventListener('click', vocab_revealAnswers);
 document.getElementById('vocab-print-btn').addEventListener('click', vocab_generatePrintVersion);
 
-function createVocabTableRows(shuffledWords) {
+function createVocabTableRows(words) {
     let html = '';
-    const quizItems = shuffledWords.slice(0, 10);
-    const targetFirstQuestions = quizItems.slice(0, 5);
-    const englishFirstQuestions = quizItems.slice(5, 10);
-    targetFirstQuestions.forEach((item, i) => {
+    const targetFirst = words.slice(0, 5);
+    const englishFirst = words.slice(5, 10);
+    targetFirst.forEach((item, i) => {
         html += `<tr><td class="num-cell">${i + 1}</td><td>${item.target}</td><td class="answer-cell"><span>${item.english}</span></td></tr>`;
     });
-    englishFirstQuestions.forEach((item, i) => {
-        const rowNumber = targetFirstQuestions.length + i + 1;
-        html += `<tr><td class="num-cell">${rowNumber}</td><td class="answer-cell"><span>${item.target}</span></td><td>${item.english}</td></tr>`;
+    englishFirst.forEach((item, i) => {
+        html += `<tr><td class="num-cell">${i + 6}</td><td class="answer-cell"><span>${item.target}</span></td><td>${item.english}</td></tr>`;
     });
     return html;
+}
+
+// New helper for creating a clean, non-interactive table for printing
+function createCleanVocabTableRows(words) {
+    let html = '';
+    const targetFirst = words.slice(0, 5);
+    const englishFirst = words.slice(5, 10);
+    targetFirst.forEach((item, i) => {
+        html += `<tr><td>${i + 1}</td><td>${item.target}</td><td></td></tr>`;
+    });
+    englishFirst.forEach((item, i) => {
+        html += `<tr><td>${i + 6}</td><td></td><td>${item.english}</td></tr>`;
+    });
+    return `<tbody>${html}</tbody>`;
 }
 
 function vocab_generateTest() {
     const selectedTheme = vocab_themeSelect.value;
     const set1 = vocab_setSelect.value;
     const set2 = vocab_setSelect2.value;
-
-    if (!selectedTheme) {
-        alert('Please select a theme.');
-        return;
-    }
+    if (!selectedTheme) { alert('Please select a theme.'); return; }
 
     let combined = [];
-
-    if (set1) {
-        combined = [...vocab_vocabSets[selectedTheme][set1]];
-    }
-    else {
-        const allSetsInTheme = Object.values(vocab_vocabSets[selectedTheme]);
-        combined = allSetsInTheme.flat();
-    }
-
-    if (set2 && set2 !== set1) {
-        combined = combined.concat(vocab_vocabSets[selectedTheme][set2]);
-    }
+    if (set1) { combined = [...vocab_vocabSets[selectedTheme][set1]]; }
+    else { combined = Object.values(vocab_vocabSets[selectedTheme]).flat(); }
+    if (set2 && set2 !== set1) { combined = combined.concat(vocab_vocabSets[selectedTheme][set2]); }
 
     let uniqueCombined = Array.from(new Map(combined.map(item => [item.target, item])).values());
-
-    if (uniqueCombined.length < 10) {
-        alert(`Need at least 10 unique words to create a quiz. Found ${uniqueCombined.length}.`);
-        return;
-    }
+    if (uniqueCombined.length < 10) { alert(`Need at least 10 unique words. Found ${uniqueCombined.length}.`); return; }
 
     const shuffled = uniqueCombined.sort(() => 0.5 - Math.random()).slice(0, 10);
+    currentVocabWords = shuffled; // Store for printing
 
-    const tableRowsHtml = createVocabTableRows(shuffled);
-    vocab_testBody.innerHTML = tableRowsHtml;
+    vocab_testBody.innerHTML = createVocabTableRows(currentVocabWords);
     vocab_testContainer.classList.remove('hide');
     vocab_testControls.classList.remove('hide');
     vocab_revealBtn.textContent = 'Reveal';
-    document.querySelectorAll('#vocab-test-container .answer-cell span').forEach(s => s.classList.remove('visible'));
 }
+
 function vocab_revealAnswers() {
     const answers = document.querySelectorAll('#vocab-test-container .answer-cell span');
     const isVisible = answers.length > 0 && answers[0].classList.contains('visible');
-    if (isVisible) {
-        answers.forEach(s => s.classList.remove('visible'));
-        vocab_revealBtn.textContent = 'Reveal';
-    } else {
-        answers.forEach(s => s.classList.add('visible'));
-        vocab_revealBtn.textContent = 'Hide';
-    }
+    answers.forEach(s => s.classList.toggle('visible', !isVisible));
+    vocab_revealBtn.textContent = isVisible ? 'Reveal' : 'Hide';
 }
-function vocab_generatePrintVersion() {
-    if (vocab_testBody.innerHTML === '') {
-        alert('Please generate a vocabulary list first.');
-        return;
-    }
-    const tableHeaderHtml = '<thead><tr><th>No.</th><th>Target Language</th><th>English</th></tr></thead>';
-    const tableBodyHtml = vocab_testBody.innerHTML;
-    const fullTableHTML = `<table>${tableHeaderHtml}${tableBodyHtml}</table>`;
-    vocab_testContainer.innerHTML = fullTableHTML;
-    vocab_printCopyArea.innerHTML = fullTableHTML;
 
+function vocab_generatePrintVersion() {
+    if (currentVocabWords.length < 10) { alert('Please generate a vocabulary list first.'); return; }
+    
+    const originalTableHTML = vocab_testContainer.innerHTML;
+    const headerHTML = '<table><thead><tr><th>No.</th><th>Target Language</th><th>English</th></tr></thead>';
+    const cleanBodyHTML = createCleanVocabTableRows(currentVocabWords);
+    const cleanTableHTML = `${headerHTML}${cleanBodyHTML}</table>`;
+
+    vocab_testContainer.innerHTML = cleanTableHTML;
+    vocab_printCopyArea.innerHTML = cleanTableHTML;
+    
     document.querySelectorAll('.printable-area').forEach(el => el.classList.remove('printable-area'));
     document.querySelector('.vocab-test-panel').classList.add('printable-area');
     
@@ -894,6 +885,7 @@ function vocab_generatePrintVersion() {
     window.print();
     
     document.querySelector('.vocab-test-panel').classList.remove('printable-area');
+    vocab_testContainer.innerHTML = originalTableHTML; // Restore interactive table
     vocab_printCopyArea.innerHTML = '';
     document.title = "Language Practice Hub";
 }
@@ -966,10 +958,10 @@ function sentence_initializeSelectors() {
     sentenceThemeSelect.innerHTML = '<option value="">-- Select Theme --</option>';
     if (themes.length === 0) {
         sentenceThemeSelect.innerHTML = '<option>No Themes</option>';
-        return
+        return;
     }
     themes.sort().forEach(theme => sentenceThemeSelect.add(new Option(theme, theme)));
-    sentence_updateTopicDropdown()
+    sentence_updateTopicDropdown();
 }
 function sentence_updateTopicDropdown() {
     const theme = sentenceThemeSelect.value;
@@ -979,7 +971,7 @@ function sentence_updateTopicDropdown() {
     topics.sort().forEach(topic => {
         const text = `${topic} (${sentenceSets[theme][topic].length} sentences)`;
         sentenceTopicSelect.add(new Option(text, topic))
-    })
+    });
 }
 
 // ---- Auto-start logic for sentence games ----
@@ -1007,7 +999,7 @@ function playSentenceGame() {
     const { theme, topic, gameType } = currentGameSettings;
     
     if (!theme || !topic || !gameType) {
-        return; // Exit silently if not all options are selected
+        return;
     }
 
     if (gameType === 'match-up') {
