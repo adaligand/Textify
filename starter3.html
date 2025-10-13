@@ -3,11 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL fstarter Hub</title>
+  <title>MFL starter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -273,7 +272,7 @@
     .answer-letter { color: #27ae60; font-weight: bold; width: 25px; display: inline-block; }
     .distractor-item { color: #e74c3c; opacity: 0.8; }
 
-    #dictation-worksheet, #one-pen-one-dice-worksheet { font-size: 16px; border: 1px solid #ddd; padding: 0; background: #fff; text-align: left; }
+    #dictation-worksheet, #one-pen-one-dice-worksheet { font-size: 16px; border: 1px solid #ddd; padding: 20px; background: #fff; text-align: left; }
     #dictation-worksheet h2 { font-size: 1.5em; margin-bottom: 15px; }
     #dictation-worksheet h4 { font-size: 1.1em; margin-top: 0; }
     .dictation-partner { margin-bottom: 20px; }
@@ -283,37 +282,24 @@
     .blank-line { border-bottom: 1.5px solid #333 !important; height: 2.5em; line-height: 1.2; padding-bottom: 4px !important; }
     .page-break { border: 0; border-top: 2px dashed #ccc; margin: 40px 0; }
     
-    #one-pen-one-dice-worksheet,
-#one-pen-one-dice-worksheet table,
-#one-pen-one-dice-worksheet tbody {
-    height: 100%;
-}
-
-#one-pen-one-dice-worksheet table {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-#one-pen-one-dice-worksheet tbody {
-    flex-grow: 1;
-}
-
-#one-pen-one-dice-worksheet tr {
-    display: flex;
-    width: 100%;
-    flex: 1; /* This makes rows share space equally */
-}
-
-#one-pen-one-dice-worksheet td {
-    width: 25%; /* Keep original width distribution */
-    display: flex;
-    align-items: center; /* Vertically center content */
-    justify-content: center; /* Horizontally center content */
-    text-align: center;
-    padding: 5px;
-    font-size: 1.2em; /* Use relative units for better scaling */
-}
+    #one-pen-one-dice-worksheet table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+    #one-pen-one-dice-worksheet th {
+        text-align: center;
+        font-size: 1.1em;
+        background-color: #f3f3f3;
+        padding: 8px 5px;
+        border: 1px solid #ccc;
+    }
+    #one-pen-one-dice-worksheet td {
+        width: 25%;
+        padding: 8px 5px;
+        border: 1px solid #ccc;
+        vertical-align: top;
+    }
     
     /* --- INDEPENDENT PRINT STYLES --- */
     @media print {
@@ -1283,33 +1269,54 @@ function playOnePenOneDiceGame(theme, topic) {
     sentenceDisplay.innerHTML = generateOnePenOneDiceTableHTML(player1Sentences, player2Sentences, onePenOneDiceReversed);
     onePenOneDiceControls.classList.remove('hide');
 
-document.getElementById('export-one-pen-btn').onclick = async () => {
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    document.getElementById('export-one-pen-btn').onclick = () => {
+        const headers = [
+            ['Player 1', null, 'Player 2', null],
+            ['English', 'Target Language', 'Target Language', 'English']
+        ];
+        
+        const dataRows = player1Sentences.map((p1, i) => {
+            const p2 = player2Sentences[i];
+            const p1Col1 = onePenOneDiceReversed ? p1.english : '';
+            const p1Col2 = onePenOneDiceReversed ? '' : p1.target;
+            const p2Col1 = onePenOneDiceReversed ? '' : p2.target;
+            const p2Col2 = onePenOneDiceReversed ? p2.english : '';
+            return [p1Col1, p1Col2, p2Col1, p2Col2];
+        });
 
-    const element = document.querySelector('#one-pen-one-dice-worksheet');
-    const canvas = await html2canvas(element, {
-        scale: 4, // high resolution for sharp text
-        useCORS: true
-    });
+        const ws = XLSX.utils.aoa_to_sheet(headers.concat(dataRows));
 
-    const imgData = canvas.toDataURL('image/png');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
+        const border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } };
+        const headerStyle = { font: { sz: 18, bold: true }, alignment: { horizontal: "center", vertical: "center" }, border: border };
+        const cellStyle = { font: { sz: 14 }, alignment: { vertical: "center", horizontal: "left", wrapText: true }, border: border };
 
-    const imgWidth = canvas.width;
-    const imgHeight = canvas.height;
-    const ratio = Math.min(pageWidth / imgWidth, pageHeight / imgHeight);
+        ws['!cols'] = [ { wch: 45 }, { wch: 45 }, { wch: 45 }, { wch: 45 } ];
+        ws['!rows'] = [];
 
-    const scaledWidth = imgWidth * ratio;
-    const scaledHeight = imgHeight * ratio;
-    const xOffset = (pageWidth - scaledWidth) / 2;
-    const yOffset = (pageHeight - scaledHeight) / 2;
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            if (R < 2) { ws['!rows'][R] = { hpx: 40 }; } 
+            else { ws['!rows'][R] = { hpx: 95 }; }
 
-    pdf.addImage(imgData, 'PNG', xOffset, yOffset, scaledWidth, scaledHeight);
-    pdf.save('1-pen-1-dice.pdf');
-};
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+                if (!ws[cell_ref]) continue;
 
+                ws[cell_ref].s = (R < 2) ? headerStyle : cellStyle;
+            }
+        }
+
+        ws['!merges'] = [
+            { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
+            { s: { r: 0, c: 2 }, e: { r: 0, c: 3 } }
+        ];
+        
+        ws['!pageSetup'] = { orientation: "landscape", paper: 9 }; // 9 = A4
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '1 Pen 1 Dice');
+        XLSX.writeFile(wb, '1-pen-1-dice.xlsx');
+    };
 
     document.getElementById('reverse-one-pen-btn').onclick = () => {
         onePenOneDiceReversed = !onePenOneDiceReversed;
