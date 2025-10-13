@@ -7,6 +7,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -282,26 +283,37 @@
     .blank-line { border-bottom: 1.5px solid #333 !important; height: 2.5em; line-height: 1.2; padding-bottom: 4px !important; }
     .page-break { border: 0; border-top: 2px dashed #ccc; margin: 40px 0; }
     
-    #one-pen-one-dice-worksheet table {
-        width: 100%;
-        border-collapse: collapse;
-        table-layout: fixed;
-    }
-    #one-pen-one-dice-worksheet th {
-        text-align: center;
-        font-size: 1.1em;
-        background-color: #f3f3f3;
-        padding: 8px 5px;
-        border: 1px solid #000;
-    }
-    #one-pen-one-dice-worksheet td {
-        width: 25%;
-        padding: 8px 5px;
-        border: 1px solid #000;
-        vertical-align: top;
-        word-wrap: break-word;
-        font-size: 14pt;
-    }
+    #one-pen-one-dice-worksheet,
+#one-pen-one-dice-worksheet table,
+#one-pen-one-dice-worksheet tbody {
+    height: 100%;
+}
+
+#one-pen-one-dice-worksheet table {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+#one-pen-one-dice-worksheet tbody {
+    flex-grow: 1;
+}
+
+#one-pen-one-dice-worksheet tr {
+    display: flex;
+    width: 100%;
+    flex: 1; /* This makes rows share space equally */
+}
+
+#one-pen-one-dice-worksheet td {
+    width: 25%; /* Keep original width distribution */
+    display: flex;
+    align-items: center; /* Vertically center content */
+    justify-content: center; /* Horizontally center content */
+    text-align: center;
+    padding: 5px;
+    font-size: 1.2em; /* Use relative units for better scaling */
+}
     
     /* --- INDEPENDENT PRINT STYLES --- */
     @media print {
@@ -1273,37 +1285,77 @@ function playOnePenOneDiceGame(theme, topic) {
 
     document.getElementById('export-one-pen-btn').onclick = () => {
         const { jsPDF } = window.jspdf;
-        const worksheet = document.getElementById('one-pen-one-dice-worksheet');
-        
-        html2canvas(worksheet, { scale: 3 }).then(canvas => {
-            const imgData = canvas.toDataURL('image/png');
-            const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-            
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            
-            const canvasWidth = canvas.width;
-            const canvasHeight = canvas.height;
-            const canvasAspectRatio = canvasWidth / canvasHeight;
-            const pageAspectRatio = pdfWidth / pdfHeight;
-
-            let finalWidth, finalHeight, x, y;
-
-            if (canvasAspectRatio > pageAspectRatio) {
-                finalWidth = pdfWidth;
-                finalHeight = pdfWidth / canvasAspectRatio;
-                x = 0;
-                y = (pdfHeight - finalHeight) / 2;
-            } else {
-                finalHeight = pdfHeight;
-                finalWidth = pdfHeight * canvasAspectRatio;
-                y = 0;
-                x = (pdfWidth - finalWidth) / 2;
-            }
-
-            pdf.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
-            pdf.save('1-pen-1-dice.pdf');
+        // 1. Initialize jsPDF for landscape A4
+        const pdf = new jsPDF({
+            orientation: 'landscape',
+            unit: 'mm',
+            format: 'a4'
         });
+
+        // 2. Extract headers and body data from the HTML table
+        const head = [];
+        const body = [];
+        const table = document.querySelector("#one-pen-one-dice-worksheet table");
+
+        // Get header rows
+        table.querySelectorAll("thead tr").forEach(tr => {
+            const row = [];
+            tr.querySelectorAll("th").forEach(th => {
+                row.push({
+                    content: th.innerText,
+                    colSpan: th.colSpan,
+                    styles: { halign: 'center', fontStyle: 'bold', fillColor: [243, 243, 243], textColor: [0, 0, 0] }
+                });
+            });
+            head.push(row);
+        });
+
+        // Get body rows
+        table.querySelectorAll("tbody tr").forEach(tr => {
+            const row = [];
+            tr.querySelectorAll("td").forEach(td => {
+                row.push(td.innerText);
+            });
+            body.push(row);
+        });
+        
+        // 3. Calculate minimum row height to fill the page
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const topMargin = 15; // Margin for the title
+        const bottomMargin = 10;
+        const headerHeight = (head.length * 10); // Approximate header height
+        const availableHeight = pageHeight - topMargin - bottomMargin - headerHeight;
+        const minRowHeight = availableHeight / body.length;
+
+        // 4. Generate the table using autoTable
+        pdf.autoTable({
+            head: head,
+            body: body,
+            startY: topMargin, // Start after the title
+            theme: 'grid',
+            styles: {
+                fontSize: 14,
+                cellPadding: 3,
+                valign: 'middle',
+                minCellHeight: minRowHeight // This is the key to filling the page vertically
+            },
+            headStyles: {
+                lineWidth: 0.1,
+                lineColor: [0, 0, 0]
+            },
+            bodyStyles: {
+                lineWidth: 0.1,
+                lineColor: [0, 0, 0]
+            },
+            didDrawPage: function(data) {
+              // Add a title to the page
+              pdf.setFontSize(20);
+              pdf.text("1 Pen 1 Dice Worksheet", data.settings.margin.left, 12);
+            }
+        });
+
+        // 5. Save the PDF
+        pdf.save('1-pen-1-dice.pdf');
     };
 
     document.getElementById('reverse-one-pen-btn').onclick = () => {
