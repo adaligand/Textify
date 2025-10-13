@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL starter Hub</title>
+  <title>MFL sdtarter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     body {
@@ -377,32 +377,7 @@
             color: transparent !important;
         }
         
-        /* --- CORRECTED: Rule Set 3: 1 PEN 1 DICE Printing --- */
-        #one-pen-one-dice-worksheet.printable-area {
-            @page { size: A4 landscape; margin: 1cm; }
-            page-break-inside: avoid;
-        }
-        #one-pen-one-dice-worksheet.printable-area table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 11pt;
-            table-layout: fixed;
-        }
-        #one-pen-one-dice-worksheet.printable-area th,
-        #one-pen-one-dice-worksheet.printable-area td {
-            border: 1px solid #000;
-            padding: 4px 6px;
-            text-align: left;
-            vertical-align: top;
-            width: 25%;
-            word-wrap: break-word;
-        }
-        #one-pen-one-dice-worksheet.printable-area th {
-            text-align: center;
-            background-color: #e0e0e0 !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-        }
+        /* --- Rule Set 3: 1 PEN 1 DICE (REMOVED - now handled by CSV export) --- */
     }
   </style>
 </head>
@@ -488,7 +463,7 @@
                 <button id="new-dictation-btn" class="btn-primary">New Worksheet</button>
               </div>
               <div id="one-pen-one-dice-controls" class="sentence-control-group hide">
-                <button id="print-one-pen-btn" class="btn-primary">🖨️ Print Worksheet</button>
+                <button id="export-one-pen-btn" class="btn-primary">🖨️ Export to Excel</button>
                 <button id="reverse-one-pen-btn" class="btn-primary">Reverse</button>
                 <button id="new-one-pen-btn" class="btn-secondary">New Worksheet</button>
               </div>
@@ -1271,6 +1246,32 @@ function playDictationGame(theme, topic) {
     document.getElementById('new-dictation-btn').onclick = playSentenceGame;
 }
 
+function exportToCsv(filename, rows) {
+    const formatCell = cell => {
+        const cellStr = (cell === null || cell === undefined) ? '' : String(cell);
+        let formattedCell = cellStr.replace(/"/g, '""');
+        if (/[",\n]/.test(formattedCell)) {
+            formattedCell = `"${formattedCell}"`;
+        }
+        return formattedCell;
+    };
+
+    const csvContent = rows.map(row => row.map(formatCell).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+}
+
+
 function playOnePenOneDiceGame(theme, topic) {
     const allSentences = [...sentenceSets[theme][topic]];
     const NUM_SENTENCES_NEEDED = 20;
@@ -1294,18 +1295,23 @@ function playOnePenOneDiceGame(theme, topic) {
     sentenceDisplay.innerHTML = generateOnePenOneDiceTableHTML(player1Sentences, player2Sentences, onePenOneDiceReversed);
     onePenOneDiceControls.classList.remove('hide');
 
-    document.getElementById('print-one-pen-btn').onclick = () => {
-        const worksheet = document.getElementById('one-pen-one-dice-worksheet');
-        document.querySelectorAll('.printable-area').forEach(el => el.classList.remove('printable-area'));
-        worksheet.classList.add('printable-area');
-        window.print();
-    };
-    
-    window.onafterprint = () => {
-        const worksheet = document.getElementById('one-pen-one-dice-worksheet');
-        if(worksheet) {
-            worksheet.classList.remove('printable-area');
+    document.getElementById('export-one-pen-btn').onclick = () => {
+        const headers = [
+            ['Player 1', '', 'Player 2', ''],
+            ['English', 'Target Language', 'Target Language', 'English']
+        ];
+        
+        const dataRows = [];
+        for (let i = 0; i < 10; i++) {
+            const p1Col1 = onePenOneDiceReversed ? player1Sentences[i].english : '';
+            const p1Col2 = onePenOneDiceReversed ? '' : player1Sentences[i].target;
+            const p2Col1 = onePenOneDiceReversed ? '' : player2Sentences[i].target;
+            const p2Col2 = onePenOneDiceReversed ? player2Sentences[i].english : '';
+            dataRows.push([p1Col1, p1Col2, p2Col1, p2Col2]);
         }
+
+        const allRows = headers.concat(dataRows);
+        exportToCsv('1-pen-1-dice.csv', allRows);
     };
 
     document.getElementById('reverse-one-pen-btn').onclick = () => {
