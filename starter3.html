@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MFL Starter Hub</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/paparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     body {
@@ -344,9 +344,12 @@
     }
     #one-pen-one-dice-worksheet td {
         width: 25%;
+        height: 60px; /* Give cells a consistent height */
         padding: 8px 5px;
         border: 1px solid #ccc;
-        vertical-align: top;
+        vertical-align: middle; /* Center content vertically */
+        text-align: center; /* Center content horizontally */
+        word-wrap: break-word; /* Allow long text to wrap */
     }
     
     #info-gap-worksheet { font-size: 16px; border: 1px solid #ddd; padding: 20px; background: #fff; text-align: left; }
@@ -364,7 +367,7 @@
     .info-gap-table td:first-child { text-align: center; font-weight: bold; }
     .info-gap-page-break { border: 0; border-top: 2px dashed #ccc; margin: 40px 0; }
 
-    /* --- INDEPENDENT PRINT STYLES --- */
+    /* --- PRINT STYLES --- */
     @media print {
         body * {
             visibility: hidden;
@@ -379,6 +382,8 @@
             width: 100%;
             border: none !important;
             box-sizing: border-box;
+            padding: 0;
+            margin: 0;
         }
         body, .container {
             padding: 0 !important; margin: 0 !important;
@@ -499,6 +504,34 @@
         #info-gap-worksheet.printable-area .info-gap-page-break {
             display: none;
         }
+        
+        /* --- NEW: Rule Set 4: 1 PEN 1 DICE Printing --- */
+        #one-pen-one-dice-worksheet.printable-area {
+            @page { size: A4 landscape; margin: 1cm; }
+            padding: 1cm;
+        }
+        #one-pen-one-dice-worksheet.printable-area * {
+            font-size: 11pt; /* Adjust font size for print */
+        }
+        #one-pen-one-dice-worksheet.printable-area table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        #one-pen-one-dice-worksheet.printable-area th,
+        #one-pen-one-dice-worksheet.printable-area td {
+            border: 1px solid #000; /* Solid black borders for print */
+            padding: 6px;
+            text-align: center;
+            vertical-align: middle;
+            height: 50px; /* Ensure consistent row height */
+        }
+        #one-pen-one-dice-worksheet.printable-area th {
+            background-color: #e0e0e0 !important; /* Light grey for print headers */
+            font-weight: bold;
+            -webkit-print-color-adjust: exact; /* Ensures background color prints */
+            color-adjust: exact;
+        }
     }
   </style>
 </head>
@@ -594,7 +627,7 @@
                 <button id="new-info-gap-btn" class="btn-primary">🔄 New Worksheet</button>
               </div>
               <div id="one-pen-one-dice-controls" class="sentence-control-group hide">
-                <button id="export-one-pen-btn" class="btn-primary">🖨️ Export to Excel</button>
+                <button id="print-one-pen-btn" class="btn-primary">🖨️ Print Worksheet</button>
                 <button id="reverse-one-pen-btn" class="btn-primary">Reverse</button>
                 <button id="new-one-pen-btn" class="btn-secondary">🔄 New Worksheet</button>
               </div>
@@ -1650,82 +1683,17 @@ function playOnePenOneDiceGame(allSentences) {
 
     sentenceDisplay.innerHTML = generateOnePenOneDiceTableHTML(player1Sentences, player2Sentences, onePenOneDiceReversed);
     onePenOneDiceControls.classList.remove('hide');
-
-    // ** CORRECTED EXCEL EXPORT FUNCTION V2 **
-    document.getElementById('export-one-pen-btn').onclick = () => {
-        // 1. DEFINE HEADERS AND DATA ROWS
-        const headers = [
-            ['Player 1', null, 'Player 2', null],
-            ['English', 'Target Language', 'Target Language', 'English']
-        ];
-
-        const dataRows = [];
-        const player1Sentences = onePenOneDiceSentences.slice(0, 10);
-        const player2Sentences = onePenOneDiceSentences.slice(10, 20);
-
-        for (let i = 0; i < 10; i++) {
-            const p1Col1 = onePenOneDiceReversed ? player1Sentences[i].english : '';
-            const p1Col2 = onePenOneDiceReversed ? '' : player1Sentences[i].target;
-            const p2Col1 = onePenOneDiceReversed ? '' : player2Sentences[i].target;
-            const p2Col2 = onePenOneDiceReversed ? player2Sentences[i].english : '';
-            dataRows.push([p1Col1, p1Col2, p2Col1, p2Col2]);
-        }
-
-        // 2. CREATE THE WORKSHEET
-        const allRows = headers.concat(dataRows);
-        const ws = XLSX.utils.aoa_to_sheet(allRows);
-
-        // 3. DEFINE STYLE TEMPLATES
-        const borderStyle = { style: "thin", color: { auto: 1 } };
-        const fullBorder = { top: borderStyle, bottom: borderStyle, left: borderStyle, right: borderStyle };
-
-        const headerStyleTemplate = {
-            font: { bold: true, sz: 16 },
-            alignment: { horizontal: "center", vertical: "center", wrapText: true },
-            border: fullBorder
-        };
-
-        const contentStyleTemplate = {
-            font: { sz: 12 },
-            alignment: { horizontal: "center", vertical: "center", wrapText: true },
-            border: fullBorder
-        };
-
-        // 4. APPLY STYLES BY LOOPING AND CLONING
-        const range = XLSX.utils.decode_range(ws['!ref']);
-        for (let R = range.s.r; R <= range.e.r; ++R) {
-            for (let C = range.s.c; C <= range.e.c; ++C) {
-                const cell_address = { c: C, r: R };
-                const ref = XLSX.utils.encode_cell(cell_address);
-
-                if (!ws[ref]) {
-                    ws[ref] = { t: 's', v: '' }; 
-                }
-                
-                // CRITICAL CHANGE: Apply a DEEP COPY of the style object to each cell.
-                // This prevents issues with object references.
-                if (R < 2) { 
-                    ws[ref].s = JSON.parse(JSON.stringify(headerStyleTemplate));
-                } else { 
-                    ws[ref].s = JSON.parse(JSON.stringify(contentStyleTemplate));
-                }
-            }
-        }
-        
-        // 5. SET LAYOUT PROPERTIES
-        ws['!cols'] = [{ wch: 45 }, { wch: 45 }, { wch: 45 }, { wch: 45 }];
-        ws['!rows'] = [ { hpx: 28 }, { hpx: 28 }, ...Array.from({ length: 10 }, () => ({ hpx: 60 })) ];
-        ws['!merges'] = [ 
-            { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }, 
-            { s: { r: 0, c: 2 }, e: { r: 0, c: 3 } }
-        ];
-
-        // 6. CREATE AND DOWNLOAD THE WORKBOOK
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, '1 Pen 1 Dice');
-        XLSX.writeFile(wb, '1-pen-1-dice.xlsx');
+    
+    // *** NEW PRINT FUNCTIONALITY ***
+    document.getElementById('print-one-pen-btn').onclick = () => {
+        const printableArea = document.getElementById('one-pen-one-dice-worksheet');
+        // Add a class to the element we want to print
+        printableArea.classList.add('printable-area');
+        // Trigger the browser's print function
+        window.print();
+        // Clean up the class afterwards
+        printableArea.classList.remove('printable-area');
     };
-
 
     document.getElementById('reverse-one-pen-btn').onclick = () => {
         onePenOneDiceReversed = !onePenOneDiceReversed;
