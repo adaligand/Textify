@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Starter Hub</title>
+  <title>MFL Stxarter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -189,6 +189,19 @@
     margin: 5px;
     white-space: nowrap;
    }
+   
+   /* MODIFIED: Styles for the 1 Pen 1 Dice control buttons */
+    #one-pen-one-dice-controls {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 10px;
+        justify-content: space-between;
+    }
+    #one-pen-one-dice-controls button {
+        flex: 1 1 40%; /* Allow 2 buttons per row */
+        margin: 0;
+    }
 
     .vocab-controls-panel > .back-btn, .sentence-controls-panel > .back-btn {
         width: 100%;
@@ -504,13 +517,11 @@
             display: none;
         }
         
-        /* --- FINAL: Rule Set 4: 1 PEN 1 DICE Printing --- */
+        /* --- Rule Set 4: 1 PEN 1 DICE Printing --- */
         #one-pen-one-dice-worksheet.printable-area {
-            /* ADJUSTED: Reduced margins to gain vertical space */
             @page { size: A4 landscape; margin: 0.7cm; }
         }
         #one-pen-one-dice-worksheet.printable-area * {
-            /* ADJUSTED: Slightly smaller font for print */
             font-size: 10.5pt;
         }
         #one-pen-one-dice-worksheet.printable-area table {
@@ -524,7 +535,6 @@
             padding: 5px;
             text-align: center;
             vertical-align: middle;
-            /* ADJUSTED: Further reduced height */
             height: 45px; 
         }
         #one-pen-one-dice-worksheet.printable-area th {
@@ -628,9 +638,10 @@
                 <button id="new-info-gap-btn" class="btn-primary">🔄 New Worksheet</button>
               </div>
               <div id="one-pen-one-dice-controls" class="sentence-control-group hide">
-                <button id="print-one-pen-btn" class="btn-primary">🖨️ Print Worksheet</button>
+                <button id="print-one-pen-btn" class="btn-primary">Print</button>
+                <button id="export-one-pen-btn" class="btn-primary">Export</button>
                 <button id="reverse-one-pen-btn" class="btn-primary">Reverse</button>
-                <button id="new-one-pen-btn" class="btn-secondary">🔄 New Worksheet</button>
+                <button id="new-one-pen-btn" class="btn-secondary">New</button>
               </div>
           </div>
       </div>
@@ -1685,11 +1696,68 @@ function playOnePenOneDiceGame(allSentences) {
     sentenceDisplay.innerHTML = generateOnePenOneDiceTableHTML(player1Sentences, player2Sentences, onePenOneDiceReversed);
     onePenOneDiceControls.classList.remove('hide');
     
+    // Print functionality
     document.getElementById('print-one-pen-btn').onclick = () => {
         const printableArea = document.getElementById('one-pen-one-dice-worksheet');
         printableArea.classList.add('printable-area');
         window.print();
         printableArea.classList.remove('printable-area');
+    };
+
+    // Excel export functionality
+    document.getElementById('export-one-pen-btn').onclick = () => {
+        const headers = [
+            ['Player 1', null, 'Player 2', null],
+            ['English', 'Target Language', 'Target Language', 'English']
+        ];
+        const dataRows = [];
+        const p1s = onePenOneDiceSentences.slice(0, 10);
+        const p2s = onePenOneDiceSentences.slice(10, 20);
+
+        for (let i = 0; i < 10; i++) {
+            const p1Col1 = onePenOneDiceReversed ? p1s[i].english : '';
+            const p1Col2 = onePenOneDiceReversed ? '' : p1s[i].target;
+            const p2Col1 = onePenOneDiceReversed ? '' : p2s[i].target;
+            const p2Col2 = onePenOneDiceReversed ? p2s[i].english : '';
+            dataRows.push([p1Col1, p1Col2, p2Col1, p2Col2]);
+        }
+        
+        const allRows = headers.concat(dataRows);
+        const ws = XLSX.utils.aoa_to_sheet(allRows);
+        const wb = XLSX.utils.book_new();
+
+        const borderStyle = { style: "thin", color: { auto: 1 } };
+        const fullBorder = { top: borderStyle, bottom: borderStyle, left: borderStyle, right: borderStyle };
+        const headerStyleTemplate = {
+            font: { bold: true, sz: 16 },
+            alignment: { horizontal: "center", vertical: "center", wrapText: true },
+            border: fullBorder
+        };
+        const contentStyleTemplate = {
+            font: { sz: 12 },
+            alignment: { horizontal: "center", vertical: "center", wrapText: true },
+            border: fullBorder
+        };
+
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const ref = XLSX.utils.encode_cell({ c: C, r: R });
+                if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+                if (R < 2) { 
+                    ws[ref].s = JSON.parse(JSON.stringify(headerStyleTemplate));
+                } else { 
+                    ws[ref].s = JSON.parse(JSON.stringify(contentStyleTemplate));
+                }
+            }
+        }
+        
+        ws['!cols'] = [{ wch: 45 }, { wch: 45 }, { wch: 45 }, { wch: 45 }];
+        ws['!rows'] = [ { hpx: 28 }, { hpx: 28 }, ...Array.from({ length: 10 }, () => ({ hpx: 60 })) ];
+        ws['!merges'] = [ { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }, { s: { r: 0, c: 2 }, e: { r: 0, c: 3 } } ];
+        
+        XLSX.utils.book_append_sheet(wb, ws, '1 Pen 1 Dice');
+        XLSX.writeFile(wb, '1-pen-1-dice.xlsx');
     };
 
     document.getElementById('reverse-one-pen-btn').onclick = () => {
