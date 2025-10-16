@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Starter cHub</title>
+  <title>MFL S5tarter cHub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -242,18 +242,33 @@
     .answer-cell span.visible { visibility: visible; }
     #vocab-print-copy-area { display: none; }
 /* --- NEW: SINGLE WORD GAME STYLES --- */
+/* --- NEW: SINGLE WORD GAME STYLES --- */
 .single-word-game-container {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 400px;
+    min-height: 450px;
     text-align: center;
 }
-.single-word-game-container .question-display,
-.single-word-game-container .answer-display {
-    margin-bottom: 20px;
+/* This container ensures images have a consistent, stable height */
+.single-word-game-container .question-display {
+    height: 300px; /* Fixed height for the main question (image or text) */
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
+.single-word-game-container .clue-display {
+    margin-top: 10px;
+    min-height: 50px; /* Reserves a little space for the clue */
+}
+.single-word-game-container .answer-display {
+    margin-top: 15px;
+    min-height: 50px; /* Reserves space for the answer */
+}
+
+/* Main question text */
 .single-word-game-container h2 {
     font-size: 3.5em;
     font-weight: bold;
@@ -261,17 +276,31 @@
     margin: 0;
     line-height: 1.3;
 }
+/* Revealed answer text */
 .single-word-game-container h3 {
     font-size: 2.5em;
     font-weight: 600;
     color: #145A32;
     margin: 0;
 }
-/* Ensure images in this view are also well-contained */
+/* Clue text */
+.single-word-game-container h4 {
+    font-size: 2.0em;
+    font-weight: 500;
+    color: #606770; /* Subtler color for the clue */
+    margin: 0;
+}
+
+/* This is the key rule for consistent image sizing */
 .single-word-game-container .vocab-image {
-    max-height: 300px;
+    max-height: 100%; /* Will be 100% of its container (e.g., 300px in .question-display) */
     max-width: 100%;
     object-fit: contain;
+}
+/* This gives a max height to any images used as clues or answers */
+.single-word-game-container .clue-display .vocab-image,
+.single-word-game-container .answer-display .vocab-image {
+    max-height: 150px;
 }
 /* -- GRID STYLES (VOCAB & SENTENCE) -- */
 .grid-container {
@@ -1406,6 +1435,7 @@ function vocab_generatePrintVersion() {
     if (fullscreenBtn) fullscreenBtn.classList.remove('hide');
 }
 // --- NEW: Main function to run all the new single-word games ---
+// --- NEW: Generic function to run all the new single-word games ---
 function generateSingleWordGame(gameType) {
     const words = getVocabWords(1);
     if (!words) {
@@ -1414,67 +1444,78 @@ function generateSingleWordGame(gameType) {
     }
     currentWordPair = words[0];
 
-    let questionWord, answerWord;
-    
-    // Determine the question and answer based on the game type
-    switch (gameType) {
-        case 'random-target':
-        case 'anagram':
-        case 'no-vowels':
-        case 'no-consonants':
-            questionWord = currentWordPair.left; // Target language is the question
-            answerWord = currentWordPair.right;
-            break;
-        case 'random-en':
-            questionWord = currentWordPair.right; // English/Image is the question
-            answerWord = currentWordPair.left;
-            break;
-    }
+    let questionWord, answerWord, clueWord;
+    let questionHTML, answerHTML, clueHTML = ''; // Start with an empty clue
 
-    // Apply the transformation for the specific game
-    let transformedQuestion = questionWord;
+    // Determine the question, answer, and clue based on the game type
     switch (gameType) {
         case 'anagram':
-            transformedQuestion = scrambleWord(questionWord);
-            break;
         case 'no-vowels':
-            transformedQuestion = removeVowels(questionWord);
-            break;
         case 'no-consonants':
-            transformedQuestion = removeConsonants(questionWord);
+            // --- NEW LOGIC ---
+            questionWord = currentWordPair.left; // Target word is the base for the question
+            answerWord = currentWordPair.left;   // Answer is the *original* Target word
+            clueWord = currentWordPair.right;     // Clue is the EN/Image
+            
+            // Apply transformation *only* to the question
+            if (gameType === 'anagram') questionWord = scrambleWord(questionWord);
+            if (gameType === 'no-vowels') questionWord = removeVowels(questionWord);
+            if (gameType === 'no-consonants') questionWord = removeConsonants(questionWord);
+            
+            questionHTML = `<h2>${renderContent(questionWord)}</h2>`;
+            // This line adds the clue (Column E) below the question
+            clueHTML = `<div class="clue-display"><h4>${renderContent(clueWord, 'Clue')}</h4></div>`; 
+            answerHTML = `<h3>${renderContent(answerWord, questionWord)}</h3>`; // Answer is original `left`
+            break;
+        
+        case 'random-target':
+            // This game logic is correct
+            questionWord = currentWordPair.left;
+            answerWord = currentWordPair.right;
+            questionHTML = `<h2>${renderContent(questionWord)}</h2>`;
+            answerHTML = `<h3>${renderContent(answerWord, questionWord)}</h3>`;
+            break;
+
+        case 'random-en':
+            // This game logic is correct
+            questionWord = currentWordPair.right;
+            answerWord = currentWordPair.left;
+            questionHTML = `<h2>${renderContent(questionWord)}</h2>`;
+            answerHTML = `<h3>${renderContent(answerWord, questionWord)}</h3>`;
             break;
     }
 
     // Generate the HTML for the game display
+    // This is modified to include the clueHTML variable
     vocab_testContainer.innerHTML = `
         <div class="single-word-game-container">
             <div class="question-display">
-                <h2>${renderContent(transformedQuestion)}</h2>
+                ${questionHTML}
             </div>
+            ${clueHTML} 
             <div class="answer-display hide">
-                <h3>${renderContent(answerWord, questionWord)}</h3>
+                ${answerHTML}
             </div>
         </div>
     `;
 
-    // Generate the buttons
+    // Button logic remains the same
     const buttonArea = document.getElementById('vocab-button-area');
     buttonArea.innerHTML = `
         <button id="swg-reveal-btn" class="btn-primary">Reveal</button>
         <button id="swg-new-btn" class="btn-secondary">New Word</button>
     `;
 
-    // Add event listeners for the new buttons
     document.getElementById('swg-reveal-btn').addEventListener('click', (e) => {
         const btn = e.target;
         const answerDisplay = vocab_testContainer.querySelector('.answer-display');
         const isHidden = answerDisplay.classList.contains('hide');
         answerDisplay.classList.toggle('hide', !isHidden);
-        btn.textContent = isHidden ? 'Hide' : 'Hide';
+        btn.textContent = isHidden ? 'Hide' : 'Reveal';
     });
 
     document.getElementById('swg-new-btn').addEventListener('click', () => {
-        generateSingleWordGame(gameType); // Regenerate a new word for the same game
+        generateSingleWordGame(gameType); 
     });
     
     addFullscreenButton(document.querySelector('.vocab-test-panel'));
