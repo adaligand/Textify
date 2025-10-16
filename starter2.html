@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Starcter cHub</title>
+  <title>MFL Starter cHub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -241,7 +241,38 @@
     .answer-cell span { visibility: hidden; color: #27ae60; font-weight: bold; }
     .answer-cell span.visible { visibility: visible; }
     #vocab-print-copy-area { display: none; }
-
+/* --- NEW: SINGLE WORD GAME STYLES --- */
+.single-word-game-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    text-align: center;
+}
+.single-word-game-container .question-display,
+.single-word-game-container .answer-display {
+    margin-bottom: 20px;
+}
+.single-word-game-container h2 {
+    font-size: 3.5em;
+    font-weight: bold;
+    color: #2c3e50;
+    margin: 0;
+    line-height: 1.3;
+}
+.single-word-game-container h3 {
+    font-size: 2.5em;
+    font-weight: 600;
+    color: #145A32;
+    margin: 0;
+}
+/* Ensure images in this view are also well-contained */
+.single-word-game-container .vocab-image {
+    max-height: 300px;
+    max-width: 100%;
+    object-fit: contain;
+}
 /* -- GRID STYLES (VOCAB & SENTENCE) -- */
 .grid-container {
     display: grid;
@@ -759,6 +790,7 @@ let currentVocabGridPairs = [];
 let onePenOneDiceSentences = [];
 let onePenOneDiceReversed = false;
 let infoGapSentences = [];
+let currentWordPair = null;
 
 // --- DOM Element References ---
 const mainMenu = document.getElementById('main-menu');
@@ -1065,7 +1097,27 @@ function renderContent(content, altText = 'Vocabulary image') {
     }
     return content; // Return as plain text
 }
+// --- NEW GAME HELPER FUNCTIONS ---
+function removeVowels(str) {
+    if (typeof str !== 'string' || str.startsWith('http')) return str;
+    return str.replace(/[aeiou]/gi, '_');
+}
 
+function removeConsonants(str) {
+    if (typeof str !== 'string' || str.startsWith('http')) return str;
+    return str.replace(/[^aeiou\s\d.,!?]/gi, '_');
+}
+
+function scrambleWord(str) {
+    if (typeof str !== 'string' || str.startsWith('http')) return str;
+    if (str.length < 2) return str;
+    let scrambled = str.split('').sort(() => 0.5 - Math.random()).join('');
+    // Ensure it's not the same as the original
+    if (scrambled === str && str.length > 2) {
+        return scrambleWord(str); // Re-scramble
+    }
+    return scrambled;
+}
 
 // --- Vocabulary Section Logic ---
 function populateClassSelector() {
@@ -1080,10 +1132,15 @@ function populateClassSelector() {
     });
 }
 function populateVocabActivitySelector() {
-    vocab_activitySelect.innerHTML = `
-        <option value="test">Vocab Test</option>
-        <option value="grid">Vocab Grid</option>
-    `;
+    vocab_activitySelect.innerHTML = `
+        <option value="test">Vocab Test</option>
+        <option value="grid">Vocab Grid</option>
+        <option value="random-target">Random Target</option>
+        <option value="random-en">Random EN</option>
+        <option value="anagram">Anagram</option>
+        <option value="no-vowels">No Vowels</option>
+        <option value="no-consonants">No Consonants</option>
+    `;
 }
 classSelect.addEventListener('change', () => {
     const selectedClass = classSelect.value;
@@ -1154,11 +1211,29 @@ function vocab_updateSetDropdown() {
 vocab_themeSelect.addEventListener('change', vocab_updateSetDropdown);
 
 vocab_generateBtn.addEventListener('click', () => {
-    if (vocab_activitySelect.value === 'test') {
-        vocab_generateTest();
-    } else {
-        vocab_generateGrid();
-    }
+    const activity = vocab_activitySelect.value;
+    // Hide the print/grid controls by default
+    vocab_testControls.classList.add('hide');
+    vocab_gridControls.classList.add('hide');
+    
+    switch (activity) {
+        case 'test':
+            vocab_generateTest();
+            break;
+        case 'grid':
+            vocab_generateGrid();
+            break;
+        case 'random-target':
+        case 'random-en':
+        case 'anagram':
+        case 'no-vowels':
+        case 'no-consonants':
+            generateSingleWordGame(activity);
+            break;
+        default:
+            vocab_testContainer.innerHTML = '<h2>Please select an activity.</h2>';
+            document.getElementById('vocab-button-area').innerHTML = '';
+    }
 });
 document.getElementById('vocab-print-btn').addEventListener('click', vocab_generatePrintVersion);
 
@@ -1330,7 +1405,80 @@ function vocab_generatePrintVersion() {
     buttonArea.classList.remove('hide');
     if (fullscreenBtn) fullscreenBtn.classList.remove('hide');
 }
+// --- NEW: Main function to run all the new single-word games ---
+function generateSingleWordGame(gameType) {
+    const words = getVocabWords(1);
+    if (!words) {
+        vocab_testContainer.innerHTML = '<h2>Could not load a word. Check selections.</h2>';
+        return;
+    }
+    currentWordPair = words[0];
 
+    let questionWord, answerWord;
+    
+    // Determine the question and answer based on the game type
+    switch (gameType) {
+        case 'random-target':
+        case 'anagram':
+        case 'no-vowels':
+        case 'no-consonants':
+            questionWord = currentWordPair.left; // Target language is the question
+            answerWord = currentWordPair.right;
+            break;
+        case 'random-en':
+            questionWord = currentWordPair.right; // English/Image is the question
+            answerWord = currentWordPair.left;
+            break;
+    }
+
+    // Apply the transformation for the specific game
+    let transformedQuestion = questionWord;
+    switch (gameType) {
+        case 'anagram':
+            transformedQuestion = scrambleWord(questionWord);
+            break;
+        case 'no-vowels':
+            transformedQuestion = removeVowels(questionWord);
+            break;
+        case 'no-consonants':
+            transformedQuestion = removeConsonants(questionWord);
+            break;
+    }
+
+    // Generate the HTML for the game display
+    vocab_testContainer.innerHTML = `
+        <div class="single-word-game-container">
+            <div class="question-display">
+                <h2>${renderContent(transformedQuestion)}</h2>
+            </div>
+            <div class="answer-display hide">
+                <h3>${renderContent(answerWord, questionWord)}</h3>
+            </div>
+        </div>
+    `;
+
+    // Generate the buttons
+    const buttonArea = document.getElementById('vocab-button-area');
+    buttonArea.innerHTML = `
+        <button id="swg-reveal-btn" class="btn-primary">Reveal</button>
+        <button id="swg-new-btn" class="btn-secondary">New Word</button>
+    `;
+
+    // Add event listeners for the new buttons
+    document.getElementById('swg-reveal-btn').addEventListener('click', (e) => {
+        const btn = e.target;
+        const answerDisplay = vocab_testContainer.querySelector('.answer-display');
+        const isHidden = answerDisplay.classList.contains('hide');
+        answerDisplay.classList.toggle('hide', !isHidden);
+        btn.textContent = isHidden ? 'Hide' : 'Hide';
+    });
+
+    document.getElementById('swg-new-btn').addEventListener('click', () => {
+        generateSingleWordGame(gameType); // Regenerate a new word for the same game
+    });
+    
+    addFullscreenButton(document.querySelector('.vocab-test-panel'));
+}
 
 // --- SENTENCE GAME LOGIC ---
 function populateSentenceClassSelector() {
