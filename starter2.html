@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL xStarter Hub</title>
+  <title>MFL xSddtarter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -635,22 +635,28 @@
   <div id="practice-section" class="hide">
     <h1 id="practice-title">Practice Section</h1>
     <input type="hidden" id="current-practice-type" value="">
-    <div class="practice-controls">
+<div class="practice-controls">
+      <div class="practice-control-group">
+        <label for="profile-name">Class/Profile:</label>
+        <input type="text" id="profile-name" placeholder="E.g., Year 9 2025">
+      </div>
       <div class="practice-control-group">
         <label for="topic-select">Choose a Theme:</label>
         <select id="topic-select"><option>Loading Themes...</option></select>
       </div>
       <div class="practice-control-group">
         <label for="question-select">Choose a Question:</label>
-        <select id="question-select"><option>Select a Theme first...</option></select>
+        <select id="question-select"><option>Select a Profile and Theme...</option></select>
       </div>
       <button id="generate-practice-btn" class="btn-primary">Load Question</button>
       <button id="fullscreen-btn" class="btn-primary hide">🔈 Open Full Screen</button>
+      <button id="reset-progress-btn" class="btn-danger">Reset Profile</button>
       <button class="btn-primary back-btn">Back to Main Menu</button>
     </div>
     <div id="question-display">
+      <div id="completion-controls"></div>
       <h2>Your question will appear here</h2>
-      <p>Select a theme and question, then click "Load Question".</p>
+      <p>Enter a profile name, select a theme and question, then click "Load Question".</p>
     </div>
   </div>
 
@@ -722,7 +728,6 @@
   </div>
 </div>
 
-<script>
 // --- URLs and Global Variables ---
 const practiceSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRvNFlHDx-4cZbDzwKy5Yb_DKeSxS2wSXxyX1Ua6pGcf27yFjmqOPz9jQ_rzoV3-zoZI9lw4EIfmdXH/pub?output=csv";
 
@@ -762,91 +767,10 @@ let onePenOneDiceSentences = [];
 let onePenOneDiceReversed = false;
 let infoGapSentences = [];
 let currentWordPair = null;
-// --- Data Loading ---
-function loadData(url, options) {
-    return new Promise((resolve, reject) => {
-        if (!url || url.startsWith('PASTE_YOUR')) {
-            return reject(new Error(`Invalid URL provided: ${url}`));
-        }
-        Papa.parse(url, {
-            download: true,
-            skipEmptyLines: true, ...options,
-            complete: (results) => resolve(results.data),
-            error: (err) => reject(new Error(`Failed to load data from ${url}: ${err.message}`)),
-        });
-    });
-}
-async function initializeApp() {
-    [readingBtn, listeningBtn, vocabBtn, sentenceBtn].forEach(btn => btn.disabled = true);
-    [readingBtn, listeningBtn, vocabBtn, sentenceBtn].forEach(btn => btn.textContent = 'Loading...');
+const COMPLETED_SLIDES_KEY = 'completedSlides';
+const LAST_PROFILE_KEY = 'lastUsedProfile';
+let currentProfile = '';
 
-    populateClassSelector();
-    resetVocabDropdowns(true);
-    populateSentenceClassSelector();
-    resetSentenceDropdowns(true);
-    populateGameTypeSelector();
-    populateWorksheetTypeSelector();
-    populateVocabActivitySelector();
-
-    const practicePromise = loadData(practiceSheetUrl, { header: true }).then(data => ({ type: 'practice', data }));
-    const sentencePromises = Object.entries(sentenceSpreadsheetUrls).map(([className, url]) =>
-        loadData(url, { header: false }).then(data => ({ type: 'sentence', className, data }))
-    );
-    const vocabPromises = Object.entries(vocabSpreadsheetUrls).map(([className, url]) =>
-        loadData(url, { header: false }).then(data => ({ type: 'vocab', className, data }))
-    );
-
-    const results = await Promise.allSettled([practicePromise, ...sentencePromises, ...vocabPromises]);
-
-    let practiceLoaded = false, sentencesLoaded = false, vocabLoaded = false;
-
-    results.forEach(result => {
-        if (result.status === 'fulfilled') {
-            const { type, className, data } = result.value;
-            if (type === 'practice') {
-                practice_allQuestions = data.map(q => ({
-                    Skill: q.Skill, Theme: q.Theme, Question: q.Question, Content: q.Content
-                })).filter(q => q.Skill && q.Theme && q.Content);
-                practiceLoaded = true;
-            } else if (type === 'sentence') {
-                all_sentence_data[className] = data;
-                sentencesLoaded = true;
-            } else if (type === 'vocab') {
-                all_vocab_data[className] = data;
-                vocabLoaded = true;
-            }
-        } else {
-            console.error("Failed to load a spreadsheet:", result.reason);
-        }
-    });
-
-    if (practiceLoaded) {
-        readingBtn.disabled = false;
-        listeningBtn.disabled = false;
-        readingBtn.textContent = 'Reading Practice';
-       listeningBtn.textContent = 'Listening Practice';
-    } else {
-        readingBtn.textContent = 'Practice Unavailable';
-        readingBtn.style.backgroundColor = '#c0392b';
-        listeningBtn.disabled = true;
-    }
-
-    if (sentencesLoaded) {
-        sentenceBtn.disabled = false;
-        sentenceBtn.textContent = 'Sentence Practice';
-    } else {
-        sentenceBtn.textContent = 'Sentences Unavailable';
-        sentenceBtn.style.backgroundColor = '#c0392b';
-    }
-
-    if (vocabLoaded) {
-        vocabBtn.disabled = false;
-        vocabBtn.textContent = 'Vocab Practice';
-    } else {
-        vocabBtn.textContent = 'Vocab Unavailable';
-        vocabBtn.style.backgroundColor = '#c0392b';
-    }
-}
 // --- DOM Element References ---
 const mainMenu = document.getElementById('main-menu');
 const practiceSection = document.getElementById('practice-section');
@@ -917,7 +841,7 @@ sentenceBtn.addEventListener('click', () => { stopMedia(); showSentenceGames(); 
 document.querySelectorAll('.back-btn').forEach(btn => btn.addEventListener('click', showMainMenu));
 
 function stopMedia() {
-    practice_questionDisplay.innerHTML = `<h2>Your question will appear here</h2><p>Select a theme and question, then click "Load Question".</p>`;
+    practice_questionDisplay.innerHTML = `<h2>Your question will appear here</h2><p>Enter a profile name, select a theme and question, then click "Load Question".</p>`;
     fullscreenBtn.classList.add('hide');
     fullscreenBtn.onclick = null;
 }
@@ -949,6 +873,12 @@ function showPractice(type) {
     sentenceSection.classList.add('hide');
     document.getElementById('practice-title').textContent = `${type} Practice`;
     currentPracticeTypeInput.value = type;
+
+    const lastProfile = localStorage.getItem(LAST_PROFILE_KEY) || '';
+    const profileInput = document.getElementById('profile-name');
+    profileInput.value = lastProfile;
+    currentProfile = lastProfile;
+
     practice_populateTopics();
 }
 
@@ -1052,7 +982,22 @@ async function initializeApp() {
     }
 }
 
+// --- LocalStorage Helper Functions ---
+function getCompletedSlides() {
+    const data = localStorage.getItem(COMPLETED_SLIDES_KEY);
+    return data ? JSON.parse(data) : {};
+}
+
+function saveCompletedSlides(completed) {
+    localStorage.setItem(COMPLETED_SLIDES_KEY, JSON.stringify(completed));
+}
+
 // --- Practice Section Logic ---
+document.getElementById('profile-name').addEventListener('input', (e) => {
+    currentProfile = e.target.value.trim();
+    localStorage.setItem(LAST_PROFILE_KEY, currentProfile);
+    practice_populateQuestions();
+});
 practice_topicSelect.addEventListener('change', () => { stopMedia(); practice_populateQuestions(); });
 practice_generateBtn.addEventListener('click', practice_generateQuestion);
 
@@ -1082,6 +1027,13 @@ function practice_populateQuestions() {
     const selectedTheme = practice_topicSelect.value;
     const selectedType = currentPracticeTypeInput.value;
     practice_questionSelect.innerHTML = '';
+    
+    document.getElementById('completion-controls').innerHTML = '';
+
+    if (!currentProfile) {
+        practice_questionSelect.innerHTML = `<option>Please enter a Profile name...</option>`;
+        return;
+    }
     if (!selectedTheme) {
         practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
         return;
@@ -1093,25 +1045,72 @@ function practice_populateQuestions() {
         practice_questionSelect.innerHTML = `<option>No Questions Available</option>`;
         return;
     }
+    
+    const allCompleted = getCompletedSlides();
+    const profileProgress = allCompleted[currentProfile] || {};
+
     questions.forEach((q, index) => {
         const opt = document.createElement('option');
         opt.value = q.Content;
-        opt.textContent = q.Question;
+        if (profileProgress[q.Content]) {
+            opt.textContent = '✅ ' + q.Question;
+        } else {
+            opt.textContent = q.Question;
+        }
         practice_questionSelect.appendChild(opt);
     });
 }
 
 function practice_generateQuestion() {
+    if (!currentProfile) {
+        alert('Please enter a Class/Profile name before loading a question.');
+        return;
+    }
+
     const selectedContentUrl = practice_questionSelect.value;
-    if (!selectedContentUrl || selectedContentUrl.includes('Select a Theme') || selectedContentUrl.includes('No Questions')) {
+    if (!selectedContentUrl || selectedContentUrl.includes('Select a') || selectedContentUrl.includes('No Questions')) {
         practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question from the list.</p>`;
         return;
     }
+
     const q = practice_allQuestions.find(item => item.Content === selectedContentUrl);
     if (!q) {
         practice_questionDisplay.innerHTML = `<p>Error: Content not found.</p>`;
         return;
     }
+    
+    const completionControls = document.getElementById('completion-controls');
+    completionControls.innerHTML = ''; 
+    
+    const completionBtn = document.createElement('button');
+    completionBtn.classList.add('btn-secondary');
+
+    const updateButtonState = () => {
+        const allCompleted = getCompletedSlides();
+        const profileProgress = allCompleted[currentProfile] || {};
+        if (profileProgress[selectedContentUrl]) {
+            completionBtn.textContent = 'Completed ✔';
+            completionBtn.disabled = true;
+        } else {
+            completionBtn.textContent = 'Mark as Done';
+            completionBtn.disabled = false;
+        }
+    };
+    
+    completionBtn.addEventListener('click', () => {
+        const allCompleted = getCompletedSlides();
+        if (!allCompleted[currentProfile]) {
+            allCompleted[currentProfile] = {};
+        }
+        allCompleted[currentProfile][selectedContentUrl] = true;
+        saveCompletedSlides(allCompleted);
+        updateButtonState();
+        practice_populateQuestions();
+    });
+
+    completionControls.appendChild(completionBtn);
+    updateButtonState();
+    
     fullscreenBtn.classList.add('hide');
     fullscreenBtn.onclick = null;
     let contentHtml = q.Content;
@@ -1135,10 +1134,35 @@ function practice_generateQuestion() {
             fullscreenBtn.onclick = () => { window.open(presentUrl, '_blank'); };
         }
     }
-    practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
+    const displayElement = document.getElementById('question-display');
+    
+    displayElement.innerHTML = ''; 
+    displayElement.appendChild(completionControls);
+    const title = document.createElement('h2');
+    title.textContent = q.Question;
+    displayElement.appendChild(title);
+    displayElement.innerHTML += contentHtml;
 }
 
-// --- HELPER FUNCTION: To render text or an image ---
+document.getElementById('reset-progress-btn').addEventListener('click', () => {
+    if (!currentProfile) {
+        alert('Please enter a Class/Profile name to reset.');
+        return;
+    }
+    if (confirm(`Are you sure you want to reset all progress for the profile "${currentProfile}"? This cannot be undone.`)) {
+        const allCompleted = getCompletedSlides();
+        if (allCompleted[currentProfile]) {
+            delete allCompleted[currentProfile];
+            saveCompletedSlides(allCompleted);
+            practice_populateQuestions();
+            document.getElementById('completion-controls').innerHTML = '';
+            alert(`Progress for "${currentProfile}" has been reset.`);
+        } else {
+            alert(`No progress found for profile "${currentProfile}".`);
+        }
+    }
+});
+
 function renderContent(content, altText = 'Vocabulary image') {
     if (typeof content === 'string' && (content.startsWith('http://') || content.startsWith('https://'))) {
         return `<img src="${content}" alt="${altText}" class="vocab-image">`;
@@ -1146,7 +1170,6 @@ function renderContent(content, altText = 'Vocabulary image') {
     return content || ''; 
 }
 
-// --- GAME HELPER FUNCTIONS ---
 function removeVowels(str) {
     if (typeof str !== 'string' || str.startsWith('http')) return str;
     const allVowelsRegex = /[aeiouyàáâäæèéêëìíîïòóôöùúûü]/gi;
@@ -1183,7 +1206,6 @@ function scrambleWord(str) {
     return scrambledWords.join(' ');
 }
 
-// --- Vocabulary Section Logic ---
 function populateClassSelector() {
     const classOrder = ['Y9 French', 'GCSE French', 'AS French', 'A2 French', 'Y9 German', 'GCSE German', 'EAL'];
     classSelect.innerHTML = '<option value="">-- Select a Class --</option>';
@@ -1728,7 +1750,12 @@ function playSentenceGame() {
 
     switch (activityType) {
         case 'unjumble':
-            questionHTML = `<h2>${scrambleWord(sentencePair.target)}</h2>`;
+            const words = sentencePair.target.split(' ');
+            let shuffledWords = [...words].sort(() => 0.5 - Math.random());
+            if (words.length > 1 && shuffledWords.join(' ') === sentencePair.target) {
+                 shuffledWords = [...words].sort(() => 0.5 - Math.random());
+            }
+            questionHTML = `<h2>${shuffledWords.join(' ')}</h2>`;
             answerHTML = `<h2>${renderContent(sentencePair.target)}</h2><h3>${renderContent(sentencePair.english, sentencePair.target)}</h3>`;
             break;
         case 'no-spaces':
@@ -1736,12 +1763,12 @@ function playSentenceGame() {
             answerHTML = `<h2>${renderContent(sentencePair.target)}</h2><h3>${renderContent(sentencePair.english, sentencePair.target)}</h3>`;
             break;
         case 'no-vowels':
-            const noVowels = sentencePair.target.split(' ').map(word => `<span class="word">${removeVowels(word)}</span>`).join('   ');
+            const noVowels = sentencePair.target.split(' ').map(word => `<span class="word">${removeVowels(word)}</span>`).join(' ');
             questionHTML = `<h2 class="gapped-text">${noVowels}</h2><h3>${renderContent(sentencePair.english, sentencePair.target)}</h3>`;
             answerHTML = `<h2>${renderContent(sentencePair.target)}</h2>`;
             break;
         case 'no-consonants':
-            const noConsonants = sentencePair.target.split(' ').map(word => `<span class="word">${removeConsonants(word)}</span>`).join('   ');
+            const noConsonants = sentencePair.target.split(' ').map(word => `<span class="word">${removeConsonants(word)}</span>`).join(' ');
             questionHTML = `<h2 class="gapped-text">${noConsonants}</h2><h3>${renderContent(sentencePair.english, sentencePair.target)}</h3>`;
             answerHTML = `<h2>${renderContent(sentencePair.target)}</h2>`;
             break;
@@ -2203,6 +2230,5 @@ function generateOnePenOneDiceTableHTML(p1Sentences, p2Sentences, isReversed) {
 
 // --- Start the App ---
 initializeApp();
-</script>
 </body>
 </html>
