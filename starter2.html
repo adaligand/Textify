@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL S3tarter Hub</title>
+  <title>MFL xS25tarter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -81,13 +81,6 @@
     .btn-secondary:hover {
       background-color: #5a6268;
     }
-    .btn-danger {
-      background-color: #e74c3c;
-      color: white;
-    }
-    .btn-danger:hover {
-      background-color: #c0392b;
-    }
 
     /* --- COMMON SECTION STYLES --- */
     .practice-controls {
@@ -104,14 +97,14 @@
       flex-direction: column;
     }
     label { font-weight: 600; margin-bottom: 8px; color: #606770; }
-    select, input[type="text"] {
+    select {
       font-size: 16px;
       padding: 12px;
       border-radius: 8px;
       border: 1px solid #dddfe2;
       background-color: #f5f6f7;
     }
-    select:disabled, input:disabled {
+    select:disabled {
         background-color: #e9ecef;
         cursor: not-allowed;
     }
@@ -367,7 +360,7 @@
     }
     #sentence-display h2 { margin: 0; font-size: 3em; line-height: 1.4; }
     #sentence-display p { font-size: 1.2em; color: #606770; }
-    
+    #sentence-display { text-align: center; }
     #sentence-question h2, #sentence-answer h2 {
         color: #2c3e50;
         font-weight: 500;
@@ -379,7 +372,6 @@
     
     #sentence-question h2.gapped-text { word-spacing: 0.5em; }
     .gapped-text span.underscore { display: inline-block; width: 0.55em; margin-right: 0.05em; letter-spacing: 0; text-align: center; }
-    .gapped-text {}
     .gapped-text span.word { white-space: nowrap; display: inline-block; }
     #sentence-answer h2 { color: #27ae60; font-weight: bold; }
     #sentence-display h3 { margin: 0; font-size: 2.2em; font-weight: normal; font-style: italic; color: #7f8c8d; }
@@ -391,7 +383,7 @@
     }
     
     #sentence-display .vocab-image {
-        height: 250px;
+        height: 250px; /* Reduced uniform height */
         width: auto;
         max-width: 90%;
         object-fit: contain;
@@ -645,26 +637,20 @@
     <input type="hidden" id="current-practice-type" value="">
     <div class="practice-controls">
       <div class="practice-control-group">
-        <label for="profile-name">Class/Profile:</label>
-        <input type="text" id="profile-name" placeholder="E.g., Year 9 2025">
-      </div>
-      <div class="practice-control-group">
         <label for="topic-select">Choose a Theme:</label>
         <select id="topic-select"><option>Loading Themes...</option></select>
       </div>
       <div class="practice-control-group">
         <label for="question-select">Choose a Question:</label>
-        <select id="question-select"><option>Select a Profile and Theme...</option></select>
+        <select id="question-select"><option>Select a Theme first...</option></select>
       </div>
       <button id="generate-practice-btn" class="btn-primary">Load Question</button>
       <button id="fullscreen-btn" class="btn-primary hide">🔈 Open Full Screen</button>
-      <button id="reset-progress-btn" class="btn-danger">Reset Profile</button>
       <button class="btn-primary back-btn">Back to Main Menu</button>
     </div>
     <div id="question-display">
-      <div id="completion-controls"></div>
       <h2>Your question will appear here</h2>
-      <p>Enter a profile name, select a theme and question, then click "Load Question".</p>
+      <p>Select a theme and question, then click "Load Question".</p>
     </div>
   </div>
 
@@ -738,23 +724,223 @@
 
 <script>
 // --- URLs and Global Variables ---
-// ... (omitting identical variable declarations for brevity) ...
+const practiceSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRvNFlHDx-4cZbDzwKy5Yb_DKeSxS2wSXxyX1Ua6pGcf27yFjmqOPz9jQ_rzoV3-zoZI9lw4EIfmdXH/pub?output=csv";
 
-const COMPLETED_SLIDES_KEY = 'completedSlides';
-const LAST_PROFILE_KEY = 'lastUsedProfile';
-let currentProfile = '';
+const sentenceSpreadsheetUrls = {
+    'Y9 French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTaWTWH-Jzie2Ax9aVFbQAQWw76PofUVQ-RY3lHNdsGCuEuCyVpGawiwS-apwfM4GsHNjqnlb5836yS/pub?output=csv',
+    'GCSE French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTeenmRJ1Gqolo-8KqU5A84PProbYHoY3SrXKFxFgdzwf_FdmJnpfbpEf9KmbhqhQk17K6USG_UOJg9/pub?output=csv',
+    'AS French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRgTI8GCi7HvYPgwyvGR9-7FIxOPst_z9hmTYPZzxyXaXlnwRp0hmmUaoI-KurWeaoFMRxFB86WcBbu/pub?output=csv',
+    'A2 French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQsKSC5P22FAuLzBk-GiD-KDN-vle15N8dHA9MnHGaFN4jle46LYCqmvBIHnsiJqChGjN-_tY8JUKVT/pub?output=csv',
+    'Y9 German': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTeenmRJ1Gqolo-8KqU5A84PProbYHoY3SrXKFxFgdzwf_FdmJnpfbpEf9KmbhqhQk17K6USG_UOJg9/pub?output=csv',
+    'GCSE German': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTeenmRJ1Gqolo-8KqU5A84PProbYHoY3SrXKFxFgdzwf_FdmJnpfbpEf9KmbhqhQk17K6USG_UOJg9/pub?output=csv',
+    'EAL': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vROKSgIob7bh0rpUxYfEIuzUXLNk1Eq4pH7Obj2lwYrooEMWNQHYjVgBvX2zBrK1ldffwMVT43qIwXL/pub?output=csv'
+};
 
-// --- LocalStorage Helper Functions ---
-function getCompletedSlides() {
-    const data = localStorage.getItem(COMPLETED_SLIDES_KEY);
-    return data ? JSON.parse(data) : {};
+const vocabSpreadsheetUrls = {
+    'Y9 French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRnDLxwYIiKui39_UjS66eQtrFttct-nEpnEcD06p15Bm9iNpxdFihDfj6BxggMLLukIyJ72SeF_EEM/pub?output=csv',
+    'GCSE French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSCNeq329ih6SxLZ2TowPzpk61gJLFy-UAVAb8ivBs9DNEOdmtRQ29bWh__n53MdE-C8hs_XOV3iIkT/pub?output=csv',
+    'AS French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRrT8UxOP9RIX0Udy7Q12-D2HJJVp8jfpd8lnbGO9vlHsXnWgtVeJlTXarZlROdR7cvc-Wug2ukblC8/pub?output=csv',
+    'A2 French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRbdjmR3pBk7FniGAuKvlKQk_1zfuY9XlyhQtim-ABIdxEWk-8WmcUHxcDwOui7d1R0Uvk66LTr6eON/pub?output=csv',
+    'Y9 German': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2uwRf4d6BaS3Pr8s5Kh6l5qcueQdIypB4rB_gQVO1WNNC21wfcAALqUVflppBR5TaCFgBLFI8yCpF/pub?output=csv',
+    'GCSE German': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTlddh1-sO5-s5CPJt_a1H1ltX9orRCFvosUPVBJIqjxXc0nB3c4-f19sUNF5s6lIof7TnBIevleWJA/pub?output=csv',
+    'EAL': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS9bgmualOyPisCcjqRchWvazafdnl90epRPPgSjy9YEEjc1fl5RryPxjZgL9aNsNMUPHbB4sInSJRb/pub?output=csv'
+};
+
+const ICON_EXPAND = `<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 2h-2v3h-3v2h5v-5zm-3-2V7h-2V5h5v5h-3z"/></svg>`;
+const ICON_COMPRESS = `<svg viewBox="0 0 24 24"><path d="M5 16h2v-3h3v-2H5v5zm3-8H5v2h5V5H8v3zm6 11h-3v-2h5v5h-2v-3zm2-11V5h-2v5h5V8h-3z"/></svg>`;
+
+let practice_allQuestions = [];
+let all_vocab_data = {};
+let all_sentence_data = {};
+let vocab_vocabSets = {};
+let sentenceSets = {};
+let currentGameSettings = {};
+let lastSentencePair = null;
+let currentVocabWords = [];
+let currentVocabGridPairs = [];
+let onePenOneDiceSentences = [];
+let onePenOneDiceReversed = false;
+let infoGapSentences = [];
+let currentWordPair = null;
+// --- Data Loading ---
+function loadData(url, options) {
+    return new Promise((resolve, reject) => {
+        if (!url || url.startsWith('PASTE_YOUR')) {
+            return reject(new Error(`Invalid URL provided: ${url}`));
+        }
+        Papa.parse(url, {
+            download: true,
+            skipEmptyLines: true, ...options,
+            complete: (results) => resolve(results.data),
+            error: (err) => reject(new Error(`Failed to load data from ${url}: ${err.message}`)),
+        });
+    });
+}
+async function initializeApp() {
+    [readingBtn, listeningBtn, vocabBtn, sentenceBtn].forEach(btn => btn.disabled = true);
+    [readingBtn, listeningBtn, vocabBtn, sentenceBtn].forEach(btn => btn.textContent = 'Loading...');
+
+    populateClassSelector();
+    resetVocabDropdowns(true);
+    populateSentenceClassSelector();
+    resetSentenceDropdowns(true);
+    populateGameTypeSelector();
+    populateWorksheetTypeSelector();
+    populateVocabActivitySelector();
+
+    const practicePromise = loadData(practiceSheetUrl, { header: true }).then(data => ({ type: 'practice', data }));
+    const sentencePromises = Object.entries(sentenceSpreadsheetUrls).map(([className, url]) =>
+        loadData(url, { header: false }).then(data => ({ type: 'sentence', className, data }))
+    );
+    const vocabPromises = Object.entries(vocabSpreadsheetUrls).map(([className, url]) =>
+        loadData(url, { header: false }).then(data => ({ type: 'vocab', className, data }))
+    );
+
+    const results = await Promise.allSettled([practicePromise, ...sentencePromises, ...vocabPromises]);
+
+    let practiceLoaded = false, sentencesLoaded = false, vocabLoaded = false;
+
+    results.forEach(result => {
+        if (result.status === 'fulfilled') {
+            const { type, className, data } = result.value;
+            if (type === 'practice') {
+                practice_allQuestions = data.map(q => ({
+                    Skill: q.Skill, Theme: q.Theme, Question: q.Question, Content: q.Content
+                })).filter(q => q.Skill && q.Theme && q.Content);
+                practiceLoaded = true;
+            } else if (type === 'sentence') {
+                all_sentence_data[className] = data;
+                sentencesLoaded = true;
+            } else if (type === 'vocab') {
+                all_vocab_data[className] = data;
+                vocabLoaded = true;
+            }
+        } else {
+            console.error("Failed to load a spreadsheet:", result.reason);
+        }
+    });
+
+    if (practiceLoaded) {
+        readingBtn.disabled = false;
+        listeningBtn.disabled = false;
+        readingBtn.textContent = 'Reading Practice';
+       listeningBtn.textContent = 'Listening Practice';
+    } else {
+        readingBtn.textContent = 'Practice Unavailable';
+        readingBtn.style.backgroundColor = '#c0392b';
+        listeningBtn.disabled = true;
+    }
+
+    if (sentencesLoaded) {
+        sentenceBtn.disabled = false;
+        sentenceBtn.textContent = 'Sentence Practice';
+    } else {
+        sentenceBtn.textContent = 'Sentences Unavailable';
+        sentenceBtn.style.backgroundColor = '#c0392b';
+    }
+
+    if (vocabLoaded) {
+        vocabBtn.disabled = false;
+        vocabBtn.textContent = 'Vocab Practice';
+    } else {
+        vocabBtn.textContent = 'Vocab Unavailable';
+        vocabBtn.style.backgroundColor = '#c0392b';
+    }
+}
+// --- DOM Element References ---
+const mainMenu = document.getElementById('main-menu');
+const practiceSection = document.getElementById('practice-section');
+const vocabSection = document.getElementById('vocab-section');
+const sentenceSection = document.getElementById('sentence-section');
+const readingBtn = document.getElementById('reading-btn');
+const listeningBtn = document.getElementById('listening-btn');
+const vocabBtn = document.getElementById('vocab-btn');
+const sentenceBtn = document.getElementById('sentence-btn');
+const currentPracticeTypeInput = document.getElementById('current-practice-type');
+const practice_topicSelect = document.getElementById('topic-select');
+const practice_questionSelect = document.getElementById('question-select');
+const practice_generateBtn = document.getElementById('generate-practice-btn');
+const practice_questionDisplay = document.getElementById('question-display');
+const fullscreenBtn = document.getElementById('fullscreen-btn');
+const classSelect = document.getElementById('class-select');
+const vocab_activitySelect = document.getElementById('vocab-activity-select');
+const vocab_themeSelect = document.getElementById('vocab-theme-select');
+const vocab_setSelect = document.getElementById('vocab-set-select');
+const vocab_setSelect2 = document.getElementById('vocab-set-select-2');
+const vocab_generateBtn = document.getElementById('vocab-generate-btn');
+const vocab_testContainer = document.getElementById('vocab-test-container');
+const vocab_printCopyArea = document.getElementById('vocab-print-copy-area');
+const vocab_testControls = document.getElementById('vocab-test-controls');
+const vocab_gridControls = document.getElementById('vocab-grid-controls');
+const vocab_revealBtn = document.getElementById('vocab-reveal-btn');
+const sentenceClassSelect = document.getElementById('sentence-class-select');
+const sentenceThemeSelect = document.getElementById('sentence-theme-select');
+const sentenceTopicSelect = document.getElementById('sentence-topic-select');
+const gameTypeSelect = document.getElementById('game-type-select');
+const worksheetTypeSelect = document.getElementById('worksheet-type-select');
+const sentenceDisplay = document.getElementById('sentence-display');
+const dictationControls = document.getElementById('dictation-controls');
+const onePenOneDiceControls = document.getElementById('one-pen-one-dice-controls');
+const infoGapControls = document.getElementById('info-gap-controls');
+
+// --- Fullscreen Button Logic ---
+function addFullscreenButton(targetPanel) {
+    if (!targetPanel) return;
+    const existingBtn = targetPanel.querySelector('.fullscreen-toggle-btn');
+    if (existingBtn) {
+        existingBtn.remove();
+    }
+    const btn = document.createElement('button');
+    btn.className = 'fullscreen-toggle-btn';
+    btn.title = 'Toggle Fullscreen';
+    btn.innerHTML = ICON_EXPAND;
+    btn.addEventListener('click', () => {
+        const isFullscreen = targetPanel.classList.contains('fullscreen-active');
+        if (isFullscreen) {
+            targetPanel.classList.remove('fullscreen-active');
+            document.body.classList.remove('fullscreen-mode');
+            btn.innerHTML = ICON_EXPAND;
+        } else {
+            targetPanel.classList.add('fullscreen-active');
+            document.body.classList.add('fullscreen-mode');
+            btn.innerHTML = ICON_COMPRESS;
+        }
+    });
+    targetPanel.appendChild(btn);
 }
 
-function saveCompletedSlides(completed) {
-    localStorage.setItem(COMPLETED_SLIDES_KEY, JSON.stringify(completed));
+// --- Navigation ---
+readingBtn.addEventListener('click', () => { stopMedia(); showPractice('Reading'); });
+listeningBtn.addEventListener('click', () => { stopMedia(); showPractice('Listening'); });
+vocabBtn.addEventListener('click', () => { stopMedia(); showVocabTest(); });
+sentenceBtn.addEventListener('click', () => { stopMedia(); showSentenceGames(); });
+document.querySelectorAll('.back-btn').forEach(btn => btn.addEventListener('click', showMainMenu));
+
+function stopMedia() {
+    practice_questionDisplay.innerHTML = `<h2>Your question will appear here</h2><p>Select a theme and question, then click "Load Question".</p>`;
+    fullscreenBtn.classList.add('hide');
+    fullscreenBtn.onclick = null;
 }
 
-// ... (omitting identical code until showPractice) ...
+function showMainMenu() {
+    stopMedia();
+    mainMenu.classList.remove('hide');
+    practiceSection.classList.add('hide');
+    vocabSection.classList.add('hide');
+    sentenceSection.classList.add('hide');
+    vocab_testContainer.innerHTML = '';
+    document.getElementById('vocab-button-area').innerHTML = '';
+    vocab_testControls.classList.add('hide');
+    vocab_gridControls.classList.add('hide');
+    classSelect.value = '';
+    resetVocabDropdowns(true);
+    sentenceClassSelect.value = '';
+    resetSentenceDropdowns(true);
+    sentenceDisplay.innerHTML = `<h2>Your sentence game will appear here.</h2><p>Select a class, theme, and activity to begin.</p>`;
+    dictationControls.classList.add('hide');
+    onePenOneDiceControls.classList.add('hide'); 
+    infoGapControls.classList.add('hide');
+}
 
 function showPractice(type) {
     mainMenu.classList.add('hide');
@@ -763,40 +949,139 @@ function showPractice(type) {
     sentenceSection.classList.add('hide');
     document.getElementById('practice-title').textContent = `${type} Practice`;
     currentPracticeTypeInput.value = type;
-
-    // Load last used profile
-    const lastProfile = localStorage.getItem(LAST_PROFILE_KEY) || '';
-    const profileInput = document.getElementById('profile-name');
-    profileInput.value = lastProfile;
-    currentProfile = lastProfile;
-
     practice_populateTopics();
 }
 
-// ... (omitting identical code until practice section event listeners) ...
+function showVocabTest() {
+    mainMenu.classList.add('hide');
+    practiceSection.classList.add('hide');
+    vocabSection.classList.remove('hide');
+    sentenceSection.classList.add('hide');
+}
+
+function showSentenceGames() {
+    mainMenu.classList.add('hide');
+    practiceSection.classList.add('hide');
+    vocabSection.classList.add('hide');
+    sentenceSection.classList.remove('hide');
+}
+
+// --- Data Loading ---
+function loadData(url, options) {
+    return new Promise((resolve, reject) => {
+        if (!url || url.startsWith('PASTE_YOUR')) {
+            return reject(new Error(`Invalid URL provided: ${url}`));
+        }
+        Papa.parse(url, {
+            download: true,
+            skipEmptyLines: true, ...options,
+            complete: (results) => resolve(results.data),
+            error: (err) => reject(new Error(`Failed to load data from ${url}: ${err.message}`)),
+        });
+    });
+}
+async function initializeApp() {
+    [readingBtn, listeningBtn, vocabBtn, sentenceBtn].forEach(btn => btn.disabled = true);
+    [readingBtn, listeningBtn, vocabBtn, sentenceBtn].forEach(btn => btn.textContent = 'Loading...');
+
+    populateClassSelector();
+    resetVocabDropdowns(true);
+    populateSentenceClassSelector();
+    resetSentenceDropdowns(true);
+    populateGameTypeSelector();
+    populateWorksheetTypeSelector();
+    populateVocabActivitySelector();
+
+    const practicePromise = loadData(practiceSheetUrl, { header: true }).then(data => ({ type: 'practice', data }));
+    const sentencePromises = Object.entries(sentenceSpreadsheetUrls).map(([className, url]) =>
+        loadData(url, { header: false }).then(data => ({ type: 'sentence', className, data }))
+    );
+    const vocabPromises = Object.entries(vocabSpreadsheetUrls).map(([className, url]) =>
+        loadData(url, { header: false }).then(data => ({ type: 'vocab', className, data }))
+    );
+
+    const results = await Promise.allSettled([practicePromise, ...sentencePromises, ...vocabPromises]);
+
+    let practiceLoaded = false, sentencesLoaded = false, vocabLoaded = false;
+
+    results.forEach(result => {
+        if (result.status === 'fulfilled') {
+            const { type, className, data } = result.value;
+            if (type === 'practice') {
+                practice_allQuestions = data.map(q => ({
+                    Skill: q.Skill, Theme: q.Theme, Question: q.Question, Content: q.Content
+                })).filter(q => q.Skill && q.Theme && q.Content);
+                practiceLoaded = true;
+            } else if (type === 'sentence') {
+                all_sentence_data[className] = data;
+                sentencesLoaded = true;
+            } else if (type === 'vocab') {
+                all_vocab_data[className] = data;
+                vocabLoaded = true;
+            }
+        } else {
+            console.error("Failed to load a spreadsheet:", result.reason);
+        }
+    });
+
+    if (practiceLoaded) {
+        readingBtn.disabled = false;
+        listeningBtn.disabled = false;
+        readingBtn.textContent = 'Reading Practice';
+       listeningBtn.textContent = 'Listening Practice';
+    } else {
+        readingBtn.textContent = 'Practice Unavailable';
+        readingBtn.style.backgroundColor = '#c0392b';
+        listeningBtn.disabled = true;
+    }
+
+    if (sentencesLoaded) {
+        sentenceBtn.disabled = false;
+        sentenceBtn.textContent = 'Sentence Practice';
+    } else {
+        sentenceBtn.textContent = 'Sentences Unavailable';
+        sentenceBtn.style.backgroundColor = '#c0392b';
+    }
+
+    if (vocabLoaded) {
+        vocabBtn.disabled = false;
+        vocabBtn.textContent = 'Vocab Practice';
+    } else {
+        vocabBtn.textContent = 'Vocab Unavailable';
+        vocabBtn.style.backgroundColor = '#c0392b';
+    }
+}
 
 // --- Practice Section Logic ---
-document.getElementById('profile-name').addEventListener('input', (e) => {
-    currentProfile = e.target.value.trim();
-    localStorage.setItem(LAST_PROFILE_KEY, currentProfile);
-    practice_populateQuestions();
-});
 practice_topicSelect.addEventListener('change', () => { stopMedia(); practice_populateQuestions(); });
 practice_generateBtn.addEventListener('click', practice_generateQuestion);
 
-// ... (omitting practice_populateTopics as it's unchanged) ...
+function practice_populateTopics() {
+    const selectedType = currentPracticeTypeInput.value;
+    const themes = [...new Set(practice_allQuestions
+        .filter(q => q.Skill && q.Skill.trim() === selectedType)
+        .map(q => q.Theme))];
+    practice_topicSelect.innerHTML = '<option value="">-- Select Theme --</option>';
+    if (themes.length === 0) {
+        practice_topicSelect.innerHTML = `<option>No Themes Available</option>`;
+        practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
+        return;
+    }
+    themes.sort().forEach(theme => {
+        if (theme) {
+            const opt = document.createElement('option');
+            opt.value = theme;
+            opt.textContent = theme;
+            practice_topicSelect.appendChild(opt);
+        }
+    });
+    practice_populateQuestions();
+}
 
 function practice_populateQuestions() {
     const selectedTheme = practice_topicSelect.value;
     const selectedType = currentPracticeTypeInput.value;
     practice_questionSelect.innerHTML = '';
-    
-    document.getElementById('completion-controls').innerHTML = '';
-
-    if (!currentProfile) {
-        practice_questionSelect.innerHTML = `<option>Please enter a Profile name...</option>`;
-        return;
-    }
     if (!selectedTheme) {
         practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
         return;
@@ -808,72 +1093,25 @@ function practice_populateQuestions() {
         practice_questionSelect.innerHTML = `<option>No Questions Available</option>`;
         return;
     }
-    
-    const allCompleted = getCompletedSlides();
-    const profileProgress = allCompleted[currentProfile] || {};
-
     questions.forEach((q, index) => {
         const opt = document.createElement('option');
         opt.value = q.Content;
-        if (profileProgress[q.Content]) {
-            opt.textContent = '✅ ' + q.Question;
-        } else {
-            opt.textContent = q.Question;
-        }
+        opt.textContent = q.Question;
         practice_questionSelect.appendChild(opt);
     });
 }
 
 function practice_generateQuestion() {
-    if (!currentProfile) {
-        alert('Please enter a Class/Profile name before loading a question.');
-        return;
-    }
-
     const selectedContentUrl = practice_questionSelect.value;
-    if (!selectedContentUrl || selectedContentUrl.includes('Select a') || selectedContentUrl.includes('No Questions')) {
+    if (!selectedContentUrl || selectedContentUrl.includes('Select a Theme') || selectedContentUrl.includes('No Questions')) {
         practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question from the list.</p>`;
         return;
     }
-
     const q = practice_allQuestions.find(item => item.Content === selectedContentUrl);
     if (!q) {
         practice_questionDisplay.innerHTML = `<p>Error: Content not found.</p>`;
         return;
     }
-    
-    const completionControls = document.getElementById('completion-controls');
-    completionControls.innerHTML = ''; 
-    
-    const completionBtn = document.createElement('button');
-    completionBtn.classList.add('btn-secondary');
-
-    const updateButtonState = () => {
-        const allCompleted = getCompletedSlides();
-        const profileProgress = allCompleted[currentProfile] || {};
-        if (profileProgress[selectedContentUrl]) {
-            completionBtn.textContent = 'Completed ✔';
-            completionBtn.disabled = true;
-        } else {
-            completionBtn.textContent = 'Mark as Done';
-            completionBtn.disabled = false;
-        }
-    };
-    
-    completionBtn.addEventListener('click', () => {
-        const allCompleted = getCompletedSlides();
-        if (!allCompleted[currentProfile]) {
-            allCompleted[currentProfile] = {};
-        }
-        allCompleted[currentProfile][selectedContentUrl] = true;
-        saveCompletedSlides(allCompleted);
-        updateButtonState();
-        practice_populateQuestions();
-    });
-
-    completionControls.appendChild(completionBtn);
-    updateButtonState();
-    
     fullscreenBtn.classList.add('hide');
     fullscreenBtn.onclick = null;
     let contentHtml = q.Content;
@@ -897,45 +1135,600 @@ function practice_generateQuestion() {
             fullscreenBtn.onclick = () => { window.open(presentUrl, '_blank'); };
         }
     }
-    const displayElement = document.getElementById('question-display');
-    displayElement.innerHTML = ''; // Clear previous content
-    displayElement.appendChild(completionControls);
-    displayElement.innerHTML += `<h2>${q.Question}</h2>${contentHtml}`;
+    practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
 }
 
-document.getElementById('reset-progress-btn').addEventListener('click', () => {
-    if (!currentProfile) {
-        alert('Please enter a Class/Profile name to reset.');
+// --- HELPER FUNCTION: To render text or an image ---
+function renderContent(content, altText = 'Vocabulary image') {
+    if (typeof content === 'string' && (content.startsWith('http://') || content.startsWith('https://'))) {
+        return `<img src="${content}" alt="${altText}" class="vocab-image">`;
+    }
+    return content || ''; 
+}
+
+// --- GAME HELPER FUNCTIONS ---
+function removeVowels(str) {
+    if (typeof str !== 'string' || str.startsWith('http')) return str;
+    const allVowelsRegex = /[aeiouyàáâäæèéêëìíîïòóôöùúûü]/gi;
+    return str.replace(allVowelsRegex, '<span class="underscore">_</span>');
+}
+
+function removeConsonants(str) {
+    if (typeof str !== 'string' || str.startsWith('http')) return str;
+    const allConsonantsRegex = /[^aeiouyàáâäæèéêëìíîïòóôöùúûü\s\d.,!?]/gi;
+    return str.replace(allConsonantsRegex, '<span class="underscore">_</span>');
+}
+
+function scrambleWord(str) {
+    if (typeof str !== 'string' || str.startsWith('http')) return str;
+    
+    const words = str.split(' ');
+    const scrambledWords = words.map(word => {
+        const match = word.match(/^(.*?)(\p{P}*)$/u);
+        if (!match) return word;
+
+        let core = match[1];
+        const punctuation = match[2];
+
+        if (core.length < 2) return word;
+
+        let scrambledCore = core.split('').sort(() => 0.5 - Math.random()).join('');
+        if (scrambledCore === core && core.length > 2) {
+            scrambledCore = core.split('').sort(() => 0.5 - Math.random()).join('');
+        }
+        
+        return scrambledCore + punctuation;
+    });
+    
+    return scrambledWords.join(' ');
+}
+
+// --- Vocabulary Section Logic ---
+function populateClassSelector() {
+    const classOrder = ['Y9 French', 'GCSE French', 'AS French', 'A2 French', 'Y9 German', 'GCSE German', 'EAL'];
+    classSelect.innerHTML = '<option value="">-- Select a Class --</option>';
+    classOrder.forEach((name, index) => {
+        if (vocabSpreadsheetUrls[name]) {
+            const optionText = `${index + 1}- ${name}`;
+            classSelect.add(new Option(optionText, name));
+        }
+    });
+}
+function populateVocabActivitySelector() {
+    vocab_activitySelect.innerHTML = `
+        <option value="test">Vocab Test</option>
+        <option value="grid">Vocab Grid</option>
+        <option value="anagram">Anagram</option>
+        <option value="no-vowels">No Vowels</option>
+        <option value="no-consonants">No Consonants</option>
+        <option value="random-target">Random Target</option>
+        <option value="random-en">Random EN</option>
+    `;
+}
+classSelect.addEventListener('change', () => {
+    const selectedClass = classSelect.value;
+    vocab_testContainer.innerHTML = '';
+    document.getElementById('vocab-button-area').innerHTML = ''; 
+    vocab_testControls.classList.add('hide');
+    vocab_gridControls.classList.add('hide');
+    if (selectedClass && all_vocab_data[selectedClass]) {
+        processAndDisplayVocab(all_vocab_data[selectedClass]);
+    } else {
+        resetVocabDropdowns(true);
+    }
+});
+function processAndDisplayVocab(vocabData) {
+    vocab_vocabSets = {};
+    let currentTheme = null, currentSet = null;
+    vocabData.forEach(row => {
+        if (!row || row.length < 5) return;
+        const [themeInRow, setInRow, , colD, colE] = row.map(cell => cell?.trim());
+        if (themeInRow) currentTheme = themeInRow;
+        if (currentTheme && setInRow) currentSet = setInRow;
+        if (currentTheme && currentSet && colD && colE) {
+            if (!vocab_vocabSets[currentTheme]) vocab_vocabSets[currentTheme] = {};
+            if (!vocab_vocabSets[currentTheme][currentSet]) vocab_vocabSets[currentTheme][currentSet] = [];
+            vocab_vocabSets[currentTheme][currentSet].push({ left: colD, right: colE });
+        }
+    });
+    vocab_initializeSelectors();
+    resetVocabDropdowns(false);
+}
+function resetVocabDropdowns(disabled) {
+    vocab_themeSelect.disabled = disabled;
+    vocab_activitySelect.disabled = disabled;
+    vocab_setSelect.disabled = disabled;
+    vocab_setSelect2.disabled = disabled;
+    if (disabled) {
+        vocab_themeSelect.innerHTML = '<option>Select Class first</option>';
+        vocab_setSelect.innerHTML = '';
+        vocab_setSelect2.innerHTML = '';
+    }
+}
+function vocab_initializeSelectors() {
+    const themes = Object.keys(vocab_vocabSets);
+    vocab_themeSelect.innerHTML = '<option value="">-- Select Theme --</option>';
+    if (themes.length === 0) {
+        vocab_themeSelect.innerHTML = `<option>No Themes Loaded</option>`;
         return;
     }
-    if (confirm(`Are you sure you want to reset all progress for the profile "${currentProfile}"? This cannot be undone.`)) {
-        const allCompleted = getCompletedSlides();
-        if (allCompleted[currentProfile]) {
-            delete allCompleted[currentProfile];
-            saveCompletedSlides(allCompleted);
-            practice_populateQuestions();
-            document.getElementById('completion-controls').innerHTML = '';
-            alert(`Progress for "${currentProfile}" has been reset.`);
-        } else {
-            alert(`No progress found for profile "${currentProfile}".`);
+    themes.sort().forEach(theme => vocab_themeSelect.add(new Option(theme, theme)));
+    if (themes.length > 0) vocab_themeSelect.value = themes.sort()[0];
+    vocab_updateSetDropdown();
+}
+function vocab_updateSetDropdown() {
+    const theme = vocab_themeSelect.value;
+    vocab_setSelect.innerHTML = '<option value="">-- Select Set --</option>';
+    vocab_setSelect2.innerHTML = '<option value="">-- None --</option>';
+    if (!theme || !vocab_vocabSets[theme]) return;
+    const sets = Object.keys(vocab_vocabSets[theme]);
+    sets.sort().forEach(setName => {
+        const text = `${setName} (${vocab_vocabSets[theme][setName].length} words)`;
+        vocab_setSelect.add(new Option(text, setName));
+        vocab_setSelect2.add(new Option(text, setName));
+    });
+}
+vocab_themeSelect.addEventListener('change', vocab_updateSetDropdown);
+
+vocab_generateBtn.addEventListener('click', () => {
+    const activity = vocab_activitySelect.value;
+    vocab_testControls.classList.add('hide');
+    vocab_gridControls.classList.add('hide');
+    
+    switch (activity) {
+        case 'test':
+            vocab_generateTest();
+            break;
+        case 'grid':
+            vocab_generateGrid();
+            break;
+        case 'random-target':
+        case 'random-en':
+        case 'anagram':
+        case 'no-vowels':
+        case 'no-consonants':
+            generateSingleWordGame(activity);
+            break;
+        default:
+            vocab_testContainer.innerHTML = '<h2>Please select an activity.</h2>';
+            document.getElementById('vocab-button-area').innerHTML = '';
+    }
+});
+document.getElementById('vocab-print-btn').addEventListener('click', vocab_generatePrintVersion);
+
+function createVocabTableHTML(words) {
+    let tableRowsHTML = '';
+    const part1 = words.slice(0, 5);
+    const part2 = words.slice(5, 10);
+    part1.forEach((item, i) => {
+        tableRowsHTML += `<tr><td class="num-cell">${i + 1}</td><td>${renderContent(item.left)}</td><td class="answer-cell"><span>${renderContent(item.right, item.left)}</span></td></tr>`;
+    });
+    part2.forEach((item, i) => {
+        tableRowsHTML += `<tr><td class="num-cell">${i + 6}</td><td class="answer-cell"><span>${renderContent(item.left, item.right)}</span></td><td>${renderContent(item.right)}</td></tr>`;
+    });
+    return `<table><thead><tr><th>No.</th><th>Word</th><th>Definition</th></tr></thead><tbody>${tableRowsHTML}</tbody></table>`;
+}
+
+function getVocabWords(requiredCount) {
+    const selectedTheme = vocab_themeSelect.value;
+    if (!selectedTheme) { alert('Please select a theme.'); return null; }
+
+    const set1 = vocab_setSelect.value;
+    const set2 = vocab_setSelect2.value;
+    
+    let combined = [];
+    if (set1) { 
+        combined = [...vocab_vocabSets[selectedTheme][set1]]; 
+    } else { 
+        combined = Object.values(vocab_vocabSets[selectedTheme]).flat(); 
+    }
+    if (set2 && set2 !== set1) { 
+        combined = combined.concat(vocab_vocabSets[selectedTheme][set2]); 
+    }
+    
+    let uniqueCombined = Array.from(new Map(combined.map(item => [item.left, item])).values());
+    if (uniqueCombined.length < requiredCount) { 
+        alert(`Need at least ${requiredCount} unique words. Found ${uniqueCombined.length}.`); 
+        return null; 
+    }
+    return uniqueCombined.sort(() => 0.5 - Math.random()).slice(0, requiredCount);
+}
+
+function vocab_generateTest() {
+    currentVocabWords = getVocabWords(10);
+    if (!currentVocabWords) return;
+
+    vocab_testContainer.innerHTML = createVocabTableHTML(currentVocabWords);
+    
+    vocab_gridControls.classList.add('hide');
+    vocab_testControls.classList.remove('hide'); 
+
+    const buttonArea = document.getElementById('vocab-button-area');
+    buttonArea.innerHTML = `<button class="btn-primary">Reveal</button>`;
+    buttonArea.children[0].addEventListener('click', vocab_revealAnswers);
+
+    addFullscreenButton(document.querySelector('.vocab-test-panel'));
+}
+
+function vocab_generateGrid() {
+    currentVocabGridPairs = getVocabWords(12);
+    if (!currentVocabGridPairs) return;
+
+    let part1Questions = currentVocabGridPairs.slice(0, 6);
+    let part2Questions = currentVocabGridPairs.slice(6, 12);
+    part1Questions.sort(() => 0.5 - Math.random());
+    part2Questions.sort(() => 0.5 - Math.random());
+    let gridHTML = '';
+    let cellCounter = 0;
+    for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 3; col++) {
+            let question, answer;
+            let cellClass = "grid-cell vocab-grid-cell";
+            if (row % 2 === 0) {
+                const pair = part1Questions.pop();
+                question = pair.left;
+                answer = pair.right;
+                cellClass += " target-lang-row";
+            } else {
+                const pair = part2Questions.pop();
+                question = pair.right;
+                answer = pair.left;
+            }
+            gridHTML += `<div class="${cellClass}"><span class="number">${cellCounter + 1}</span><span class="question">${renderContent(question)}</span><span class="answer hide">${renderContent(answer, question)}</span></div>`;
+            cellCounter++;
         }
+    }
+    vocab_testContainer.innerHTML = `<div class="grid-container">${gridHTML}</div>`;
+    
+    vocab_testControls.classList.add('hide');
+    const buttonArea = document.getElementById('vocab-button-area');
+
+    buttonArea.innerHTML = `
+        <button class="btn-primary">Shuffle</button>
+        <button class="btn-primary">Reveal</button>
+    `;
+
+    buttonArea.children[0].addEventListener('click', vocab_generateGrid);
+    buttonArea.children[1].addEventListener('click', (e) => {
+        const btn = e.target;
+        const isHiding = btn.textContent === 'Hide';
+        document.querySelectorAll('.vocab-grid-cell .answer').forEach(el => {
+            el.classList.toggle('hide', isHiding);
+        });
+        btn.textContent = isHiding ? 'Reveal' : 'Hide';
+    });
+
+    addFullscreenButton(document.querySelector('.vocab-test-panel'));
+}
+
+function vocab_revealAnswers() {
+    const answers = document.querySelectorAll('.vocab-test-panel .answer-cell span');
+    const isVisible = answers.length > 0 && answers[0].classList.contains('visible');
+    answers.forEach(s => s.classList.toggle('visible', !isVisible));
+    
+    const revealButton = document.querySelector('#vocab-button-area button');
+    if (revealButton) {
+        revealButton.textContent = isVisible ? 'Reveal' : 'Hide';
+    }
+}
+
+function vocab_generatePrintVersion() {
+    if (currentVocabWords.length < 10) {
+        alert('Please generate a vocabulary list first.');
+        return;
+    }
+    
+    let cleanRowsHTML = '';
+    const part1 = currentVocabWords.slice(0, 5);
+    const part2 = currentVocabWords.slice(5, 10);
+    part1.forEach((item, i) => {
+        cleanRowsHTML += `<tr><td>${i + 1}</td><td>${renderContent(item.left)}</td><td></td></tr>`;
+    });
+    part2.forEach((item, i) => {
+        cleanRowsHTML += `<tr><td>${i + 6}</td><td></td><td>${renderContent(item.right)}</td></tr>`;
+    });
+    const headerHTML = '<thead><tr><th>No.</th><th>Word</th><th>Definition</th></tr></thead>';
+    const cleanTableHTML = `<table>${headerHTML}<tbody>${cleanRowsHTML}</tbody></table>`;
+
+    const originalInteractiveTableHTML = vocab_testContainer.innerHTML;
+    const buttonArea = document.getElementById('vocab-button-area');
+    const fullscreenBtn = document.querySelector('.vocab-test-panel .fullscreen-toggle-btn');
+    
+    buttonArea.classList.add('hide');
+    if (fullscreenBtn) fullscreenBtn.classList.add('hide');
+
+    vocab_testContainer.innerHTML = cleanTableHTML;
+    vocab_printCopyArea.innerHTML = cleanTableHTML;
+    
+    document.querySelector('.vocab-test-panel').classList.add('printable-area');
+    document.title = "Vocabulary Test - Print Version";
+
+    window.print();
+    
+    document.querySelector('.vocab-test-panel').classList.remove('printable-area');
+    vocab_testContainer.innerHTML = originalInteractiveTableHTML;
+    vocab_printCopyArea.innerHTML = '';
+    document.title = "MFL Starter Hub";
+
+    buttonArea.classList.remove('hide');
+    if (fullscreenBtn) fullscreenBtn.classList.remove('hide');
+}
+function generateSingleWordGame(gameType) {
+    const words = getVocabWords(1);
+    if (!words) {
+        vocab_testContainer.innerHTML = '<h2>Could not load a word. Check selections.</h2>';
+        return;
+    }
+    currentWordPair = words[0];
+
+    let questionWord, answerWord, clueWord;
+    let questionHTML, answerHTML, clueHTML = ''; 
+
+    switch (gameType) {
+        case 'anagram':
+            questionWord = scrambleWord(currentWordPair.left);
+            answerWord = currentWordPair.left;
+            clueWord = currentWordPair.right;
+            
+            questionHTML = `<h2>${renderContent(questionWord)}</h2>`;
+            clueHTML = '';
+            answerHTML = `<h3>${renderContent(answerWord)}</h3><h4>${renderContent(clueWord, 'Clue')}</h4>`;
+            break;
+
+        case 'no-vowels':
+        case 'no-consonants':
+            questionWord = (gameType === 'no-vowels') ? removeVowels(currentWordPair.left) : removeConsonants(currentWordPair.left);
+            answerWord = currentWordPair.left;
+            clueWord = currentWordPair.right;
+
+            questionHTML = `<h2>${renderContent(questionWord)}</h2>`;
+            clueHTML = `<div class="clue-display"><h4>${renderContent(clueWord, 'Clue')}</h4></div>`;
+            answerHTML = `<h3>${renderContent(answerWord)}</h3>`;
+            break;
+        
+        case 'random-target':
+            questionWord = currentWordPair.left;
+            answerWord = currentWordPair.right;
+            questionHTML = `<h2>${renderContent(questionWord)}</h2>`;
+            answerHTML = `<h3>${renderContent(answerWord, questionWord)}</h3>`;
+            break;
+
+        case 'random-en':
+            questionWord = currentWordPair.right;
+            answerWord = currentWordPair.left;
+            questionHTML = `<h2>${renderContent(questionWord)}</h2>`;
+            answerHTML = `<h3>${renderContent(answerWord, questionWord)}</h3>`;
+            break;
+    }
+
+    vocab_testContainer.innerHTML = `
+        <div class="single-word-game-container">
+            <div class="question-display">
+                ${questionHTML}
+            </div>
+            ${clueHTML} 
+            <div class="answer-display hide">
+                ${answerHTML}
+            </div>
+        </div>
+    `;
+
+    const buttonArea = document.getElementById('vocab-button-area');
+    buttonArea.innerHTML = `
+        <button id="swg-reveal-btn" class="btn-primary">Reveal</button>
+        <button id="swg-new-btn" class="btn-secondary">New Word</button>
+    `;
+
+    document.getElementById('swg-reveal-btn').addEventListener('click', (e) => {
+        const btn = e.target;
+        const answerDisplay = vocab_testContainer.querySelector('.answer-display');
+        const isHidden = answerDisplay.classList.contains('hide');
+
+        if (isHidden && (gameType === 'no-vowels' || gameType === 'no-consonants')) {
+            const clueDisplay = vocab_testContainer.querySelector('.clue-display');
+            if (clueDisplay) {
+                clueDisplay.before(answerDisplay);
+            }
+        }
+        
+        answerDisplay.classList.toggle('hide', !isHidden);
+        btn.textContent = isHidden ? 'Hide' : 'Reveal';
+    });
+
+    document.getElementById('swg-new-btn').addEventListener('click', () => {
+        generateSingleWordGame(gameType); 
+    });
+    
+    addFullscreenButton(document.querySelector('.vocab-test-panel'));
+}
+
+// --- SENTENCE GAME LOGIC ---
+function populateSentenceClassSelector() {
+    const classOrder = ['Y9 French', 'GCSE French', 'AS French', 'A2 French', 'Y9 German', 'GCSE German', 'EAL'];
+    sentenceClassSelect.innerHTML = '<option value="">-- Select a Class --</option>';
+    classOrder.forEach((name, index) => {
+        if (sentenceSpreadsheetUrls[name]) {
+            sentenceClassSelect.add(new Option(`${index + 1}- ${name}`, name));
+        }
+    });
+}
+sentenceClassSelect.addEventListener('change', () => {
+    const selectedClass = sentenceClassSelect.value;
+    sentenceDisplay.innerHTML = `<h2>Your sentence game will appear here.</h2><p>Select a class, theme, and game to begin.</p>`;
+    gameTypeSelect.value = '';
+    worksheetTypeSelect.value = '';
+    if (selectedClass && all_sentence_data[selectedClass]) {
+        processAndDisplaySentences(all_sentence_data[selectedClass]);
+    } else {
+        resetSentenceDropdowns(true);
     }
 });
 
-// ... (omitting identical code until playSentenceGame) ...
+function processAndDisplaySentences(sentenceData) {
+    sentenceSets = {};
+    let currentTheme = null, currentTopic = null;
+    sentenceData.forEach(row => {
+        if (!row || row.length < 5) return;
+        const [themeInRow, topicInRow, , target, english] = row.map(cell => cell?.trim());
+        if (themeInRow) currentTheme = themeInRow;
+        if (currentTheme && topicInRow) currentTopic = topicInRow;
+        if (currentTheme && currentTopic && target && english) {
+            if (!sentenceSets[currentTheme]) sentenceSets[currentTheme] = {};
+            if (!sentenceSets[currentTheme][currentTopic]) sentenceSets[currentTheme][currentTopic] = [];
+            sentenceSets[currentTheme][currentTopic].push({ target, english });
+        }
+    });
+    sentence_initializeSelectors();
+    resetSentenceDropdowns(false);
+}
+function resetSentenceDropdowns(disabled) {
+    sentenceThemeSelect.disabled = disabled;
+    sentenceTopicSelect.disabled = disabled;
+    gameTypeSelect.disabled = disabled;
+    worksheetTypeSelect.disabled = disabled;
+    if (disabled) {
+        sentenceThemeSelect.innerHTML = '<option>Select Class first</option>';
+        sentenceTopicSelect.innerHTML = '';
+        gameTypeSelect.value = '';
+        worksheetTypeSelect.value = '';
+    }
+}
+function populateGameTypeSelector() {
+    const games = {
+        'unjumble': 'Unjumble',
+        'no-spaces': 'No Spaces',
+        'no-vowels': 'No Vowels',
+        'no-consonants': 'No Consonants',
+        'random-target': 'Random Target',
+        'random-en': 'Random EN',
+        'match-up': 'Match Up',
+        'sentence-grid': 'Sentence Grid'
+    };
+    gameTypeSelect.innerHTML = '<option value="">-- Select a Game --</option>';
+    for (const [value, text] of Object.entries(games)) {
+        gameTypeSelect.add(new Option(text, value))
+    }
+}
+function populateWorksheetTypeSelector() {
+    const worksheets = {
+        'dictation': 'Dictation',
+        'info-gap': 'Ping Pong',
+        'one-pen-one-dice': '1 Pen 1 Dice'
+    };
+    worksheetTypeSelect.innerHTML = '<option value="">-- Select a Worksheet --</option>';
+    for (const [value, text] of Object.entries(worksheets)) {
+        worksheetTypeSelect.add(new Option(text, value));
+    }
+}
+
+function sentence_initializeSelectors() {
+    const themes = Object.keys(sentenceSets);
+    sentenceThemeSelect.innerHTML = '<option value="">-- Select Theme --</option>';
+    if (themes.length === 0) {
+        sentenceThemeSelect.innerHTML = '<option>No Themes</option>';
+        return;
+    }
+    themes.sort().forEach(theme => sentenceThemeSelect.add(new Option(theme, theme)));
+    sentence_updateTopicDropdown();
+}
+function sentence_updateTopicDropdown() {
+    const theme = sentenceThemeSelect.value;
+    sentenceTopicSelect.innerHTML = '<option value="">-- All Topics --</option>';
+    if (!theme || !sentenceSets[theme]) return;
+    const topics = Object.keys(sentenceSets[theme]);
+    topics.sort().forEach(topic => {
+        const text = `${topic} (${sentenceSets[theme][topic].length} items)`;
+        sentenceTopicSelect.add(new Option(text, topic))
+    });
+}
+
+function triggerSentenceGame() {
+    const theme = sentenceThemeSelect.value;
+    const topic = sentenceTopicSelect.value;
+    const activityType = gameTypeSelect.value || worksheetTypeSelect.value;
+
+    if (theme && activityType) {
+        currentGameSettings = { theme, topic, activityType };
+        lastSentencePair = null;
+        playSentenceGame();
+    }
+}
+
+sentenceThemeSelect.addEventListener('change', () => {
+    sentence_updateTopicDropdown();
+    triggerSentenceGame();
+});
+sentenceTopicSelect.addEventListener('change', triggerSentenceGame);
+
+gameTypeSelect.addEventListener('change', () => {
+    if (gameTypeSelect.value) {
+        worksheetTypeSelect.value = '';
+    }
+    triggerSentenceGame();
+});
+
+worksheetTypeSelect.addEventListener('change', () => {
+    if (worksheetTypeSelect.value) {
+        gameTypeSelect.value = '';
+    }
+    triggerSentenceGame();
+});
 
 function playSentenceGame() {
-    // ... (rest of the function is the same)
+    const { theme, topic, activityType } = currentGameSettings;
+    
+    dictationControls.classList.add('hide');
+    onePenOneDiceControls.classList.add('hide');
+    infoGapControls.classList.add('hide');
+
+    if (!theme || !activityType) {
+        return;
+    }
+    
+    const allAvailableSentences = topic 
+        ? [...sentenceSets[theme][topic]] 
+        : Object.values(sentenceSets[theme]).flat();
+
+    if (activityType === 'sentence-grid') {
+        playSentenceGridGame(allAvailableSentences);
+        return;
+    }
+    if (activityType === 'match-up') {
+        playMatchUpGame(allAvailableSentences);
+        return;
+    }
+    if (activityType === 'dictation') {
+        playDictationGame(allAvailableSentences);
+        return;
+    }
+    if (activityType === 'info-gap') {
+        playInfoGapGame(allAvailableSentences);
+        return;
+    }
+    if (activityType === 'one-pen-one-dice') {
+        playOnePenOneDiceGame(allAvailableSentences);
+        return;
+    }
+
+    if (allAvailableSentences.length < 1) {
+        sentenceDisplay.innerHTML = `<h2>No items found for this selection.</h2>`;
+        return;
+    }
+    let sentencePair;
+    if (allAvailableSentences.length > 1) {
+        do {
+            sentencePair = allAvailableSentences[Math.floor(Math.random() * allAvailableSentences.length)];
+        } while (sentencePair === lastSentencePair);
+    } else {
+        sentencePair = allAvailableSentences[0];
+    }
+    lastSentencePair = sentencePair;
+
     let questionHTML = '', answerHTML = '';
 
     switch (activityType) {
         case 'unjumble':
-            const words = sentencePair.target.split(' ');
-            let shuffledWords = [...words].sort(() => 0.5 - Math.random());
-            if (words.length > 1 && shuffledWords.join(' ') === sentencePair.target) {
-                 shuffledWords = [...words].sort(() => 0.5 - Math.random());
-            }
-            questionHTML = `<h2>${shuffledWords.join(' ')}</h2>`;
+            questionHTML = `<h2>${scrambleWord(sentencePair.target)}</h2>`;
             answerHTML = `<h2>${renderContent(sentencePair.target)}</h2><h3>${renderContent(sentencePair.english, sentencePair.target)}</h3>`;
             break;
         case 'no-spaces':
@@ -943,12 +1736,12 @@ function playSentenceGame() {
             answerHTML = `<h2>${renderContent(sentencePair.target)}</h2><h3>${renderContent(sentencePair.english, sentencePair.target)}</h3>`;
             break;
         case 'no-vowels':
-            const noVowels = sentencePair.target.split(' ').map(word => `<span class="word">${removeVowels(word)}</span>`).join(' ');
+            const noVowels = sentencePair.target.split(' ').map(word => `<span class="word">${removeVowels(word)}</span>`).join('   ');
             questionHTML = `<h2 class="gapped-text">${noVowels}</h2><h3>${renderContent(sentencePair.english, sentencePair.target)}</h3>`;
             answerHTML = `<h2>${renderContent(sentencePair.target)}</h2>`;
             break;
         case 'no-consonants':
-            const noConsonants = sentencePair.target.split(' ').map(word => `<span class="word">${removeConsonants(word)}</span>`).join(' ');
+            const noConsonants = sentencePair.target.split(' ').map(word => `<span class="word">${removeConsonants(word)}</span>`).join('   ');
             questionHTML = `<h2 class="gapped-text">${noConsonants}</h2><h3>${renderContent(sentencePair.english, sentencePair.target)}</h3>`;
             answerHTML = `<h2>${renderContent(sentencePair.target)}</h2>`;
             break;
@@ -961,10 +1754,452 @@ function playSentenceGame() {
             answerHTML = `<h2>${renderContent(sentencePair.target, sentencePair.english)}</h2>`;
             break;
     }
-    // ... (rest of the function is the same)
+
+    sentenceDisplay.innerHTML = `
+        <div id="sentence-question">${questionHTML}</div>
+        <div id="sentence-answer" class="hide">${answerHTML}</div>
+        <div id="sentence-button-area">
+            <button id="shuffle-btn" class="btn-primary">🔄 Shuffle</button>
+            <button id="reveal-sentence-btn" class="btn-primary">🔍 Reveal Answer</button>
+        </div>
+    `;
+    addFullscreenButton(document.querySelector('.sentence-game-panel'));
+    
+    document.getElementById('shuffle-btn').addEventListener('click', playSentenceGame);
+    document.getElementById('reveal-sentence-btn').addEventListener('click', () => {
+        const isGappedGame = activityType === 'no-vowels' || activityType === 'no-consonants';
+        if (isGappedGame) {
+            document.querySelector('#sentence-question h2').innerHTML = renderContent(sentencePair.target);
+        } else {
+            document.getElementById('sentence-answer').classList.remove('hide');
+        }
+        const buttonArea = document.getElementById('sentence-button-area');
+        buttonArea.innerHTML = `<button id="next-sentence-btn" class="btn-primary">Next Item</button>`;
+        document.getElementById('next-sentence-btn').addEventListener('click', playSentenceGame);
+    }, { once: true });
 }
 
-// ... (The rest of the script is identical and omitted for brevity) ...
+function playSentenceGridGame(allSentences) {
+    const NUM_SENTENCES_NEEDED = 12;
+
+    if (allSentences.length < NUM_SENTENCES_NEEDED) {
+        sentenceDisplay.innerHTML = `<h2>Not enough items for this game.</h2><p>You need at least ${NUM_SENTENCES_NEEDED} items in this topic. You have ${allSentences.length}.</p>`;
+        return;
+    }
+
+    const gamePairs = allSentences.sort(() => 0.5 - Math.random()).slice(0, NUM_SENTENCES_NEEDED);
+    
+    let targetQuestions = gamePairs.slice(0, 6);
+    let englishQuestions = gamePairs.slice(6, 12);
+    
+    targetQuestions.sort(() => 0.5 - Math.random());
+    englishQuestions.sort(() => 0.5 - Math.random());
+
+    let gridHTML = '';
+    let cellCounter = 0;
+    
+    for (let row = 0; row < 4; row++) {
+        for (let col = 0; col < 3; col++) {
+            let question, answer;
+            let cellClass = "grid-cell sentence-grid-cell";
+
+            if (row % 2 === 0) {
+                const pair = targetQuestions.pop();
+                question = pair.target;
+                answer = pair.english;
+                cellClass += " target-lang-row";
+            } else {
+                const pair = englishQuestions.pop();
+                question = pair.english;
+                answer = pair.target;
+            }
+            
+            gridHTML += `<div class="${cellClass}">
+                <span class="number">${cellCounter + 1}</span>
+                <span class="question">${renderContent(question)}</span>
+                <span class="answer hide">${renderContent(answer, question)}</span>
+            </div>`;
+            cellCounter++;
+        }
+    }
+
+    sentenceDisplay.innerHTML = `
+        <div class="grid-container">${gridHTML}</div>
+        <div id="sentence-button-area">
+            <button id="shuffle-btn" class="btn-primary">🔄 Shuffle</button>
+            <button id="reveal-sentence-btn" class="btn-primary">🔍 Reveal Answers</button>
+        </div>
+    `;
+    addFullscreenButton(document.querySelector('.sentence-game-panel'));
+    
+    const revealBtn = document.getElementById('reveal-sentence-btn');
+    document.getElementById('shuffle-btn').addEventListener('click', playSentenceGame);
+    revealBtn.addEventListener('click', () => {
+        const isHiding = revealBtn.textContent.includes('Hide');
+        document.querySelectorAll('.grid-cell').forEach(cell => {
+            cell.querySelector('.question').classList.toggle('hide', !isHiding);
+            cell.querySelector('.answer').classList.toggle('hide', isHiding);
+        });
+        revealBtn.textContent = isHiding ? '🔍 Reveal Answers' : '🔍 Hide Answers';
+    });
+}
+
+function playMatchUpGame(allSentences) {
+    const NUM_PAIRS = 5;
+    const NUM_DISTRACTORS = 3;
+    const NUM_OPTIONS = NUM_PAIRS + NUM_DISTRACTORS;
+
+    if (allSentences.length < NUM_OPTIONS) {
+        sentenceDisplay.innerHTML = `<h2>Not enough items for this game.</h2><p>You need at least ${NUM_OPTIONS} items in this topic. You have ${allSentences.length}.</p>`;
+        return;
+    }
+
+    for (let i = allSentences.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allSentences[i], allSentences[j]] = [allSentences[j], allSentences[i]];
+    }
+
+    const gamePairs = allSentences.slice(0, NUM_PAIRS);
+    const distractors = allSentences.slice(NUM_PAIRS, NUM_OPTIONS).map(d => d.english);
+    const leftSideItems = gamePairs.map(pair => pair.target);
+    let rightSideItems = gamePairs.map(pair => pair.english).concat(distractors);
+
+    for (let i = rightSideItems.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [rightSideItems[i], rightSideItems[j]] = [rightSideItems[j], rightSideItems[i]];
+    }
+
+    let leftHTML = leftSideItems.map((sentence, i) => `<li><span class="answer-letter"></span><span>${i + 1}.</span> ${renderContent(sentence)}</li>`).join('');
+    let rightHTML = rightSideItems.map((sentence, i) => `<li><span>${String.fromCharCode(65 + i)}.</span> ${renderContent(sentence, sentence)}</li>`).join('');
+
+    sentenceDisplay.innerHTML = `
+        <div class="match-up-container">
+            <div class="match-up-col">
+                <h3>Target Language</h3>
+                <ul class="match-up-list" id="match-up-left">${leftHTML}</ul>
+            </div>
+            <div class="match-up-col">
+                <h3>English</h3>
+                <ul class="match-up-list" id="match-up-right">${rightHTML}</ul>
+            </div>
+        </div>
+        <div id="sentence-button-area">
+            <button id="shuffle-btn" class="btn-primary">🔄 Shuffle</button>
+            <button id="reveal-sentence-btn" class="btn-primary">🔍 Reveal Answers</button>
+        </div>
+    `;
+    addFullscreenButton(document.querySelector('.sentence-game-panel'));
+
+    document.getElementById('shuffle-btn').addEventListener('click', playSentenceGame);
+    document.getElementById('reveal-sentence-btn').addEventListener('click', () => {
+        gamePairs.forEach(pair => {
+            const leftIndex = leftSideItems.indexOf(pair.target);
+            const rightIndex = rightSideItems.indexOf(pair.english);
+            const correctLetter = String.fromCharCode(65 + rightIndex);
+            if (leftIndex !== -1) {
+                document.querySelectorAll('#match-up-left .answer-letter')[leftIndex].textContent = `${correctLetter}`;
+            }
+        });
+        const rightListItems = document.querySelectorAll('#match-up-right li');
+        rightListItems.forEach(item => {
+            const itemHTML = item.innerHTML;
+            const isDistractor = distractors.some(d => itemHTML.includes(d) || itemHTML.includes(encodeURI(d)));
+
+            if (isDistractor) {
+                item.classList.add('distractor-item');
+            }
+        });
+        const buttonArea = document.getElementById('sentence-button-area');
+        buttonArea.innerHTML = `<button id="next-sentence-btn" class="btn-primary">Play Again</button>`;
+        document.getElementById('next-sentence-btn').addEventListener('click', playSentenceGame);
+    }, { once: true });
+}
+
+function playDictationGame(allSentences) {
+    const NUM_SENTENCES_TOTAL = 10;
+
+    if (allSentences.length < NUM_SENTENCES_TOTAL) {
+        sentenceDisplay.innerHTML = `<h2>Not enough items for this game.</h2><p>You need at least ${NUM_SENTENCES_TOTAL} items in this topic. You have ${allSentences.length}.</p>`;
+        return;
+    }
+
+    for (let i = allSentences.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allSentences[i], allSentences[j]] = [allSentences[j], allSentences[i]];
+    }
+
+    const partnerAreads = allSentences.slice(0, 5);
+    const partnerBreads = allSentences.slice(5, 10);
+
+    const createTableRows = (sentences, startIndex, isBlank = false) => {
+        let rowsHTML = '';
+        for (let i = 0; i < 5; i++) {
+            const sentenceText = isBlank ? '' : renderContent(sentences[i].target);
+            const writeClass = isBlank ? 'write-here' : '';
+            rowsHTML += `
+                <tr>
+                    <td>${startIndex + i}.</td>
+                    <td class="blank-line ${writeClass}">${sentenceText}</td>
+                </tr>`;
+        }
+        return rowsHTML;
+    };
+
+    sentenceDisplay.innerHTML = `
+        <div id="dictation-worksheet">
+            <div class="dictation-partner">
+                <h2>Partner A</h2>
+                <h4>Read/describe these to Partner B:</h4>
+                <table class="dictation-table">${createTableRows(partnerAreads, 1, false)}</table>
+                <h4>Write what Partner B reads/describes to you:</h4>
+                <table class="dictation-table">${createTableRows(partnerBreads, 6, true)}</table>
+            </div>
+            <hr class="page-break">
+            <div class="dictation-partner">
+                <h2>Partner B</h2>
+                <h4>Write what Partner A reads/describes to you:</h4>
+                <table class="dictation-table">${createTableRows(partnerAreads, 1, true)}</table>
+                <h4>Read/describe these to Partner A:</h4>
+                <table class="dictation-table">${createTableRows(partnerBreads, 6, false)}</table>
+            </div>
+        </div>
+    `;
+    addFullscreenButton(document.querySelector('.sentence-game-panel'));
+    
+    dictationControls.classList.remove('hide');
+
+    document.getElementById('print-dictation-btn').onclick = () => {
+        document.getElementById('dictation-worksheet').classList.add('printable-area');
+        window.print();
+        document.getElementById('dictation-worksheet').classList.remove('printable-area');
+    };
+    document.getElementById('new-dictation-btn').onclick = playSentenceGame;
+}
+
+function playInfoGapGame(allSentences) {
+    const NUM_SENTENCES_NEEDED = 10;
+
+    if (allSentences.length < NUM_SENTENCES_NEEDED) {
+        sentenceDisplay.innerHTML = `<h2>Not enough items for this game.</h2><p>You need at least ${NUM_SENTENCES_NEEDED} items in this topic. You have ${allSentences.length}.</p>`;
+        return;
+    }
+    for (let i = allSentences.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allSentences[i], allSentences[j]] = [allSentences[j], allSentences[i]];
+    }
+    infoGapSentences = allSentences.slice(0, NUM_SENTENCES_NEEDED);
+
+    const createTableRows = (isPartnerA) => {
+        let rowsHTML = '';
+        infoGapSentences.forEach((sentence, i) => {
+            let targetSentence = '';
+            if ((isPartnerA && i % 2 === 0) || (!isPartnerA && i % 2 !== 0)) {
+                targetSentence = sentence.target;
+            }
+            rowsHTML += `
+                <tr>
+                    <td>${i + 1}.</td>
+                    <td>${renderContent(targetSentence)}</td>
+                    <td>${renderContent(sentence.english, sentence.target)}</td>
+                </tr>
+            `;
+        });
+        return rowsHTML;
+    };
+
+    const tableHeader = `<thead><tr><th>No.</th><th>Target</th><th>Clue</th></tr></thead>`;
+    const instructionsA = `<h4>Read the Clue for items 1, 3, 5, 7 and 9 to your partner and write down the Target for the ones they tell you.</h4>`;
+    const instructionsB = `<h4>Read the Clue for items 2, 4, 6, 8 and 10 to your partner and write down the Target for the ones they tell you.</h4>`;
+
+    sentenceDisplay.innerHTML = `
+        <div id="info-gap-worksheet">
+            <div class="info-gap-partner">
+                <h2>Partner A</h2>
+                ${instructionsA}
+                <table class="info-gap-table">${tableHeader}<tbody>${createTableRows(true)}</tbody></table>
+            </div>
+            <hr class="info-gap-page-break">
+            <div class="info-gap-partner">
+                <h2>Partner B</h2>
+                ${instructionsB}
+                <table class="info-gap-table">${tableHeader}<tbody>${createTableRows(false)}</tbody></table>
+            </div>
+        </div>
+    `;
+    addFullscreenButton(document.querySelector('.sentence-game-panel'));
+    
+    infoGapControls.classList.remove('hide');
+    document.getElementById('print-info-gap-btn').onclick = () => {
+        const printableArea = document.getElementById('info-gap-worksheet');
+        printableArea.classList.add('printable-area');
+        window.print();
+        printableArea.classList.remove('printable-area');
+    };
+
+    document.getElementById('export-info-gap-btn').onclick = () => {
+        const worksheet = document.getElementById('info-gap-worksheet').cloneNode(true);
+        const rowHeightPt = 20;
+        const excelCSS = `
+            <style>
+                @page { size: A4 portrait; margin: 0.3cm; }
+                body { font-family: Calibri, sans-serif; font-size: 12pt; margin: 0; }
+                h2 { font-size: 14pt; font-weight: bold; margin: 2pt 0; }
+                h4 {font-size: 12pt; font-style: italic; margin: 1pt 0 2pt 0; }
+                table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+                col:nth-child(1) { width: 10%; }
+                col:nth-child(2), col:nth-child(3) { width: 48%; }
+                th, td { border: 1px solid black; padding: 4px; vertical-align: middle; text-align: left; font-size: 14pt; word-wrap: break-word; }
+                th { background-color: #F2F2F2; font-weight: bold; text-align: center; }
+                tbody td { height: ${rowHeightPt}pt; }
+                td:empty { background-color: #E0E0E0; }
+            </style>
+        `;
+
+        const fullHTML = `<html><head><meta charset='UTF-8'>${excelCSS}</head><body>${worksheet.innerHTML}</body></html>`;
+        const dataUri = 'data:application/vnd.ms-excel;base64,' + window.btoa(unescape(encodeURIComponent(fullHTML)));
+        const link = document.createElement("a");
+        link.href = dataUri;
+        link.download = "info-gap-worksheet.xls";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+
+    document.getElementById('new-info-gap-btn').onclick = playSentenceGame;
+}
+
+function playOnePenOneDiceGame(allSentences) {
+    const NUM_SENTENCES_NEEDED = 20;
+
+    if (allSentences.length < NUM_SENTENCES_NEEDED) {
+        sentenceDisplay.innerHTML = `<h2>Not enough items for this game.</h2><p>You need at least ${NUM_SENTENCES_NEEDED} items in this topic. You have ${allSentences.length}.</p>`;
+        return;
+    }
+
+    for (let i = allSentences.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allSentences[i], allSentences[j]] = [allSentences[j], allSentences[i]];
+    }
+    
+    onePenOneDiceSentences = allSentences.slice(0, NUM_SENTENCES_NEEDED);
+    onePenOneDiceReversed = false;
+    
+    const player1Sentences = onePenOneDiceSentences.slice(0, 10);
+    const player2Sentences = onePenOneDiceSentences.slice(10, 20);
+
+    sentenceDisplay.innerHTML = generateOnePenOneDiceTableHTML(player1Sentences, player2Sentences, onePenOneDiceReversed);
+    addFullscreenButton(document.querySelector('.sentence-game-panel'));
+    onePenOneDiceControls.classList.remove('hide');
+    
+    document.getElementById('print-one-pen-btn').onclick = () => {
+        const printableArea = document.getElementById('one-pen-one-dice-worksheet');
+        printableArea.classList.add('printable-area');
+        window.print();
+        printableArea.classList.remove('printable-area');
+    };
+
+    document.getElementById('export-one-pen-btn').onclick = () => {
+        const worksheet = document.getElementById('one-pen-one-dice-worksheet').cloneNode(true);
+        const numRows = 10;
+        const pageHeightPt = 842;
+        const headerHeightPt = 60;
+        const marginPt = 21;
+        const availableHeight = pageHeightPt - 2 * marginPt - headerHeightPt;
+        const rowHeight = Math.floor(availableHeight / numRows);
+
+        const excelCSS = `
+            <style>
+                @page { size: A4 portrait; margin: 0.3cm; }
+                body { font-family: Calibri, sans-serif; font-size: 14pt; margin: 0; }
+                table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+                col { width: 25%; }
+                th, td { 
+                    border: 1px solid black; 
+                    padding: 4px; 
+                    vertical-align: middle; 
+                    text-align: center; 
+                    word-wrap: break-word; 
+                }
+                thead tr:first-child th, thead tr:nth-child(2) th { 
+                    font-size: 14pt; 
+                    height: 30pt; 
+                }
+                tbody td { 
+                    font-size: 12pt; 
+                    height: ${rowHeight}pt; 
+                }
+                th { background-color: #F2F2F2; font-weight: bold; }
+                td:empty { background-color: #E0E0E0; }
+            </style>
+        `;
+
+        const fullHTML = `<html><head><meta charset='UTF-8'>${excelCSS}</head><body>${worksheet.innerHTML}</body></html>`;
+        const dataUri = 'data:application/vnd.ms-excel;base64,' + window.btoa(unescape(encodeURIComponent(fullHTML)));
+        const link = document.createElement("a");
+        link.href = dataUri;
+        link.download = "1-pen-1-dice-worksheet.xls";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+
+    document.getElementById('reverse-one-pen-btn').onclick = () => {
+        onePenOneDiceReversed = !onePenOneDiceReversed;
+        const player1Sentences = onePenOneDiceSentences.slice(0, 10);
+        const player2Sentences = onePenOneDiceSentences.slice(10, 20);
+        sentenceDisplay.innerHTML = generateOnePenOneDiceTableHTML(player1Sentences, player2Sentences, onePenOneDiceReversed);
+    };
+    
+    document.getElementById('new-one-pen-btn').onclick = playSentenceGame;
+}
+
+function generateOnePenOneDiceTableHTML(p1Sentences, p2Sentences, isReversed) {
+    let rowsHTML = '';
+    for (let i = 0; i < 10; i++) {
+        const p1Col1 = isReversed ? renderContent(p1Sentences[i].english, p1Sentences[i].target) : '';
+        const p1Col2 = isReversed ? '' : renderContent(p1Sentences[i].target);
+        const p2Col1 = isReversed ? '' : renderContent(p2Sentences[i].target);
+        const p2Col2 = isReversed ? renderContent(p2Sentences[i].english, p2Sentences[i].target) : '';
+        rowsHTML += `
+            <tr>
+                <td>${p1Col1}</td>
+                <td>${p1Col2}</td>
+                <td>${p2Col1}</td>
+                <td>${p2Col2}</td>
+            </tr>
+        `;
+    }
+
+    return `
+        <div id="one-pen-one-dice-worksheet">
+            <table>
+                <colgroup>
+                    <col style="width:25%">
+                    <col style="width:25%">
+                    <col style="width:25%">
+                    <col style="width:25%">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th colspan="2">Player 1</th>
+                        <th colspan="2">Player 2</th>
+                    </tr>
+                    <tr>
+                        <th>Clue (English)</th>
+                        <th>Target</th>
+                        <th>Target</th>
+                        <th>Clue (English)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rowsHTML}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
 
 // --- Start the App ---
 initializeApp();
