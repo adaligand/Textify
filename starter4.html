@@ -54,6 +54,8 @@
     }
     #reading-btn { background-color: #2980b9; }
     #listening-btn { background-color: #27ae60; }
+    #speaking-btn { background-color: #c0392b; }
+#writing-btn { background-color: #8e44ad; }
     #vocab-btn { background-color: #8e44ad; }
     #sentence-btn { background-color: #f39c12; }
     #link-button-1 { background-color: #2980b9; }
@@ -642,12 +644,14 @@
     <h1>ADG Starter Hub</h1>
     <p>Please choose an activity</p>
     <div class="menu-buttons">
-      <button id="reading-btn" class="menu-button">GCSE Reading</button>
-      <button id="listening-btn" class="menu-button">GCSE Listening</button>
-      <button id="vocab-btn" class="menu-button">Vocab Practice</button>
-      <button id="sentence-btn" class="menu-button">Sentence Practice</button>
-       <button id="link-button-1" class="menu-button">WWW/EBI</button>
-      <button id="link-button-2" class="menu-button">Speaking Allocation</button>
+  <button id="reading-btn" class="menu-button">GCSE Reading</button>
+  <button id="listening-btn" class="menu-button">GCSE Listening</button>
+  <button id="speaking-btn" class="menu-button">Y11 Speaking</button>
+  <button id="writing-btn" class="menu-button">Y11 Writing</button>
+  <button id="vocab-btn" class="menu-button">Vocab Practice</button>
+  <button id="sentence-btn" class="menu-button">Sentence Practice</button>
+   <button id="link-button-1" class="menu-button">WWW/EBI</button>
+  <button id="link-button-2" class="menu-button">Speaking Allocation</button>
     </div>
   </div>
 
@@ -744,7 +748,7 @@
 <script>
 // --- URLs and Global Variables ---
 const practiceSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRvNFlHDx-4cZbDzwKy5Yb_DKeSxS2wSXxyX1Ua6pGcf27yFjmqOPz9jQ_rzoV3-zoZI9lw4EIfmdXH/pub?output=csv";
-
+const speakingAndWritingSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRaleUavHj6TiyReN-wz1xcy8bxrCGpr3xkU0TMK1gCmDvKFDbLnwcS0-JGy2lKOU1KfJMSyucyttcX/pub?output=csv";
 const sentenceSpreadsheetUrls = {
     'Y9 French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTaWTWH-Jzie2Ax9aVFbQAQWw76PofUVQ-RY3lHNdsGCuEuCyVpGawiwS-apwfM4GsHNjqnlb5836yS/pub?output=csv',
     'GCSE French': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTeenmRJ1Gqolo-8KqU5A84PProbYHoY3SrXKFxFgdzwf_FdmJnpfbpEf9KmbhqhQk17K6USG_UOJg9/pub?output=csv',
@@ -790,6 +794,8 @@ const vocabSection = document.getElementById('vocab-section');
 const sentenceSection = document.getElementById('sentence-section');
 const readingBtn = document.getElementById('reading-btn');
 const listeningBtn = document.getElementById('listening-btn');
+  const speakingBtn = document.getElementById('speaking-btn');
+const writingBtn = document.getElementById('writing-btn');
 const vocabBtn = document.getElementById('vocab-btn');
 const sentenceBtn = document.getElementById('sentence-btn');
 const currentPracticeTypeInput = document.getElementById('current-practice-type');
@@ -848,6 +854,8 @@ function addFullscreenButton(targetPanel) {
 // --- Navigation ---
 readingBtn.addEventListener('click', () => { stopMedia(); showPractice('Reading'); });
 listeningBtn.addEventListener('click', () => { stopMedia(); showPractice('Listening'); });
+speakingBtn.addEventListener('click', () => { stopMedia(); showPracticeSection('Speaking'); });
+writingBtn.addEventListener('click', () => { stopMedia(); showPracticeSection('Writing'); });
 vocabBtn.addEventListener('click', () => { stopMedia(); showVocabTest(); });
 sentenceBtn.addEventListener('click', () => { stopMedia(); showSentenceGames(); });
 document.querySelectorAll('.back-btn').forEach(btn => btn.addEventListener('click', showMainMenu));
@@ -920,8 +928,13 @@ function loadData(url, options) {
     });
 }
 async function initializeApp() {
-    [readingBtn, listeningBtn, vocabBtn, sentenceBtn].forEach(btn => btn.disabled = true);
-    [readingBtn, listeningBtn, vocabBtn, sentenceBtn].forEach(btn => btn.textContent = 'Loading...');
+    // Disable all buttons and show loading text
+    [readingBtn, listeningBtn, speakingBtn, writingBtn, vocabBtn, sentenceBtn].forEach(btn => {
+        if(btn) {
+            btn.disabled = true;
+            btn.textContent = 'Loading...';
+        }
+    });
 
     populateClassSelector();
     resetVocabDropdowns(true);
@@ -931,7 +944,9 @@ async function initializeApp() {
     populateWorksheetTypeSelector();
     populateVocabActivitySelector();
 
-    const practicePromise = loadData(practiceSheetUrl, { header: true }).then(data => ({ type: 'practice', data }));
+    // --- Create promises to load all data sources ---
+    const readingListeningPromise = loadData(practiceSheetUrl, { header: true }).then(data => ({ type: 'readingListening', data }));
+    const speakingWritingPromise = loadData(speakingAndWritingSheetUrl, { header: true }).then(data => ({ type: 'speakingWriting', data }));
     const sentencePromises = Object.entries(sentenceSpreadsheetUrls).map(([className, url]) =>
         loadData(url, { header: false }).then(data => ({ type: 'sentence', className, data }))
     );
@@ -939,18 +954,23 @@ async function initializeApp() {
         loadData(url, { header: false }).then(data => ({ type: 'vocab', className, data }))
     );
 
-    const results = await Promise.allSettled([practicePromise, ...sentencePromises, ...vocabPromises]);
+    // --- Wait for all data to be loaded ---
+    const results = await Promise.allSettled([readingListeningPromise, speakingWritingPromise, ...sentencePromises, ...vocabPromises]);
 
-    let practiceLoaded = false, sentencesLoaded = false, vocabLoaded = false;
+    let readingListeningLoaded = false, speakingWritingLoaded = false, sentencesLoaded = false, vocabLoaded = false;
 
+    // --- Process the results of each promise ---
     results.forEach(result => {
         if (result.status === 'fulfilled') {
             const { type, className, data } = result.value;
-            if (type === 'practice') {
-                practice_allQuestions = data.map(q => ({
-                    Skill: q.Skill, Theme: q.Theme, Question: q.Question, Content: q.Content, Status: q.Status
-                })).filter(q => q.Skill && q.Theme && q.Content);
-                practiceLoaded = true;
+            const formatData = (q) => ({ Skill: q.Skill, Theme: q.Theme, Question: q.Question, Content: q.Content, Status: q.Status });
+
+            if (type === 'readingListening') {
+                readingListening_allQuestions = data.map(formatData).filter(q => q.Skill && q.Theme && q.Content);
+                readingListeningLoaded = true;
+            } else if (type === 'speakingWriting') {
+                speakingWriting_allQuestions = data.map(formatData).filter(q => q.Skill && q.Theme && q.Content);
+                speakingWritingLoaded = true;
             } else if (type === 'sentence') {
                 all_sentence_data[className] = data;
                 sentencesLoaded = true;
@@ -963,15 +983,29 @@ async function initializeApp() {
         }
     });
 
-    if (practiceLoaded) {
+    // --- Update buttons based on loaded data ---
+    if (readingListeningLoaded) {
         readingBtn.disabled = false;
         listeningBtn.disabled = false;
         readingBtn.textContent = 'Y11 Reading';
-       listeningBtn.textContent = 'Y11 Listening';
+        listeningBtn.textContent = 'Y11 Listening';
     } else {
-        readingBtn.textContent = 'Practice Unavailable';
+        readingBtn.textContent = 'Reading Unavailable';
         readingBtn.style.backgroundColor = '#c0392b';
-        listeningBtn.disabled = true;
+        listeningBtn.textContent = 'Listening Unavailable';
+        listeningBtn.style.backgroundColor = '#c0392b';
+    }
+
+    if (speakingWritingLoaded) {
+        speakingBtn.disabled = false;
+        writingBtn.disabled = false;
+        speakingBtn.textContent = 'Y11 Speaking';
+        writingBtn.textContent = 'Y11 Writing';
+    } else {
+        speakingBtn.textContent = 'Speaking Unavailable';
+        speakingBtn.style.backgroundColor = '#c0392b';
+        writingBtn.textContent = 'Writing Unavailable';
+        writingBtn.style.backgroundColor = '#c0392b';
     }
 
     if (sentencesLoaded) {
@@ -992,6 +1026,30 @@ async function initializeApp() {
 }
 
 // --- Practice Section Logic ---
+  // --- Event Listeners for Practice Buttons ---
+readingBtn.addEventListener('click', () => {
+    stopMedia();
+    practice_allQuestions = readingListening_allQuestions; // Use the reading/listening data
+    showPracticeSection('Reading');
+});
+
+listeningBtn.addEventListener('click', () => {
+    stopMedia();
+    practice_allQuestions = readingListening_allQuestions; // Use the reading/listening data
+    showPracticeSection('Listening');
+});
+
+speakingBtn.addEventListener('click', () => {
+    stopMedia();
+    practice_allQuestions = speakingWriting_allQuestions; // Use the speaking/writing data
+    showPracticeSection('Speaking');
+});
+
+writingBtn.addEventListener('click', () => {
+    stopMedia();
+    practice_allQuestions = speakingWriting_allQuestions; // Use the speaking/writing data
+    showPracticeSection('Writing');
+});
 practice_topicSelect.addEventListener('change', () => { stopMedia(); practice_populateQuestions(); });
 practice_generateBtn.addEventListener('click', practice_generateQuestion);
 
