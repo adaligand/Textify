@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Stacxter Hub</title>
+  <title>MFL Stacter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -949,7 +949,7 @@ async function initializeApp() {
         loadData(url, { header: false }).then(data => ({ type: 'sentence', className, data }))
     );
 
-    const vocabPromises = Object.entries(vocabSpreadsheetUrls).flatMap(([className, urlOrObject]) => {
+   const vocabPromises = Object.entries(vocabSpreadsheetUrls).flatMap(([className, urlOrObject]) => {
         if (typeof urlOrObject === 'string') {
             return loadData(urlOrObject, { header: false }).then(data => ({ type: 'vocab', className, data }));
         } else {
@@ -960,8 +960,7 @@ async function initializeApp() {
             return [testPromise, activitiesPromise];
         }
     });
-
-    const results = await Promise.allSettled([practicePromise, ...sentencePromises, ...vocabPromises]);
+   const results = await Promise.allSettled([practicePromise, ...sentencePromises, ...vocabPromises]);
 
     let practiceLoaded = false, sentencesLoaded = false, vocabLoaded = false;
 
@@ -975,6 +974,7 @@ async function initializeApp() {
                 all_sentence_data[className] = data;
                 sentencesLoaded = true;
             } else if (type === 'vocab') {
+                // ✅ CORRECTED: This logic now matches the loading logic above
                 if (result.value.subType) {
                     if (!all_vocab_data[className]) {
                         all_vocab_data[className] = {};
@@ -1236,20 +1236,21 @@ function scrambleWord(str) {
 }
 
 // --- Vocabulary Section Logic ---
+
 function populateClassSelector() {
     const classOrder = ['Y9 French', 'GCSE French', 'AS French', 'A2 French', 'Y9 German', 'GCSE German', 'EAL'];
     classSelect.innerHTML = '<option value="">-- Select a Class --</option>';
-    classOrder.forEach((name, index) => {
+    classOrder.forEach((name) => {
         if (vocabSpreadsheetUrls[name]) {
-            const optionText = `${index + 1}- ${name}`;
-            classSelect.add(new Option(optionText, name));
+            classSelect.add(new Option(name, name));
         }
     });
 }
+
 function populateVocabActivitySelector() {
     vocab_activitySelect.innerHTML = `
+        <option value="activities">Vocab Grid</option>
         <option value="test">Vocab Test</option>
-        <option value="grid">Vocab Grid</option>
         <option value="anagram">Anagram</option>
         <option value="no-vowels">No Vowels</option>
         <option value="no-consonants">No Consonants</option>
@@ -1257,8 +1258,11 @@ function populateVocabActivitySelector() {
         <option value="random-en">Random EN</option>
     `;
 }
-// ✅ PASTE this new function in its place:
 
+/**
+ * This is the new central controller for the vocab section.
+ * It runs whenever the class or activity dropdowns are changed.
+ */
 function handleVocabSourceChange() {
     const selectedClass = classSelect.value;
     vocab_testContainer.innerHTML = '';
@@ -1271,6 +1275,7 @@ function handleVocabSourceChange() {
         return;
     }
 
+    // This correctly gets the right data for GCSE French or any other class
     const activeData = getActiveVocabData();
     if (activeData) {
         processAndDisplayVocab(activeData);
@@ -1278,8 +1283,12 @@ function handleVocabSourceChange() {
         resetVocabDropdowns(true);
     }
 }
+
+// These two listeners connect the new function to your dropdowns
 classSelect.addEventListener('change', handleVocabSourceChange);
 vocab_activitySelect.addEventListener('change', handleVocabSourceChange);
+
+
 function processAndDisplayVocab(vocabData) {
     vocab_vocabSets = {};
     let currentTheme = null, currentSet = null;
@@ -1297,6 +1306,7 @@ function processAndDisplayVocab(vocabData) {
     vocab_initializeSelectors();
     resetVocabDropdowns(false);
 }
+
 function resetVocabDropdowns(disabled) {
     vocab_themeSelect.disabled = disabled;
     vocab_activitySelect.disabled = disabled;
@@ -1308,6 +1318,7 @@ function resetVocabDropdowns(disabled) {
         vocab_setSelect2.innerHTML = '';
     }
 }
+
 function vocab_initializeSelectors() {
     const themes = Object.keys(vocab_vocabSets);
     vocab_themeSelect.innerHTML = '<option value="">-- Select Theme --</option>';
@@ -1319,6 +1330,7 @@ function vocab_initializeSelectors() {
     if (themes.length > 0) vocab_themeSelect.value = themes.sort()[0];
     vocab_updateSetDropdown();
 }
+
 function vocab_updateSetDropdown() {
     const theme = vocab_themeSelect.value;
     vocab_setSelect.innerHTML = '<option value="">-- Select Set --</option>';
@@ -1331,26 +1343,38 @@ function vocab_updateSetDropdown() {
         vocab_setSelect2.add(new Option(text, setName));
     });
 }
+
 vocab_themeSelect.addEventListener('change', vocab_updateSetDropdown);
 
 vocab_generateBtn.addEventListener('click', () => {
     const activity = vocab_activitySelect.value;
+    
+    // Logic to ensure "vocab-test" uses the 'test' value and others use 'activities'
+    let adjustedActivity = activity;
+    if (activity !== 'test') {
+        adjustedActivity = 'activities';
+    }
+
     vocab_testControls.classList.add('hide');
     vocab_gridControls.classList.add('hide');
-    
-    switch (activity) {
+
+    switch (adjustedActivity) {
         case 'test':
             vocab_generateTest();
             break;
-        case 'grid':
-            vocab_generateGrid();
-            break;
-        case 'random-target':
-        case 'random-en':
-        case 'anagram':
-        case 'no-vowels':
-        case 'no-consonants':
-            generateSingleWordGame(activity);
+        case 'activities': // All other games fall under this category now
+             switch (activity) {
+                case 'grid':
+                    vocab_generateGrid();
+                    break;
+                case 'random-target':
+                case 'random-en':
+                case 'anagram':
+                case 'no-vowels':
+                case 'no-consonants':
+                    generateSingleWordGame(activity);
+                    break;
+            }
             break;
         default:
             vocab_testContainer.innerHTML = '<h2>Please select an activity.</h2>';
