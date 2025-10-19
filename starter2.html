@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Staxrter Hub</title>
+  <title>MFL Staxrxter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -950,9 +950,21 @@ async function initializeApp() {
     const sentencePromises = Object.entries(sentenceSpreadsheetUrls).map(([className, url]) =>
         loadData(url, { header: false }).then(data => ({ type: 'sentence', className, data }))
     );
-    const vocabPromises = Object.entries(vocabSpreadsheetUrls).map(([className, url]) =>
-        loadData(url, { header: false }).then(data => ({ type: 'vocab', className, data }))
-    );
+
+    // ✅ CORRECTED: This now correctly loads from the complex "GCSE French" object
+    const vocabPromises = Object.entries(vocabSpreadsheetUrls).flatMap(([className, urlOrObject]) => {
+        if (typeof urlOrObject === 'string') {
+            // Standard case for other classes
+            return loadData(urlOrObject, { header: false }).then(data => ({ type: 'vocab', className, data }));
+        } else {
+            // Special case for GCSE French with 'test' and 'activities' sheets
+            const testPromise = loadData(urlOrObject.test, { header: false })
+                .then(data => ({ type: 'vocab', className, subType: 'test', data }));
+            const activitiesPromise = loadData(urlOrObject.activities, { header: false })
+                .then(data => ({ type: 'vocab', className, subType: 'activities', data }));
+            return [testPromise, activitiesPromise];
+        }
+    });
 
     const results = await Promise.allSettled([practicePromise, ...sentencePromises, ...vocabPromises]);
 
@@ -962,24 +974,23 @@ async function initializeApp() {
         if (result.status === 'fulfilled') {
             const { type, className, data } = result.value;
             if (type === 'practice') {
-                practice_allQuestions = data.map(q => ({
-                    Skill: q.Skill, Theme: q.Theme, Question: q.Question, Content: q.Content, Status: q.Status
-                })).filter(q => q.Skill && q.Theme && q.Content);
+                practice_allQuestions = data; // Simplified to include all columns
                 practiceLoaded = true;
             } else if (type === 'sentence') {
                 all_sentence_data[className] = data;
                 sentencesLoaded = true;
             } else if (type === 'vocab') {
-    if (result.value.subType) { // Handles GCSE French
-        if (!all_vocab_data[className]) {
-            all_vocab_data[className] = {};
-        }
-        all_vocab_data[className][result.value.subType] = data;
-    } else { // Handles all other classes
-        all_vocab_data[className] = data;
-    }
-    vocabLoaded = true;
-}
+                // ✅ CORRECTED: This logic now matches the loading logic above
+                if (result.value.subType) { // Handles GCSE French
+                    if (!all_vocab_data[className]) {
+                        all_vocab_data[className] = {};
+                    }
+                    all_vocab_data[className][result.value.subType] = data;
+                } else { // Handles all other classes
+                    all_vocab_data[className] = data;
+                }
+                vocabLoaded = true;
+            }
         } else {
             console.error("Failed to load a spreadsheet:", result.reason);
         }
