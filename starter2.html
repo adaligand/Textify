@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Starter Hub</title>
+  <title>MFL Staxrter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -1257,7 +1257,7 @@ function addFullscreenButton(targetPanel) {
     }
 
     function practice_generateQuestion() {
-  const selectedContentUrl = practice_questionSelect.value;
+ const selectedContentUrl = practice_questionSelect.value;
     if (!selectedContentUrl || selectedContentUrl.includes('Select a Theme') || selectedContentUrl.includes('No Questions')) {
         practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question from the list.</p>`;
         return;
@@ -1275,7 +1275,7 @@ function addFullscreenButton(targetPanel) {
     let contentHtml = q.Content;
     const originalUrl = q.Content;
 
-    // --- Embed Google Slides if needed ---
+    // --- Embed Slides if Google URL ---
     if (originalUrl && originalUrl.includes('google.com/presentation')) {
         const fileIdMatch = originalUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
         const slideIdMatch = originalUrl.match(/[?#]slide=id\.([a-zA-Z0-9_.-]+)/);
@@ -1299,7 +1299,7 @@ function addFullscreenButton(targetPanel) {
     practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
     const currentSkill = currentPracticeTypeInput.value;
 
-    // --- KEEP OLD AS/A2 BEHAVIOUR ---
+    // --- Keep AS/A2 Logic ---
     if (currentSkill === 'AS' || currentSkill === 'A2') {
         const checkboxHTML = `
             <div class="completion-marker">
@@ -1337,79 +1337,77 @@ function addFullscreenButton(targetPanel) {
         return;
     }
 
-    // --- FETCH CLASS HEADERS DYNAMICALLY ---
+    // --- For Reading / Listening / Speaking / Writing ---
     let sheetUrlToUse;
     if (currentSkill === 'Reading' || currentSkill === 'Listening') {
         sheetUrlToUse = practiceSheetUrl;
-    } else if (currentSkill === 'Speaking' || currentSkill === 'Writing') {
+    } else {
         sheetUrlToUse = speakingAndWritingSheetUrl;
     }
 
-    let headers = [];
     try {
         const response = await fetch(sheetUrlToUse);
         const csvText = await response.text();
         const rows = Papa.parse(csvText).data;
-        headers = rows[0].slice(2, 5); // Columns C–E (0-based index)
-    } catch (error) {
-        console.error("Error fetching headers:", error);
-    }
+        const headers = rows[0].slice(2, 5); // columns C–E
+        const classes = headers.filter(Boolean);
+        const colors = ['#27ae60', '#2980b9', '#e67e22'];
 
-    // Filter valid class names (non-empty)
-    const classes = headers.filter(Boolean);
-    if (classes.length === 0) {
-        practice_questionDisplay.insertAdjacentHTML('beforeend', `<p><em>No class headers found in columns C–E.</em></p>`);
-        return;
-    }
+        // Find this question’s row
+        const questionRow = rows.find(r => r[1] && r[1].trim() === q.Question.trim());
+        const statusValues = questionRow ? questionRow.slice(2, 5) : ['', '', ''];
 
-    const colors = ['#27ae60', '#2980b9', '#e67e22']; // Green / Blue / Orange
-    const checkboxesHTML = classes.map((className, i) => `
-        <div class="completion-marker" style="margin-top:10px;">
-            <input type="checkbox" id="complete-${i}" data-class="${className}">
-            <label for="complete-${i}" style="color:${colors[i % colors.length]}">
-                ${className}: Mark as complete
-            </label>
-        </div>
-    `).join('');
+        const checkboxesHTML = classes.map((className, i) => `
+            <div class="completion-marker" style="margin-top:10px;">
+                <input type="checkbox" id="complete-${i}" data-class="${className}" ${statusValues[i] === 'Y' ? 'checked' : ''}>
+                <label for="complete-${i}" style="color:${colors[i % colors.length]}">
+                    ${className}: ${statusValues[i] === 'Y' ? 'Completed ✓' : 'Mark as complete'}
+                </label>
+            </div>
+        `).join('');
 
-    practice_questionDisplay.insertAdjacentHTML('beforeend', `<div id="multi-completion">${checkboxesHTML}</div>`);
+        practice_questionDisplay.insertAdjacentHTML('beforeend', `<div id="multi-completion">${checkboxesHTML}</div>`);
 
-    // --- Checkbox Event Logic ---
-    document.querySelectorAll('#multi-completion input[type="checkbox"]').forEach((checkbox, index) => {
-        checkbox.addEventListener('change', () => {
-            const label = checkbox.nextElementSibling;
-            const className = checkbox.dataset.class;
-            const isChecked = checkbox.checked;
-            const newStatus = isChecked ? 'Y' : '';
+        // --- Checkbox Change Logic ---
+        document.querySelectorAll('#multi-completion input[type="checkbox"]').forEach((checkbox, index) => {
+            checkbox.addEventListener('change', () => {
+                const label = checkbox.nextElementSibling;
+                const className = checkbox.dataset.class;
+                const isChecked = checkbox.checked;
+                const newStatus = isChecked ? 'Y' : '';
 
-            label.textContent = `${className}: Updating...`;
-            checkbox.disabled = true;
+                label.textContent = `${className}: Updating...`;
+                checkbox.disabled = true;
 
-            let scriptUrlToUse =
-                (currentSkill === 'Reading' || currentSkill === 'Listening')
-                    ? readingListeningScriptUrl
-                    : speakingWritingScriptUrl;
+                let scriptUrlToUse =
+                    (currentSkill === 'Reading' || currentSkill === 'Listening')
+                        ? readingListeningScriptUrl
+                        : speakingWritingScriptUrl;
 
-            fetch(scriptUrlToUse, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    question: q.Question,
-                    className,
-                    status: newStatus
-                })
-            }).then(() => {
-                label.textContent = `${className}: ${isChecked ? 'Completed ✓' : 'Mark as complete'}`;
-                label.style.color = colors[index % colors.length];
-                checkbox.disabled = false;
-            }).catch(() => {
-                label.textContent = `${className}: Error! Try again.`;
-                checkbox.checked = !isChecked;
-                checkbox.disabled = false;
+                fetch(scriptUrlToUse, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question: q.Question,
+                        className,
+                        status: newStatus
+                    })
+                }).then(() => {
+                    label.textContent = `${className}: ${isChecked ? 'Completed ✓' : 'Mark as complete'}`;
+                    label.style.color = colors[index % colors.length];
+                    checkbox.disabled = false;
+                }).catch(() => {
+                    label.textContent = `${className}: Error! Try again.`;
+                    checkbox.checked = !isChecked;
+                    checkbox.disabled = false;
+                });
             });
         });
-    });
+    } catch (err) {
+        console.error('Error fetching class data:', err);
+        practice_questionDisplay.insertAdjacentHTML('beforeend', `<p>Error loading class info.</p>`);
+    }
 }
   
 // --- HELPER FUNCTION: To render text or an image ---
