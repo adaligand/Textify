@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Staccrter Hub</title>
+  <title>MFL Stacrter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -1162,7 +1162,7 @@ function loadData(url, options) {
                     Theme: q.Theme,
                     Question: q.Question,
                     Content: q.Content,
-                    Status: q.Status
+                   StatusPerClass
                 });
 
                 if (type === 'readingListening') {
@@ -1237,35 +1237,77 @@ function loadData(url, options) {
         }
     }
 
-    // --- Practice Section Logic ---
-    practice_topicSelect.addEventListener('change', () => {
-        stopMedia();
-        practice_populateQuestions();
-    });
-    practice_generateBtn.addEventListener('click', practice_generateQuestion);
+   // --- Tick emojis (square style) ---
+const tickEmojis = ['✅', '☑️', '✴️']; // one per class
 
-    function practice_populateTopics() {
-        const selectedType = currentPracticeTypeInput.value;
-        const themes = [...new Set(practice_allQuestions
-            .filter(q => q.Skill && q.Skill.trim() === selectedType)
-            .map(q => q.Theme))];
-        practice_topicSelect.innerHTML = '<option value="">-- Select Theme --</option>';
-        if (themes.length === 0) {
-            practice_topicSelect.innerHTML = `<option>No Themes Available</option>`;
-            practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
-            return;
-        }
-        themes.sort().forEach(theme => {
-            if (theme) {
-                const opt = document.createElement('option');
-                opt.value = theme;
-                opt.textContent = theme;
-                practice_topicSelect.appendChild(opt);
-            }
-        });
-        practice_populateQuestions();
+// --- Practice Section Logic ---
+practice_topicSelect.addEventListener('change', () => {
+    stopMedia();
+    practice_populateQuestions();
+});
+practice_generateBtn.addEventListener('click', practice_generateQuestion);
+
+// --- Populate Topics ---
+function practice_populateTopics() {
+    const selectedType = currentPracticeTypeInput.value;
+    const themes = [...new Set(practice_allQuestions
+        .filter(q => q.Skill && q.Skill.trim() === selectedType)
+        .map(q => q.Theme))];
+
+    practice_topicSelect.innerHTML = '<option value="">-- Select Theme --</option>';
+    if (themes.length === 0) {
+        practice_topicSelect.innerHTML = `<option>No Themes Available</option>`;
+        practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
+        return;
     }
 
+    themes.sort().forEach(theme => {
+        if (theme) {
+            const opt = document.createElement('option');
+            opt.value = theme;
+            opt.textContent = theme;
+            practice_topicSelect.appendChild(opt);
+        }
+    });
+
+    practice_populateQuestions();
+}
+
+// --- Load CSV Data ---
+async function loadPracticeData(csvUrl) {
+    const response = await fetch(`${csvUrl}&t=${Date.now()}`); // cache-buster
+    const csvText = await response.text();
+    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+    const rows = parsed.data;
+
+    if (!rows || rows.length === 0) return [];
+
+    const headers = Object.keys(rows[0]);
+    const classHeaders = headers.slice(3, 6); // D/E/F columns
+
+    return rows.map(row => {
+        const statusPerClass = {};
+        classHeaders.forEach((className, i) => {
+            statusPerClass[className] = row[className] === 'Y' ? 'Y' : '';
+        });
+
+        return {
+            Skill: row.Skill?.trim() || '',
+            Theme: row.Theme?.trim() || '',
+            Question: row.Question?.trim() || '',
+            Content: row.Content?.trim() || '',
+            StatusPerClass: statusPerClass
+        };
+    });
+}
+
+// --- Initialize Questions ---
+async function initializePracticeQuestions() {
+    readingListening_allQuestions = await loadPracticeData(practiceSheetUrl);
+    speakingWriting_allQuestions = await loadPracticeData(speakingAndWritingSheetUrl);
+}
+
+// --- Populate Questions Dropdown ---
 function practice_populateQuestions() {
     const selectedTheme = practice_topicSelect.value;
     const selectedType = currentPracticeTypeInput.value;
@@ -1277,7 +1319,7 @@ function practice_populateQuestions() {
     }
 
     const questions = practice_allQuestions.filter(q =>
-        q.Skill && q.Skill.trim() === selectedType && q.Theme === selectedTheme
+        q.Skill?.trim() === selectedType && q.Theme === selectedTheme
     );
 
     if (questions.length === 0) {
@@ -1285,42 +1327,33 @@ function practice_populateQuestions() {
         return;
     }
 
-    // Get class names dynamically from the first question's StatusPerClass keys
-    let classOrder = [];
-    if (questions[0].StatusPerClass) {
-        classOrder = Object.keys(questions[0].StatusPerClass);
-    } else {
-        classOrder = ['Class1','Class2','Class3']; // fallback
-    }
-
-    const tickEmojis = ['✅','☑️','✴️']; // keep your original emojis
+    const classOrder = Object.keys(questions[0].StatusPerClass);
 
     questions.forEach(q => {
         const opt = document.createElement('option');
-        opt.value = q.Content; 
+        opt.value = q.Content;
         let optText = q.Question;
 
-        if (q.StatusPerClass) {
-            classOrder.forEach((className, i) => {
-                if (q.StatusPerClass[className] === 'Y') {
-                    optText += ` ${tickEmojis[i]}`;
-                }
-            });
-        }
+        classOrder.forEach((className, i) => {
+            if (q.StatusPerClass[className] === 'Y') {
+                optText += ` ${tickEmojis[i]}`;
+            }
+        });
 
         opt.textContent = optText;
         practice_questionSelect.appendChild(opt);
     });
 }
 
-   async function practice_generateQuestion() {
- const selectedContentUrl = practice_questionSelect.value;
-    if (!selectedContentUrl || selectedContentUrl.includes('Select a Theme') || selectedContentUrl.includes('No Questions')) {
-        practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question from the list.</p>`;
+// --- Generate Question Display ---
+async function practice_generateQuestion() {
+    const selectedContent = practice_questionSelect.value;
+    if (!selectedContent || selectedContent.includes('Select a Theme') || selectedContent.includes('No Questions')) {
+        practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question.</p>`;
         return;
     }
 
-    const q = practice_allQuestions.find(item => item.Content === selectedContentUrl);
+    const q = practice_allQuestions.find(item => item.Content === selectedContent);
     if (!q) {
         practice_questionDisplay.innerHTML = `<p>Error: Content not found.</p>`;
         return;
@@ -1330,22 +1363,19 @@ function practice_populateQuestions() {
     fullscreenBtn.onclick = null;
 
     let contentHtml = q.Content;
-    const originalUrl = q.Content;
 
-    // --- Embed Slides if Google URL ---
-    if (originalUrl && originalUrl.includes('google.com/presentation')) {
-        const fileIdMatch = originalUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
-        const slideIdMatch = originalUrl.match(/[?#]slide=id\.([a-zA-Z0-9_.-]+)/);
+    // --- Embed Google Slides if present ---
+    if (q.Content.includes('google.com/presentation')) {
+        const fileIdMatch = q.Content.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        const slideIdMatch = q.Content.match(/[?#]slide=id\.([a-zA-Z0-9_.-]+)/);
         if (fileIdMatch) {
             const fileId = fileIdMatch[1];
-            let embedUrl, presentUrl;
+            let embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false`;
+            let presentUrl = `https://docs.google.com/presentation/d/${fileId}/present`;
             if (slideIdMatch) {
                 const slideId = `id.${slideIdMatch[1]}`;
-                embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false&slide=${slideId}`;
-                presentUrl = `https://docs.google.com/presentation/d/${fileId}/present#slide=${slideId}`;
-            } else {
-                embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false`;
-                presentUrl = `https://docs.google.com/presentation/d/${fileId}/present`;
+                embedUrl += `&slide=${slideId}`;
+                presentUrl += `#slide=${slideId}`;
             }
             contentHtml = `<iframe src="${embedUrl}" allowfullscreen></iframe>`;
             fullscreenBtn.classList.remove('hide');
@@ -1354,9 +1384,10 @@ function practice_populateQuestions() {
     }
 
     practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
+
     const currentSkill = currentPracticeTypeInput.value;
 
-    // --- Keep AS/A2 Logic ---
+    // --- AS / A2 Cards ---
     if (currentSkill === 'AS' || currentSkill === 'A2') {
         const checkboxHTML = `
             <div class="completion-marker">
@@ -1365,7 +1396,7 @@ function practice_populateQuestions() {
                     ${q.Status ? 'Completed ✓' : 'Mark as complete'}
                 </label>
             </div>`;
-        practice_questionDisplay.insertAdjacentHTML('beforeend', `<div class="completion-wrapper">${checkboxesHTML}</div>`);
+        practice_questionDisplay.insertAdjacentHTML('beforeend', checkboxHTML);
 
         const checkbox = document.getElementById('mark-complete-checkbox');
         checkbox.addEventListener('change', () => {
@@ -1379,12 +1410,16 @@ function practice_populateQuestions() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ question: q.Question, status: newStatus })
-            }).then(() => {
+            })
+            .then(() => {
                 label.textContent = isChecked ? 'Completed ✓' : 'Mark as complete';
                 q.Status = newStatus;
                 checkbox.disabled = false;
-                practice_populateQuestions();
-            }).catch(() => {
+
+                const opt = Array.from(practice_questionSelect.options).find(o => o.value === q.Content);
+                if (opt) opt.textContent = `${q.Question} ${isChecked ? '✅' : ''}`;
+            })
+            .catch(() => {
                 label.textContent = 'Error! Try again.';
                 checkbox.checked = !isChecked;
                 checkbox.disabled = false;
@@ -1393,96 +1428,89 @@ function practice_populateQuestions() {
         return;
     }
 
-    // --- For Reading / Listening / Speaking / Writing ---
-    let sheetUrlToUse;
-    if (currentSkill === 'Reading' || currentSkill === 'Listening') {
-        sheetUrlToUse = practiceSheetUrl;
-    } else {
-        sheetUrlToUse = speakingAndWritingSheetUrl;
-    }
+    // --- Reading/Listening or Speaking/Writing ---
+    const sheetUrlToUse = (currentSkill === 'Reading' || currentSkill === 'Listening') ? practiceSheetUrl : speakingAndWritingSheetUrl;
 
     try {
-        // Corrected: Add cache-buster for this specific fetch call
-        const cacheBusterUrl = `${sheetUrlToUse}&t=${new Date().getTime()}`;
-            const response = await fetch(cacheBusterUrl); 
+        const response = await fetch(`${sheetUrlToUse}&t=${Date.now()}`);
         const csvText = await response.text();
-        const rows = Papa.parse(csvText).data;
-        const headers = rows[0].slice(3, 6); // columns C–E
-        const classes = headers.filter(Boolean);
-        const colors = ['#27ae60', '#2980b9', '#e67e22'];
+        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+        const rows = parsed.data;
 
-        // Find this question’s row
-        const questionRow = rows.find(r => r[2] && r[2].trim() === q.Question.trim());
-        const statusValues = questionRow ? questionRow.slice(3, 6) : ['', '', ''];
+        const headers = Object.keys(rows[0]).slice(3, 6);
+        const classes = headers.filter(Boolean);
+
+        const questionRow = rows.find(r => r.Question?.trim() === q.Question.trim());
+        const statusValues = questionRow ? headers.map(h => questionRow[h] === 'Y' ? 'Y' : '') : ['', '', ''];
+
+        // Remove old completion div
+        const oldCompletion = document.getElementById('multi-completion');
+        if (oldCompletion) oldCompletion.remove();
 
         const checkboxesHTML = classes.map((className, i) => `
             <div class="completion-marker" style="margin-top:10px;">
                 <input type="checkbox" id="complete-${i}" data-class="${className}" ${statusValues[i] === 'Y' ? 'checked' : ''}>
-                <label for="complete-${i}" style="color:${colors[i % colors.length]}">
+                <label for="complete-${i}">
                     ${className}: ${statusValues[i] === 'Y' ? 'Completed ✓' : 'Mark as complete'}
                 </label>
             </div>
         `).join('');
 
-       practice_questionDisplay.insertAdjacentHTML('beforeend', `
-  <div id="multi-completion" style="display: flex; gap: 20px; align-items: center;">
-    ${checkboxesHTML}
-  </div>
-`);
+        practice_questionDisplay.insertAdjacentHTML('beforeend', `
+            <div id="multi-completion" style="display: flex; gap: 20px; align-items: flex-start;">
+                ${checkboxesHTML}
+            </div>
+        `);
 
-
-        // --- Checkbox Change Logic ---
         document.querySelectorAll('#multi-completion input[type="checkbox"]').forEach((checkbox, index) => {
-           checkbox.addEventListener('change', () => {
-    const label = checkbox.nextElementSibling;
-    const className = checkbox.dataset.class;
-    const isChecked = checkbox.checked;
-    const newStatus = isChecked ? 'Y' : '';
+            checkbox.addEventListener('change', () => {
+                const label = checkbox.nextElementSibling;
+                const className = checkbox.dataset.class;
+                const isChecked = checkbox.checked;
+                const newStatus = isChecked ? 'Y' : '';
 
-    label.textContent = `${className}: Updating...`;
-    checkbox.disabled = true;
+                label.textContent = `${className}: Updating...`;
+                checkbox.disabled = true;
 
-    let scriptUrlToUse =
-        (currentSkill === 'Reading' || currentSkill === 'Listening')
-            ? readingListeningScriptUrl
-            : speakingWritingScriptUrl;
+                fetch(sheetUrlToUse === practiceSheetUrl ? readingListeningScriptUrl : speakingWritingScriptUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: q.Question, className, status: newStatus })
+                })
+                .then(() => {
+                    label.textContent = `${className}: ${isChecked ? 'Completed ✓' : 'Mark as complete'}`;
+                    checkbox.disabled = false;
 
-    fetch(scriptUrlToUse, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            question: q.Question,
-            className,
-            status: newStatus
-        })
-    })
-    .then(() => {
-        // Only update label & local data — do NOT re-render the whole question
-        label.textContent = `${className}: ${isChecked ? 'Completed ✓' : 'Mark as complete'}`;
-        label.style.color = colors[index % colors.length];
-        checkbox.disabled = false;
+                    const qIndex = practice_allQuestions.findIndex(item => item.Content === q.Content);
+                    if (qIndex >= 0) {
+                        practice_allQuestions[qIndex].StatusPerClass[className] = newStatus;
 
-        // Update local question object
-        const qIndex = practice_allQuestions.findIndex(item => item.Content === q.Content);
-        if (qIndex >= 0) {
-            practice_allQuestions[qIndex].StatusPerClass = practice_allQuestions[qIndex].StatusPerClass || {};
-            practice_allQuestions[qIndex].StatusPerClass[className] = newStatus;
-        }
-    })
-    .catch(() => {
-        label.textContent = `${className}: Error! Try again.`;
-        checkbox.checked = !isChecked;
-        checkbox.disabled = false;
-    });
-});
- });
-} catch (error) {
-        console.error("Error in practice_generateQuestion:", error);
-    } // <-- 2. Closes the try/catch block (this one was completely missing)
+                        // Update dropdown with square emojis
+                        const ticks = Object.keys(practice_allQuestions[qIndex].StatusPerClass)
+                            .map((cls, i) => practice_allQuestions[qIndex].StatusPerClass[cls] === 'Y' ? tickEmojis[i] : '')
+                            .filter(Boolean)
+                            .join(' ');
+                        const opt = Array.from(practice_questionSelect.options).find(o => o.value === q.Content);
+                        if (opt) opt.textContent = `${q.Question} ${ticks}`;
+                    }
+                })
+                .catch(() => {
+                    label.textContent = `${className}: Error! Try again.`;
+                    checkbox.checked = !isChecked;
+                    checkbox.disabled = false;
+                });
+            });
+        });
 
+    } catch (error) {
+        console.error("Error in practice_generateQuestion:", error);
+    }
 }
-  
+
+// --- Usage ---
+await initializePracticeQuestions();
+practice_populateTopics();
+
 // --- HELPER FUNCTION: To render text or an image ---
 function renderContent(content, altText = 'Vocabulary image') {
     if (typeof content !== 'string') {
