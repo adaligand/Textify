@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Starter Hub</title>
+  <title>MFL Starxxxter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -1312,154 +1312,190 @@ function practice_populateQuestions() {
     });
 }
 
-// --- Generate Question Display ---
-// --- Replace your entire function with this ---
+// --- DELETE YOUR OLD practice_generateQuestion FUNCTION AND REPLACE IT WITH THIS ---
 
 async function practice_generateQuestion() {
-    const selectedContent = practice_questionSelect.value;
-    if (!selectedContent || selectedContent.includes('Select a Theme') || selectedContent.includes('No Questions')) {
-        practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question.</p>`;
-        return;
-    }
+    const selectedContent = practice_questionSelect.value;
+    if (!selectedContent || selectedContent.includes('Select a Theme') || selectedContent.includes('No Questions')) {
+        practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question.</p>`;
+        return;
+    }
 
-    const q = practice_allQuestions.find(item => item.Content === selectedContent);
-    if (!q) {
-        practice_questionDisplay.innerHTML = `<p>Error: Content not found.</p>`;
-        return;
-    }
+    const q = practice_allQuestions.find(item => item.Content === selectedContent);
+    if (!q) {
+        practice_questionDisplay.innerHTML = `<p>Error: Content not found.</p>`;
+        return;
+    }
 
-    fullscreenBtn.classList.add('hide');
-    fullscreenBtn.onclick = null;
+    fullscreenBtn.classList.add('hide');
+    fullscreenBtn.onclick = null;
 
-    let contentHtml = q.Content;
+    let contentHtml = q.Content;
 
-    // --- Embed Google Slides if present ---
-    if (q.Content.includes('google.com/presentation')) {
-        const fileIdMatch = q.Content.match(/\/d\/([a-zA-Z0-9_-]+)/);
-        const slideIdMatch = q.Content.match(/[?#]slide=id\.([a-zA-Z0-9_.-]+)/);
-        if (fileIdMatch) {
-            const fileId = fileIdMatch[1];
-            let embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false`;
-            let presentUrl = `https://docs.google.com/presentation/d/${fileId}/present`;
-            if (slideIdMatch) {
-                const slideId = `id.${slideIdMatch[1]}`;
-                embedUrl += `&slide=${slideId}`;
-                presentUrl += `#slide=${slideId}`;
-            }
-            contentHtml = `<iframe src="${embedUrl}" allowfullscreen></iframe>`;
-            fullscreenBtn.classList.remove('hide');
-            fullscreenBtn.onclick = () => window.open(presentUrl, '_blank');
-        }
-    }
+    // --- Embed Google Slides if present ---
+    if (q.Content.includes('google.com/presentation')) {
+        const fileIdMatch = q.Content.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        const slideIdMatch = q.Content.match(/[?#]slide=id\.([a-zA-Z0-9_.-]+)/);
+        if (fileIdMatch) {
+            const fileId = fileIdMatch[1];
+            let embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false`;
+            let presentUrl = `https://docs.google.com/presentation/d/${fileId}/present`;
+            if (slideIdMatch) {
+                const slideId = `id.${slideIdMatch[1]}`;
+                embedUrl += `&slide=${slideId}`;
+                presentUrl += `#slide=${slideId}`;
+            }
+            contentHtml = `<iframe src="${embedUrl}" allowfullscreen></iframe>`;
+            fullscreenBtn.classList.remove('hide');
+            fullscreenBtn.onclick = () => window.open(presentUrl, '_blank');
+        }
+    }
 
-    practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
+    practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
 
-    const currentSkill = currentPracticeTypeInput.value;
+    const currentSkill = currentPracticeTypeInput.value;
 
-    // --- AS / A2 Cards ---
-    if (currentSkill === 'AS' || currentSkill === 'A2') {
-        // ... (Your A-Level code is fine and stays the same) ...
-        return;
-    }
+    // --- AS / A2 Cards ---
+    if (currentSkill === 'AS' || currentSkill === 'A2') {
+        const checkboxHTML = `
+            <div class="completion-marker">
+                <input type="checkbox" id="mark-complete-checkbox" ${q.Status ? 'checked' : ''}>
+                <label for="mark-complete-checkbox" id="mark-complete-label">
+                    ${q.Status ? 'Completed ✓' : 'Mark as complete'}
+                </label>
+            </div>`;
+        practice_questionDisplay.insertAdjacentHTML('beforeend', checkboxHTML);
 
-    // --- Reading/Listening or Speaking/Writing ---
-    const sheetUrlToUse = (currentSkill === 'Reading' || currentSkill === 'Listening') ? practiceSheetUrl : speakingAndWritingSheetUrl;
+        const checkbox = document.getElementById('mark-complete-checkbox');
+        checkbox.addEventListener('change', () => {
+            const label = document.getElementById('mark-complete-label');
+            const isChecked = checkbox.checked;
+            const newStatus = isChecked ? 'Y' : '';
+            label.textContent = 'Updating...';
+            checkbox.disabled = true;
 
-    try {
-        const response = await fetch(`${sheetUrlToUse}&t=${Date.now()}`);
-        const csvText = await response.text();
-        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-        const rows = parsed.data;
-
-        const headers = Object.keys(rows[0]).slice(3, 6);
-        const classes = headers.filter(Boolean);
-
-        const questionRow = rows.find(r => r.Question?.trim() === q.Question.trim());
-      const statusValues = questionRow ? headers.map(h => questionRow[h] === 'Y' ? 'Y' : '') : ['', '', ''];
-
-        // Remove old completion div
-        const oldCompletion = document.getElementById('multi-completion');
-        if (oldCompletion) oldCompletion.remove();
-
-        const checkboxesHTML = classes.map((className, i) => `
-            <div class="completion-marker" style="margin-top:10px;">
-                <input type="checkbox" id="complete-${i}" data-class="${className}" ${statusValues[i] === 'Y' ? 'checked' : ''}>
-                <label for="complete-${i}">
-                    ${className}: ${statusValues[i] === 'Y' ? 'Completed ✓' : 'Mark as complete'}
-                </label>
-            </div>
-        `).join('');
-
-        practice_questionDisplay.insertAdjacentHTML('beforeend', `
-            <div id="multi-completion" style="display: flex; gap: 20px; align-items: flex-start;">
-                ${checkboxesHTML}
-            </div>
-        `);
-
-  t     document.querySelectorAll('#multi-completion input[type="checkbox"]').forEach((checkbox, index) => {
-        checkbox.addEventListener('change', () => {
-            const label = checkbox.nextElementSibling;
-            const className = checkbox.dataset.class;
-            const isChecked = checkbox.checked;
-            const newStatus = isChecked ? 'Y' : '';
-
-            label.textContent = `${className}: Updating...`;
-            checkbox.disabled = true;
-
-            const scriptUrl = (currentSkill === 'Reading' || currentSkill === 'Listening') 
-                ? readingListeningScriptUrl 
-                : speakingWritingScriptUrl;
-                
-            // --- THIS IS THE UPDATED FETCH BLOCK ---
-            fetch(scriptUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ question: q.Question, className, status: newStatus })
-            })
-            .then(response => response.json()) // Get the JSON response from the script
-            .then(data => {
-                if (data.status === 'success') {
-                    // --- SUCCESS ---
-                    label.textContent = `${className}: ${isChecked ? 'Completed ✓' : 'Mark as complete'}`;
-                    checkbox.disabled = false;
-
-                    const qIndex = practice_allQuestions.findIndex(item => item.Content === q.Content);
-                    if (qIndex >= 0) {
-                        practice_allQuestions[qIndex].StatusPerClass[className] = newStatus;
-
-                        // Update dropdown with tick emojis
-                        const ticks = Object.keys(practice_allQuestions[qIndex].StatusPerClass)
-                            .map((cls, i) => practice_allQuestions[qIndex].StatusPerClass[cls] === 'Y' ? tickEmojis[i] : '')
-                            .filter(Boolean)
-                            .join(' ');
-                        const opt = Array.from(practice_questionSelect.options).find(o => o.value === q.Content);
-                        if (opt) opt.textContent = `${q.Question} ${ticks}`;
-                    }
-                } else {
-                    // --- SCRIPT-LEVEL ERROR ---
-                    console.error('Apps Script Error:', data.message);
-                    label.textContent = `${className}: Error! (${data.message})`;
-                    checkbox.checked = !isChecked; // Revert the change
-                    checkbox.disabled = false;
-                }
+            fetch(aLevelScriptUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: q.Question, status: newStatus })
             })
-            .catch(error => {
-                // --- NETWORK-LEVEL ERROR ---
-                console.error('Fetch/Network Error:', error);
-                label.textContent = `${className}: Error! Try again.`;
-                checkbox.checked = !isChecked; // Revert the change
+            .then(() => {
+                label.textContent = isChecked ? 'Completed ✓' : 'Mark as complete';
+                q.Status = newStatus;
+                checkbox.disabled = false;
+
+                const opt = Array.from(practice_questionSelect.options).find(o => o.value === q.Content);
+                if (opt) opt.textContent = `${q.Question} ${isChecked ? '✅' : ''}`;
+            })
+            .catch(() => {
+                label.textContent = 'Error! Try again.';
+                checkbox.checked = !isChecked;
                 checkbox.disabled = false;
             });
-            // --- END OF UPDATED FETCH BLOCK ---
-        });
-    });
+        });
+        return;
+    }
 
-    } catch (error) {
-        console.error("Error in practice_generateQuestion:", error);
-    }
+    // --- Reading/Listening or Speaking/Writing ---
+    const sheetUrlToUse = (currentSkill === 'Reading' || currentSkill === 'Listening') ? practiceSheetUrl : speakingAndWritingSheetUrl;
+
+    try {
+        const response = await fetch(`${sheetUrlToUse}&t=${Date.now()}`);
+        const csvText = await response.text();
+        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+        const rows = parsed.data;
+
+        // Ensure rows[0] exists before trying to get keys from it
+        if (!rows || rows.length === 0) {
+            console.error("No data found in CSV:", sheetUrlToUse);
+            return;
+        }
+
+        const headers = Object.keys(rows[0]).slice(3, 6);
+        const classes = headers.filter(Boolean);
+
+        const questionRow = rows.find(r => r.Question?.trim() === q.Question.trim());
+        const statusValues = questionRow ? headers.map(h => questionRow[h] === 'Y' ? 'Y' : '') : ['', '', ''];
+
+        // Remove old completion div
+        const oldCompletion = document.getElementById('multi-completion');
+        if (oldCompletion) oldCompletion.remove();
+
+        const checkboxesHTML = classes.map((className, i) => `
+            <div class="completion-marker" style="margin-top:10px;">
+                <input type="checkbox" id="complete-${i}" data-class="${className}" ${statusValues[i] === 'Y' ? 'checked' : ''}>
+                <label for="complete-${i}">
+                    ${className}: ${statusValues[i] === 'Y' ? 'Completed ✓' : 'Mark as complete'}
+                </label>
+            </div>
+        `).join('');
+
+        practice_questionDisplay.insertAdjacentHTML('beforeend', `
+            <div id="multi-completion" style="display: flex; gap: 20px; align-items: flex-start;">
+                ${checkboxesHTML}
+            </div>
+        `);
+
+        document.querySelectorAll('#multi-completion input[type="checkbox"]').forEach((checkbox, index) => {
+            checkbox.addEventListener('change', () => {
+                const label = checkbox.nextElementSibling;
+                const className = checkbox.dataset.class;
+                const isChecked = checkbox.checked;
+                const newStatus = isChecked ? 'Y' : '';
+
+                label.textContent = `${className}: Updating...`;
+                checkbox.disabled = true;
+
+                const scriptUrl = (currentSkill === 'Reading' || currentSkill === 'Listening') 
+                    ? readingListeningScriptUrl 
+                    : speakingWritingScriptUrl;
+                
+                // --- THIS IS THE NEW, CORRECTED FETCH BLOCK ---
+                fetch(scriptUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: q.Question, className, status: newStatus })
+                })
+                .then(response => response.json()) // Get the JSON response from the script
+                .then(data => {
+                    if (data.status === 'success') {
+                        // --- SUCCESS ---
+                        label.textContent = `${className}: ${isChecked ? 'Completed ✓' : 'Mark as complete'}`;
+                        checkbox.disabled = false;
+
+                        const qIndex = practice_allQuestions.findIndex(item => item.Content === q.Content);
+                        if (qIndex >= 0) {
+                            practice_allQuestions[qIndex].StatusPerClass[className] = newStatus;
+                            const ticks = Object.keys(practice_allQuestions[qIndex].StatusPerClass)
+                                .map((cls, i) => practice_allQuestions[qIndex].StatusPerClass[cls] === 'Y' ? tickEmojis[i] : '')
+                                .filter(Boolean)
+                                .join(' ');
+                            const opt = Array.from(practice_questionSelect.options).find(o => o.value === q.Content);
+                            if (opt) opt.textContent = `${q.Question} ${ticks}`;
+                        }
+                    } else {
+                        // --- SCRIPT-LEVEL ERROR ---
+                        console.error('Apps Script Error:', data.message);
+                        label.textContent = `${className}: Error! (${data.message})`; // <-- THIS SHOWS THE REAL ERROR
+                        checkbox.checked = !isChecked; 
+                        checkbox.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    // --- NETWORK-LEVEL ERROR ---
+                    console.error('Fetch/Network Error:', error);
+                    label.textContent = `${className}: Error! Try again.`;
+                    checkbox.checked = !isChecked; 
+                    checkbox.disabled = false;
+                });
+                // --- END OF NEW FETCH BLOCK ---
+            });
+        });
+
+    } catch (error) {
+        console.error("Error in practice_generateQuestion:", error);
+    }
 }
-
-// --- Usage ---
 
 function loadClassNames() {
   // Use the correct script URL variable defined at the top of your file
