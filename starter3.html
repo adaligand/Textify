@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Startxxxecr Hub</title>
+  <title>MFL Startecr Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -1055,15 +1055,52 @@ function addFullscreenButton(targetPanel) {
             });
         });
     }
-    async function initializeApp() {
-        [readingBtn, listeningBtn, speakingBtn, writingBtn, asCardBtn, a2CardBtn, vocabBtn, sentenceBtn].forEach(btn => {
-            if (btn) {
-                btn.disabled = true;
-                btn.textContent = 'Loading...';
-            }
-        });
+  // Add this function definition near normalizeData, or just before initializeApp
+const formatData = (q) => {
+    // We assume keys are now clean due to normalizeData (no trailing spaces)
+    const statusValue = q.Status || q.status || '';
 
-  populateClassSelector();
+    return {
+        Skill: q.Skill ? q.Skill.trim() : '',
+        Theme: q.Theme ? q.Theme.trim() : '',
+        Question: q.Question ? q.Question.trim() : '',
+        Content: q.Content ? q.Content.trim() : '',
+        // The core check: is it an official 'Y'?
+        Status: (String(statusValue).trim().toUpperCase() === 'Y') ? 'Y' : '' 
+    };
+};
+// You should also remove the old 'formatData' definition from inside the results.forEach below.
+  // --- Data Normalization Helper ---
+function normalizeData(data) {
+    if (!data || data.length === 0) return [];
+
+    // The first element is the header row when using header: true, but 
+    // PapaParse already uses the header row to create keys for the data objects.
+    // We need to normalize the keys of the actual data objects (which start at index 0).
+
+    const normalizedData = data.map(item => {
+        const newItem = {};
+        for (const key in item) {
+            if (Object.prototype.hasOwnProperty.call(item, key)) {
+                // Remove leading/trailing whitespace and convert to a standard format (e.g., 'Status')
+                const normalizedKey = key.trim(); 
+                newItem[normalizedKey] = item[key];
+            }
+        }
+        return newItem;
+    });
+
+    return normalizedData;
+}
+async function initializeApp() {
+    [readingBtn, listeningBtn, speakingBtn, writingBtn, asCardBtn, a2CardBtn, vocabBtn, sentenceBtn].forEach(btn => {
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Loading...';
+        }
+    });
+
+    populateClassSelector();
     resetVocabDropdowns(true);
     populateSentenceClassSelector();
     resetSentenceDropdowns(true);
@@ -1071,153 +1108,135 @@ function addFullscreenButton(targetPanel) {
     populateWorksheetTypeSelector();
     populateVocabActivitySelector();
 
-        const readingListeningPromise = loadData(practiceSheetUrl, {
-            header: true
+    const readingListeningPromise = loadData(practiceSheetUrl, {
+        header: true
+    }).then(data => ({
+        type: 'readingListening',
+        data
+    }));
+    const speakingWritingPromise = loadData(speakingAndWritingSheetUrl, {
+        header: true
+    }).then(data => ({
+        type: 'speakingWriting',
+        data
+    }));
+    const aLevelPromise = loadData(aLevelCardsSheetUrl, {
+        header: true
+    }).then(data => ({
+        type: 'aLevel',
+        data
+    }));
+    const sentencePromises = Object.entries(sentenceSpreadsheetUrls).map(([className, url]) =>
+        loadData(url, {
+            header: false
         }).then(data => ({
-            type: 'readingListening',
+            type: 'sentence',
+            className,
             data
-        }));
-        const speakingWritingPromise = loadData(speakingAndWritingSheetUrl, {
-            header: true
+        }))
+    );
+    const vocabPromises = Object.entries(vocabSpreadsheetUrls).map(([className, url]) =>
+        loadData(url, {
+            header: false
         }).then(data => ({
-            type: 'speakingWriting',
+            type: 'vocab',
+            className,
             data
-        }));
-        const aLevelPromise = loadData(aLevelCardsSheetUrl, {
-            header: true
-        }).then(data => ({
-            type: 'aLevel',
-            data
-        }));
-        const sentencePromises = Object.entries(sentenceSpreadsheetUrls).map(([className, url]) =>
-            loadData(url, {
-                header: false
-            }).then(data => ({
-                type: 'sentence',
+        }))
+    );
+
+    const results = await Promise.allSettled([readingListeningPromise, speakingWritingPromise, aLevelPromise, ...sentencePromises, ...vocabPromises]);
+
+    let readingListeningLoaded = false,
+        speakingWritingLoaded = false,
+        aLevelLoaded = false,
+        sentencesLoaded = false,
+        vocabLoaded = false;
+
+    results.forEach(result => {
+        if (result.status === 'fulfilled') {
+            const {
+                type,
                 className,
                 data
-            }))
-        );
-        const vocabPromises = Object.entries(vocabSpreadsheetUrls).map(([className, url]) =>
-            loadData(url, {
-                header: false
-            }).then(data => ({
-                type: 'vocab',
-                className,
-                data
-            }))
-        );
+            } = result.value;
 
-        const results = await Promise.allSettled([readingListeningPromise, speakingWritingPromise, aLevelPromise, ...sentencePromises, ...vocabPromises]);
+            // *** CRITICAL FIX: Normalize data keys before processing ***
+            const cleanedData = (type === 'readingListening' || type === 'speakingWriting' || type === 'aLevel')
+                ? normalizeData(data)
+                : data;
 
-        let readingListeningLoaded = false,
-            speakingWritingLoaded = false,
-            aLevelLoaded = false,
-            sentencesLoaded = false,
-            vocabLoaded = false;
-
-        results.forEach(result => {
-            if (result.status === 'fulfilled') {
-                const {
-                    type,
-                    className,
-                    data
-                } = result.value;
- const formatData = (q) => {
-    // Standardize key access, accounting for variations in headers or whitespace
-    const skill = q.Skill || q.skill || q['Skill '] || '';
-    const theme = q.Theme || q.theme || q['Theme '] || '';
-    const question = q.Question || q.question || q['Question '] || '';
-    const content = q.Content || q.content || q['Content '] || '';
-    
-    // --- The crucial fix for Status ---
-    // Check for the known status headers and ensure the value is treated as completed ('Y') 
-    // only if it's explicitly 'Y' (case-insensitive and trimmed).
-    let statusValue = q.Status || q.status || q['Status '] || q.Completed || q['Completed '] || '';
-    
-    // Normalize status to 'Y' if it was marked as complete, otherwise empty string.
-    const isCompleted = (String(statusValue).trim().toUpperCase() === 'Y');
-
-    return {
-        Skill: skill.trim(),
-        Theme: theme.trim(),
-        Question: question.trim(),
-        Content: content.trim(),
-        Status: isCompleted ? 'Y' : '' // Store 'Y' or ''
-    };
-};
-
-                if (type === 'readingListening') {
-                    readingListening_allQuestions = data.map(formatData).filter(q => q.Skill && q.Theme && q.Content);
-                    readingListeningLoaded = true;
-                } else if (type === 'speakingWriting') {
-                    speakingWriting_allQuestions = data.map(formatData).filter(q => q.Skill && q.Theme && q.Content);
-                    speakingWritingLoaded = true;
-                } else if (type === 'aLevel') {
-                    aLevel_allQuestions = data.map(formatData).filter(q => q.Skill && q.Theme && q.Content);
-                    aLevelLoaded = true;
-                } else if (type === 'sentence') {
-                    all_sentence_data[className] = data;
-                    sentencesLoaded = true;
-                } else if (type === 'vocab') {
-                    all_vocab_data[className] = data;
-                    vocabLoaded = true;
-                }
-            } else {
-                console.error("Failed to load a spreadsheet:", result.reason);
+            if (type === 'readingListening') {
+                readingListening_allQuestions = cleanedData.map(formatData).filter(q => q.Skill && q.Theme && q.Content);
+                readingListeningLoaded = true;
+            } else if (type === 'speakingWriting') {
+                speakingWriting_allQuestions = cleanedData.map(formatData).filter(q => q.Skill && q.Theme && q.Content);
+                speakingWritingLoaded = true;
+            } else if (type === 'aLevel') {
+                aLevel_allQuestions = cleanedData.map(formatData).filter(q => q.Skill && q.Theme && q.Content);
+                aLevelLoaded = true;
+            } else if (type === 'sentence') {
+                all_sentence_data[className] = data;
+                sentencesLoaded = true;
+            } else if (type === 'vocab') {
+                all_vocab_data[className] = data;
+                vocabLoaded = true;
             }
-        });
+        } else {
+            console.error("Failed to load a spreadsheet:", result.reason);
+        }
+    });
 
-        if (readingListeningLoaded) {
-            readingBtn.disabled = false;
-            listeningBtn.disabled = false;
-            readingBtn.textContent = 'Y11 Reading';
-            listeningBtn.textContent = 'Y11 Listening';
-        } else {
-            readingBtn.textContent = 'Reading Unavailable';
-            readingBtn.style.backgroundColor = '#c0392b';
-            listeningBtn.textContent = 'Listening Unavailable';
-            listeningBtn.style.backgroundColor = '#c0392b';
-        }
-
-        if (speakingWritingLoaded) {
-            speakingBtn.disabled = false;
-            writingBtn.disabled = false;
-            speakingBtn.textContent = 'GCSE Speaking';
-            writingBtn.textContent = 'GCSE Writing';
-        } else {
-            speakingBtn.textContent = 'Speaking Unavailable';
-            speakingBtn.style.backgroundColor = '#c0392b';
-            writingBtn.textContent = 'Writing Unavailable';
-            writingBtn.style.backgroundColor = '#c0392b';
-        }
-        if (aLevelLoaded) {
-            asCardBtn.disabled = false;
-            a2CardBtn.disabled = false;
-            asCardBtn.textContent = 'AS Cards';
-            a2CardBtn.textContent = 'A2 Cards';
-        } else {
-            asCardBtn.textContent = 'A-Level Unavailable';
-            asCardBtn.style.backgroundColor = '#c0392b';
-            a2CardBtn.textContent = 'A-Level Unavailable';
-            a2CardBtn.style.backgroundColor = '#c0392b';
-        }
-        if (sentencesLoaded) {
-            sentenceBtn.disabled = false;
-            sentenceBtn.textContent = 'Sentence Practice';
-        } else {
-            sentenceBtn.textContent = 'Sentences Unavailable';
-            sentenceBtn.style.backgroundColor = '#c0392b';
-        }
-
-        if (vocabLoaded) {
-            vocabBtn.disabled = false;
-            vocabBtn.textContent = 'Vocab Practice';
-        } else {
-            vocabBtn.textContent = 'Vocab Unavailable';
-            vocabBtn.style.backgroundColor = '#c0392b';
-        }
+    if (readingListeningLoaded) {
+        readingBtn.disabled = false;
+        listeningBtn.disabled = false;
+        readingBtn.textContent = 'Y11 Reading';
+        listeningBtn.textContent = 'Y11 Listening';
+    } else {
+        readingBtn.textContent = 'Reading Unavailable';
+        readingBtn.style.backgroundColor = '#c0392b';
+        listeningBtn.textContent = 'Listening Unavailable';
+        listeningBtn.style.backgroundColor = '#c0392b';
     }
+
+    if (speakingWritingLoaded) {
+        speakingBtn.disabled = false;
+        writingBtn.disabled = false;
+        speakingBtn.textContent = 'GCSE Speaking';
+        writingBtn.textContent = 'GCSE Writing';
+    } else {
+        speakingBtn.textContent = 'Speaking Unavailable';
+        speakingBtn.style.backgroundColor = '#c0392b';
+        writingBtn.textContent = 'Writing Unavailable';
+        writingBtn.style.backgroundColor = '#c0392b';
+    }
+    if (aLevelLoaded) {
+        asCardBtn.disabled = false;
+        a2CardBtn.disabled = false;
+        asCardBtn.textContent = 'AS Cards';
+        a2CardBtn.textContent = 'A2 Cards';
+    } else {
+        asCardBtn.textContent = 'A-Level Unavailable';
+        asCardBtn.style.backgroundColor = '#c0392b';
+        a2CardBtn.textContent = 'A-Level Unavailable';
+        a2CardBtn.style.backgroundColor = '#c0392b';
+    }
+    if (sentencesLoaded) {
+        sentenceBtn.disabled = false;
+        sentenceBtn.textContent = 'Sentence Practice';
+    } else {
+        sentenceBtn.textContent = 'Sentences Unavailable';
+        sentenceBtn.style.backgroundColor = '#c0392b';
+    }
+
+    if (vocabLoaded) {
+        vocabBtn.disabled = false;
+        vocabBtn.textContent = 'Vocab Practice';
+    } else {
+        vocabBtn.textContent = 'Vocab Unavailable';
+        vocabBtn.style.backgroundColor = '#c0392b';
+    }
+}
 
     // --- Practice Section Logic ---
     practice_topicSelect.addEventListener('change', () => {
