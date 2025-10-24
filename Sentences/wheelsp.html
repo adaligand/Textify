@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -200,7 +201,10 @@ let allSentences = [];
 let currentSentence = "", hidden = [], currentPlayer = 1, wheelValue = 0, scores = { 1: 0, 2: 0 }, spinning = false, canSpin = true;
 let gameMode = ''; // 'pvp' or 'pvc'
 let unguessedLetters = [];
-let isProcessingGuess = false; 
+let isProcessingGuess = false;
+let solvingMode = false;
+let solveStartHiddenCount = 0;
+let nextSolveIndex = -1;
 
 const wheelCanvas = document.getElementById("wheelCanvas"), ctx = wheelCanvas.getContext("2d");
 wheelCanvas.addEventListener("click", spinWheel);
@@ -218,17 +222,23 @@ const pvpBtn = document.getElementById("pvp-button");
 
 let score2Display = document.getElementById("score2"); 
 
-// Add event listeners for the menu buttons
+// Create "I KNOW IT" button dynamically
+const iKnowBtn = document.createElement("button");
+iKnowBtn.textContent = "🧠 I KNOW IT!";
+iKnowBtn.id = "iKnowBtn";
+iKnowBtn.classList.add("menu-button");
+iKnowBtn.style.width = "220px";
+iKnowBtn.style.marginTop = "10px";
+iKnowBtn.onclick = startSolveMode;
+gameArea.appendChild(iKnowBtn);
+
+// --- MENU ---
 pvcBtn.addEventListener('click', () => startGame('pvc'));
 pvpBtn.addEventListener('click', () => startGame('pvp'));
-newGameBtn.addEventListener("click", () => {
-    showMenu();
-});
+newGameBtn.addEventListener("click", () => showMenu());
 
 const params = new URLSearchParams(window.location.search);
 const sheetUrl = params.get('sheet');
-
-// --- GAME STATE/LOADING LOGIC (NO CHANGE) ---
 
 function showMenu() {
     mainMenu.classList.remove('hide');
@@ -236,6 +246,7 @@ function showMenu() {
     newGameBtn.textContent = "New Game"; 
     newGameBtn.onclick = () => showMenu(); 
     isProcessingGuess = false; 
+    solvingMode = false;
 }
 
 function startGame(mode) {
@@ -283,7 +294,7 @@ if (!sheetUrl) {
     });
 }
 
-// --- WHEEL DRAWING LOGIC (NO CHANGE) ---
+// --- WHEEL ---
 const values = [10, 25, 50, 75, 100, 250, 275, 750, 1000, 2500, 5000, 10000, 10, 25, 50, 75, 100, 250, 275, 750, 1000];
 const colors = ["#1abc9c", "#16a085", "#2ecc71", "#27ae60", "#3498db", "#2980b9", "#9b59b6", "#8e44ad", "#e74c3c", "#c0392b", "#d35400", "#e67e22", "#f1c40f", "#1abc9c", "#16a085", "#2ecc71", "#27ae60", "#3498db", "#2980b9", "#9b59b6", "#8e44ad"];
 const center = 200, radius = 200, sectionAngle = 2 * Math.PI / values.length;
@@ -319,7 +330,7 @@ function drawWheel() {
 }
 drawWheel();
 
-// --- GAMEPLAY LOGIC (NO CHANGE) ---
+// --- GAMEPLAY ---
 
 function initGame() {
     scores = { 1: 0, 2: 0 };
@@ -337,6 +348,8 @@ function initGame() {
     lettersDiv.classList.remove("show");
     canSpin = true;
     isProcessingGuess = false; 
+    solvingMode = false;
+    iKnowBtn.disabled = false;
 }
 
 function updateHiddenDisplay() {
@@ -377,6 +390,20 @@ function createLetterButtons() {
     }
 }
 
+// === NEW SOLVE MODE ===
+function startSolveMode() {
+    if (spinning || isProcessingGuess || !canSpin || solvingMode) return;
+    solvingMode = true;
+    canSpin = false;
+    iKnowBtn.disabled = true;
+    lettersDiv.classList.add("show");
+
+    solveStartHiddenCount = hidden.filter(c => c === "_").length;
+    nextSolveIndex = hidden.findIndex(c => c === "_");
+    alert(`Solve mode activated!\nReveal all letters one by one correctly.\nBonus: $${solveStartHiddenCount * 1000}.`);
+}
+
+// === SPIN ===
 function spinWheel() {
     if (spinning || !canSpin) return;
     spinning = true;
@@ -425,6 +452,8 @@ function switchTurn() {
     canSpin = true;
     updateActiveScore();
     isProcessingGuess = false;
+    solvingMode = false;
+    iKnowBtn.disabled = false;
 
     if (gameMode === 'pvc' && currentPlayer === 2) {
         setTimeout(spinWheel, 1000); 
@@ -432,52 +461,68 @@ function switchTurn() {
 }
 
 function guessLetter(letter, btn) {
-    if (wheelValue === 0) { 
-        if (currentPlayer === 1 || gameMode === 'pvp') {
-            alert("You must spin the wheel first!"); 
-        }
+    if (wheelValue === 0 && !solvingMode) { 
+        if (currentPlayer === 1 || gameMode === 'pvp') alert("You must spin the wheel first!"); 
         return; 
     }
     
     if (isProcessingGuess) return;
     isProcessingGuess = true;
 
-    if (btn) {
-        btn.disabled = true;
-        unguessedLetters = unguessedLetters.filter(l => l !== letter);
+   if (btn && !solvingMode) {
+    btn.disabled = true;
+    unguessedLetters = unguessedLetters.filter(l => l !== letter);
+}
+
+
+    // === SOLVE MODE SEQUENTIAL LOGIC ===
+    if (solvingMode) {
+        if (nextSolveIndex === -1) return;
+
+        const correct = currentSentence[nextSolveIndex];
+        if (letter === correct) {
+            hidden[nextSolveIndex] = letter;
+            updateHiddenDisplay();
+            nextSolveIndex = hidden.findIndex((c, i) => i > nextSolveIndex && c === "_");
+
+            if (nextSolveIndex === -1) {
+                const bonus = solveStartHiddenCount * 1000;
+                scores[currentPlayer] += bonus;
+                updateScores();
+                winnerMessage.textContent = `🎉 Player ${currentPlayer} solved perfectly and earned +$${bonus}!`;
+                endGame();
+            } else {
+                isProcessingGuess = false;
+            }
+        } else {
+            alert("❌ Wrong letter! You lose your solve attempt.");
+            switchTurn();
+        }
+        return;
     }
 
+    // === NORMAL GUESS MODE ===
     const indexes = [];
     for (let i = 0; i < currentSentence.length; i++) {
         if (currentSentence[i] === letter) indexes.push(i);
     }
 
     if (indexes.length === 0) {
-        setTimeout(() => {
-            switchTurn();
-        }, 600);
+        setTimeout(() => switchTurn(), 600);
         return;
     }
-    
-    let totalTime = 0;
+
     indexes.forEach((idx, i) => {
         setTimeout(() => {
             hidden[idx] = currentSentence[idx];
             updateHiddenDisplay();
             scores[currentPlayer] += wheelValue;
             updateScores();
-            
             if (i === indexes.length - 1) {
-                if (!hidden.includes("_")) {
-                    endGame();
-                    return;
-                }
-                
-                setTimeout(() => {
-                    switchTurn();
-                }, 600);
+                if (!hidden.includes("_")) endGame();
+                else setTimeout(() => switchTurn(), 600);
             }
-        }, totalTime = i * 800);
+        }, i * 800);
     });
 }
 
@@ -494,22 +539,19 @@ function cpuTurn() {
     
     const randomIndex = Math.floor(Math.random() * unguessedLetters.length);
     const letterToGuess = unguessedLetters[randomIndex];
-    
     const buttons = Array.from(document.querySelectorAll(".letter-button"));
     const btn = buttons.find(b => b.textContent.toUpperCase() === letterToGuess);
     
     setTimeout(() => {
-        if (btn) {
-            guessLetter(letterToGuess, btn);
-        } else {
-            switchTurn();
-        }
+        if (btn) guessLetter(letterToGuess, btn);
+        else switchTurn();
     }, 1000); 
 }
 
 function endGame() {
     canSpin = false;
     isProcessingGuess = false; 
+    solvingMode = false;
     if (scores[1] > scores[2]) {
         winnerMessage.textContent = `Player 1 wins with $${scores[1]}! 🎉`;
     } else if (scores[2] > scores[1]) {
@@ -519,7 +561,6 @@ function endGame() {
     }
     newGameBtn.style.display = "block";
     lettersDiv.classList.remove("show");
-    
     newGameBtn.textContent = "Back to Menu";
     newGameBtn.onclick = showMenu;
 }
@@ -538,16 +579,12 @@ function updateActiveScore() {
 
 document.addEventListener("keydown", e => {
     if (isProcessingGuess) return; 
-    
     if (!canSpin || (currentPlayer === 2 && gameMode === 'pvc')) return;
-    
-    let key = e.key.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    key = key.toUpperCase();
-    
-    const buttons = Array.from(document.querySelectorAll(".letter-button"));
-    const btn = buttons.find(b => b.textContent.toUpperCase() === key);
+    let key = e.key.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+    const btn = [...document.querySelectorAll(".letter-button")].find(b => b.textContent.toUpperCase() === key);
     if (btn && !btn.disabled) btn.click();
 });
 </script>
+
 </body>
 </html>
