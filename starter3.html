@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Starter xxxccHub</title>
+  <title>MFL Starter Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -1026,24 +1026,70 @@ document.addEventListener('DOMContentLoaded', function() {
         sentenceSection.classList.add('hide');
     }
 
-    function showPractice(type) {
-        mainMenu.classList.add('hide');
-        practiceSection.classList.remove('hide');
-        document.getElementById('practice-title').textContent = `${type} Practice`;
-        currentPracticeTypeInput.value = type;
+   // RECHERCHEZ ET REMPLACEZ CETTE FONCTION ENTIÈREMENT
+function showPractice(type) {
+    mainMenu.classList.add('hide');
+    practiceSection.classList.remove('hide');
+    document.getElementById('practice-title').textContent = `${type} Practice`;
+    currentPracticeTypeInput.value = type;
 
-        const classSelectContainer = practice_classSelect.parentElement;
+    const classSelectContainer = practice_classSelect.parentElement;
+    practice_classSelect.innerHTML = ''; // Clear previous options
 
-        if (type === 'AS' || type === 'A2') {
-            classSelectContainer.classList.add('hide'); 
-            practice_classSelect.value = ''; 
-            practice_populateTopics(); 
-        } else {
-            classSelectContainer.classList.remove('hide'); 
-            practice_classSelect.value = ''; 
-            practice_populateTopics(); 
-        }
+    let relevantQuestions = [];
+    let isMultiClassSection = false;
+
+    // Determine which dataset to use
+    if (type === 'Reading' || type === 'Listening') {
+        relevantQuestions = readingListening_allQuestions;
+        isMultiClassSection = true;
+    } else if (type === 'Speaking' || type === 'Writing') {
+        relevantQuestions = speakingWriting_allQuestions;
+        isMultiClassSection = true;
+    } else if (type === 'AS' || type === 'A2') {
+        relevantQuestions = aLevel_allQuestions;
+        isMultiClassSection = false; // A-Level uses single status
     }
+
+    // Handle visibility and population of the class dropdown
+    if (isMultiClassSection) {
+        classSelectContainer.classList.remove('hide'); // Show dropdown
+
+        // Extract class names ONLY from the relevant dataset
+        const classNames = new Set();
+        relevantQuestions.forEach(q => {
+            if (q.Statuses) {
+                Object.keys(q.Statuses).forEach(className => classNames.add(className));
+            }
+        });
+
+        // Populate the dropdown
+        practice_classSelect.innerHTML = '<option value="">-- Select Class --</option>';
+        const sortedClassNames = [...classNames].sort();
+        
+        if (sortedClassNames.length === 0) {
+             practice_classSelect.innerHTML = '<option value="">No Classes Found</option>';
+        } else {
+            sortedClassNames.forEach(className => {
+                const opt = document.createElement('option');
+                opt.value = className;
+                opt.textContent = className;
+                practice_classSelect.appendChild(opt);
+            });
+        }
+        // Reset dependent dropdowns
+        practice_topicSelect.innerHTML = '<option value="">-- Select Class First --</option>';
+        practice_questionSelect.innerHTML = '<option value="">-- Select Class First --</option>';
+        practice_topicSelect.disabled = true;
+        practice_questionSelect.disabled = true;
+
+    } else {
+        // A-Level: Hide dropdown and populate topics directly
+        classSelectContainer.classList.add('hide');
+        practice_classSelect.value = ''; // Ensure no class value persists
+        practice_populateTopics(); // Populate topics directly for A-Level
+    }
+}
     
       function showVocabTest() {
         mainMenu.classList.add('hide');
@@ -1157,6 +1203,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
 // RECHERCHEZ ET REMPLACEZ CETTE FONCTION ENTIÈREMENT DANS VOTRE FICHIER
+// RECHERCHEZ ET REMPLACEZ CETTE FONCTION ENTIÈREMENT
 async function initializeApp() {
     [readingBtn, listeningBtn, speakingBtn, writingBtn, asCardBtn, a2CardBtn, vocabBtn, sentenceBtn].forEach(btn => {
         if (btn) {
@@ -1165,14 +1212,16 @@ async function initializeApp() {
         }
     });
 
-    populateClassSelector();
+    // Populate selectors NOT related to the practice section's dynamic classes
+    populateClassSelector(); // For Vocab
     resetVocabDropdowns(true);
-    populateSentenceClassSelector();
+    populateSentenceClassSelector(); // For Sentences
     resetSentenceDropdowns(true);
     populateGameTypeSelector();
     populateWorksheetTypeSelector();
     populateVocabActivitySelector();
 
+    // Load data promises (no changes here)
     const readingListeningPromise = loadData(practiceSheetUrl, {
         header: true
     }).then(data => ({
@@ -1191,7 +1240,6 @@ async function initializeApp() {
         type: 'aLevel',
         data
     }));
-    
     const sentencePromises = Object.entries(sentenceSpreadsheetUrls).map(([className, url]) =>
         loadData(url, {
             header: false
@@ -1211,15 +1259,15 @@ async function initializeApp() {
         }))
     );
 
-
     const results = await Promise.allSettled([readingListeningPromise, speakingWritingPromise, aLevelPromise, ...sentencePromises, ...vocabPromises]);
 
     let readingListeningLoaded = false,
-        speakingWritingLoaded = false, // Initialized to false
+        speakingWritingLoaded = false,
         aLevelLoaded = false,
         sentencesLoaded = false,
         vocabLoaded = false;
 
+    // Process loaded data (using correct formatData functions)
     results.forEach(result => {
         if (result.status === 'fulfilled') {
             const { type, className, data } = result.value;
@@ -1227,86 +1275,48 @@ async function initializeApp() {
                 ? normalizeData(data)
                 : data;
 
-            // *** CORRECTION DU FILTRE CI-DESSOUS ***
             if (type === 'readingListening') {
-                // Supprimé '&& q.Statuses'
-                readingListening_allQuestions = cleanedData.map(formatData_MultiClass).filter(q => q.Skill && q.Theme && q.Content); 
-                readingListeningLoaded = true; // Set to true if fulfilled
+                readingListening_allQuestions = cleanedData.map(formatData_MultiClass).filter(q => q.Skill && q.Theme && q.Content);
+                readingListeningLoaded = true;
             } else if (type === 'speakingWriting') {
-                 // Supprimé '&& q.Statuses'
                 speakingWriting_allQuestions = cleanedData.map(formatData_MultiClass).filter(q => q.Skill && q.Theme && q.Content);
-                speakingWritingLoaded = true; // Set to true if fulfilled
+                speakingWritingLoaded = true;
             } else if (type === 'aLevel') {
                 aLevel_allQuestions = cleanedData.map(formatData_SingleStatus).filter(q => q.Skill && q.Theme && q.Content);
-                aLevelLoaded = true; // Set to true if fulfilled
+                aLevelLoaded = true;
             } else if (type === 'sentence') {
                 all_sentence_data[className] = data;
-                sentencesLoaded = true; // Set to true if fulfilled
+                sentencesLoaded = true;
             } else if (type === 'vocab') {
                 all_vocab_data[className] = data;
-                vocabLoaded = true; // Set to true if fulfilled
+                vocabLoaded = true;
             }
         } else {
             console.error("Failed to load a spreadsheet:", result.reason);
-            // Si une promesse échoue (ex: speakingWritingPromise), le flag 'Loaded' correspondant restera false
         }
     });
 
-    // Remplit le sélecteur de classe (ne devrait plus avoir "Status" ou "H -RL URL")
-    const allClassNames = new Set();
-    // Utilise UNIQUEMENT les données qui ont été chargées avec succès
-    if (readingListeningLoaded) {
-        readingListening_allQuestions.forEach(q => {
-            if (q.Statuses) {
-                Object.keys(q.Statuses).forEach(className => allClassNames.add(className));
-            }
-        });
-    }
-     if (speakingWritingLoaded) {
-         speakingWriting_allQuestions.forEach(q => {
-             if (q.Statuses) {
-                 Object.keys(q.Statuses).forEach(className => allClassNames.add(className));
-             }
-         });
-     }
-
-
-    practice_classSelect.innerHTML = '<option value="">-- Select Class --</option>';
-    const sortedClassNames = [...allClassNames].sort();
+    // *** REMOVED: Initial population of practice_classSelect is moved to showPractice ***
     
-    if (sortedClassNames.length === 0 && (readingListeningLoaded || speakingWritingLoaded)) {
-        // Si les données sont chargées mais aucune classe n'est trouvée (problème d'en-tête?)
-         practice_classSelect.innerHTML = '<option value="">No Classes Found in Header</option>';
-    } else if (sortedClassNames.length > 0) {
-        sortedClassNames.forEach(className => {
-            const opt = document.createElement('option');
-            opt.value = className;
-            opt.textContent = className;
-            practice_classSelect.appendChild(opt);
-        });
-    } else {
-         // Si les données n'ont pas chargé
-         practice_classSelect.innerHTML = '<option value="">Classes Unavailable</option>';
-    }
-    
-    practice_classSelect.addEventListener('change', () => {
-        stopMedia();
-        practice_populateTopics(); 
-    });
+    // Add event listener for class changes (will trigger topic population)
+     practice_classSelect.addEventListener('change', () => {
+         stopMedia();
+         practice_populateTopics();
+     });
 
+    // Disable dependent dropdowns initially
     practice_topicSelect.disabled = true;
     practice_questionSelect.disabled = true;
 
-    // *** MISE À JOUR DE LA LOGIQUE D'ACTIVATION DES BOUTONS ***
-    // (Utilise les flags 'Loaded' définis dans la boucle results.forEach)
+    // Enable main menu buttons based on loaded data (no changes here)
     if (readingListeningLoaded) {
         readingBtn.disabled = false;
         listeningBtn.disabled = false;
         readingBtn.textContent = 'Y11 Reading';
         listeningBtn.textContent = 'Y11 Listening';
     } else {
-        readingBtn.disabled = true; // Assure qu'il est bien désactivé
-        listeningBtn.disabled = true; // Assure qu'il est bien désactivé
+        readingBtn.disabled = true;
+        listeningBtn.disabled = true;
         readingBtn.textContent = 'Reading Unavailable';
         readingBtn.style.backgroundColor = '#c0392b';
         listeningBtn.textContent = 'Listening Unavailable';
@@ -1318,8 +1328,8 @@ async function initializeApp() {
         speakingBtn.textContent = 'GCSE Speaking';
         writingBtn.textContent = 'GCSE Writing';
     } else {
-        speakingBtn.disabled = true; // Assure qu'il est bien désactivé
-        writingBtn.disabled = true; // Assure qu'il est bien désactivé
+        speakingBtn.disabled = true;
+        writingBtn.disabled = true;
         speakingBtn.textContent = 'Speaking Unavailable';
         speakingBtn.style.backgroundColor = '#c0392b';
         writingBtn.textContent = 'Writing Unavailable';
@@ -1331,8 +1341,8 @@ async function initializeApp() {
         asCardBtn.textContent = 'AS Cards';
         a2CardBtn.textContent = 'A2 Cards';
     } else {
-        asCardBtn.disabled = true; // Assure qu'il est bien désactivé
-        a2CardBtn.disabled = true; // Assure qu'il est bien désactivé
+        asCardBtn.disabled = true;
+        a2CardBtn.disabled = true;
         asCardBtn.textContent = 'A-Level Unavailable';
         asCardBtn.style.backgroundColor = '#c0392b';
         a2CardBtn.textContent = 'A-Level Unavailable';
@@ -1342,7 +1352,7 @@ async function initializeApp() {
         sentenceBtn.disabled = false;
         sentenceBtn.textContent = 'Sentence Practice';
     } else {
-        sentenceBtn.disabled = true; // Assure qu'il est bien désactivé
+        sentenceBtn.disabled = true;
         sentenceBtn.textContent = 'Sentences Unavailable';
         sentenceBtn.style.backgroundColor = '#c0392b';
     }
@@ -1350,7 +1360,7 @@ async function initializeApp() {
         vocabBtn.disabled = false;
         vocabBtn.textContent = 'Vocab Practice';
     } else {
-        vocabBtn.disabled = true; // Assure qu'il est bien désactivé
+        vocabBtn.disabled = true;
         vocabBtn.textContent = 'Vocab Unavailable';
         vocabBtn.style.backgroundColor = '#c0392b';
     }
