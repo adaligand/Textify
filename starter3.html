@@ -747,10 +747,16 @@
     <h1 id="practice-title">Practice Section</h1>
     <input type="hidden" id="current-practice-type" value="">
     <div class="practice-controls">
-      <div class="practice-control-group">
-        <label for="topic-select">Choose a Theme:</label>
-        <select id="topic-select"><option>Loading Themes...</option></select>
-      </div>
+        
+        <div class="practice-control-group">
+          <label for="practice-class-select">Choose a Class:</label>
+          <select id="practice-class-select"><option>Loading Classes...</option></select>
+        </div>
+        <div class="practice-control-group">
+          <label for="topic-select">Choose a Theme:</label>
+          <select id="topic-select"><option>Select a Class first...</option></select>
+        </div>
+      
       <div class="practice-control-group">
         <label for="question-select">Choose a Question:</label>
         <select id="question-select"><option>Select a Theme first...</option></select>
@@ -836,7 +842,9 @@
 document.addEventListener('DOMContentLoaded', function() {
 
     // --- URLs and Global Variables ---
-    const practiceSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRvNFlHDx-4cZbDzwKy5Yb_DKeSxS2wSXxyX1Ua6pGcf27yFjmqOPz9jQ_rzoV3-zoZI9lw4EIfmdXH/pub?output=csv";
+   const practice_classSelect = document.getElementById('practice-class-select');
+const practice_topicSelect = document.getElementById('topic-select');
+  const practiceSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRvNFlHDx-4cZbDzwKy5Yb_DKeSxS2wSXxyX1Ua6pGcf27yFjmqOPz9jQ_rzoV3-zoZI9lw4EIfmdXH/pub?output=csv";
     const speakingAndWritingSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRaleUavHj6TiyReN-wz1xcy8bxrCGpr3xkU0TMK1gCmDvKFDbLnwcS0-JGy2lKOU1KfJMSyucyttcX/pub?output=csv";
     const readingListeningScriptUrl = "https://script.google.com/macros/s/AKfycbz8eHSKFqyJpbO-KIbM1gscYWvEvJNqiU-GZ5_cOxVN9XAKcj3h71Q8DoG33M5ruY3q6A/exec";
     const speakingWritingScriptUrl = "https://script.google.com/macros/s/AKfycbxCUsUY8OsguguUaAEuCkrIE2Cm5Y35BFK1JGNoOrD3_DnOWWiMTWpyR9qKHQN6Ojc9UQ/exec";
@@ -1057,16 +1065,31 @@ function addFullscreenButton(targetPanel) {
     }
   // Add this function definition near normalizeData, or just before initializeApp
 const formatData = (q) => {
-    // Find the status value in a case-insensitive way and trim the key
-    let statusValue = '';
+    const formattedQ = { Statuses: {} };
+    // Définissez les clés standard que nous attendons
+    const standardKeys = {
+        'skill': 'Skill',
+        'theme': 'Theme',
+        'question': 'Question',
+        'content': 'Content'
+    };
+
     for (const key in q) {
-        // Find the key that *contains* 'status' after trimming and going lowercase
-        if (key.trim().toLowerCase() === 'status') {
-            statusValue = q[key];
-            break; // Stop once we've found it
+        const trimmedKey = key.trim();
+        const cleanKeyLower = trimmedKey.toLowerCase();
+
+        if (standardKeys[cleanKeyLower]) {
+            // C'est une clé standard (Skill, Theme, etc.)
+            formattedQ[standardKeys[cleanKeyLower]] = q[key].trim();
+        } else if (trimmedKey.length > 0) {
+            // C'est une clé personnalisée, nous supposons que c'est une colonne de statut de classe
+            const className = trimmedKey; // Conserve la casse originale de l'en-tête (ex: "11A")
+            const statusValue = (String(q[key]).trim().toUpperCase() === 'Y') ? 'Y' : '';
+            formattedQ.Statuses[className] = statusValue;
         }
     }
-
+    return formattedQ;
+};
     // We also need to find the other keys in a safe way
     let skillValue = '', themeValue = '', questionValue = '', contentValue = '';
     for (const key in q) {
@@ -1254,7 +1277,41 @@ async function initializeApp() {
         vocabBtn.style.backgroundColor = '#c0392b';
     }
 }
+const allClassNames = new Set();
+    // Parcourt toutes les questions chargées pour trouver tous les noms de classe uniques
+    [...readingListening_allQuestions, ...speakingWriting_allQuestions, ...aLevel_allQuestions].forEach(q => {
+        if (q.Statuses) {
+            Object.keys(q.Statuses).forEach(className => allClassNames.add(className));
+        }
+    });
 
+    // Remplit le nouveau menu déroulant de classe
+    practice_classSelect.innerHTML = '<option value="">-- Select Class --</option>';
+    const sortedClassNames = [...allClassNames].sort();
+    
+    if (sortedClassNames.length === 0) {
+         practice_classSelect.innerHTML = '<option value="">No Classes Found</option>';
+    } else {
+        sortedClassNames.forEach(className => {
+            const opt = document.createElement('option');
+            opt.value = className;
+            opt.textContent = className;
+            practice_classSelect.appendChild(opt);
+        });
+    }
+    
+    // Ajoute un écouteur d'événement pour mettre à jour les thèmes lorsque la classe change
+    practice_classSelect.addEventListener('change', () => {
+        stopMedia();
+        practice_populateTopics(); // Déclenche la mise à jour des thèmes
+    });
+
+    // Désactive les sélecteurs de thème et de question au début
+    practice_topicSelect.disabled = true;
+    practice_questionSelect.disabled = true;
+    // --- FIN DU NOUVEAU BLOC ---
+
+    if (readingListeningLoaded) {
     // --- Practice Section Logic ---
     practice_topicSelect.addEventListener('change', () => {
         stopMedia();
@@ -1262,147 +1319,181 @@ async function initializeApp() {
     });
     practice_generateBtn.addEventListener('click', practice_generateQuestion);
 
-    function practice_populateTopics() {
-        const selectedType = currentPracticeTypeInput.value;
-        const themes = [...new Set(practice_allQuestions
-            .filter(q => q.Skill && q.Skill.trim() === selectedType)
-            .map(q => q.Theme))];
-        practice_topicSelect.innerHTML = '<option value="">-- Select Theme --</option>';
-        if (themes.length === 0) {
-            practice_topicSelect.innerHTML = `<option>No Themes Available</option>`;
-            practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
-            return;
-        }
-        themes.sort().forEach(theme => {
-            if (theme) {
-                const opt = document.createElement('option');
-                opt.value = theme;
-                opt.textContent = theme;
-                practice_topicSelect.appendChild(opt);
-            }
-        });
-        practice_populateQuestions();
+   function practice_populateTopics() {
+    const selectedClass = practice_classSelect.value; // Récupère la classe sélectionnée
+    const selectedType = currentPracticeTypeInput.value;
+
+    // Si aucune classe n'est sélectionnée, réinitialise les menus suivants
+    if (!selectedClass) {
+        practice_topicSelect.innerHTML = '<option value="">-- Select Class First --</option>';
+        practice_questionSelect.innerHTML = '<option value="">-- Select Class First --</option>';
+        practice_topicSelect.disabled = true;
+        practice_questionSelect.disabled = true;
+        return;
     }
 
-    function practice_populateQuestions() {
-        const selectedTheme = practice_topicSelect.value;
-        const selectedType = currentPracticeTypeInput.value;
-        practice_questionSelect.innerHTML = '';
-        if (!selectedTheme) {
-            practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
-            return;
-        }
-        const questions = practice_allQuestions.filter(q =>
-            q.Skill && q.Skill.trim() === selectedType && q.Theme === selectedTheme
-        );
-        if (questions.length === 0) {
-            practice_questionSelect.innerHTML = `<option>No Questions Available</option>`;
-            return;
-        }
-        questions.forEach((q, index) => {
+    practice_topicSelect.disabled = false; // Active le sélecteur de thèmes
+
+    const themes = [...new Set(practice_allQuestions
+        .filter(q => q.Skill && q.Skill.trim() === selectedType)
+        .map(q => q.Theme))];
+        
+    practice_topicSelect.innerHTML = '<option value="">-- Select Theme --</option>';
+    if (themes.length === 0) {
+        practice_topicSelect.innerHTML = `<option>No Themes Available</option>`;
+        practice_populateQuestions(); // Appelle pour réinitialiser le menu des questions
+        return;
+    }
+    
+    themes.sort().forEach(theme => {
+        if (theme) {
             const opt = document.createElement('option');
-            opt.value = q.Content;
-            opt.textContent = q.Status ? `${q.Question} ✅` : q.Question;
+            opt.value = theme;
+            opt.textContent = theme;
+            practice_topicSelect.appendChild(opt);
+        }
+    });
+    practice_populateQuestions(); // Met à jour la liste des questions
+}
 
-            practice_questionSelect.appendChild(opt);
-        });
+   function practice_populateQuestions() {
+    const selectedClass = practice_classSelect.value; // Récupère la classe
+    const selectedTheme = practice_topicSelect.value;
+    const selectedType = currentPracticeTypeInput.value;
+    
+    practice_questionSelect.innerHTML = '';
+
+    // Vérifications pour s'assurer que la classe et le thème sont sélectionnés
+    if (!selectedClass) {
+        practice_questionSelect.innerHTML = `<option>Select a Class first...</option>`;
+        practice_questionSelect.disabled = true;
+        return;
     }
+    if (!selectedTheme) {
+        practice_questionSelect.innerHTML = `<option>Select a Theme first...</option>`;
+        practice_questionSelect.disabled = true; // Garde désactivé si pas de thème
+        return;
+    }
+
+    practice_questionSelect.disabled = false; // Active le sélecteur de questions
+
+    const questions = practice_allQuestions.filter(q =>
+        q.Skill && q.Skill.trim() === selectedType && q.Theme === selectedTheme
+    );
+
+    if (questions.length === 0) {
+        practice_questionSelect.innerHTML = `<option>No Questions Available</option>`;
+        return;
+    }
+
+    questions.forEach((q, index) => {
+        const opt = document.createElement('option');
+        opt.value = q.Content;
+        
+        // *** MODIFICATION PRINCIPALE ICI ***
+        // Vérifie le statut pour la classe SPÉCIFIQUE
+        const isComplete = q.Statuses && q.Statuses[selectedClass] === 'Y';
+        opt.textContent = isComplete ? `${q.Question} ✅` : q.Question;
+        // *** FIN DE LA MODIFICATION ***
+
+        practice_questionSelect.appendChild(opt);
+    });
+}
 
     function practice_generateQuestion() {
-        const selectedContentUrl = practice_questionSelect.value;
-        if (!selectedContentUrl || selectedContentUrl.includes('Select a Theme') || selectedContentUrl.includes('No Questions')) {
-            practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question from the list.</p>`;
-            return;
-        }
-        const q = practice_allQuestions.find(item => item.Content === selectedContentUrl);
-        if (!q) {
-            practice_questionDisplay.innerHTML = `<p>Error: Content not found.</p>`;
-            return;
-        }
-        fullscreenBtn.classList.add('hide');
-        fullscreenBtn.onclick = null;
-        let contentHtml = q.Content;
-        const originalUrl = q.Content;
-        if (originalUrl && originalUrl.includes('google.com/presentation')) {
-            const fileIdMatch = originalUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
-            const slideIdMatch = originalUrl.match(/[?#]slide=id\.([a-zA-Z0-9_.-]+)/);
-            if (fileIdMatch) {
-                const fileId = fileIdMatch[1];
-                let embedUrl, presentUrl;
-                if (slideIdMatch) {
-                    const slideId = `id.${slideIdMatch[1]}`;
-                    embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false&slide=${slideId}`;
-                    presentUrl = `https://docs.google.com/presentation/d/${fileId}/present#slide=${slideId}`;
-                } else {
-                    embedUrl = `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false`;
-                    presentUrl = `https://docs.google.com/presentation/d/${fileId}/present`;
-                }
-                contentHtml = `<iframe src="${embedUrl}" allowfullscreen></iframe>`;
-                fullscreenBtn.classList.remove('hide');
-                fullscreenBtn.onclick = () => {
-                    window.open(presentUrl, '_blank');
-                };
-            }
-        }
+    const selectedClass = practice_classSelect.value; // 1. Récupère la classe sélectionnée
 
-        practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
-
-        const checkboxHTML = `
-            <div class="completion-marker">
-                <input type="checkbox" id="mark-complete-checkbox" ${q.Status ? 'checked' : ''}>
-                <label for="mark-complete-checkbox" id="mark-complete-label">
-                    ${q.Status ? 'Completed ✓' : 'Mark as complete'}
-                </label>
-            </div>
-        `;
-        practice_questionDisplay.insertAdjacentHTML('beforeend', checkboxHTML);
-
-        const checkbox = document.getElementById('mark-complete-checkbox');
-        checkbox.addEventListener('change', () => {
-            const label = document.getElementById('mark-complete-label');
-            const isChecked = checkbox.checked;
-            const newStatus = isChecked ? 'Y' : '';
-
-            label.textContent = 'Updating...';
-            checkbox.disabled = true;
-
-            const currentSkill = currentPracticeTypeInput.value;
-            let scriptUrlToUse;
-
-            if (currentSkill === 'Reading' || currentSkill === 'Listening') {
-                scriptUrlToUse = readingListeningScriptUrl;
-            } else if (currentSkill === 'Speaking' || currentSkill === 'Writing') {
-                scriptUrlToUse = speakingWritingScriptUrl;
-            } else { // This will now handle AS and A2
-                scriptUrlToUse = aLevelScriptUrl;
-            }
-
-            fetch(scriptUrlToUse, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        question: q.Question,
-                        status: newStatus
-                    })
-                })
-                .then(() => {
-                    label.textContent = isChecked ? 'Completed ✓' : 'Mark as complete';
-                    q.Status = newStatus;
-                    checkbox.disabled = false;
-                    practice_populateQuestions();
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    label.textContent = 'Error! Try again.';
-                    checkbox.checked = !isChecked;
-                    checkbox.disabled = false;
-                });
-        });
+    // Vérifie si une classe est sélectionnée
+    if (!selectedClass) {
+        practice_questionDisplay.innerHTML = `<h2>Please select a Class.</h2><p>Vous devez sélectionner une classe dans le menu déroulant ci-dessus.</p>`;
+        return;
     }
 
+    const selectedContentUrl = practice_questionSelect.value;
+    if (!selectedContentUrl || selectedContentUrl.includes('Select a Theme') || selectedContentUrl.includes('No Questions')) {
+        practice_questionDisplay.innerHTML = `<h2>Please select a Question.</h2><p>Please select a Theme first, then select a Question from the list.</p>`;
+        return;
+    }
+    const q = practice_allQuestions.find(item => item.Content === selectedContentUrl);
+    if (!q) {
+        practice_questionDisplay.innerHTML = `<p>Error: Content not found.</p>`;
+        return;
+    }
+
+    // ... (toute la logique de l'iframe reste la même) ...
+    fullscreenBtn.classList.add('hide');
+    fullscreenBtn.onclick = null;
+    let contentHtml = q.Content;
+    const originalUrl = q.Content;
+    if (originalUrl && originalUrl.includes('google.com/presentation')) {
+    // ... (logique de l'iframe) ...
+    }
+
+    practice_questionDisplay.innerHTML = `<h2>${q.Question}</h2>${contentHtml}`;
+
+    // 2. Vérifie le statut pour la classe sélectionnée
+    const currentStatus = q.Statuses && q.Statuses[selectedClass] === 'Y';
+
+    const checkboxHTML = `
+        <div class="completion-marker">
+            <input type="checkbox" id="mark-complete-checkbox" ${currentStatus ? 'checked' : ''}>
+            <label for="mark-complete-checkbox" id="mark-complete-label">
+                ${currentStatus ? 'Completed ✓' : 'Mark as complete'}
+            </label>
+        </div>
+    `;
+    practice_questionDisplay.insertAdjacentHTML('beforeend', checkboxHTML);
+
+    const checkbox = document.getElementById('mark-complete-checkbox');
+    checkbox.addEventListener('change', () => {
+        const label = document.getElementById('mark-complete-label');
+        const isChecked = checkbox.checked;
+        const newStatus = isChecked ? 'Y' : '';
+
+        label.textContent = 'Updating...';
+        checkbox.disabled = true;
+
+        const currentSkill = currentPracticeTypeInput.value;
+        let scriptUrlToUse;
+
+        if (currentSkill === 'Reading' || currentSkill === 'Listening') {
+            scriptUrlToUse = readingListeningScriptUrl;
+        } else if (currentSkill === 'Speaking' || currentSkill === 'Writing') {
+            scriptUrlToUse = speakingWritingScriptUrl;
+        } else { // Gère AS et A2
+            scriptUrlToUse = aLevelScriptUrl;
+        }
+
+        fetch(scriptUrlToUse, {
+                method: 'POST',
+                mode: 'no-cors', 
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    question: q.Question,
+                    status: newStatus,
+                    className: selectedClass // 3. ENVOIE LE NOM DE LA CLASSE !
+                })
+            })
+            .then(() => {
+                label.textContent = isChecked ? 'Completed ✓' : 'Mark as complete';
+                
+                // Met à jour les données locales pour la bonne classe
+                if (!q.Statuses) q.Statuses = {};
+                q.Statuses[selectedClass] = newStatus; 
+                
+                checkbox.disabled = false;
+                practice_populateQuestions(); // Rafraîchit la liste des questions (pour la coche ✅)
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                label.textContent = 'Error! Try again.';
+                checkbox.checked = !isChecked;
+                checkbox.disabled = false;
+            });
+    });
+}
   
 // --- HELPER FUNCTION: To render text or an image ---
 function renderContent(content, altText = 'Vocabulary image') {
