@@ -891,21 +891,23 @@
     const ICON_COMPRESS = `<svg viewBox="0 0 24 24"><path d="M5 16h2v-3h3v-2H5v5zm3-8H5v2h5V5H8v3zm6 11h-3v-2h5v5h-2v-3zm2-11V5h-2v5h5V8h-3z"/></svg>`;
 
     let practice_allQuestions = [];
-    let aLevel_allQuestions = [];
-    let readingListening_allQuestions = [];
-    let speakingWriting_allQuestions = [];
-    let all_vocab_data = {};
-    let all_sentence_data = {};
-    let vocab_vocabSets = {};
-    let sentenceSets = {};
-    let currentGameSettings = {};
-    let lastSentencePair = null;
-    let currentVocabWords = [];
-    let currentVocabGridPairs = [];
-    let onePenOneDiceSentences = [];
-    let onePenOneDiceReversed = false;
-    let infoGapSentences = [];
-    let currentWordPair = null;
+let aLevel_allQuestions = [];
+let readingListening_allQuestions = [];
+let speakingWriting_allQuestions = [];
+let all_vocab_data = {};
+let all_sentence_data = {};
+let vocab_vocabSets = {};
+let sentenceSets = {};
+let currentGameSettings = {};
+let lastSentencePair = null;
+let currentVocabWords = [];
+let currentVocabGridPairs = [];
+let onePenOneDiceSentences = [];
+let onePenOneDiceReversed = false;
+let infoGapSentences = [];
+let currentWordPair = null;
+   let readingListeningClassNames = new Set();
+let speakingWritingClassNames = new Set();
 
     // --- DOM Element References ---
     const mainMenu = document.getElementById('main-menu');
@@ -950,7 +952,29 @@
     const infoGapControls = document.getElementById('info-gap-controls');
     const linkButton1 = document.getElementById('link-button-1');
     const linkButton2 = document.getElementById('link-button-2');
-    
+
+   // --- Helper: extract class names from header keys of a parsed CSV data array ---
+function extractClassNamesFromHeaders(dataArray) {
+    const result = [];
+    if (!Array.isArray(dataArray) || dataArray.length === 0) return result;
+
+    // Standard/excluded keys (match formatData_MultiClass exclusions)
+    const standardKeysLower = new Set(['skill','qtype','theme','question','content']);
+    const excludedKeysLower = new Set(['status','url','slide id','i slide id']);
+
+    const headerKeys = Object.keys(dataArray[0]);
+    headerKeys.forEach(rawKey => {
+        if (!rawKey) return;
+        const trimmed = rawKey.trim();
+        if (!trimmed) return;
+        const lower = trimmed.toLowerCase();
+        if (standardKeysLower.has(lower) || excludedKeysLower.has(lower)) return;
+        // Treat this header as a class name candidate
+        result.push(trimmed);
+    });
+
+    return result;
+}
     // --- Fullscreen Button Logic ---
     function addFullscreenButton(targetPanel) {
         if (!targetPanel) return;
@@ -1197,48 +1221,30 @@
         });
     }
 
-    // *** FONCTION 1 MISE À JOUR (REMPLACEMENT) ***
-    // REPALCE formatData_MultiClass with this version
-    const formatData_MultiClass = (q) => {
-        const formattedQ = { Statuses: {} };
-        // Standard keys (lowercase) - Add 'qtype' here
-        const standardKeysLower = {
-            'skill': 'Skill',
-            'qtype': 'Qtype', // *** ADDED Qtype ***
-            'theme': 'Theme',
-            'question': 'Question',
-            'content': 'Content'
-        };
-        const excludedKeysLower = {
-             'status': true,
-             'url': true, 
-             'slide id': true, 
-             'i slide id': true 
-         };
+  const formatData_MultiClass = (q) => {
+  const formattedQ = { Statuses: {} };
 
-        let classCount = 0;
-        const MAX_CLASSES = 4;
-        const keys = Object.keys(q);
+  const standardKeys = ['skill', 'qtype', 'theme', 'question', 'content'];
+  const excludedKeys = ['status', 'url', 'slide id', 'i slide id'];
 
-        for (const key of keys) {
-            const trimmedKey = key.trim();
-            const cleanKeyLower = trimmedKey.toLowerCase();
+  for (const key of Object.keys(q)) {
+    const cleanKey = key ? key.trim() : '';
+    const lower = cleanKey.toLowerCase();
 
-            if (standardKeysLower[cleanKeyLower]) {
-                // If it's Skill, Qtype, Theme, Question, or Content
-                formattedQ[standardKeysLower[cleanKeyLower]] = q[key].trim();
-            } else if (trimmedKey.length > 0 && !excludedKeysLower[cleanKeyLower]) {
-                // If it's not standard, not excluded, treat as class (up to limit)
-                if (classCount < MAX_CLASSES) {
-                    const className = trimmedKey;
-                    const statusValue = (String(q[key]).trim().toUpperCase() === 'Y') ? 'Y' : '';
-                    formattedQ.Statuses[className] = statusValue;
-                    classCount++;
-                }
-            }
-        }
-        return formattedQ;
-    };
+    if (!cleanKey) continue;
+
+    if (standardKeys.includes(lower)) {
+      formattedQ[cleanKey.charAt(0).toUpperCase() + cleanKey.slice(1).toLowerCase()] = (q[key] || '').trim();
+    } else if (!excludedKeys.includes(lower)) {
+      // treat as class name column
+      const className = cleanKey.replace(/\s+/g, ' ').trim(); // normalize spaces
+      const statusValue = (String(q[key]).trim().toUpperCase() === 'Y') ? 'Y' : '';
+      formattedQ.Statuses[className] = statusValue;
+    }
+  }
+
+  return formattedQ;
+};
 
     // *** FONCTION 2 (REMPLACEMENT) ***
     const formatData_SingleStatus = (q) => {
@@ -1279,9 +1285,6 @@
         });
         return normalizedData;
     }
-    
-// RECHERCHEZ ET REMPLACEZ CETTE FONCTION ENTIÈREMENT DANS VOTRE FICHIER
-// RECHERCHEZ ET REMPLACEZ CETTE FONCTION ENTIÈREMENT
 async function initializeApp() {
     [readingBtn, listeningBtn, speakingBtn, writingBtn, asCardBtn, a2CardBtn, vocabBtn, sentenceBtn].forEach(btn => {
         if (btn) {
@@ -1356,8 +1359,16 @@ async function initializeApp() {
             if (type === 'readingListening') {
                 readingListening_allQuestions = cleanedData.map(formatData_MultiClass).filter(q => q.Skill && q.Theme && q.Content);
                 readingListeningLoaded = true;
+              const classList = extractClassNamesFromHeaders(cleanedData);
+                readingListeningClassNames = new Set(classList);
+
+                readingListeningLoaded = true;
             } else if (type === 'speakingWriting') {
                 speakingWriting_allQuestions = cleanedData.map(formatData_MultiClass).filter(q => q.Skill && q.Theme && q.Content);
+                speakingWritingLoaded = true;
+              const classList = extractClassNamesFromHeaders(cleanedData);
+                speakingWritingClassNames = new Set(classList);
+
                 speakingWritingLoaded = true;
             } else if (type === 'aLevel') {
                 aLevel_allQuestions = cleanedData.map(formatData_SingleStatus).filter(q => q.Skill && q.Theme && q.Content);
@@ -1374,7 +1385,7 @@ async function initializeApp() {
         }
     });
 
-    // *** REMOVED: Initial population of practice_classSelect is moved to showPractice ***
+   
     
     // Add event listener for class changes (will trigger topic population)
      practice_classSelect.addEventListener('change', () => {
