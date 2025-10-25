@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFL Starters Hub</title>
+  <title>MFL Starssters Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -1196,50 +1196,75 @@
             });
         });
     }
-    // REPALCE formatData_MultiClass with this version
-    const formatData_MultiClass = (q) => {
-        const formattedQ = { Statuses: {} };
-        // Standard keys (lowercase) - Add 'qtype' here
-        const standardKeysLower = {
-            'skill': 'Skill',
-            'qtype': 'Qtype', // *** ADDED Qtype ***
-            'theme': 'Theme',
-            'question': 'Question',
-            'content': 'Content'
-        };
-        const excludedKeysLower = {
-             'status': true,
-             'url': true, 
-             'slide id': true, 
-             'i slide id': true 
-         };
+ const formatData_MultiClass = (q) => {
+    // Ensure q is an object, handle potential errors from PapaParse if a row is bad
+    if (typeof q !== 'object' || q === null) {
+        console.error("formatData_MultiClass received non-object:", q);
+        return { Statuses: {}, Error: "Invalid row data" }; // Return an empty structure
+    }
 
-        let classCount = 0;
-        const MAX_CLASSES = 4;
-        const keys = Object.keys(q);
+    const formattedQ = { Statuses: {} };
+    const standardKeysLower = {
+        'skill': 'Skill',
+        'qtype': 'Qtype',
+        'theme': 'Theme',
+        'question': 'Question',
+        'content': 'Content'
+    };
+    const excludedKeysLower = {
+         'status': true,
+         'url': true,
+         'slide id': true,
+         'i slide id': true
+     };
 
-        for (const key of keys) {
-            const trimmedKey = key.trim();
-            const cleanKeyLower = trimmedKey.toLowerCase();
+    let classCount = 0;
+    const MAX_CLASSES = 4;
+    const keys = Object.keys(q);
 
-            if (standardKeysLower[cleanKeyLower]) {
-                // If it's Skill, Qtype, Theme, Question, or Content
-                formattedQ[standardKeysLower[cleanKeyLower]] = q[key].trim();
-            } else if (trimmedKey.length > 0 && !excludedKeysLower[cleanKeyLower]) {
-                // If it's not standard, not excluded, treat as class (up to limit)
-                if (classCount < MAX_CLASSES) {
-                    const className = trimmedKey;
-                    const statusValue = (String(q[key]).trim().toUpperCase() === 'Y') ? 'Y' : '';
-                    formattedQ.Statuses[className] = statusValue;
-                    classCount++;
-                }
+    // --- Start Detailed Logging for this Row ---
+    const questionForLog = q['Question'] || q['question'] || 'UNKNOWN'; // Try to get question for context
+    console.log(`--- Processing Row for Question: "${questionForLog}" ---`);
+    console.log("Raw Input Object:", JSON.stringify(q));
+
+    for (const key of keys) {
+        // Log the raw key *before* trimming
+        console.log(`  Raw Key: "${key}"`);
+        const trimmedKey = key.trim();
+        const cleanKeyLower = trimmedKey.toLowerCase();
+        const value = q[key]; // Get the value for logging
+
+        if (trimmedKey.length === 0) {
+            console.log(`    -> Skipped (Empty Key)`);
+            continue; // Skip empty keys explicitly
+        }
+
+        if (standardKeysLower[cleanKeyLower]) {
+            // Standard key
+            formattedQ[standardKeysLower[cleanKeyLower]] = String(value).trim(); // Ensure value is string
+            console.log(`    -> Classified as STANDARD: "${trimmedKey}" -> ${standardKeysLower[cleanKeyLower]}`);
+        } else if (excludedKeysLower[cleanKeyLower]) {
+            // Excluded key
+            console.log(`    -> Classified as EXCLUDED: "${trimmedKey}"`);
+        } else {
+            // Potential class key
+            if (classCount < MAX_CLASSES) {
+                const className = trimmedKey; // Keep original header case
+                const statusValue = (String(value).trim().toUpperCase() === 'Y') ? 'Y' : '';
+                formattedQ.Statuses[className] = statusValue;
+                classCount++;
+                console.log(`    -> Classified as CLASS (${classCount}/${MAX_CLASSES}): "${className}" (Value: "${value}")`);
+            } else {
+                console.log(`    -> Skipped (Max Classes Reached): "${trimmedKey}"`);
             }
         }
-        return formattedQ;
-   // *** ADD THIS LOG ***
-    // Log the resulting Statuses object for this question
-    console.log("formatData Output Statuses:", JSON.stringify(formattedQ.Statuses), "for Question:", formattedQ.Question); 
-    
+    }
+
+    // Log the final Statuses object for this row
+    console.log(` -> Final Statuses for "${questionForLog}":`, JSON.stringify(formattedQ.Statuses));
+    console.log(`--- Finished Row for Question: "${questionForLog}" ---`);
+     // --- End Detailed Logging ---
+
     return formattedQ;
 };
 
