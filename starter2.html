@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MFLcc Hub</title>
+  <title>MFL Hub</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
@@ -896,6 +896,8 @@
     let speakingWriting_allQuestions = [];
     let all_vocab_data = {};
     let all_sentence_data = {};
+   let vocabPool = {};     // theme+set → [remaining items]
+let sentencePool = {};  // theme+topic → [remaining items]
     let vocab_vocabSets = {};
     let sentenceSets = {};
     let currentGameSettings = {};
@@ -1816,8 +1818,11 @@ classSelect.addEventListener('change', () => {
     document.getElementById('vocab-button-area').innerHTML = ''; 
     vocab_testControls.classList.add('hide');
     vocab_gridControls.classList.add('hide');
-    if (selectedClass && all_vocab_data[selectedClass]) {
-        processAndDisplayVocab(all_vocab_data[selectedClass]);
+ if (selectedClass && all_vocab_data[selectedClass]) {
+    Object.keys(vocabPool).forEach(k => delete vocabPool[k]);
+    Object.keys(sentencePool).forEach(k => delete sentencePool[k]);
+    processAndDisplayVocab(all_vocab_data[selectedClass]);
+}
     } else {
         resetVocabDropdowns(true);
     }
@@ -1913,7 +1918,6 @@ function createVocabTableHTML(words) {
     });
     return `<table><thead><tr><th>No.</th><th>Word</th><th>Definition</th></tr></thead><tbody>${tableRowsHTML}</tbody></table>`;
 }
-
 function getVocabWords(requiredCount) {
     const selectedTheme = vocab_themeSelect.value;
     if (!selectedTheme) { alert('Please select a theme.'); return null; }
@@ -2058,37 +2062,43 @@ function vocab_generatePrintVersion() {
     if (fullscreenBtn) fullscreenBtn.classList.remove('hide');
 }
 function generateSingleWordGame(gameType) {
-    const words = getVocabWords(1);
-    if (!words) {
-        vocab_testContainer.innerHTML = '<h2>Could not load a word. Check selections.</h2>';
+    const selectedTheme = vocab_themeSelect.value;
+    const setKey = vocab_setSelect.value;
+
+    if (!selectedTheme || !setKey) {
+        alert("Please select both a theme and a set.");
         return;
     }
-    currentWordPair = words[0];
+
+    const currentWordPair = getUniqueVocabWord(selectedTheme, setKey);
+    if (!currentWordPair) {
+        alert("No words available for this set.");
+        return;
+    }
 
     let questionWord, answerWord, clueWord;
-    let questionHTML, answerHTML, clueHTML = '';
+    let questionHTML = '', answerHTML = '', clueHTML = '';
 
     switch (gameType) {
         case 'anagram':
             questionWord = scrambleWord(currentWordPair.left);
             answerWord = currentWordPair.left;
             clueWord = currentWordPair.right;
-
             questionHTML = `<h2>${renderContent(questionWord)}</h2>`;
-            answerHTML = `<h3>${renderContent(answerWord)}</h3>`;
             clueHTML = `<div class="clue-display"><h4>${renderContent(clueWord, 'Clue')}</h4></div>`;
+            answerHTML = `<h3>${renderContent(answerWord)}</h3>`;
             break;
+
         case 'no-vowels':
         case 'no-consonants':
             questionWord = (gameType === 'no-vowels') ? removeVowels(currentWordPair.left) : removeConsonants(currentWordPair.left);
             answerWord = currentWordPair.left;
             clueWord = currentWordPair.right;
-
             questionHTML = `<h2>${renderContent(questionWord)}</h2>`;
             clueHTML = `<div class="clue-display"><h4>${renderContent(clueWord, 'Clue')}</h4></div>`;
             answerHTML = `<h3>${renderContent(answerWord)}</h3>`;
             break;
-        
+
         case 'random-target':
             questionWord = currentWordPair.left;
             answerWord = currentWordPair.right;
@@ -2106,13 +2116,9 @@ function generateSingleWordGame(gameType) {
 
     vocab_testContainer.innerHTML = `
         <div class="single-word-game-container">
-            <div class="question-display">
-                ${questionHTML}
-            </div>
-            ${clueHTML} 
-            <div class="answer-display hide">
-                ${answerHTML}
-            </div>
+            <div class="question-display">${questionHTML}</div>
+            ${clueHTML}
+            <div class="answer-display hide">${answerHTML}</div>
         </div>
     `;
 
@@ -2129,20 +2135,51 @@ function generateSingleWordGame(gameType) {
 
         if (isHidden && (gameType === 'no-vowels' || gameType === 'no-consonants' || gameType === 'anagram')) {
             const clueDisplay = vocab_testContainer.querySelector('.clue-display');
-            if (clueDisplay) {
-                clueDisplay.before(answerDisplay);
-            }
+            if (clueDisplay) clueDisplay.before(answerDisplay);
         }
-        
+
         answerDisplay.classList.toggle('hide', !isHidden);
         btn.textContent = isHidden ? 'Hide' : 'Reveal';
     });
 
     document.getElementById('swg-new-btn').addEventListener('click', () => {
-        generateSingleWordGame(gameType); 
+        generateSingleWordGame(gameType);
     });
-    
+
     addFullscreenButton(document.querySelector('.vocab-test-panel'));
+}
+
+// --- Unique-cycle random selection helpers ---
+
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+const vocabPool = {};
+const sentencePool = {};
+
+function getUniqueVocabWord(theme, setKey) {
+  if (!vocabPool[theme]) vocabPool[theme] = {};
+  if (!vocabPool[theme][setKey] || vocabPool[theme][setKey].length === 0) {
+    vocabPool[theme][setKey] = [...vocab_vocabSets[theme][setKey]];
+    shuffleArray(vocabPool[theme][setKey]);
+  }
+  return vocabPool[theme][setKey].pop();
+}
+
+function getUniqueSentence(theme, topic) {
+  if (!sentencePool[theme]) sentencePool[theme] = {};
+  if (!sentencePool[theme][topic] || sentencePool[theme][topic].length === 0) {
+    sentencePool[theme][topic] = topic
+      ? [...sentenceSets[theme][topic]]
+      : Object.values(sentenceSets[theme]).flat();
+    shuffleArray(sentencePool[theme][topic]);
+  }
+  return sentencePool[theme][topic].pop();
 }
 
 // --- SENTENCE GAME LOGIC ---
@@ -2278,6 +2315,7 @@ worksheetTypeSelect.addEventListener('change', () => {
 });
 
 function playSentenceGame() {
+
     const { theme, topic, activityType } = currentGameSettings;
     
     dictationControls.classList.add('hide');
@@ -2317,15 +2355,12 @@ function playSentenceGame() {
         sentenceDisplay.innerHTML = `<h2>No items found for this selection.</h2>`;
         return;
     }
-    let sentencePair;
-    if (allAvailableSentences.length > 1) {
-        do {
-            sentencePair = allAvailableSentences[Math.floor(Math.random() * allAvailableSentences.length)];
-        } while (sentencePair === lastSentencePair);
-    } else {
-        sentencePair = allAvailableSentences[0];
-    }
-    lastSentencePair = sentencePair;
+  let sentencePair = getUniqueSentence(theme, topic);
+if (!sentencePair) {
+    sentenceDisplay.innerHTML = `<h2>No sentences available for this selection.</h2>`;
+    return;
+}
+lastSentencePair = sentencePair;
 
     let questionHTML = '', answerHTML = '';
 
