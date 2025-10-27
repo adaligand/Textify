@@ -8,6 +8,7 @@
     <style>
         :root {
             --row-height: 80px; /* The height of each row */
+            --start-platform-height: 40px; /* Height of the base camp */
         }
         
         body {
@@ -99,18 +100,15 @@
         #climb-wall {
             position: relative;
             width: 100%;
-            /* Wall background is light grey */
             background-color: #f0f0f0; 
             border: 2px solid #aaa;
             border-radius: 5px;
             padding: 10px 5px;
             box-sizing: border-box;
-            overflow: hidden;
-            /* Stripy background-image removed */
+            overflow: hidden; /* Important for showing fall */
             
-            /* This is the magic: builds from bottom-up */
             display: flex;
-            flex-direction: column-reverse; 
+            flex-direction: column-reverse; /* Builds from bottom-up */
             justify-content: flex-start;
         }
 
@@ -126,7 +124,26 @@
             font-size: 14px;
             font-weight: bold;
             color: #333;
-            height: 30px; /* Shorter than a real row */
+            height: var(--start-platform-height);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #e0e0e0;
+            border-top: 2px solid #aaa;
+            margin-top: 5px;
+        }
+
+        .finish-line {
+            font-size: 14px;
+            font-weight: bold;
+            color: #333;
+            height: var(--start-platform-height);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #e0e0e0;
+            border-bottom: 2px solid #aaa;
+            margin-bottom: 5px;
         }
 
         /* Style for the "holds" / tiles */
@@ -136,11 +153,9 @@
             font-size: 16px;
             cursor: pointer;
             border-radius: 10px;
-            /* Light grey tile style */
             background-color: #f9f9f9;
             border: 2px solid #ccc;
             color: #333;
-            /* Image background and text shadow removed */
             
             transition: transform 0.2s, background-color 0.2s;
             margin: 0;
@@ -152,8 +167,6 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         
-        /* Background position rules removed */
-
         .hold-option:hover {
             transform: translateY(-2px);
             background-color: #e0e0e0; /* Darker grey on hover */
@@ -167,20 +180,23 @@
             transform: translateY(0);
         }
         
-        #climber-emoji {
+        #climber-img {
             position: absolute;
-            font-size: 30px;
+            width: 40px; /* Adjust size as needed */
+            height: 40px; /* Adjust size as needed */
+            transform: translateX(-50%); /* Center horizontally by default */
             z-index: 10;
-            /* Start position */
-            bottom: 5px; 
+            
+            /* Start position (below first row on base camp) */
+            bottom: calc(var(--start-platform-height) + 5px); 
             left: 50%;
-            transform: translateX(-50%);
+            
             /* Animation for jumping */
-            transition: bottom 0.5s ease-in-out, left 0.5s ease-in-out;
+            transition: bottom 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out;
         }
 
-        #climber-emoji.falling {
-            bottom: -50px; /* Fall off the screen */
+        #climber-img.falling {
+            bottom: -80px; /* Fall completely off the screen below base camp */
             transition: bottom 1s ease-in, left 0.5s linear;
         }
         
@@ -240,7 +256,7 @@
         <div class="english-sentence" id="english-sentence"></div>
 
         <div id="climb-wall">
-            <span id="climber-emoji">🧗</span>
+            <img id="climber-img" src="https://www.flaticon.com/svg/static/icons/svg/2507/2507567.svg" alt="climber">
         </div>
 
         <div class="controls-wrapper">
@@ -267,10 +283,10 @@
     const gameScreen = document.getElementById('game-screen');
     const endScreen = document.getElementById('end-screen');
     const subtitle = document.getElementById('subtitle');
-    const climber = document.getElementById('climber-emoji');
+    const climber = document.getElementById('climber-img'); // Changed to img
     const climbWall = document.getElementById('climb-wall');
     const sentenceCounter = document.getElementById('sentenceCounter');
-    const livesContainer = document.getElementById('lives-container'); // Added
+    const livesContainer = document.getElementById('lives-container');
     const feedbackElement = document.getElementById('feedback');
     const nextButton = document.getElementById('nextButton');
     const englishSentenceEl = document.getElementById('english-sentence');
@@ -298,8 +314,10 @@
                             english: row["English sentences"].trim(),
                             french: frenchSentence
                         });
+                        // Only add individual words for distractors, not chunks
                         frenchSentence.split(/\s+/).filter(Boolean).forEach(word => {
-                            wordSet.add(word);
+                            // Filter out delimiters if they get in here by accident
+                            if (word !== '|') wordSet.add(word); 
                         });
                     }
                 });
@@ -364,7 +382,7 @@
         isGameOver = false;
         var englishSentence = sentencePairs[currentTextIndex].english;
         var frenchSentence = sentencePairs[currentTextIndex].french;
-        originalChunks = getWordChunks(frenchSentence);
+        originalChunks = getWordChunks(frenchSentence); // This is where chunking happens
         currentChunkIndex = 0;
 
         // --- Reset UI elements ---
@@ -373,13 +391,14 @@
         
         // Clear the wall but keep the climber
         climbWall.innerHTML = '';
-        climbWall.appendChild(climber);
+        climbWall.appendChild(climber); // Re-add climber to control its position easily
         
-        // Reset climber position
+        // Reset climber position to start platform
         climber.classList.remove('falling');
-        climber.style.bottom = '5px';
+        // Initial position: on the start platform, centered horizontally
+        climber.style.bottom = `calc(var(--start-platform-height) + 5px)`; 
         climber.style.left = '50%';
-        climber.style.transform = 'translateX(-50%)';
+        climber.style.transform = 'translateX(-50%)'; // Ensure it's centered
         
         feedbackElement.classList.add('hide');
         nextButton.classList.add('hide');
@@ -388,17 +407,24 @@
         sentenceCounter.classList.remove('hide');
 
         // --- Build the Wall ---
+        // Add the finish line at the very top (because of column-reverse)
+        let finishLine = document.createElement('div');
+        finishLine.classList.add('climb-row', 'finish-line');
+        finishLine.textContent = 'FINISH LINE';
+        climbWall.appendChild(finishLine);
+
         originalChunks.forEach((chunk, rowIndex) => {
             let climbRow = document.createElement('div');
             climbRow.classList.add('climb-row');
+            climbRow.dataset.rowIndex = rowIndex; // Assign row index to the div too
             
             let correctAnswer = chunk.join(' ');
             let options = [correctAnswer];
 
-            // Generate 3 unique distractors
+            // Generate 3 unique distractors (ensure they are not the correct answer or other options)
             while (options.length < 4) {
                 let randomWord = allFrenchWords[Math.floor(Math.random() * allFrenchWords.length)];
-                if (!options.includes(randomWord)) {
+                if (!options.includes(randomWord) && randomWord.toLowerCase() !== correctAnswer.toLowerCase()) {
                     options.push(randomWord);
                 }
             }
@@ -409,19 +435,18 @@
                 let hold = document.createElement('div');
                 hold.classList.add('hold-option');
                 hold.textContent = optionText;
-                hold.dataset.rowIndex = rowIndex; // Store which row this is
                 hold.dataset.isCorrect = (optionText === correctAnswer);
                 hold.onclick = function() { checkAnswer(this); };
                 climbRow.appendChild(hold);
             });
             
-            climbWall.appendChild(climbRow); // Appends to the top (due to column-reverse)
+            climbWall.appendChild(climbRow); 
         });
 
         // Add the start platform at the bottom
         let startPlatform = document.createElement('div');
         startPlatform.classList.add('climb-row', 'start-platform');
-        startPlatform.textContent = 'START';
+        startPlatform.textContent = 'BASE CAMP';
         climbWall.appendChild(startPlatform);
     }
 
@@ -433,10 +458,15 @@
         if (isGameOver) return; // Don't allow clicks if game is paused
 
         let isCorrect = (holdElement.dataset.isCorrect === 'true');
-        let rowIndex = parseInt(holdElement.dataset.rowIndex);
+        let rowIndex = parseInt(holdElement.parentNode.dataset.rowIndex); // Get row index from parent
 
         // Check if the user clicked the *correct next row*
         if (rowIndex !== currentChunkIndex) {
+            // If they clicked a hold on a future row, ignore it but don't penalize
+            // Unless they clicked a wrong hold on the current row, which should trigger a fall
+            if(rowIndex === currentChunkIndex - 1 && !isCorrect) { // This means they clicked a wrong hold on the *previous* correct row
+                 triggerFall(holdElement);
+            }
             return; 
         }
 
@@ -445,23 +475,26 @@
             currentChunkIndex++;
 
             // 1. Move climber
-            // Vertically center on the row
-            // (30px start platform) + (row index * row height) + (half row height) - (half climber height)
-            let climberHeight = climber.offsetHeight || 30; // Estimate climber height
-            let newBottom = 30 + (rowIndex * 80) + (80 / 2) - (climberHeight / 2);
-            climber.style.bottom = `${newBottom}px`;
+            // Get the bounding rectangle of the clicked hold
+            const holdRect = holdElement.getBoundingClientRect();
+            const wallRect = climbWall.getBoundingClientRect();
+            const climberWidth = climber.offsetWidth;
+            const climberHeight = climber.offsetHeight;
 
-            // Horizontally position to the LEFT of the hold
-            let holdRect = holdElement.getBoundingClientRect();
-            let wallRect = climbWall.getBoundingClientRect();
-            // (hold's left edge - wall's left edge) - (climber's width) - (a small gap)
-            let newLeft = (holdRect.left - wallRect.left) - (climber.offsetWidth || 30) - 5; 
-            
-            // Clamp position to prevent overflow
-            if (newLeft < 5) newLeft = 5; 
-            
+            // Calculate new horizontal position: to the left of the hold, with a small gap
+            let newLeft = (holdRect.left - wallRect.left) + 5; // 5px padding from left edge of tile
+
+            // Calculate new vertical position: vertically centered within the tile
+            let newBottom = (holdRect.top - wallRect.top) + (holdRect.height / 2) - (climberHeight / 2);
+            // We need to convert this 'top-relative' position to 'bottom-relative' for CSS 'bottom' property
+            // climbWall.offsetHeight - (newBottom + climberHeight)
+            let climbWallTotalHeight = climbWall.offsetHeight;
+            let actualBottom = climbWallTotalHeight - (newBottom + climberHeight);
+
+
+            climber.style.bottom = `${actualBottom}px`;
             climber.style.left = `${newLeft}px`;
-            climber.style.transform = 'translateX(0)'; // Remove the 50% translation
+            climber.style.transform = 'translateX(0)'; // Remove initial center transform
 
             // 2. Check if sentence is finished
             if (currentChunkIndex === originalChunks.length) {
@@ -474,35 +507,39 @@
 
         } else {
             // --- WRONG ANSWER ---
-            isGameOver = true; // Pause game
-            holdElement.classList.add('wrong'); // Flash red
-            climber.classList.add('falling'); // Start fall animation
-            
-            lives--; // Lose a life
-            updateLivesDisplay();
+            triggerFall(holdElement);
+        }
+    }
 
-            if (lives > 0) {
-                // --- RESTART SENTENCE ---
-                feedbackElement.innerHTML = 'You fell! Restarting sentence...';
-                feedbackElement.style.color = 'red';
-                feedbackElement.classList.remove('hide');
+    function triggerFall(wrongHoldElement) {
+        isGameOver = true; // Pause game
+        wrongHoldElement.classList.add('wrong'); // Flash red
+        climber.classList.add('falling'); // Start fall animation
+        
+        lives--; // Lose a life
+        updateLivesDisplay();
 
-                setTimeout(() => {
-                    displaySentence(); // Re-loads the same sentence
-                }, 1500); // 1.5 second delay for fall
-            } else {
-                // --- GAME OVER ---
-                feedbackElement.innerHTML = 'Out of lives! Game Over.';
-                feedbackElement.style.color = 'red';
-                feedbackElement.classList.remove('hide');
+        if (lives > 0) {
+            // --- RESTART SENTENCE ---
+            feedbackElement.innerHTML = 'You fell! Restarting sentence...';
+            feedbackElement.style.color = 'red';
+            feedbackElement.classList.remove('hide');
 
-                setTimeout(() => {
-                    gameScreen.style.display = 'none';
-                    endScreen.classList.remove('hide');
-                    document.getElementById('end-title').textContent = '😞 Game Over 😞';
-                    document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
-                }, 1500); // 1.5 second delay for fall
-            }
+            setTimeout(() => {
+                displaySentence(); // Re-loads the same sentence
+            }, 1500); // 1.5 second delay for fall
+        } else {
+            // --- GAME OVER ---
+            feedbackElement.innerHTML = 'Out of lives! Game Over.';
+            feedbackElement.style.color = 'red';
+            feedbackElement.classList.remove('hide');
+
+            setTimeout(() => {
+                gameScreen.style.display = 'none';
+                endScreen.classList.remove('hide');
+                document.getElementById('end-title').textContent = '😞 Game Over 😞';
+                document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
+            }, 1500); // 1.5 second delay for fall
         }
     }
 
@@ -518,19 +555,19 @@
      * Called by "Restart" button on the end screen.
      */
     function resetActivity() {
-        // startGame() handles resetting lives and all other variables
         startGame();
     }
 
     // --- Utility Functions ---
 
+    // Updated to handle pipe | for chunking
     function getWordChunks(text) {
-        var words = text.split(/\s+/).filter(Boolean);
-        var chunks = [];
-        for (var i = 0; i < words.length; i++) {
-            chunks.push([words[i]]);
+        if (text.includes('|')) {
+            return text.split('|').map(chunk => chunk.trim().split(/\s+/).filter(Boolean));
+        } else {
+            // Fallback to word-by-word if no |
+            return text.split(/\s+/).filter(Boolean).map(word => [word]);
         }
-        return chunks;
     }
 
     function shuffleArray(array) {
