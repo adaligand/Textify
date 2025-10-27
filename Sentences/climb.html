@@ -319,7 +319,7 @@
     var lives = 3;
     var sentenceTimerId = null;
     var remainingTime = 60;
-    const FALL_ANIMATION_DURATION = 2000; // Match CSS duration in ms
+    // const FALL_ANIMATION_DURATION = 2000; // No longer strictly needed for timing, but keep CSS in sync
 
     // --- DOM Elements ---
     const gameScreen = document.getElementById('game-screen');
@@ -481,10 +481,12 @@
 
         // Clear the wall but keep the climber
         climbWall.innerHTML = '';
-        climbWall.appendChild(climber); // Re-add climber here
+        // IMPORTANT: Add climber AFTER building the wall if using transitionend logic,
+        // otherwise the element might not be fully ready. For rebuild, add it here.
+        climbWall.appendChild(climber);
 
         // Reset climber position to start platform
-        climber.classList.remove('falling'); // IMPORTANT: Remove falling class *before* resetting position
+        climber.classList.remove('falling'); // Ensure falling class is removed
         climber.style.transition = 'none'; // Temporarily disable transition for snap reset
         climber.style.bottom = `5px`;
         climber.style.left = '50%';
@@ -606,8 +608,8 @@
     }
 
     /**
-     * Handles fall animation, updates lives, resets climber and state (NO reshuffle), or ends game.
-     * CORRECTED: Reverts to resetting state only, allowing reshuffle to be handled separately if needed.
+     * Handles fall animation, updates lives, resets state + reshuffles wall, or ends game.
+     * USES transitionend event listener.
      */
     function triggerFall(wrongHoldElement) {
          if (isGameOver) return; // Prevent multiple triggers
@@ -624,12 +626,41 @@
         climber.style.transition = 'bottom 2.0s ease-in, left 0.5s linear';
         climber.classList.add('falling'); // Start the animation by changing 'bottom' via CSS
 
-
         lives--;
         updateLivesDisplay();
 
+        // --- Define the function to run AFTER the fall animation ---
+        const afterFallHandler = (event) => {
+            // Only act if the 'bottom' property transition ended
+            if (event.propertyName !== 'bottom') return;
+
+            // Clean up: Remove falling class and the listener itself
+            climber.classList.remove('falling');
+            // No need to explicitly remove listener due to { once: true }
+
+            if (lives > 0) {
+                // --- RESTART SENTENCE ---
+                // Remove the 'wrong' class from the specific element before rebuilding
+                if(wrongHoldElement) {
+                     wrongHoldElement.classList.remove('wrong');
+                }
+                // displaySentence will rebuild wall (reshuffle) and reset climber styles
+                displaySentence();
+            } else {
+                // --- GAME OVER ---
+                 gameScreen.style.display = 'none';
+                 endScreen.classList.remove('hide');
+                 document.getElementById('end-title').textContent = '😞 Game Over 😞';
+                 document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
+            }
+        };
+
+        // --- Attach the event listener to run ONCE after the transition ends ---
+         climber.addEventListener('transitionend', afterFallHandler, { once: true });
+
+
+        // --- Show feedback messages immediately (don't wait for animation) ---
         if (lives > 0) {
-            // --- RESTART SENTENCE ---
             if (!feedbackElement.classList.contains('hide') && feedbackElement.textContent.includes('Time\'s up')) {
                  // Keep the "Time's up" message
             } else {
@@ -637,93 +668,15 @@
                  feedbackElement.style.color = 'red';
             }
             feedbackElement.classList.remove('hide'); // Show feedback at bottom
-
-            // After the fall animation finishes, ONLY reset climber position and game state
-            setTimeout(() => {
-                climber.classList.remove('falling'); // Stop animation class
-
-                // Reset climber visual position without transition
-                climber.style.transition = 'none'; // Disable transition for snap reset
-                climber.style.bottom = `5px`;
-                climber.style.left = '50%';
-                climber.style.transform = 'translateX(-50%)';
-                // Force browser reflow to apply styles immediately
-                climber.offsetHeight;
-                // Re-enable transitions for next jump
-                 climber.style.transition = 'bottom 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out';
-
-                // Reset progress for this sentence
-                currentChunkIndex = 0;
-                isGameOver = false; // Unpause game
-                feedbackElement.classList.add('hide'); // Hide message
-
-                // Remove 'wrong' class from the hold if it exists
-                if(wrongHoldElement) {
-                    wrongHoldElement.classList.remove('wrong');
-                }
-                // *** NEW: Reshuffle options on the current wall ***
-                reshuffleWallOptions();
-                startSentenceTimer(); // Restart timer for this sentence attempt
-
-            }, FALL_ANIMATION_DURATION); // Wait for animation to finish
-
         } else {
-            // --- GAME OVER ---
-            if (!feedbackElement.classList.contains('hide') && feedbackElement.textContent.includes('Time\'s up')) {
+             if (!feedbackElement.classList.contains('hide') && feedbackElement.textContent.includes('Time\'s up')) {
                  feedbackElement.innerHTML = 'Time\'s up and out of lives! Game Over.';
             } else {
                 feedbackElement.innerHTML = 'Out of lives! Game Over.';
             }
              feedbackElement.style.color = 'red';
             feedbackElement.classList.remove('hide'); // Show feedback at bottom
-
-            // Need a delay here to ensure falling animation completes *before* switching screens
-            setTimeout(() => {
-                 climber.classList.remove('falling'); // Clean up class just in case
-                 gameScreen.style.display = 'none';
-                 endScreen.classList.remove('hide');
-                 document.getElementById('end-title').textContent = '😞 Game Over 😞';
-                 document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
-             }, FALL_ANIMATION_DURATION + 100); // Slightly longer than fall animation
         }
-    }
-
-    /**
-     * NEW Function: Reshuffles the options within the existing wall elements.
-     */
-    function reshuffleWallOptions() {
-        // Find all climb rows with a rowIndex dataset attribute
-        const rows = climbWall.querySelectorAll('.climb-row[data-row-index]');
-
-        rows.forEach(row => {
-            const rowIndex = parseInt(row.dataset.rowIndex);
-            if (isNaN(rowIndex) || rowIndex >= originalChunks.length) return; // Safety check
-
-            let correctAnswer = originalChunks[rowIndex].join(' ');
-            let options = [correctAnswer];
-
-            // Generate 3 unique distractors
-            while (options.length < 4) {
-                let randomWord = allFrenchWords[Math.floor(Math.random() * allFrenchWords.length)];
-                if (!options.includes(randomWord) && randomWord.toLowerCase() !== correctAnswer.toLowerCase()) {
-                    options.push(randomWord);
-                }
-            }
-            shuffleArray(options); // Shuffle the new options
-
-            // Get the existing hold elements within this row
-            const holdsInRow = row.querySelectorAll('.hold-option');
-
-            // Update the text and data-isCorrect attribute of each hold
-            holdsInRow.forEach((hold, index) => {
-                if (index < options.length) { // Ensure we don't go out of bounds
-                    hold.textContent = options[index];
-                    hold.dataset.isCorrect = (options[index] === correctAnswer);
-                    // Ensure 'wrong' class is removed if present from previous attempt
-                    hold.classList.remove('wrong');
-                }
-            });
-        });
     }
 
 
