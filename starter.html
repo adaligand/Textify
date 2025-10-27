@@ -897,7 +897,9 @@
     let all_vocab_data = {};
     let all_sentence_data = {};
     let vocab_vocabSets = {};
+   let usedVocabTracker = {};
     let sentenceSets = {};
+   let usedSentenceTracker = {};
     let currentGameSettings = {};
     let lastSentencePair = null;
     let currentVocabWords = [];
@@ -1931,12 +1933,36 @@ function getVocabWords(requiredCount) {
         combined = combined.concat(vocab_vocabSets[selectedTheme][set2]); 
     }
     
+    // Ensure unique
     let uniqueCombined = Array.from(new Map(combined.map(item => [item.left, item])).values());
-    if (uniqueCombined.length < requiredCount) { 
-        alert(`Need at least ${requiredCount} unique words. Found ${uniqueCombined.length}.`); 
-        return null; 
+
+    // Initialize tracker
+    if (!usedVocabTracker[selectedTheme]) usedVocabTracker[selectedTheme] = {};
+    const key = set1 || 'ALL';
+    if (!usedVocabTracker[selectedTheme][key]) usedVocabTracker[selectedTheme][key] = new Set();
+
+    const usedWords = usedVocabTracker[selectedTheme][key];
+    const unusedWords = uniqueCombined.filter(item => !usedWords.has(item.left));
+
+    // Reset if not enough unused
+    let selectionPool = unusedWords;
+    if (selectionPool.length < requiredCount) {
+        usedVocabTracker[selectedTheme][key] = new Set(); // reset
+        selectionPool = uniqueCombined;
     }
-    return uniqueCombined.sort(() => 0.5 - Math.random()).slice(0, requiredCount);
+
+    // Randomly pick
+    const selected = selectionPool.sort(() => 0.5 - Math.random()).slice(0, requiredCount);
+
+    // Mark as used
+    selected.forEach(item => usedVocabTracker[selectedTheme][key].add(item.left));
+
+    if (selected.length < requiredCount) {
+        alert(`Need at least ${requiredCount} unique words. Found ${selected.length}.`);
+        return null;
+    }
+
+    return selected;
 }
 
 function vocab_generateTest() {
@@ -2317,15 +2343,28 @@ function playSentenceGame() {
         sentenceDisplay.innerHTML = `<h2>No items found for this selection.</h2>`;
         return;
     }
-    let sentencePair;
-    if (allAvailableSentences.length > 1) {
-        do {
-            sentencePair = allAvailableSentences[Math.floor(Math.random() * allAvailableSentences.length)];
-        } while (sentencePair === lastSentencePair);
-    } else {
-        sentencePair = allAvailableSentences[0];
-    }
-    lastSentencePair = sentencePair;
+    // --- TRACK SENTENCE USAGE TO PREVENT REPETITION ---
+const themeKey = theme || "ALL";
+const topicKey = topic || "ALL";
+if (!usedSentenceTracker[themeKey]) usedSentenceTracker[themeKey] = {};
+if (!usedSentenceTracker[themeKey][topicKey]) usedSentenceTracker[themeKey][topicKey] = new Set();
+
+const usedSet = usedSentenceTracker[themeKey][topicKey];
+const unusedSentences = allAvailableSentences.filter(s => !usedSet.has(s.target));
+
+// If all sentences have been used, reset tracker
+let selectionPool = unusedSentences.length > 0 ? unusedSentences : allAvailableSentences;
+if (unusedSentences.length === 0) {
+    usedSentenceTracker[themeKey][topicKey].clear();
+}
+
+// --- PICK A RANDOM UNUSED SENTENCE ---
+let sentencePair = selectionPool[Math.floor(Math.random() * selectionPool.length)];
+
+// Track it as used
+usedSentenceTracker[themeKey][topicKey].add(sentencePair.target);
+lastSentencePair = sentencePair;
+
 
     let questionHTML = '', answerHTML = '';
 
