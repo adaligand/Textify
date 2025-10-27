@@ -38,13 +38,13 @@
             align-items: center;
         }
 
-        #start-screen, #end-screen {
+        #end-screen {
             text-align: center;
             min-height: 400px;
         }
 
         #game-screen {
-            display: none; /* Hidden by default */
+            display: none; /* Hidden by default, shown by JS */
             padding: 20px;
             width: 100%;
             max-width: 800px;
@@ -281,12 +281,6 @@
             background-color: #e0e0e0;
             transform: translateY(-2px);
         }
-        .btn-start {
-            background-color: #28a745; /* Green */
-            border-color: #218838;
-            color: white;
-        }
-        .btn-start:hover { background-color: #218838; }
         .btn-next {
             background-color: #007bff; /* Blue */
             border-color: #0069d9;
@@ -297,18 +291,10 @@
     </style>
 </head>
 <body>
-    <audio id="sound-correct" src="https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg" preload="auto"></audio>
-    <audio id="sound-incorrect" src="https://actions.google.com/sounds/v1/cartoon/boing.ogg" preload="auto"></audio>
-    <audio id="sound-fail" src="https://actions.google.com/sounds/v1/bad_to_worse.ogg" preload="auto"></audio>
-    <audio id="sound-win" src="https://actions.google.com/sounds/v1/achievements/achievement_trumpet.ogg" preload="auto"></audio>
-
-    <div id="start-screen" class="screen">
-        <div class="title">Rock Climb</div>
-        <div class="subtitle" id="subtitle">Translate the sentence chunk by chunk to reach the top.</div>
-        <button id="startButton" class="btn btn-start" onclick="startGame()">Start Game</button>
-    </div>
-
     <div id="game-screen" class="screen">
+        <div class="title">Rock Climb</div>
+        <div class="subtitle" id="subtitle">Translate the sentence chunk by chunk.</div>
+        
         <div class="game-header">
             <div class="counter" id="sentenceCounter"></div>
             <div id="lives-container"></div>
@@ -349,7 +335,6 @@
     var isGameOver = false;
 
     // --- DOM Elements ---
-    const startScreen = document.getElementById('start-screen');
     const gameScreen = document.getElementById('game-screen');
     const endScreen = document.getElementById('end-screen');
     const subtitle = document.getElementById('subtitle');
@@ -362,11 +347,7 @@
     const sentenceSoFarDiv = document.getElementById('sentence-so-far-container');
     const optionsContainer = document.getElementById('options-container');
 
-    // --- Audio elements ---
-    const soundCorrect = document.getElementById('sound-correct');
-    const soundIncorrect = document.getElementById('sound-incorrect');
-    const soundFail = document.getElementById('sound-fail');
-    const soundWin = document.getElementById('sound-win');
+    // --- Audio elements removed ---
 
     // --- CSV Loading ---
     const params = new URLSearchParams(window.location.search);
@@ -374,9 +355,10 @@
 
     if (!sheetUrl) {
         subtitle.textContent = "⚠️ No CSV URL provided. Please add ?sheet=YOUR_LINK to the address bar.";
-        document.getElementById('startButton').disabled = true;
+        gameScreen.style.display = 'flex'; // Show game screen to display error
     } else {
         subtitle.textContent = "Loading data...";
+        gameScreen.style.display = 'flex'; // Show game screen to display loading
         Papa.parse(sheetUrl, {
             download: true,
             header: true,
@@ -400,34 +382,30 @@
 
                 if (sentencePairs.length === 0) {
                     subtitle.textContent = "⚠️ No data found. Check 'French sentences' and 'English sentences' headers.";
-                    document.getElementById('startButton').disabled = true;
                     return;
                 }
                 if (allFrenchWords.length < 4) {
                      subtitle.textContent = "⚠️ Not enough unique words in your CSV to generate 4 options. Please add more sentences.";
-                     document.getElementById('startButton').disabled = true;
                      return;
                 }
 
                 subtitle.textContent = "Translate the sentence chunk by chunk to reach the top.";
                 shuffleArray(sentencePairs);
-                // Data is ready, but don't start game yet.
+                startGame(); // Start the game immediately
             },
             error: function(err) {
                 subtitle.textContent = "⚠️ Error loading the CSV file.";
-                document.getElementById('startButton').disabled = true;
                 console.error(err);
             }
         });
     }
 
     /**
-     * Called by the "Start Game" button.
+     * Called by CSV loader or Restart button.
      */
     function startGame() {
         isGameOver = false;
         currentTextIndex = 0;
-        startScreen.style.display = 'none';
         endScreen.classList.add('hide');
         gameScreen.style.display = 'flex';
         startNextSentence();
@@ -440,7 +418,6 @@
         if (currentTextIndex >= sentencePairs.length) {
             // --- Activity Complete ---
             isGameOver = true;
-            soundWin.play();
             gameScreen.style.display = 'none';
             endScreen.classList.remove('hide');
             return;
@@ -519,8 +496,6 @@
 
         if (selectedText === correctText) {
             // --- CORRECT ANSWER ---
-            soundCorrect.currentTime = 0;
-            soundCorrect.play();
             
             // 1. Add word to "sentence so far"
             builtSentence.push(correctText);
@@ -536,18 +511,10 @@
             wallHolds.prepend(hold); // Prepend to add to the bottom (due to flex-reverse)
 
             // 4. Move climber up
-            // Climber height is 30px, hold height is 50. Move climber to middle of new hold.
-            let climberBottom = (currentChunkIndex * (50 + 5)) - 25; // 50px hold + 5px margin
-            
-            // Calculate new climber position
-            // (hold height * number of holds) + initial bottom padding
-            let newClimberBottom = (currentChunkIndex * (document.querySelector(':root').style.getPropertyValue('--hold-height') || 50)) + 5;
             let newClimberPx = (currentChunkIndex * 50) + 5; // Simplified: 50px per hold
-            
             climber.style.bottom = `${newClimberPx}px`;
 
             // 5. Scroll the wall holds down if they go off-screen
-            // If holds * 50 > 250 (wall height)
             if (currentChunkIndex * 50 > 200) {
                 let offset = -((currentChunkIndex * 50) - 200);
                 wallHolds.style.transform = `translateY(${offset}px)`;
@@ -577,8 +544,6 @@
             
             if (lives > 0) {
                 // Still has lives, just shake and flash
-                soundIncorrect.currentTime = 0;
-                soundIncorrect.play();
                 
                 buttonElement.classList.add('wrong');
                 buttonElement.disabled = true;
@@ -592,8 +557,6 @@
 
             } else {
                 // --- Out of lives, sentence failed ---
-                soundFail.currentTime = 0;
-                soundFail.play();
                 
                 feedbackElement.innerHTML = 'Out of lives! The answer was:<br><strong>' + sentencePairs[currentTextIndex].french + '</strong>';
                 feedbackElement.style.color = 'red';
@@ -622,9 +585,7 @@
      */
     function resetActivity() {
         shuffleArray(sentencePairs);
-        endScreen.classList.add('hide');
-        startScreen.style.display = 'flex';
-        subtitle.textContent = "Translate the sentence chunk by chunk to reach the top.";
+        startGame();
     }
 
     // --- Utility Functions ---
