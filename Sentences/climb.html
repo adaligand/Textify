@@ -225,16 +225,14 @@
             bottom: 5px;
             left: 50%;
 
-            /* Standard transition for jumps */
             transition: bottom 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out;
         }
 
         #climber-img.falling {
-            bottom: -60px; /* Fall completely off screen */
-            /* SLOWER FALL ANIMATION - ONLY animate bottom and left */
-            transition: bottom 2.0s ease-in, left 0.5s linear;
+            bottom: -50px; /* Fall completely off the screen below base camp */
+            /* Increased duration for visibility */
+            transition: bottom 1s ease-in, left 0.5s linear;
         }
-
 
         /* --- END NEW STYLES --- */
 
@@ -315,11 +313,10 @@
     var currentChunkIndex = 0;
     var sentencePairs = [];
     var allFrenchWords = [];
-    var isGameOver = false; // Used to prevent clicks during animations/transitions
+    var isGameOver = false;
     var lives = 3;
     var sentenceTimerId = null;
     var remainingTime = 60;
-    const FALL_ANIMATION_DURATION = 2000; // Match CSS duration in ms
 
     // --- DOM Elements ---
     const gameScreen = document.getElementById('game-screen');
@@ -423,7 +420,7 @@
             if (remainingTime <= 0) {
                 stopSentenceTimer();
                 if (!isGameOver) {
-                    feedbackElement.innerHTML = 'Time\'s up! You fell!'; // Specific feedback
+                    feedbackElement.innerHTML = 'Time\'s up! You fell!';
                     triggerFall(null); // Pass null as no specific tile was clicked
                 }
             }
@@ -454,7 +451,6 @@
 
     /**
      * Sets up the UI for the current sentence.
-     * This function now fully rebuilds the wall each time it's called.
      */
     function displaySentence() {
         if (currentTextIndex >= sentencePairs.length) {
@@ -481,19 +477,13 @@
 
         // Clear the wall but keep the climber
         climbWall.innerHTML = '';
-        climbWall.appendChild(climber); // Re-add climber here
+        climbWall.appendChild(climber);
 
         // Reset climber position to start platform
-        climber.classList.remove('falling'); // IMPORTANT: Remove falling class *before* resetting position
-        climber.style.transition = 'none'; // Temporarily disable transition for snap reset
+        climber.classList.remove('falling');
         climber.style.bottom = `5px`;
         climber.style.left = '50%';
         climber.style.transform = 'translateX(-50%)';
-         // Force reflow/repaint to apply snap reset
-        climber.offsetHeight;
-        // Re-enable transition for future jumps
-        climber.style.transition = 'bottom 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out';
-
 
         // Move controls back to their original/hidden places
         bottomControlsWrapper.appendChild(feedbackElement); // Ensure feedback is at bottom initially
@@ -524,7 +514,7 @@
                     options.push(randomWord);
                 }
             }
-            shuffleArray(options); // Options are shuffled here
+            shuffleArray(options);
 
             options.forEach(optionText => {
                 let hold = document.createElement('div');
@@ -567,9 +557,6 @@
             // --- CORRECT ANSWER ---
             currentChunkIndex++;
 
-            // Ensure standard transition is set for jump
-            climber.style.transition = 'bottom 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out';
-
             // 1. Move climber
             const holdRect = holdElement.getBoundingClientRect();
             const wallRect = climbWall.getBoundingClientRect();
@@ -606,11 +593,11 @@
     }
 
     /**
-     * Handles fall animation, updates lives, reshuffles and restarts sentence, or ends game.
-     * CORRECTED AGAIN: Uses setTimeout to delay rebuild *after* animation finishes.
+     * Handles fall animation, updates lives, and either restarts sentence or ends game.
+     * MODIFIED: Does NOT rebuild wall on restart, only resets climber state.
      */
     function triggerFall(wrongHoldElement) {
-         if (isGameOver) return; // Prevent multiple triggers
+         if (isGameOver) return; // Prevent multiple triggers if timer runs out during fall
 
         isGameOver = true; // Pause game during fall/restart
         stopSentenceTimer(); // Stop timer immediately on fall
@@ -620,15 +607,13 @@
             wrongHoldElement.classList.add('wrong');
         }
 
-        // Apply specific falling transition *before* adding the class
-        climber.style.transition = 'bottom 2.0s ease-in, left 0.5s linear';
-        climber.classList.add('falling'); // Start the animation by changing 'bottom' via CSS
+        climber.classList.add('falling');
 
         lives--;
         updateLivesDisplay();
 
         if (lives > 0) {
-            // --- RESTART SENTENCE ---
+            // --- RESTART SENTENCE (Reset climber, keep wall) ---
             if (!feedbackElement.classList.contains('hide') && feedbackElement.textContent.includes('Time\'s up')) {
                  // Keep the "Time's up" message
             } else {
@@ -637,22 +622,26 @@
             }
             feedbackElement.classList.remove('hide'); // Show feedback at bottom
 
-            // After the fall animation finishes, remove class THEN rebuild
+            // After the fall animation (1s), reset the climber and state
             setTimeout(() => {
-                climber.classList.remove('falling'); // Stop animation class *first*
+                climber.classList.remove('falling');
+                // Reset climber position
+                climber.style.bottom = `5px`;
+                climber.style.left = '50%';
+                climber.style.transform = 'translateX(-50%)';
 
-                 // Small delay to ensure class removal is rendered before rebuild
-                setTimeout(() => {
-                    // Remove the 'wrong' class from the specific element before rebuilding
-                    if(wrongHoldElement) {
-                         wrongHoldElement.classList.remove('wrong');
-                    }
-                    // displaySentence will rebuild wall (reshuffle) and reset climber styles
-                    displaySentence();
-                }, 50); // Short delay (50ms)
+                // Reset progress for this sentence
+                currentChunkIndex = 0;
+                isGameOver = false; // Unpause game
+                feedbackElement.classList.add('hide'); // Hide message
 
-            }, FALL_ANIMATION_DURATION); // Wait for animation to finish
+                // Remove 'wrong' class from the hold if it exists
+                if(wrongHoldElement) {
+                    wrongHoldElement.classList.remove('wrong');
+                }
+                startSentenceTimer(); // Restart timer for this sentence attempt
 
+            }, 1000); // 1 second delay (matches fall animation duration)
         } else {
             // --- GAME OVER ---
             if (!feedbackElement.classList.contains('hide') && feedbackElement.textContent.includes('Time\'s up')) {
@@ -663,14 +652,14 @@
              feedbackElement.style.color = 'red';
             feedbackElement.classList.remove('hide'); // Show feedback at bottom
 
-            // Need a delay here to ensure falling animation completes *before* switching screens
+            // Need a longer delay here to ensure falling animation completes *before* switching screens
             setTimeout(() => {
                  climber.classList.remove('falling'); // Clean up class just in case
                  gameScreen.style.display = 'none';
                  endScreen.classList.remove('hide');
                  document.getElementById('end-title').textContent = '😞 Game Over 😞';
                  document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
-             }, FALL_ANIMATION_DURATION + 100); // Slightly longer than fall animation
+             }, 1100); // Slightly longer than fall animation
         }
     }
 
