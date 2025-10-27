@@ -62,7 +62,7 @@
             min-height: 1.2em; 
         }
 
-        /* --- Game Info Header (Counter + Lives) --- */
+        /* --- Game Info Header (Counter + Lives + Timer) --- */
         .game-header {
             display: flex;
             justify-content: space-between;
@@ -75,10 +75,19 @@
             font-size: 24px;
             font-weight: bold;
             text-align: left;
+            flex: 1; /* Take up space */
+        }
+        #timer-display { /* NEW */
+             font-size: 24px;
+             font-weight: bold;
+             text-align: center;
+             flex: 1; /* Take up space */
+             color: #555;
         }
         #lives-container {
             font-size: 24px;
             text-align: right;
+            flex: 1; /* Take up space */
         }
 
         .hide {
@@ -140,22 +149,21 @@
             color: #333;
             height: var(--platform-height);
             display: flex;
-            justify-content: center; /* UPDATED: Center the "FINISH LINE" text */
+            justify-content: center; 
             align-items: center;
             background-color: #e0e0e0;
             border-bottom: 2px solid #aaa;
             margin-bottom: 5px;
             padding: 0 15px; 
-            position: relative; /* UPDATED: For absolute positioning of controls */
+            position: relative; 
         }
 
         #finish-controls-placeholder {
             display: flex;
             align-items: center;
             gap: 10px;
-            /* UPDATED: Position controls on the right */
             position: absolute;
-            right: 15px; /* 15px from the right edge */
+            right: 15px; 
             top: 50%;
             transform: translateY(-50%);
         }
@@ -165,7 +173,6 @@
             font-size: 16px;
             font-weight: bold;
         }
-        /* UPDATED: Selector changed from .btn-next to .btn */
         #finish-controls-placeholder .btn {
             padding: 8px 16px;
             font-size: 14px;
@@ -261,9 +268,7 @@
             background-color: #e0e0e0;
             transform: translateY(-2px);
         }
-        
-        /* REMOVED .btn-next styles */
-        
+                
     </style>
 </head>
 <body>
@@ -273,7 +278,7 @@
         
         <div class="game-header">
             <div class="counter" id="sentenceCounter"></div>
-            <div id="lives-container"></div> 
+            <div id="timer-display">1:00</div> <div id="lives-container"></div> 
         </div>
 
         <div class="english-sentence" id="english-sentence"></div>
@@ -307,7 +312,9 @@
     var sentencePairs = [];
     var allFrenchWords = [];
     var isGameOver = false;
-    var lives = 3; // Global lives system
+    var lives = 3; 
+    var sentenceTimerId = null; // NEW: Timer interval ID
+    var remainingTime = 60; // NEW: Seconds per sentence
 
     // --- DOM Elements ---
     const gameScreen = document.getElementById('game-screen');
@@ -322,7 +329,7 @@
     const englishSentenceEl = document.getElementById('english-sentence');
     const bottomControlsWrapper = document.querySelector('.controls-wrapper');
     const buttonPen = document.getElementById('button-pen');
-
+    const timerDisplay = document.getElementById('timer-display'); // NEW
 
     // --- CSV Loading ---
     const params = new URLSearchParams(window.location.search);
@@ -330,10 +337,10 @@
 
     if (!sheetUrl) {
         subtitle.textContent = "⚠️ No CSV URL provided. Please add ?sheet=YOUR_LINK to the address bar.";
-        gameScreen.style.display = 'flex'; // Show game screen to display error
+        gameScreen.style.display = 'flex'; 
     } else {
         subtitle.textContent = "Loading data...";
-        gameScreen.style.display = 'flex'; // Show game screen to display loading
+        gameScreen.style.display = 'flex'; 
         Papa.parse(sheetUrl, {
             download: true,
             header: true,
@@ -347,7 +354,6 @@
                             english: row["English sentences"].trim(),
                             french: frenchSentence
                         });
-                        // Add all individual words to the distractor list
                         frenchSentence.split(/\s+/).filter(Boolean).forEach(word => {
                             wordSet.add(word); 
                         });
@@ -367,7 +373,7 @@
 
                 subtitle.textContent = "Translate the sentence chunk by chunk.";
                 shuffleArray(sentencePairs);
-                startGame(); // Start the game immediately
+                startGame(); 
             },
             error: function(err) {
                 subtitle.textContent = "⚠️ Error loading the CSV file.";
@@ -382,7 +388,8 @@
     function startGame() {
         isGameOver = false;
         currentTextIndex = 0;
-        lives = 3; // Reset lives to 3
+        lives = 3; 
+        stopSentenceTimer(); // Ensure no timer running
         endScreen.classList.add('hide');
         gameScreen.style.display = 'flex';
         displaySentence();
@@ -397,12 +404,56 @@
     }
 
     /**
+     * NEW: Starts the timer for the current sentence
+     */
+    function startSentenceTimer() {
+        stopSentenceTimer(); // Clear any previous timer
+        remainingTime = 60; // Reset time
+        updateTimerDisplay(); // Show initial time
+
+        sentenceTimerId = setInterval(() => {
+            remainingTime--;
+            updateTimerDisplay();
+
+            if (remainingTime <= 0) {
+                stopSentenceTimer();
+                // If not already handling a fall/win, trigger fall
+                if (!isGameOver) { 
+                    feedbackElement.innerHTML = 'Time\'s up! You fell!'; // Specific feedback
+                    triggerFall(null); // Pass null as no specific tile was clicked
+                }
+            }
+        }, 1000); // Update every second
+    }
+
+    /**
+     * NEW: Stops the current sentence timer
+     */
+    function stopSentenceTimer() {
+        if (sentenceTimerId) {
+            clearInterval(sentenceTimerId);
+            sentenceTimerId = null;
+        }
+    }
+
+    /**
+     * NEW: Updates the timer display (MM:SS format)
+     */
+    function updateTimerDisplay() {
+        const minutes = Math.floor(remainingTime / 60);
+        const seconds = remainingTime % 60;
+        timerDisplay.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+    }
+
+
+    /**
      * Sets up the UI for the current sentence.
      */
     function displaySentence() {
         if (currentTextIndex >= sentencePairs.length) {
             // --- Activity Complete (WIN) ---
             isGameOver = true;
+            stopSentenceTimer();
             gameScreen.style.display = 'none';
             endScreen.classList.remove('hide');
             document.getElementById('end-title').textContent = '🎉 You Win! 🎉';
@@ -414,24 +465,21 @@
         isGameOver = false;
         var englishSentence = sentencePairs[currentTextIndex].english;
         var frenchSentence = sentencePairs[currentTextIndex].french;
-        originalChunks = getWordChunks(frenchSentence); // This is where chunking happens
+        originalChunks = getWordChunks(frenchSentence); 
         currentChunkIndex = 0;
 
         // --- Reset UI elements ---
         englishSentenceEl.textContent = englishSentence;
-        updateLivesDisplay(); // Show lives
+        updateLivesDisplay(); 
         
-        // Clear the wall but keep the climber
         climbWall.innerHTML = '';
-        climbWall.appendChild(climber); // Re-add climber to control its position easily
+        climbWall.appendChild(climber); 
         
-        // Reset climber position to start platform
         climber.classList.remove('falling');
         climber.style.bottom = `5px`; 
         climber.style.left = '50%';
         climber.style.transform = 'translateX(-50%)'; 
         
-        // Move controls back to their hidden pens/wrappers
         bottomControlsWrapper.appendChild(feedbackElement);
         buttonPen.appendChild(nextButton);
         feedbackElement.classList.add('hide');
@@ -440,32 +488,28 @@
         sentenceCounter.textContent = (currentTextIndex + 1) + '/' + sentencePairs.length;
         sentenceCounter.classList.remove('hide');
 
-        // --- Build the Wall (Corrected Order) ---
-
-        // Add the start platform at the bottom
+        // --- Build the Wall ---
         let startPlatform = document.createElement('div');
         startPlatform.classList.add('climb-row', 'start-platform');
         startPlatform.textContent = 'BASE CAMP';
-        climbWall.appendChild(startPlatform); // Appended 1st -> goes to BOTTOM
+        climbWall.appendChild(startPlatform); 
 
         originalChunks.forEach((chunk, rowIndex) => {
             let climbRow = document.createElement('div');
             climbRow.classList.add('climb-row');
-            climbRow.dataset.rowIndex = rowIndex; // Assign row index to the div too
+            climbRow.dataset.rowIndex = rowIndex; 
             
             let correctAnswer = chunk.join(' ');
             let options = [correctAnswer];
 
-            // Generate 3 unique distractors
             while (options.length < 4) {
                 let randomWord = allFrenchWords[Math.floor(Math.random() * allFrenchWords.length)];
                 if (!options.includes(randomWord) && randomWord.toLowerCase() !== correctAnswer.toLowerCase()) {
                     options.push(randomWord);
                 }
             }
-            shuffleArray(options); // Randomize the holds
+            shuffleArray(options); 
 
-            // Create and append the 4 holds
             options.forEach(optionText => {
                 let hold = document.createElement('div');
                 hold.classList.add('hold-option');
@@ -475,18 +519,18 @@
                 climbRow.appendChild(hold);
             });
             
-            climbWall.appendChild(climbRow); // Appended 2nd -> stacks on top of Base Camp
+            climbWall.appendChild(climbRow); 
         });
 
-        // Add the finish line at the very top
         let finishLine = document.createElement('div');
         finishLine.classList.add('climb-row', 'finish-line');
-        // Add placeholder for controls
         finishLine.innerHTML = `
             <span>FINISH LINE</span>
             <div id="finish-controls-placeholder"></div>
         `;
-        climbWall.appendChild(finishLine); // Appended LAST -> goes to TOP
+        climbWall.appendChild(finishLine); 
+
+        startSentenceTimer(); // Start the timer for this sentence
     }
 
 
@@ -494,12 +538,11 @@
      * Called when a hold-option is clicked.
      */
     function checkAnswer(holdElement) {
-        if (isGameOver) return; // Don't allow clicks if game is paused
+        if (isGameOver) return; 
 
         let isCorrect = (holdElement.dataset.isCorrect === 'true');
-        let rowIndex = parseInt(holdElement.parentNode.dataset.rowIndex); // Get row index from parent
+        let rowIndex = parseInt(holdElement.parentNode.dataset.rowIndex); 
 
-        // Check if the user clicked the *correct next row*
         if (rowIndex !== currentChunkIndex) {
             return; 
         }
@@ -513,36 +556,26 @@
             const wallRect = climbWall.getBoundingClientRect();
             const climberHeight = climber.offsetHeight;
 
-            // Calculate new horizontal position: inside tile, near left border
-            let newLeft = (holdRect.left - wallRect.left) + 5; // 5px padding from left edge of tile
-
-            // Calculate new vertical position: vertically centered within the TILE
-            // 'top' position of hold relative to wall
+            let newLeft = (holdRect.left - wallRect.left) + 5; 
             let holdTopRel = holdElement.parentNode.offsetTop; 
-            // 'bottom' position of hold relative to wall (since wall is column-reverse)
             let holdBottomRel = climbWall.offsetHeight - holdTopRel - holdElement.parentNode.offsetHeight;
-
-            // Center climber vertically within the row
             let newBottom = holdBottomRel + (holdElement.parentNode.offsetHeight / 2) - (climberHeight / 2);
 
             climber.style.bottom = `${newBottom}px`;
             climber.style.left = `${newLeft}px`;
-            climber.style.transform = 'translateX(0)'; // Remove initial center transform
+            climber.style.transform = 'translateX(0)'; 
 
             // 2. Check if sentence is finished
             if (currentChunkIndex === originalChunks.length) {
-                isGameOver = true; // Pause game
+                isGameOver = true; 
+                stopSentenceTimer(); // Stop timer on successful completion
                 
-                // Get the placeholder at the finish line
                 const placeholder = document.getElementById('finish-controls-placeholder');
-                
-                // Set feedback text and move it to the placeholder
                 feedbackElement.textContent = 'Correct!';
                 feedbackElement.style.color = 'green';
                 placeholder.appendChild(feedbackElement);
                 feedbackElement.classList.remove('hide');
 
-                // Move the "Next" button to the placeholder
                 placeholder.appendChild(nextButton);
                 nextButton.classList.remove('hide');
             }
@@ -554,35 +587,49 @@
     }
 
     /**
-     * This function now handles the fall animation and forces a reshuffle
-     * by calling displaySentence() again for the *same index*.
+     * Handles fall animation, updates lives, and either restarts sentence or ends game.
      */
     function triggerFall(wrongHoldElement) {
-        isGameOver = true; // Pause game
-        wrongHoldElement.classList.add('wrong'); // Flash red
-        climber.classList.add('falling'); // Start fall animation
+        if (isGameOver) return; // Prevent multiple triggers if timer runs out during fall
+
+        isGameOver = true; // Pause game during fall/restart
+        stopSentenceTimer(); // Stop timer immediately on fall
+
+        // Only add 'wrong' class if a specific tile was clicked
+        if (wrongHoldElement) {
+            wrongHoldElement.classList.add('wrong'); 
+        }
         
-        lives--; // Lose a life
+        climber.classList.add('falling'); 
+        
+        lives--; 
         updateLivesDisplay();
 
         if (lives > 0) {
             // --- RESTART SENTENCE ---
             // Show feedback at the BOTTOM
-            feedbackElement.innerHTML = 'You fell! Try this sentence again.';
-            feedbackElement.style.color = 'red';
-            feedbackElement.classList.remove('hide'); // It's already in the bottom wrapper
+            // Use existing feedback if timer ran out, otherwise use default fall message
+            if (!feedbackElement.classList.contains('hide') && feedbackElement.textContent.includes('Time\'s up')) {
+                 // Keep the "Time's up" message
+            } else {
+                 feedbackElement.innerHTML = 'You fell! Try this sentence again.';
+                 feedbackElement.style.color = 'red';
+            }
+            feedbackElement.classList.remove('hide'); 
 
-            // After the fall animation (1.5s), reload the sentence
             setTimeout(() => {
-                // This will rebuild the wall for the currentTextIndex,
-                // which automatically reshuffles the options.
+                // Reload the sentence (reshuffles)
                 displaySentence(); 
-            }, 1500); // 1.5 second delay (matches 1s animation + buffer)
+            }, 1500); // Delay matches fall animation
         } else {
             // --- GAME OVER ---
             // Show feedback at the BOTTOM
-            feedbackElement.innerHTML = 'Out of lives! Game Over.';
-            feedbackElement.style.color = 'red';
+            if (!feedbackElement.classList.contains('hide') && feedbackElement.textContent.includes('Time\'s up')) {
+                 feedbackElement.innerHTML = 'Time\'s up and out of lives! Game Over.'; // Combine messages
+            } else {
+                feedbackElement.innerHTML = 'Out of lives! Game Over.';
+            }
+             feedbackElement.style.color = 'red';
             feedbackElement.classList.remove('hide');
 
             setTimeout(() => {
@@ -590,7 +637,7 @@
                 endScreen.classList.remove('hide');
                 document.getElementById('end-title').textContent = '😞 Game Over 😞';
                 document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
-            }, 1500); // 1.5 second delay for fall
+            }, 1500); // Delay matches fall animation
         }
     }
 
@@ -599,27 +646,22 @@
      */
     function nextText() {
         currentTextIndex++;
-        displaySentence(); // Load the next sentence
+        displaySentence(); // Load the next sentence (will also start timer)
     }
 
     /**
      * Called by "Restart" button on the end screen.
      */
     function resetActivity() {
-        startGame();
+        startGame(); // Resets everything including timer
     }
 
     // --- Utility Functions ---
-
-    /**
-     * This splits by space, creating one chunk per word.
-     * e.g., "Je suis content" -> [['Je'], ['suis'], ['content']]
-     */
     function getWordChunks(text) {
         var words = text.split(/\s+/).filter(Boolean);
         var chunks = [];
         for (var i = 0; i < words.length; i++) {
-            chunks.push([words[i]]); // Each chunk is an array with one word
+            chunks.push([words[i]]); 
         }
         return chunks;
     }
