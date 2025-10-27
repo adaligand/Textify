@@ -14,6 +14,8 @@
             align-items: center;
             min-height: 100vh;
             margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
         }
         .container {
             width: 100%;
@@ -34,26 +36,28 @@
             font-size: 20px;
             margin-bottom: 10px;
             text-align: center;
+            min-height: 1.2em; /* Prevent layout shift */
+        }
+
+        /* --- Game Info Header (Counter + Lives) --- */
+        .game-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 0 10px;
         }
         .counter {
             font-size: 24px;
             font-weight: bold;
-            text-align: center;
-            margin-bottom: 10px;
+            text-align: left;
         }
-        button {
-            padding: 10px 20px;
-            background-color: #f9f9f9;
-            border: 2px solid #ccc;
-            color: #000000;
-            border-radius: 10px;
-            cursor: pointer;
-            margin: 5px;
+        #lives-container {
+            font-size: 24px;
+            text-align: right;
         }
-        button:hover {
-            background-color: #A9A9A9;
-            transform: translateY(-4px);
-        }
+        /* --- End Game Info Header --- */
+
         .hide {
             display: none;
         }
@@ -68,33 +72,46 @@
         }
 
         /* --- NEW ROCK CLIMB STYLES --- */
-        #climb-container {
+        #climb-wall-container {
             position: relative;
-            height: 120px;
+            height: 150px;
             background: #e0e0e0;
             border: 2px solid #aaa;
             border-radius: 5px;
             margin: 20px 0;
             overflow: hidden;
-        }
-        #climber-progress {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background: rgba(144, 238, 144, 0.6); /* Light green */
-            height: 0;
-            transition: height 0.5s ease;
+            /* Simple brick-like pattern */
+            background-image: repeating-linear-gradient(
+                -45deg,
+                #ccc,
+                #ccc 10px,
+                #e0e0e0 10px,
+                #e0e0e0 20px
+            );
         }
         #climber-emoji {
             position: absolute;
             left: 50%;
             transform: translateX(-50%);
-            bottom: 0;
+            bottom: 10px; /* Start slightly off the bottom */
             font-size: 30px;
-            transition: bottom 0.5s ease;
+            transition: bottom 0.5s ease-in-out;
             z-index: 10;
         }
+        
+        /* Shake animation for wrong answer */
+        @keyframes shake {
+            0% { transform: translate(-50%, 0); }
+            20% { transform: translate(calc(-50% + 10px), 0); }
+            40% { transform: translate(calc(-50% - 10px), 0); }
+            60% { transform: translate(calc(-50% + 10px), 0); }
+            80% { transform: translate(calc(-50% - 10px), 0); }
+            100% { transform: translate(-50%, 0); }
+        }
+        .shake {
+            animation: shake 0.4s;
+        }
+        
         #sentence-so-far-container {
             border: 2px dashed #007bff;
             min-height: 30px;
@@ -120,20 +137,20 @@
             border-radius: 10px;
             background-color: #f9f9f9;
             transition: background-color 0.2s, transform 0.2s;
-            margin: 0; /* Remove default button margin */
+            margin: 0; 
         }
-        .option-button:hover {
+        .option-button:not(:disabled):hover {
             background-color: #e0e0e0;
             transform: translateY(-2px);
         }
         .option-button.wrong {
-            background-color: #f8d7da; /* Red flash for wrong */
+            background-color: #f8d7da;
             border-color: #f5c6cb;
             transform: translateY(0);
         }
         .option-button:disabled {
             cursor: not-allowed;
-            opacity: 0.7;
+            opacity: 0.6;
         }
         /* --- END NEW STYLES --- */
 
@@ -149,19 +166,28 @@
         .feedback {
             font-weight: bold;
             font-size: 18px;
+            text-align: center;
         }
     </style>
 </head>
 <body>
+    <audio id="sound-correct" src="https://actions.google.com/sounds/v1/cartoon/magic_chime.ogg" preload="auto"></audio>
+    <audio id="sound-incorrect" src="https://actions.google.com/sounds/v1/cartoon/boing.ogg" preload="auto"></audio>
+    <audio id="sound-fail" src="https://actions.google.com/sounds/v1/bad_to_worse.ogg" preload="auto"></audio>
+
     <div class="container">
         <div class="title">Rock Climb</div>
         <div class="subtitle" id="subtitle">Translate the sentence chunk by chunk.</div>
-        <div class="counter" id="sentenceCounter"></div>
+        
+        <div class="game-header">
+            <div class="counter" id="sentenceCounter"></div>
+            <div id="lives-container"></div>
+        </div>
 
         <div id="exerciseOutput"></div>
 
         <div class="controls-wrapper">
-            <div id="feedback" class="hide"></div>
+            <div id="feedback" class="feedback hide"></div>
             <button id="nextButton" class="hide" onclick="nextText()">Next</button>
             <button id="resetButton" class="hide" onclick="resetActivity()">Restart</button>
         </div>
@@ -169,11 +195,17 @@
 
 <script>
     var currentTextIndex = 0;
-    var originalChunks = [];      // The correct chunks in order, e.g., [['Je'], ['suis'], ['content']]
-    var currentChunkIndex = 0;    // Which chunk we are currently asking for (0, 1, 2...)
+    var originalChunks = [];      // The correct chunks in order, e.g., [['Je'], ['suis']]
+    var currentChunkIndex = 0;    // Which chunk we are currently asking for
     var sentencePairs = [];       // All {english, french} pairs
     var allFrenchWords = [];      // A big list of all unique French words for distractors
-    var builtSentence = [];       // The array of words the user has correctly chosen so far
+    var builtSentence = [];       // The array of words the user has correctly chosen
+    var lives = 3;
+
+    // --- Audio elements ---
+    const soundCorrect = document.getElementById('sound-correct');
+    const soundIncorrect = document.getElementById('sound-incorrect');
+    const soundFail = document.getElementById('sound-fail');
 
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
@@ -187,29 +219,27 @@
             header: true,
             skipEmptyLines: true,
             complete: function(results) {
-                let wordSet = new Set(); // Use a Set to avoid duplicate words
-
+                let wordSet = new Set();
                 results.data.forEach(row => {
                     if (row["French sentences"] && row["English sentences"]) {
+                        const frenchSentence = row["French sentences"].trim();
                         sentencePairs.push({
                             english: row["English sentences"].trim(),
-                            french: row["French sentences"].trim()
+                            french: frenchSentence
                         });
                         
-                        // Add all words from this sentence to our corpus
-                        row["French sentences"].trim().split(/\s+/).filter(Boolean).forEach(word => {
+                        frenchSentence.split(/\s+/).filter(Boolean).forEach(word => {
                             wordSet.add(word);
                         });
                     }
                 });
 
-                allFrenchWords = Array.from(wordSet); // Convert the Set to an Array
+                allFrenchWords = Array.from(wordSet);
 
                 if (sentencePairs.length === 0) {
-                    document.getElementById('subtitle').textContent = "⚠️ No data found. Check your column headers are 'French sentences' and 'English sentences'.";
+                    document.getElementById('subtitle').textContent = "⚠️ No data found. Check 'French sentences' and 'English sentences' headers.";
                     return;
                 }
-                
                 if (allFrenchWords.length < 4) {
                      document.getElementById('subtitle').textContent = "⚠️ Not enough unique words in your CSV to generate 4 options. Please add more sentences.";
                      return;
@@ -226,186 +256,223 @@
         });
     }
 
-function startNextSentence() {
-    if (currentTextIndex >= sentencePairs.length) {
-        // --- Activity Complete ---
-        document.getElementById('exerciseOutput').innerHTML = '<h2>🎉 Well done! You have completed all sentences.</h2>';
-        document.getElementById('nextButton').classList.add('hide');
-        document.getElementById('resetButton').classList.remove('hide');
-        document.getElementById('sentenceCounter').classList.add('hide');
+    function startNextSentence() {
+        if (currentTextIndex >= sentencePairs.length) {
+            // --- Activity Complete ---
+            document.getElementById('exerciseOutput').innerHTML = '<h2>🎉 Well done! You have completed all sentences.</h2>';
+            document.getElementById('nextButton').classList.add('hide');
+            document.getElementById('resetButton').classList.remove('hide');
+            document.getElementById('sentenceCounter').classList.add('hide');
+            document.getElementById('lives-container').classList.add('hide');
+            document.getElementById('feedback').classList.add('hide');
+            return;
+        }
+
+        // --- Setup for new sentence ---
+        lives = 3;
+        var englishSentence = sentencePairs[currentTextIndex].english;
+        var frenchSentence = sentencePairs[currentTextIndex].french;
+        originalChunks = getWordChunks(frenchSentence);
+        currentChunkIndex = 0;
+        builtSentence = [];
+
+        var exerciseOutput = document.getElementById('exerciseOutput');
+        exerciseOutput.innerHTML = ''; // Clear previous sentence's elements
+
+        // 1. Add English sentence
+        var englishSentenceDiv = document.createElement('div');
+        englishSentenceDiv.classList.add('english-sentence');
+        englishSentenceDiv.textContent = englishSentence;
+        exerciseOutput.appendChild(englishSentenceDiv);
+
+        // 2. Add Climb Visual
+        exerciseOutput.innerHTML += `
+            <div id="climb-wall-container">
+                <span id="climber-emoji">🧗</span>
+            </div>`;
+        
+        // 3. Add "Sentence So Far" box
+        var sentenceSoFarDiv = document.createElement('div');
+        sentenceSoFarDiv.id = 'sentence-so-far-container';
+        sentenceSoFarDiv.innerHTML = '&nbsp;'; // non-breaking space to give it height
+        exerciseOutput.appendChild(sentenceSoFarDiv);
+
+        // 4. Add container for the 4 options
+        var optionsContainer = document.createElement('div');
+        optionsContainer.id = 'options-container';
+        exerciseOutput.appendChild(optionsContainer);
+
+        // --- Reset buttons and counters ---
+        updateLivesDisplay();
+        document.getElementById('lives-container').classList.remove('hide');
+        exerciseOutput.classList.remove('hide');
+        document.querySelector('.controls-wrapper').classList.remove('hide');
         document.getElementById('feedback').classList.add('hide');
-        return;
+        document.getElementById('nextButton').classList.add('hide');
+        document.getElementById('resetButton').classList.add('hide');
+        
+        document.getElementById('sentenceCounter').textContent = (currentTextIndex + 1) + '/' + sentencePairs.length;
+        document.getElementById('sentenceCounter').classList.remove('hide');
+
+        // --- Show the first set of options ---
+        presentNextChunkOptions();
     }
 
-    // --- Setup for new sentence ---
-    var englishSentence = sentencePairs[currentTextIndex].english;
-    var frenchSentence = sentencePairs[currentTextIndex].french;
-    originalChunks = getWordChunks(frenchSentence); // Splits sentence into word-chunks
-    currentChunkIndex = 0; // Reset progress for this sentence
-    builtSentence = [];    // Reset the displayed sentence
-
-    var exerciseOutput = document.getElementById('exerciseOutput');
-    exerciseOutput.innerHTML = ''; // Clear previous sentence's elements
-
-    // 1. Add English sentence
-    var englishSentenceDiv = document.createElement('div');
-    englishSentenceDiv.classList.add('english-sentence');
-    englishSentenceDiv.textContent = englishSentence;
-    exerciseOutput.appendChild(englishSentenceDiv);
-
-    // 2. Add Climb Visual
-    exerciseOutput.innerHTML += `
-        <div id="climb-container">
-            <div id="climber-progress" style="height: 0%;"></div>
-            <span id="climber-emoji" style="bottom: 0%;">🧗</span>
-        </div>`;
-
-    // 3. Add "Sentence So Far" box
-    var sentenceSoFarDiv = document.createElement('div');
-    sentenceSoFarDiv.id = 'sentence-so-far-container';
-    sentenceSoFarDiv.innerHTML = '&nbsp;'; // non-breaking space to give it height
-    exerciseOutput.appendChild(sentenceSoFarDiv);
-
-    // 4. Add container for the 4 options
-    var optionsContainer = document.createElement('div');
-    optionsContainer.id = 'options-container';
-    exerciseOutput.appendChild(optionsContainer);
-
-    // --- Reset buttons and counters ---
-    exerciseOutput.classList.remove('hide');
-    document.querySelector('.controls-wrapper').classList.remove('hide');
-    document.getElementById('feedback').classList.add('hide');
-    document.getElementById('nextButton').classList.add('hide');
-    document.getElementById('resetButton').classList.add('hide');
-    
-    document.getElementById('sentenceCounter').textContent = (currentTextIndex + 1) + '/' + sentencePairs.length;
-    document.getElementById('sentenceCounter').classList.remove('hide');
-
-    // --- Show the first set of options ---
-    presentNextChunkOptions();
-}
-
-/**
- * Generates and displays the 4 options (1 correct, 3 distractors)
- */
-function presentNextChunkOptions() {
-    let optionsContainer = document.getElementById('options-container');
-    optionsContainer.innerHTML = ''; // Clear old options
-
-    let correctAnswer = originalChunks[currentChunkIndex].join(' ');
-    let options = [correctAnswer];
-
-    // Generate 3 unique distractors from the word corpus
-    while (options.length < 4) {
-        let randomWord = allFrenchWords[Math.floor(Math.random() * allFrenchWords.length)];
-        // Make sure the random word isn't already in the options
-        if (!options.includes(randomWord)) {
-            options.push(randomWord);
-        }
+    /**
+     * Updates the lives display
+     */
+    function updateLivesDisplay() {
+        document.getElementById('lives-container').textContent = '❤️'.repeat(lives) + '🖤'.repeat(3 - lives);
     }
 
-    shuffleArray(options); // Randomize the order of the 4 buttons
+    /**
+     * Generates and displays the 4 options (1 correct, 3 distractors)
+     */
+    function presentNextChunkOptions() {
+        let optionsContainer = document.getElementById('options-container');
+        optionsContainer.innerHTML = ''; // Clear old options
 
-    // Create and append the buttons
-    options.forEach(optionText => {
-        let button = document.createElement('button');
-        button.classList.add('option-button');
-        button.textContent = optionText;
-        button.onclick = function() { checkAnswer(this); }; // Pass the button element itself
-        optionsContainer.appendChild(button);
-    });
-}
+        let correctAnswer = originalChunks[currentChunkIndex].join(' ');
+        let options = [correctAnswer];
 
-/**
- * Called when an option button is clicked.
- */
-function checkAnswer(buttonElement) {
-    let selectedText = buttonElement.textContent;
-    let correctText = originalChunks[currentChunkIndex].join(' ');
-
-    if (selectedText === correctText) {
-        // --- CORRECT ANSWER ---
-        
-        // 1. Add word to "sentence so far"
-        builtSentence.push(correctText);
-        document.getElementById('sentence-so-far-container').textContent = builtSentence.join(' ');
-        
-        // 2. Advance to next chunk
-        currentChunkIndex++;
-
-        // 3. Update climb visual
-        let progressPercentage = (currentChunkIndex / originalChunks.length) * 100;
-        document.getElementById('climber-progress').style.height = progressPercentage + '%';
-        document.getElementById('climber-emoji').style.bottom = progressPercentage + '%';
-
-        // 4. Check if sentence is finished
-        if (currentChunkIndex === originalChunks.length) {
-            // --- Sentence Complete ---
-            document.getElementById('options-container').innerHTML = ''; // Clear options
-            
-            var feedbackElement = document.getElementById('feedback');
-            feedbackElement.textContent = 'Correct!';
-            feedbackElement.style.color = 'green';
-            feedbackElement.classList.remove('hide');
-
-            if (currentTextIndex < sentencePairs.length - 1) {
-                document.getElementById('nextButton').classList.remove('hide'); // Show Next
-            } else {
-                document.getElementById('resetButton').classList.remove('hide'); // Show Reset
+        // Generate 3 unique distractors
+        while (options.length < 4) {
+            let randomWord = allFrenchWords[Math.floor(Math.random() * allFrenchWords.length)];
+            if (!options.includes(randomWord)) {
+                options.push(randomWord);
             }
-        } else {
-            // --- More chunks to go ---
-            presentNextChunkOptions(); // Show options for the next chunk
         }
 
-    } else {
-        // --- WRONG ANSWER ---
-        // Flash button red and disable it briefly
-        buttonElement.classList.add('wrong');
-        buttonElement.disabled = true;
-        setTimeout(() => {
-            buttonElement.classList.remove('wrong');
-            buttonElement.disabled = false;
-        }, 1000); // 1-second feedback
+        shuffleArray(options); // Randomize the order
+
+        // Create and append the buttons
+        options.forEach(optionText => {
+            let button = document.createElement('button');
+            button.classList.add('option-button');
+            button.textContent = optionText;
+            button.onclick = function() { checkAnswer(this); };
+            optionsContainer.appendChild(button);
+        });
     }
-}
 
-function nextText() {
-    currentTextIndex++;
-    startNextSentence();
-}
+    /**
+     * Called when an option button is clicked.
+     */
+    function checkAnswer(buttonElement) {
+        let selectedText = buttonElement.textContent;
+        let correctText = originalChunks[currentChunkIndex].join(' ');
 
-function resetActivity() {
-    currentTextIndex = 0;
-    shuffleArray(sentencePairs);
-    startNextSentence();
-}
+        if (selectedText === correctText) {
+            // --- CORRECT ANSWER ---
+            soundCorrect.currentTime = 0;
+            soundCorrect.play();
+            
+            // 1. Add word to "sentence so far"
+            builtSentence.push(correctText);
+            document.getElementById('sentence-so-far-container').textContent = builtSentence.join(' ');
+            
+            // 2. Advance to next chunk
+            currentChunkIndex++;
 
-/**
- * Splits a sentence string into an array of single-word arrays.
- * e.g., "Je suis content" -> [['Je'], ['suis'], ['content']]
- */
-function getWordChunks(text) {
-    var words = text.split(/\s+/).filter(Boolean); // Split by space, remove empty
-    var chunks = [];
-    for (var i = 0; i < words.length; i++) {
-        chunks.push([words[i]]); // Each chunk is an array with one word
+            // 3. Update climb visual
+            // Climber moves from 10% (bottom) to 80% (top)
+            let progressPercentage = 10 + (currentChunkIndex / originalChunks.length) * 70;
+            document.getElementById('climber-emoji').style.bottom = progressPercentage + '%';
+
+            // 4. Check if sentence is finished
+            if (currentChunkIndex === originalChunks.length) {
+                // --- Sentence Complete ---
+                document.getElementById('options-container').innerHTML = '';
+                
+                var feedbackElement = document.getElementById('feedback');
+                feedbackElement.textContent = 'Correct!';
+                feedbackElement.style.color = 'green';
+                feedbackElement.classList.remove('hide');
+
+                if (currentTextIndex < sentencePairs.length - 1) {
+                    document.getElementById('nextButton').classList.remove('hide');
+                } else {
+                    document.getElementById('resetButton').classList.remove('hide');
+                }
+            } else {
+                // --- More chunks to go ---
+                presentNextChunkOptions();
+            }
+
+        } else {
+            // --- WRONG ANSWER ---
+            lives--;
+            updateLivesDisplay();
+            
+            let climber = document.getElementById('climber-emoji');
+            
+            if (lives > 0) {
+                // Still has lives, just shake and flash
+                soundIncorrect.currentTime = 0;
+                soundIncorrect.play();
+                
+                buttonElement.classList.add('wrong');
+                buttonElement.disabled = true;
+                setTimeout(() => {
+                    buttonElement.classList.remove('wrong');
+                    buttonElement.disabled = false;
+                }, 1000);
+                
+                climber.classList.add('shake');
+                setTimeout(() => climber.classList.remove('shake'), 400);
+
+            } else {
+                // --- Out of lives, sentence failed ---
+                soundFail.currentTime = 0;
+                soundFail.play();
+                
+                var feedbackElement = document.getElementById('feedback');
+                feedbackElement.innerHTML = 'Out of lives! The answer was:<br><strong>' + sentencePairs[currentTextIndex].french + '</strong>';
+                feedbackElement.style.color = 'red';
+                feedbackElement.classList.remove('hide');
+
+                // Disable all option buttons
+                document.querySelectorAll('.option-button').forEach(btn => btn.disabled = true);
+
+                // Show Next or Reset button
+                if (currentTextIndex < sentencePairs.length - 1) {
+                    document.getElementById('nextButton').classList.remove('hide');
+                } else {
+                    document.getElementById('resetButton').classList.remove('hide');
+                }
+            }
+        }
     }
-    return chunks;
-}
 
-/**
- * Shuffles an array in place (Fisher-Yates shuffle).
- */
-function shuffleArray(array) {
-    for (var i = array.length - 1; i > 0; i--) {
-        var j = Math.floor(Math.random() * (i + 1));
-        var temp = array[i];
-        array[i] = array[j];
-        array[j] = temp;
+    function nextText() {
+        currentTextIndex++;
+        startNextSentence();
     }
-    return array;
-}
+
+    function resetActivity() {
+        currentTextIndex = 0;
+        shuffleArray(sentencePairs);
+        startNextSentence();
+    }
+
+    function getWordChunks(text) {
+        var words = text.split(/\s+/).filter(Boolean);
+        var chunks = [];
+        for (var i = 0; i < words.length; i++) {
+            chunks.push([words[i]]);
+        }
+        return chunks;
+    }
+
+    function shuffleArray(array) {
+        for (var i = array.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var temp = array[i];
+            array[i] = array[j];
+            array[j] = temp;
+        }
+        return array;
+    }
 
 </script>
 </body>
