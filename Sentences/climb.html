@@ -75,7 +75,10 @@
             font-weight: bold;
             text-align: left;
         }
-        /* Lives container removed */
+        #lives-container {
+            font-size: 24px;
+            text-align: right;
+        }
 
         .hide {
             display: none;
@@ -241,7 +244,7 @@
         
         <div class="game-header">
             <div class="counter" id="sentenceCounter"></div>
-        </div>
+            <div id="lives-container"></div> </div>
 
         <div class="english-sentence" id="english-sentence"></div>
 
@@ -256,19 +259,18 @@
     </div>
 
     <div id="end-screen" class="screen hide">
-        <div class="title">🎉 You Win! 🎉</div>
-        <div class="subtitle">You've completed all the sentences. Well done!</div>
-        <button id="resetButton" class="btn" onclick="resetActivity()">Restart</button>
+        <h2 class="title" id="end-title"></h2> <div class="subtitle" id="end-subtitle"></div> <button id="resetButton" class="btn" onclick="resetActivity()">Restart</button>
     </div>
 
 <script>
     // --- Game State Variables ---
     var currentTextIndex = 0;
-    var originalChunks = [];      // The correct chunks in order
-    var currentChunkIndex = 0;    // Which chunk we are currently climbing to
-    var sentencePairs = [];       // All {english, french} pairs
-    var allFrenchWords = [];      // A big list of all unique French words for distractors
-    var isGameOver = false;       // Used to pause the game after a fall or win
+    var originalChunks = [];
+    var currentChunkIndex = 0;
+    var sentencePairs = [];
+    var allFrenchWords = [];
+    var isGameOver = false;
+    var lives = 3; // Global lives system
 
     // --- DOM Elements ---
     const gameScreen = document.getElementById('game-screen');
@@ -277,6 +279,7 @@
     const climber = document.getElementById('climber-emoji');
     const climbWall = document.getElementById('climb-wall');
     const sentenceCounter = document.getElementById('sentenceCounter');
+    const livesContainer = document.getElementById('lives-container'); // Added
     const feedbackElement = document.getElementById('feedback');
     const nextButton = document.getElementById('nextButton');
     const englishSentenceEl = document.getElementById('english-sentence');
@@ -338,9 +341,18 @@
     function startGame() {
         isGameOver = false;
         currentTextIndex = 0;
+        lives = 3; // Reset lives to 3
         endScreen.classList.add('hide');
         gameScreen.style.display = 'flex';
         displaySentence();
+    }
+
+    /**
+     * Updates the lives display
+     */
+    function updateLivesDisplay() {
+        livesContainer.textContent = '❤️'.repeat(lives) + '🖤'.repeat(3 - lives);
+        livesContainer.classList.remove('hide');
     }
 
     /**
@@ -348,10 +360,12 @@
      */
     function displaySentence() {
         if (currentTextIndex >= sentencePairs.length) {
-            // --- Activity Complete ---
+            // --- Activity Complete (WIN) ---
             isGameOver = true;
             gameScreen.style.display = 'none';
             endScreen.classList.remove('hide');
+            document.getElementById('end-title').textContent = '🎉 You Win! 🎉';
+            document.getElementById('end-subtitle').textContent = "You've completed all the sentences!";
             return;
         }
 
@@ -364,6 +378,7 @@
 
         // --- Reset UI elements ---
         englishSentenceEl.textContent = englishSentence;
+        updateLivesDisplay(); // Show lives
         
         // Clear the wall but keep the climber
         climbWall.innerHTML = '';
@@ -382,7 +397,6 @@
         sentenceCounter.classList.remove('hide');
 
         // --- Build the Wall ---
-        // Loop for each chunk and create a row
         originalChunks.forEach((chunk, rowIndex) => {
             let climbRow = document.createElement('div');
             climbRow.classList.add('climb-row');
@@ -432,7 +446,6 @@
 
         // Check if the user clicked the *correct next row*
         if (rowIndex !== currentChunkIndex) {
-            // User clicked on a row that isn't the next one, ignore it
             return; 
         }
 
@@ -441,18 +454,14 @@
             currentChunkIndex++;
 
             // 1. Move climber
-            // Calculate new vertical position
-            // (row height * index) + platform height + some padding
             let newBottom = (currentChunkIndex * 80) + 10;
             climber.style.bottom = `${newBottom}px`;
 
-            // Calculate new horizontal position to center on the hold
             let holdRect = holdElement.getBoundingClientRect();
             let wallRect = climbWall.getBoundingClientRect();
-            // (hold's left edge - wall's left edge) + (half hold width) - (half climber width)
             let newLeft = (holdRect.left - wallRect.left) + (holdElement.offsetWidth / 2) - (climber.offsetWidth / 2);
             climber.style.left = `${newLeft}px`;
-            climber.style.transform = 'translateX(0)'; // Remove the 50% translation
+            climber.style.transform = 'translateX(0)';
 
             // 2. Check if sentence is finished
             if (currentChunkIndex === originalChunks.length) {
@@ -469,14 +478,31 @@
             holdElement.classList.add('wrong'); // Flash red
             climber.classList.add('falling'); // Start fall animation
             
-            feedbackElement.innerHTML = 'You fell! Restarting sentence...';
-            feedbackElement.style.color = 'red';
-            feedbackElement.classList.remove('hide');
+            lives--; // Lose a life
+            updateLivesDisplay();
 
-            // Restart this sentence after the fall animation
-            setTimeout(() => {
-                displaySentence(); // Re-loads the same sentence
-            }, 1500); // 1.5 second delay for fall
+            if (lives > 0) {
+                // --- RESTART SENTENCE ---
+                feedbackElement.innerHTML = 'You fell! Restarting sentence...';
+                feedbackElement.style.color = 'red';
+                feedbackElement.classList.remove('hide');
+
+                setTimeout(() => {
+                    displaySentence(); // Re-loads the same sentence
+                }, 1500); // 1.5 second delay for fall
+            } else {
+                // --- GAME OVER ---
+                feedbackElement.innerHTML = 'Out of lives! Game Over.';
+                feedbackElement.style.color = 'red';
+                feedbackElement.classList.remove('hide');
+
+                setTimeout(() => {
+                    gameScreen.style.display = 'none';
+                    endScreen.classList.remove('hide');
+                    document.getElementById('end-title').textContent = '😞 Game Over 😞';
+                    document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
+                }, 1500); // 1.5 second delay for fall
+            }
         }
     }
 
@@ -492,7 +518,7 @@
      * Called by "Restart" button on the end screen.
      */
     function resetActivity() {
-        shuffleArray(sentencePairs);
+        // startGame() handles resetting lives and all other variables
         startGame();
     }
 
