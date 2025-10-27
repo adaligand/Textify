@@ -225,14 +225,16 @@
             bottom: 5px;
             left: 50%;
 
+            /* Separate transition for regular movement */
             transition: bottom 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out;
         }
 
         #climber-img.falling {
-            bottom: -50px;
+            bottom: -60px; /* Fall completely off screen */
             /* SLOWER FALL ANIMATION */
-            transition: bottom 2.0s ease-in, left 0.5s linear;
+            transition: bottom 2.0s ease-in, left 0.5s linear; /* Only animate bottom and left during fall */
         }
+
 
         /* --- END NEW STYLES --- */
 
@@ -313,7 +315,7 @@
     var currentChunkIndex = 0;
     var sentencePairs = [];
     var allFrenchWords = [];
-    var isGameOver = false;
+    var isGameOver = false; // Used to prevent clicks during animations/transitions
     var lives = 3;
     var sentenceTimerId = null;
     var remainingTime = 60;
@@ -483,9 +485,22 @@
 
         // Reset climber position to start platform
         climber.classList.remove('falling');
-        climber.style.bottom = `5px`;
-        climber.style.left = '50%';
-        climber.style.transform = 'translateX(-50%)';
+        // We need to slightly delay resetting the position if rebuilding after a fall
+        // But for initial load or next sentence, set it immediately.
+        setTimeout(() => {
+             // Check if it's currently falling; if so, the timeout in triggerFall handles reset
+            if (!climber.classList.contains('falling')) {
+                climber.style.transition = 'none'; // Temporarily disable transition for snap
+                climber.style.bottom = `5px`;
+                climber.style.left = '50%';
+                climber.style.transform = 'translateX(-50%)';
+                // Force reflow/repaint
+                climber.offsetHeight;
+                // Re-enable transition
+                climber.style.transition = 'bottom 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out';
+            }
+        }, 0); // Small delay
+
 
         // Move controls back to their original/hidden places
         bottomControlsWrapper.appendChild(feedbackElement); // Ensure feedback is at bottom initially
@@ -595,8 +610,8 @@
     }
 
     /**
-     * Handles fall animation, updates lives, restarts sentence (with reshuffle), or ends game.
-     * UPDATED: Correctly calls displaySentence AFTER the fall animation timeout.
+     * Handles fall animation, updates lives, resets climber and state (NO reshuffle), or ends game.
+     * CORRECTED: Does NOT call displaySentence() on restart. Only resets state.
      */
     function triggerFall(wrongHoldElement) {
          if (isGameOver) return; // Prevent multiple triggers
@@ -624,14 +639,32 @@
             }
             feedbackElement.classList.remove('hide'); // Show feedback at bottom
 
-            // After the fall animation finishes, reload the sentence
+            // After the fall animation finishes, ONLY reset climber position and game state
             setTimeout(() => {
-                // Remove the 'wrong' class before rebuilding
+                climber.classList.remove('falling'); // Stop animation class
+
+                // Reset climber visual position without transition
+                climber.style.transition = 'none'; // Disable transition for snap reset
+                climber.style.bottom = `5px`;
+                climber.style.left = '50%';
+                climber.style.transform = 'translateX(-50%)';
+                // Force browser reflow to apply styles immediately
+                climber.offsetHeight;
+                // Re-enable transitions for next jump
+                 climber.style.transition = 'bottom 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out';
+
+
+                // Reset progress for this sentence
+                currentChunkIndex = 0;
+                isGameOver = false; // Unpause game
+                feedbackElement.classList.add('hide'); // Hide message
+
+                // Remove 'wrong' class from the hold if it exists
                 if(wrongHoldElement) {
-                     wrongHoldElement.classList.remove('wrong');
+                    wrongHoldElement.classList.remove('wrong');
                 }
-                // This call rebuilds the wall, resets climber, and restarts timer
-                displaySentence();
+                startSentenceTimer(); // Restart timer for this sentence attempt
+
             }, FALL_ANIMATION_DURATION); // Wait for animation to finish
 
         } else {
