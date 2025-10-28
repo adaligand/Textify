@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rock Climb</title>
+    <title>Rock1 Climb</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         :root {
@@ -464,110 +464,115 @@
     }
 
 /**
-     * Sets up the UI for the current sentence.
-     * This function now fully rebuilds the wall each time it's called.
-     */
-    function displaySentence() {
-        if (currentTextIndex >= sentencePairs.length) {
-            // --- Activity Complete (WIN) ---
-            isGameOver = true;
-            stopSentenceTimer();
-            gameScreen.style.display = 'none';
-            endScreen.classList.remove('hide');
-            document.getElementById('end-title').textContent = '🎉 You Win! 🎉';
-            document.getElementById('end-subtitle').textContent = "You've completed all the sentences!";
-            return;
-        }
+ * Sets up the UI for the current sentence.
+ * This function now fully rebuilds the wall each time it's called.
+ */
+function displaySentence() {
+    if (currentTextIndex >= sentencePairs.length) {
+        // --- Activity Complete (WIN) ---
+        isGameOver = true;
+        stopSentenceTimer();
+        gameScreen.style.display = 'none';
+        endScreen.classList.remove('hide');
+        document.getElementById('end-title').textContent = '🎉 You Win! 🎉';
+        document.getElementById('end-subtitle').textContent = "You've completed all the sentences!";
+        return;
+    }
 
-        // --- Setup for new sentence ---
-        isGameOver = false; // Reset game over state for the new sentence
-        var englishSentence = sentencePairs[currentTextIndex].english;
-        var frenchSentence = sentencePairs[currentTextIndex].french;
-        originalChunks = getWordChunks(frenchSentence);
-        currentChunkIndex = 0; // Reset progress for the new sentence
+    // --- Setup for new sentence ---
+    isGameOver = false; // Reset game over state for the new sentence
+    var englishSentence = sentencePairs[currentTextIndex].english;
+    var frenchSentence = sentencePairs[currentTextIndex].french;
+    originalChunks = getWordChunks(frenchSentence);
+    currentChunkIndex = 0; // Reset progress for the new sentence
 
-        // --- Reset UI elements ---
-        englishSentenceEl.textContent = englishSentence;
-        updateLivesDisplay();
+    // --- Reset UI elements ---
+    englishSentenceEl.textContent = englishSentence;
+    updateLivesDisplay();
 
-        // ---
-        // ✅ **START: THE FIX**
-        // Clear the wall (rows, platforms) BUT keep the climber
-        // This prevents the climber from "blinking" or stopping its animation
-        const children = Array.from(climbWall.children);
-        children.forEach(child => {
-            if (child.id !== 'climber-img') {
-                climbWall.removeChild(child);
+    // ---
+    // ✅ **START: THE FIX**
+    // Clear the wall (rows, platforms) BUT keep the climber
+    const children = Array.from(climbWall.children);
+    children.forEach(child => {
+        if (child.id !== 'climber-img') {
+            climbWall.removeChild(child);
+        }
+    });
+    // ✅ **END: THE FIX**
+    // ---
+
+    // ✅ **START: NEW RESET LOGIC**
+    // Reset climber position to start platform
+    climber.classList.remove('falling'); // Remove the class
+    climber.style.transition = 'none'; // Use inline style to disable transitions
+    
+    // Snap to bottom
+    climber.style.bottom = `5px`;
+    climber.style.left = '50%';
+    climber.style.transform = 'translateX(-50%)';
+    
+    // Force browser to apply the snap
+    climber.offsetHeight; 
+    
+    // Remove the inline style, allowing the base CSS transition to take over
+    climber.style.transition = ''; 
+    // ✅ **END: NEW RESET LOGIC**
+
+
+    // Move controls back to their original/hidden places
+    bottomControlsWrapper.appendChild(feedbackElement); // Ensure feedback is at bottom initially
+    buttonPen.appendChild(nextButton); // Ensure next button is hidden initially
+    feedbackElement.classList.add('hide'); // Hide feedback
+    nextButton.classList.add('hide'); // Hide next button
+
+    sentenceCounter.textContent = (currentTextIndex + 1) + '/' + sentencePairs.length;
+    sentenceCounter.classList.remove('hide');
+
+    // --- Build the Wall ---
+    let startPlatform = document.createElement('div');
+    startPlatform.classList.add('climb-row', 'start-platform');
+    startPlatform.textContent = 'BASE CAMP';
+    climbWall.appendChild(startPlatform);
+
+    originalChunks.forEach((chunk, rowIndex) => {
+        let climbRow = document.createElement('div');
+        climbRow.classList.add('climb-row');
+        climbRow.dataset.rowIndex = rowIndex;
+
+        let correctAnswer = chunk.join(' ');
+        let options = [correctAnswer];
+
+        while (options.length < 4) {
+            let randomWord = allFrenchWords[Math.floor(Math.random() * allFrenchWords.length)];
+            if (!options.includes(randomWord) && randomWord.toLowerCase() !== correctAnswer.toLowerCase()) {
+                options.push(randomWord);
             }
+        }
+        shuffleArray(options); // Options are shuffled here
+
+        options.forEach(optionText => {
+            let hold = document.createElement('div');
+            hold.classList.add('hold-option');
+            hold.textContent = optionText;
+            hold.dataset.isCorrect = (optionText === correctAnswer);
+            hold.onclick = function() { checkAnswer(this); };
+            climbRow.appendChild(hold);
         });
-        // The climber is already a child of climbWall, no need to re-add it.
-        // ✅ **END: THE FIX**
-        // ---
 
-        // Reset climber position to start platform
-        climber.classList.remove('falling'); // IMPORTANT: Remove falling class *before* resetting position
-        climber.style.transition = 'none'; // Temporarily disable transition for snap reset
-        climber.style.bottom = `5px`;
-        climber.style.left = '50%';
-        climber.style.transform = 'translateX(-50%)';
-         // Force reflow/repaint to apply snap reset
-        climber.offsetHeight;
-        // Re-enable transition for future jumps
-        climber.style.transition = 'bottom 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out';
+        climbWall.appendChild(climbRow);
+    });
 
-        // Move controls back to their original/hidden places
-        bottomControlsWrapper.appendChild(feedbackElement); // Ensure feedback is at bottom initially
-        buttonPen.appendChild(nextButton); // Ensure next button is hidden initially
-        feedbackElement.classList.add('hide'); // Hide feedback
-        nextButton.classList.add('hide'); // Hide next button
+    let finishLine = document.createElement('div');
+    finishLine.classList.add('climb-row', 'finish-line');
+    finishLine.innerHTML = `
+        <span>FINISH LINE</span>
+        <div id="finish-controls-placeholder"></div>
+    `;
+    climbWall.appendChild(finishLine);
 
-        sentenceCounter.textContent = (currentTextIndex + 1) + '/' + sentencePairs.length;
-        sentenceCounter.classList.remove('hide');
-
-        // --- Build the Wall ---
-        let startPlatform = document.createElement('div');
-        startPlatform.classList.add('climb-row', 'start-platform');
-        startPlatform.textContent = 'BASE CAMP';
-        climbWall.appendChild(startPlatform);
-
-        originalChunks.forEach((chunk, rowIndex) => {
-            let climbRow = document.createElement('div');
-            climbRow.classList.add('climb-row');
-            climbRow.dataset.rowIndex = rowIndex;
-
-            let correctAnswer = chunk.join(' ');
-            let options = [correctAnswer];
-
-            while (options.length < 4) {
-                let randomWord = allFrenchWords[Math.floor(Math.random() * allFrenchWords.length)];
-                if (!options.includes(randomWord) && randomWord.toLowerCase() !== correctAnswer.toLowerCase()) {
-                    options.push(randomWord);
-                }
-            }
-            shuffleArray(options); // Options are shuffled here
-
-            options.forEach(optionText => {
-                let hold = document.createElement('div');
-                hold.classList.add('hold-option');
-                hold.textContent = optionText;
-                hold.dataset.isCorrect = (optionText === correctAnswer);
-                hold.onclick = function() { checkAnswer(this); };
-                climbRow.appendChild(hold);
-            });
-
-            climbWall.appendChild(climbRow);
-        });
-
-        let finishLine = document.createElement('div');
-        finishLine.classList.add('climb-row', 'finish-line');
-        finishLine.innerHTML = `
-            <span>FINISH LINE</span>
-            <div id="finish-controls-placeholder"></div>
-        `;
-        climbWall.appendChild(finishLine);
-
-        startSentenceTimer(); // Start timer for the new sentence
-    }
+    startSentenceTimer(); // Start timer for the new sentence
+}
     function checkAnswer(holdElement) {
         if (isGameOver) return;
 
@@ -621,57 +626,56 @@
     }
 
 function triggerFall(wrongHoldElement) {
-    if (isGameOver) return;
+    if (isGameOver) return;
 
-    isGameOver = true;
-    stopSentenceTimer();
+    isGameOver = true;
+    stopSentenceTimer();
 
-    if (wrongHoldElement) wrongHoldElement.classList.add('wrong');
+    if (wrongHoldElement) wrongHoldElement.classList.add('wrong');
 
-    // Set transition to fall type
-    climber.style.transition = 'bottom 1.8s ease-in, left 0.5s linear';
+    // ✅ **START: NEW ANIMATION LOGIC**
+    // Remove any inline transition style to let the CSS class's transition take over
+    climber.style.transition = ''; 
 
-    // Force repaint to commit transition before applying class
-    void climber.offsetWidth;
+    // Force repaint to make sure the browser is ready
+    void climber.offsetWidth;
 
-    // Apply the falling class to start CSS transition
-    climber.classList.add('falling');
+    // Apply the falling class. The CSS rule for .falling
+    // will now apply its own transition (bottom 1.8s) and bottom: -80px.
+    climber.classList.add('falling');
+    // ✅ **END: NEW ANIMATION LOGIC**
 
-    lives--;
-    updateLivesDisplay();
+    lives--;
+    updateLivesDisplay();
 
-    if (lives > 0) {
-        feedbackElement.innerHTML = wrongHoldElement
-            ? 'You fell! Try this sentence again.'
-            : 'Time\'s up! You fell!';
-        feedbackElement.style.color = 'red';
-        feedbackElement.classList.remove('hide');
+    if (lives > 0) {
+        feedbackElement.innerHTML = wrongHoldElement
+            ? 'You fell! Try this sentence again.'
+            : 'Time\'s up! You fell!';
+        feedbackElement.style.color = 'red';
+        feedbackElement.classList.remove('hide');
 
-        // Wait for fall animation before rebuilding wall
-        setTimeout(() => {
-            // ✅ **CLEANUP:**
-            // No need to reset climber here, displaySentence() handles it all.
-            if (wrongHoldElement) wrongHoldElement.classList.remove('wrong');
-            displaySentence(); // ← rebuilds, reshuffles, and resets climber
-        }, 2000); // wait for animation to finish
+        // Wait for fall animation (1.8s) before rebuilding wall (2s)
+        setTimeout(() => {
+            if (wrongHoldElement) wrongHoldElement.classList.remove('wrong');
+            displaySentence(); // ← rebuilds, reshuffles, and resets climber
+        }, 2000); // This MUST be >= the CSS transition duration (1.8s)
 
-    } else {
-        feedbackElement.innerHTML = 'Out of lives! Game Over.';
-        feedbackElement.style.color = 'red';
-        feedbackElement.classList.remove('hide');
+    } else {
+        feedbackElement.innerHTML = 'Out of lives! Game Over.';
+        feedbackElement.style.color = 'red';
+        feedbackElement.classList.remove('hide');
 
-        setTimeout(() => {
-            // ✅ **CLEANUP:**
-            // Just remove the falling class before hiding the screen
-            climber.classList.remove('falling');
-            gameScreen.style.display = 'none';
-            endScreen.classList.remove('hide');
-            document.getElementById('end-title').textContent = '😞 Game Over 😞';
-            document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
-        }, 2000);
-    }
+        setTimeout(() => {
+            // No need to remove .falling, displaySentence will do it
+            // if we were to restart. But here, we just hide the screen.
+            gameScreen.style.display = 'none';
+            endScreen.classList.remove('hide');
+            document.getElementById('end-title').textContent = '😞 Game Over 😞';
+            document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
+        }, 2000);
+    }
 }
-
     function nextText() {
         stopSentenceTimer(); // Stop timer before loading next
         currentTextIndex++;
