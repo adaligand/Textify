@@ -41,7 +41,7 @@
  .cell img { 
   width: 100%; 
   height: 100%; 
-  object-fit: contain;
+  object-fit: contain; /* This is the change */
   border-radius: 10px; 
 }
   .overlay { 
@@ -90,7 +90,7 @@
     cursor:pointer; 
     display:none;
   }
-
+ 
   /* ✅ ADDED: Styles for the new game mode selector */
   #controls { margin: 15px 0; }
   #controls label { margin-right: 10px; font-size: 1.1em; }
@@ -130,7 +130,6 @@ const containerDiv = document.getElementById('container');
 
 // ✅ ADDED: New state variables for CPU game
 let playerMode = 'pvp';
-let isComputerTurn = false;
 const playerModeSelect = document.getElementById('player-mode');
 
 
@@ -145,7 +144,7 @@ if (!sheetUrl) {
         header: false,
         skipEmptyLines: true,
         complete: function(results) {
-            allItemPairs = []; // Clear for restarts
+            allItemPairs = []; // ✅ ADDED: Clear array on reload
             results.data.forEach((row, index) => {
                 if (index === 0) return;
                 if (row[1] && row[2]) {
@@ -157,6 +156,7 @@ if (!sheetUrl) {
                 document.querySelector('.game-wrapper').innerHTML = "<h1>⚠️ Not enough data. The game requires at least 9 rows in the spreadsheet.</h1>";
                 return;
             }
+
             generateGame();
         },
         error: function(err) {
@@ -195,9 +195,8 @@ function checkWinner(){
     if(cells[a] && cells[a]===cells[b] && cells[a]===cells[c]){
       // 🔶 MODIFIED: To show "Computer" as winner
       turnDiv.textContent = (playerMode === 'pvc' && cells[a] === 'O' ? 'Computer' : (cells[a] === 'X' ? 'Player X' : 'Player O')) + " wins!";
-      gameOver = true;
+  _     gameOver = true;
       restartBtn.style.display = "inline-block";
-      containerDiv.style.pointerEvents = 'auto'; // Ensure interaction is re-enabled
       return true;
     }
   }
@@ -205,7 +204,6 @@ function checkWinner(){
     turnDiv.textContent = "It's a draw!";
     gameOver = true;
     restartBtn.style.display = "inline-block";
-    containerDiv.style.pointerEvents = 'auto';
   }
   return false;
 }
@@ -216,13 +214,10 @@ function generateGame(){
   turn = 'X';
   gameOver = false;
   restartBtn.style.display = "none";
-  containerDiv.style.pointerEvents = 'auto'; // Ensure UI is enabled
+  containerDiv.style.pointerEvents = 'auto'; // ✅ ADDED: Ensure UI is enabled
 
-  // ✅ ADDED: Read player mode and reset CPU state
+  // 🔶 MODIFIED: Read player mode and set turn text
   playerMode = playerModeSelect.value;
-  isComputerTurn = false;
-  
-  // 🔶 MODIFIED: Use new text function
   updateTurnText();
 
   let selected = shuffle([...allItemPairs]).slice(0,9);
@@ -235,7 +230,7 @@ function generateGame(){
     cell.className = 'cell';
     cell.dataset.word = pair.word;
 
-    const img = document.createElement('img');
+  s   const img = document.createElement('img');
     img.src = pair.img;
     cell.appendChild(img);
 
@@ -251,7 +246,6 @@ function generateGame(){
     cell.addEventListener('drop',e=>{
       // 🔶 MODIFIED: Add guards for CPU turn
       if(gameOver || (playerMode === 'pvc' && turn === 'O')) return;
-
       const dragged = e.dataTransfer.getData('text');
       const wordEl = document.querySelector(`.word[data-word='${dragged}']`);
       
@@ -267,8 +261,9 @@ function generateGame(){
       } else {
         overlay.style.opacity='0.7';
         setTimeout(()=>overlay.style.opacity='0',500);
-        if(wordEl) wordsDiv.appendChild(wordEl);
+        if(wordEl) wordsDiv.appendChild(wordEl); // Don't remove, just put back
         
+        // 🔶 MODIFIED: A wrong move *still* passes the turn
         turn = turn==='X'?'O':'X';
         updateTurnText();
         checkComputerMove(); // ✅ ADDED: Check if CPU should move
@@ -291,21 +286,21 @@ function generateGame(){
   });
 }
 
-// --- ✅ ADDED: COMPUTER LOGIC FUNCTIONS ---
+// --- ✅ ADDED: ALL COMPUTER LOGIC FUNCTIONS ---
 
 /**
  * Checks if it's the computer's turn and triggers its move.
  */
 function checkComputerMove() {
     if (!gameOver && playerMode === 'pvc' && turn === 'O') {
-        isComputerTurn = true;
-        containerDiv.style.pointerEvents = 'none'; // Disable player moves
+        containerDiv.style.pointerEvents = 'none'; // Disable player drag/drop
         setTimeout(computerMove, 800); // Give a short delay for effect
     }
 }
 
 /**
  * The CPU's "brain". Finds and makes the best possible move.
+ * This is modified to work with the drag/drop logic.
  */
 function computerMove() {
     if (gameOver) return;
@@ -325,29 +320,47 @@ function computerMove() {
             const randomCell = availableCells[Math.floor(Math.random() * availableCells.length)];
             const correctWord = randomCell.dataset.word;
             const wordEl = document.querySelector(`.word[data-word='${correctWord}']`);
-            if (wordEl) {
+            if (wordEl) { // Check if word is still available
                 move = { cell: randomCell, wordEl: wordEl };
             }
         }
     }
     
+    // If still no move (e.g., all words used wrong), pick any available spot
+    if (!move) {
+         const availableCells = [...document.querySelectorAll('.cell')].filter(c => !c.querySelector('.mark').textContent);
+         if (availableCells.length > 0) {
+            const randomCell = availableCells[Math.floor(Math.random() * availableCells.length)];
+            const correctWord = randomCell.dataset.word;
+            const wordEl = document.querySelector(`.word[data-word='${correctWord}']`);
+            // This time, it's okay if wordEl is null, the move is just placing a mark
+            move = { cell: randomCell, wordEl: wordEl }; 
+         }
+    }
+
     // Make the move
-    if (move && move.cell && move.wordEl) {
+    if (move && move.cell) {
         const mark = move.cell.querySelector('.mark');
-        mark.textContent = 'O'; // CPU is 'O'
-        mark.style.color = 'rgba(100,100,255,0.7)';
-        move.wordEl.remove(); // Remove the word from the list
+        if (!mark.textContent) { // Final check
+            mark.textContent = 'O'; // CPU is 'O'
+            mark.style.color = 'rgba(100,100,255,0.7)';
+            if (move.wordEl) {
+                move.wordEl.remove(); // Remove the word from the list
+            }
+        }
         
         if (!checkWinner()) {
             turn = 'X'; // Back to player
             updateTurnText();
-            isComputerTurn = false;
             containerDiv.style.pointerEvents = 'auto'; // Re-enable player moves
         }
     } else {
-        // Fallback in case no move can be made (e.g., words bug)
-        isComputerTurn = false;
+        // Fallback in case no move can be made
         containerDiv.style.pointerEvents = 'auto';
+        if (!checkWinner() && !gameOver) { // check if draw
+             turn = 'X';
+             updateTurnText();
+        }
     }
 }
 
@@ -371,27 +384,30 @@ function findBestMove(player) {
         const [cellA, cellB, cellC] = [cells[a], cells[b], cells[c]];
         
         // Find the empty spot in a "two-in-a-row" pattern
-        if (spots[0] === player && spots[1] === player && !spots[2]) {
-            const wordEl = document.querySelector(`.word[data-word='${cellC.dataset.word}']`);
-            if (wordEl) return { cell: cellC, wordEl: wordEl };
-        }
-        if (spots[0] === player && spots[2] === player && !spots[1]) {
-            const wordEl = document.querySelector(`.word[data-word='${cellB.dataset.word}']`);
-            if (wordEl) return { cell: cellB, wordEl: wordEl };
-        }
-        if (spots[1] === player && spots[2] === player && !spots[0]) {
-            const wordEl = document.querySelector(`.word[data-word='${cellA.dataset.word}']`);
-            if (wordEl) return { cell: cellA, wordEl: wordEl };
+        let targetCell = null;
+        if (spots[0] === player && spots[1] === player && !spots[2]) targetCell = cellC;
+        if (spots[0] === player && spots[2] === player && !spots[1]) targetCell = cellB;
+        if (spots[1] === player && spots[2] === player && !spots[0]) targetCell = cellA;
+
+        if (targetCell) {
+            const wordEl = document.querySelector(`.word[data-word='${targetCell.dataset.word}']`);
+            // We can play here even if the word isn't available (blocking a wrong-move win)
+            // But we prefer to play if the word IS available
+            if (wordEl) {
+                return { cell: targetCell, wordEl: wordEl };
+            }
+            // If word not available, still return the cell
+            return { cell: targetCell, wordEl: null };
         }
     }
     return null; // No winning/blocking move found
 }
 // --- END COMPUTER LOGIC ---
 
-restartBtn.addEventListener('click', generateGame);
+restartBtn.addEventListener('click',generateGame);
+
 // ✅ ADDED: Listen for game mode changes to restart the game
 playerModeSelect.addEventListener('change', generateGame);
-
 </script>
 </body>
 </html>
