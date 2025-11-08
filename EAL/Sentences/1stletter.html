@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>First Letters</title> <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+    /* Body styles */
+    body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+        box-sizing: border-box;
+    }
+    /* Game wrapper */
+    .game-wrapper {
+        background-color: white;
+        padding: 20px 40px;
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        width: 100%;
+        max-width: 900px;
+    }
+    .container { width: 100%; padding: 20px; box-sizing: border-box; font-size: 16px; }
+    .title { font-size: 40px; font-weight: bold; text-align: center; margin-bottom: 20px; }
+    .subtitle { font-size: 20px; margin-bottom: 10px; text-align: center; }
+    .counter { font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 10px; }
+    .sentence-wrapper { text-align: center; margin-bottom: 20px; }
+    .sentence { display: inline-block; font-size: 24px; line-height: 1.6; }
+    
+    /* Clue styles */
+    .clue-container {
+        text-align: center;
+        margin-bottom: 20px;
+        min-height: 100px; 
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px; 
+    }
+    .clue-image {
+        max-height: 100px; 
+        max-width: 32%;   
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        object-fit: contain; 
+    }
+
+    /* Input styles */
+    .missing-word { width: 20px; padding: 0; font-size: 24px; border: none; border-bottom: 1.5px solid #000; background-color: transparent; outline: none; margin-right: 2px; text-align: center; display: inline-block; }
+    .correct { background-color: #cef4ce; color: green; }
+    .incorrect { background-color: #ffb6c19c; color: red; }
+    
+    /* Button styles */
+    button { padding: 5px 20px; border-radius: 10px; border: 2px solid #ccc; background: #f9f9f9; cursor: pointer; margin-left: 5px; display: inline-block; vertical-align: middle; font-size: 24px;}
+        button:hover { background-color: #A9A9A9; transform: translateY(-2px); }
+    .hide { display: none; }
+</style>
+</head>
+<body>
+<div class="game-wrapper">
+    <div class="container">
+      <div class="title">First Letters Only</div>
+      <div class="subtitle">Fill in the rest of the word.</div>
+      
+      <div class="counter" id="sentenceCounter"></div>
+      <div id="exerciseOutput" class="sentence-wrapper"></div>
+      <button id="resetButton" class="hide" onclick="initializeExercise()">Restart Game</button>
+    </div>
+</div>
+
+<script>
+var currentTextIndex = 0;
+var allSentences = [];
+var sentencePairs = []; 
+// ✅ The 'vowels' array is no longer needed
+
+const params = new URLSearchParams(window.location.search);
+const sheetUrl = params.get('sheet');
+
+if (!sheetUrl) {
+    document.querySelector('.container').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
+} else {
+    // Load and parse data
+    Papa.parse(sheetUrl, {
+        download: true,
+        header: false,
+        skipEmptyLines: true,
+        complete: function(results) {
+            results.data.forEach((row, index) => {
+                if (index === 0) return; // Skip header
+
+                let sentence = row[5];
+                let clues = row[6] ? row[6].trim() : ''; 
+
+                if (sentence && sentence.trim()) {
+                    allSentences.push({ 
+                        sentence: sentence.trim(),
+                        clues: clues
+                    });
+                }
+            });
+
+            if (allSentences.length === 0) {
+                document.querySelector('.container').innerHTML = "<h1>⚠️ No data found in Column F.</h1>";
+                return;
+            }
+            initializeExercise();
+        },
+        error: function(err) {
+            console.error(err);
+            document.querySelector('.container').innerHTML = "<h1>⚠️ Error loading CSV file.</h1>";
+        }
+    });
+}
+
+function initializeExercise() {
+  sentencePairs = shuffleArray([...allSentences]).slice(0, 10);
+  currentTextIndex = 0;
+  document.getElementById('resetButton').classList.add('hide');
+  generateChunk();
+}
+
+function shuffleArray(array){
+  for(var i=array.length-1;i>0;i--){
+    var j=Math.floor(Math.random()*(i+1));
+    [array[i],array[j]]=[array[j],array[i]];
+  }
+  return array;
+}
+
+/**
+ * ✅ THIS IS THE UPDATED FUNCTION
+ * Generates the game chunk, now only keeping the first letter of each word.
+ */
+function generateChunk(){
+  if (currentTextIndex >= sentencePairs.length) {
+      document.getElementById('exerciseOutput').innerHTML = "<h2>🎉 Well done!</h2>";
+      document.getElementById('resetButton').classList.remove('hide');
+      document.getElementById('sentenceCounter').textContent = "";
+      return;
+  }
+
+  var sentenceObj = sentencePairs[currentTextIndex];
+  var exerciseOutput = document.getElementById('exerciseOutput');
+  exerciseOutput.innerHTML = '';
+
+  /* Clue display logic (unchanged) */
+  if (sentenceObj.clues && sentenceObj.clues.trim() !== '') {
+      var clueContainer = document.createElement('div');
+      clueContainer.classList.add('clue-container');
+      var imageUrls = sentenceObj.clues.split(/[\s,]+/).filter(url => url.length > 0);
+      imageUrls.forEach(url => {
+          var img = document.createElement('img');
+          img.src = url;
+          img.alt = 'Clue Image';
+          img.classList.add('clue-image');
+          clueContainer.appendChild(img);
+      });
+      exerciseOutput.appendChild(clueContainer);
+  }
+  /* End clue logic */
+
+
+  var sentenceDiv = document.createElement('div');
+  sentenceDiv.classList.add('sentence');
+  var sentenceWithInputs = '';
+
+  // ✅ UPDATED LOGIC: Keep only the first letter of each word
+  for(var i=0;i<sentenceObj.sentence.length;i++){
+    var char = sentenceObj.sentence[i];
+    // Get the previous character, or a space if it's the first character
+    var prevChar = (i === 0) ? ' ' : sentenceObj.sentence[i-1]; 
+    
+    var isLetter = /[a-zA-Z]/.test(char);
+    var isPrevCharLetter = /[a-zA-Z]/.test(prevChar);
+
+    if (isLetter && isPrevCharLetter) {
+      // This is a letter, and the one before it was also a letter
+      // This is NOT the first letter, so make an input.
+      sentenceWithInputs += `<input type="text" class="missing-word" data-index="${i}" oninput="validateCharacter(this)">`;
+    } else {
+      // This is EITHER:
+      // 1. The first letter of a word (isLetter=true, isPrevCharLetter=false)
+      // 2. A space or punctuation (isLetter=false)
+      // In both cases, we just display the character.
+      sentenceWithInputs += char;
+    }
+  }
+  // ✅ END UPDATED LOGIC
+  
+  sentenceDiv.innerHTML = sentenceWithInputs;
+
+  var nextBtn = document.createElement('button');
+  nextBtn.id='nextButton';
+  nextBtn.textContent='Next';
+  nextBtn.onclick = nextText;
+  nextBtn.classList.add('hide');
+  sentenceDiv.appendChild(nextBtn);
+
+  exerciseOutput.appendChild(sentenceDiv); 
+
+  document.getElementById('sentenceCounter').textContent = (currentTextIndex+1)+'/'+sentencePairs.length;
+
+  var firstInput = sentenceDiv.querySelector('.missing-word');
+  if(firstInput) firstInput.focus();
+}
+
+// All functions below are unchanged and work with the new logic
+function validateCharacter(input){
+  var index = input.getAttribute('data-index');
+  var correctChar = sentencePairs[currentTextIndex].sentence[index];
+  input.classList.remove('correct','incorrect');
+  if(input.value.trim()==='') return;
+  if(input.value.toLowerCase() === correctChar.toLowerCase()) input.classList.add('correct');
+  else input.classList.add('incorrect');
+
+  if(input.value.length>0) jumpToNextInput(input);
+  checkAnswers();
+}
+
+function jumpToNextInput(input){
+  var inputs = Array.from(input.parentElement.querySelectorAll('.missing-word'));
+  var currentIndex = inputs.indexOf(input);
+  if (currentIndex > -1 && currentIndex < inputs.length - 1) {
+      inputs[currentIndex + 1].focus();
+  }
+}
+
+function jumpToPreviousInput(input){
+  var inputs = Array.from(input.parentElement.querySelectorAll('.missing-word'));
+  var currentIndex = inputs.indexOf(input);
+  if (currentIndex > 0) {
+      var prevInput = inputs[currentIndex - 1];
+      prevInput.focus();  
+      prevInput.value='';  
+      prevInput.classList.remove('correct','incorrect');
+  }
+}
+
+document.addEventListener('keydown', function(e){
+  var active = document.activeElement;
+  if(active && active.classList.contains('missing-word')){
+    if(e.key==='Backspace' && active.value===''){
+      e.preventDefault();
+      jumpToPreviousInput(active);
+    }
+  }
+});
+
+function checkAnswers(){
+  var sentenceDiv = document.querySelector('.sentence');
+  var inputs = sentenceDiv.querySelectorAll('.missing-word');
+  var allCorrect = true;
+  inputs.forEach(i=>{ if(!i.classList.contains('correct')) allCorrect=false; });
+  var nextBtn = document.getElementById('nextButton');
+  if(allCorrect) nextBtn.classList.remove('hide');
+  else nextBtn.classList.add('hide');
+}
+
+function nextText(){
+  currentTextIndex++;
+  generateChunk();
+}
+</script>
+</body>
+</html>
