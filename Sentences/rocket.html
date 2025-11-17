@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rocket Launch</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        :root {
+            --sky-height: 400px;
+            --rocket-start-bottom: 5%;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f8ff; /* Light blue sky background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        /* --- Game Screens --- */
+        .screen {
+            width: 95%;
+            max-width: 1000px; /* Wider for clouds */
+            padding: 20px 40px 40px 40px;
+            box-sizing: border-box;
+            background-color: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #end-screen {
+            text-align: center;
+            min-height: 400px;
+        }
+
+        #game-screen {
+            display: none;
+            width: 100%;
+        }
+        /* --- End Game Screens --- */
+
+        .title {
+            font-size: 40px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            font-size: 20px;
+            margin-bottom: 10px;
+            text-align: center;
+            min-height: 1.2em;
+        }
+
+        /* --- Game Info Header (Counter + Lives + Timer) --- */
+        .game-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 0 10px;
+            width: 100%;
+        }
+        .counter {
+            font-size: 24px;
+            font-weight: bold;
+            text-align: left;
+            flex: 1;
+        }
+        #timer-display {
+             font-size: 24px;
+             font-weight: bold;
+             text-align: center;
+             flex: 1;
+             color: #555;
+        }
+        #lives-container {
+            font-size: 24px;
+            text-align: right;
+            flex: 1;
+        }
+
+        .hide {
+            display: none;
+        }
+
+        .english-sentence {
+            margin-bottom: 20px;
+            font-size: 20px;
+            padding: 10px;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            background-color: #f9f9f9;
+            text-align: center;
+            width: 100%;
+        }
+
+        /* --- NEW ROCKET LAUNCH STYLES --- */
+
+        /* The container for the rocket */
+        #sky-container {
+            position: relative;
+            width: 100%;
+            height: var(--sky-height);
+            background: linear-gradient(to top, #d4e8ff, #a3cfff); /* Sky gradient */
+            border: 2px solid #aaa;
+            border-radius: 5px;
+            box-sizing: border-box;
+            overflow: hidden; /* Important for launch animation */
+            margin-bottom: 20px;
+        }
+
+        /* Wrapper that holds the rocket image */
+        #rocket-wrapper {
+            position: absolute;
+            inset: 0;
+            overflow: visible;
+            pointer-events: none;
+        }
+
+        /* The rocket image */
+        #rocket-img {
+            position: absolute;
+            width: 60px; /* Rocket width */
+            height: auto; /* Adjust height automatically */
+            left: 50%;
+            bottom: var(--rocket-start-bottom); /* Start near the bottom */
+            transform: translateX(-50%);
+            transition: bottom 0.5s ease-in-out, transform 0.5s ease-in-out;
+            z-index: 10;
+        }
+
+        /* Animation for crashing */
+        #rocket-img.crash {
+            bottom: -150px; /* Fall off screen */
+            transform: translateX(-50%) rotate(45deg);
+            transition: bottom 1s ease-in, transform 1s ease-in;
+        }
+
+        /* Animation for successful launch */
+        #rocket-img.launch {
+            bottom: calc(var(--sky-height) + 200px); /* Fly off the top */
+            transform: translateX(-50%);
+            transition: bottom 1.5s ease-in;
+        }
+
+
+        /* Container for the cloud options */
+        #cloud-area-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap; /* Allows clouds to wrap to next line */
+            gap: 15px; /* Space between clouds */
+            padding: 10px;
+            width: 100%;
+            min-height: 120px; /* Reserve space for 2 rows of clouds */
+        }
+
+        /* Style for the "clouds" / tiles */
+        .cloud-option {
+            padding: 12px 25px;
+            font-size: 18px;
+            cursor: pointer;
+            border-radius: 30px; /* Pill shape */
+            background-color: #ffffff;
+            border: 2px solid #cce0ff;
+            color: #333;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+            transition: transform 0.2s, background-color 0.2s;
+            text-align: center;
+        }
+
+        .cloud-option:hover {
+            transform: translateY(-2px);
+            background-color: #f0f8ff;
+        }
+
+        .cloud-option.wrong {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+            transform: translateY(0);
+        }
+
+        /* --- END NEW STYLES --- */
+
+        .controls-wrapper {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+            margin-top: 15px;
+            gap: 15px;
+            min-height: 45px;
+            width: 100%;
+        }
+        .feedback {
+            font-weight: bold;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        /* Generic Button Style */
+        .btn {
+            padding: 15px 30px;
+            font-size: 20px;
+            font-weight: bold;
+            background-color: #f9f9f9;
+            border: 2px solid #ccc;
+            color: #000000;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 5px;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+        .btn:hover {
+            background-color: #e0e0e0;
+            transform: translateY(-2px);
+        }
+
+    </style>
+</head>
+<body>
+    <div id="game-screen" class="screen">
+        <div class="title">Rocket Launch</div>
+        <div class="subtitle" id="subtitle">Translate the sentence word by word.</div>
+
+        <div class="game-header">
+            <div class="counter" id="sentenceCounter"></div>
+            <div id="timer-display">1:00</div>
+            <div id="lives-container"></div>
+        </div>
+
+        <div class="english-sentence" id="english-sentence"></div>
+
+        <div id="sky-container">
+            <div id="rocket-wrapper">
+                <img id="rocket-img"
+                     src="https://cdn.pixabay.com/photo/2017/01/31/13/14/rocket-2023921_960_720.png"
+                     alt="rocket">
+            </div>
+        </div>
+
+        <div id="cloud-area-wrapper">
+            </div>
+
+
+        <div class="controls-wrapper">
+            <div id="feedback" class="feedback hide"></div>
+        </div>
+
+        <div id="button-pen" class="hide">
+             <button id="nextButton" class="btn" onclick="nextText()">Next</button>
+        </div>
+    </div>
+
+    <div id="end-screen" class="screen hide">
+        <h2 class="title" id="end-title"></h2>
+        <div class="subtitle" id="end-subtitle"></div>
+        <button id="resetButton" class="btn" onclick="resetActivity()">Restart</button>
+    </div>
+
+<script>
+    // --- Game State Variables ---
+    var currentTextIndex = 0;
+    var originalChunks = []; // Will store individual words: [['word1'], ['word2'], ...]
+    var currentChunkIndex = 0; // Tracks which word we are translating
+    var sentencePairs = [];
+    var allFrenchWords = [];
+    var isGameOver = false;
+    var lives = 3;
+    var sentenceTimerId = null;
+    var remainingTime = 60;
+    const CRASHANIMATIONDURATION = 1500; // Match CSS (1s) + buffer
+    const LAUNCHANIMATIONDURATION = 2000; // Match CSS (1.5s) + buffer
+
+    // --- DOM Elements ---
+    const gameScreen = document.getElementById('game-screen');
+    const endScreen = document.getElementById('end-screen');
+    const subtitle = document.getElementById('subtitle');
+    const rocket = document.getElementById('rocket-img'); // Renamed from climber
+    const skyContainer = document.getElementById('sky-container'); // Renamed from climbWall
+    const cloudAreaWrapper = document.getElementById('cloud-area-wrapper'); // New element
+    const sentenceCounter = document.getElementById('sentenceCounter');
+    const livesContainer = document.getElementById('lives-container');
+    const feedbackElement = document.getElementById('feedback');
+    const nextButton = document.getElementById('nextButton');
+    const englishSentenceEl = document.getElementById('english-sentence');
+    const bottomControlsWrapper = document.querySelector('.controls-wrapper');
+    const buttonPen = document.getElementById('button-pen');
+    const timerDisplay = document.getElementById('timer-display');
+
+    // --- CSV Loading ---
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    if (!sheetUrl) {
+        subtitle.textContent = "⚠️ No CSV URL provided. Please add ?sheet=YOUR_LINK to the address bar.";
+        gameScreen.style.display = 'flex';
+    } else {
+        subtitle.textContent = "Loading data...";
+        gameScreen.style.display = 'flex';
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                let wordSet = new Set();
+                results.data.forEach(row => {
+                    if (row["French sentences"] && row["English sentences"]) {
+                        const frenchSentence = row["French sentences"].trim();
+                        sentencePairs.push({
+                            english: row["English sentences"].trim(),
+                            french: frenchSentence
+                        });
+                        // Add each word individually to the wordSet
+                        frenchSentence.split(/\s+/).filter(Boolean).forEach(word => {
+                            wordSet.add(word);
+                        });
+                    }
+                });
+
+                allFrenchWords = Array.from(wordSet);
+
+                if (sentencePairs.length === 0) {
+                    subtitle.textContent = "⚠️ No data found. Check 'French sentences' and 'English sentences' headers.";
+                    return;
+                }
+                // Need at least 5 unique words to generate 1 correct + 4 wrong
+                if (allFrenchWords.length < 5) { 
+                    subtitle.textContent = "⚠️ Not enough unique words in your CSV to generate 5 options. Please add more sentences.";
+                    return;
+                }
+
+                subtitle.textContent = "Translate the sentence word by word.";
+                shuffleArray(sentencePairs);
+                startGame();
+            },
+            error: function(err) {
+                subtitle.textContent = "⚠️ Error loading the CSV file.";
+                console.error(err);
+            }
+        });
+    }
+
+    /**
+     * Called by CSV loader or Restart button.
+     */
+    function startGame() {
+        isGameOver = false;
+        currentTextIndex = 0;
+        lives = 3;
+        stopSentenceTimer();
+        shuffleArray(sentencePairs);
+
+        endScreen.classList.add('hide');
+        gameScreen.style.display = 'flex';
+        displaySentence();
+    }
+
+    function updateLivesDisplay() {
+        livesContainer.textContent = '❤️'.repeat(lives) + '🖤'.repeat(3 - lives);
+        livesContainer.classList.remove('hide');
+    }
+
+    /**
+     * Starts the timer for the current sentence
+     */
+    function startSentenceTimer() {
+        stopSentenceTimer();
+        remainingTime = 60;
+        updateTimerDisplay();
+
+        sentenceTimerId = setInterval(() => {
+            remainingTime--;
+            updateTimerDisplay();
+
+            if (remainingTime <= 0) {
+                stopSentenceTimer();
+                if (!isGameOver) {
+                    feedbackElement.innerHTML = 'Time\'s up! The rocket crashed!';
+                    triggerFailure(null); // Pass null as no specific cloud was clicked
+                }
+            }
+        }, 1000);
+    }
+
+    function stopSentenceTimer() {
+        if (sentenceTimerId) {
+            clearInterval(sentenceTimerId);
+            sentenceTimerId = null;
+        }
+    }
+
+    function updateTimerDisplay() {
+        const minutes = Math.floor(remainingTime / 60);
+        const seconds = remainingTime % 60;
+        timerDisplay.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        timerDisplay.style.color = remainingTime <= 10 ? 'red' : '#555';
+    }
+
+    /**
+    * Sets up the UI for the current sentence.
+    */
+    function displaySentence() {
+        if (currentTextIndex >= sentencePairs.length) {
+            // --- Activity Complete (WIN) ---
+            isGameOver = true;
+            stopSentenceTimer();
+            gameScreen.style.display = 'none';
+            endScreen.classList.remove('hide');
+            document.getElementById('end-title').textContent = '🎉 You Win! 🎉';
+            document.getElementById('end-subtitle').textContent = "You've completed all the sentences!";
+            return;
+        }
+
+        // --- Setup for new sentence ---
+        isGameOver = false;
+        var englishSentence = sentencePairs[currentTextIndex].english;
+        var frenchSentence = sentencePairs[currentTextIndex].french;
+        originalChunks = getWordChunks(frenchSentence); // This function now returns [['word1'], ['word2'], ...]
+        currentChunkIndex = 0; // Reset progress for the new sentence
+
+        // --- Reset UI elements ---
+        englishSentenceEl.textContent = englishSentence;
+        updateLivesDisplay();
+        
+        // Clear old clouds
+        cloudAreaWrapper.innerHTML = '';
+
+        // --- Reset Rocket Position ---
+        rocket.classList.remove('crash', 'launch');
+        rocket.style.transition = 'none'; // Disable transition for instant snap
+        
+        // Snap to bottom
+        rocket.style.bottom = `var(--rocket-start-bottom)`;
+        rocket.style.transform = 'translateX(-50%) rotate(0deg)';
+        
+        // Force browser to apply the snap
+        rocket.offsetHeight; 
+        
+        // Re-enable transitions
+        rocket.style.transition = ''; 
+
+        // --- Reset Controls ---
+        // Move controls back to their original/hidden places
+        bottomControlsWrapper.appendChild(feedbackElement);
+        buttonPen.appendChild(nextButton);
+        feedbackElement.classList.add('hide');
+        nextButton.classList.add('hide');
+
+        sentenceCounter.textContent = (currentTextIndex + 1) + '/' + sentencePairs.length;
+        sentenceCounter.classList.remove('hide');
+
+        // --- Build the first set of clouds ---
+        displayNextWordOptions();
+
+        startSentenceTimer(); // Start timer for the new sentence
+    }
+
+    /**
+     * NEW FUNCTION: Displays the clouds for the current word (currentChunkIndex)
+     */
+    function displayNextWordOptions() {
+        // Clear previous clouds
+        cloudAreaWrapper.innerHTML = ''; 
+
+        let correctAnswer = originalChunks[currentChunkIndex].join(' ');
+        let options = [correctAnswer];
+
+        // Generate 4 WRONG options (for 5 total)
+        while (options.length < 5) { 
+            let randomWord = allFrenchWords[Math.floor(Math.random() * allFrenchWords.length)];
+            // Ensure the random word is not the correct answer or already in the options
+            if (!options.includes(randomWord) && randomWord.toLowerCase() !== correctAnswer.toLowerCase()) {
+                options.push(randomWord);
+            }
+        }
+        shuffleArray(options); // Shuffle the 5 options
+
+        // Create and display cloud buttons
+        options.forEach(optionText => {
+            let cloud = document.createElement('div');
+            cloud.classList.add('cloud-option');
+            cloud.textContent = optionText;
+            cloud.dataset.isCorrect = (optionText === correctAnswer);
+            cloud.onclick = function() { checkAnswer(this); };
+            cloudAreaWrapper.appendChild(cloud);
+        });
+
+        // --- Move the rocket up based on progress ---
+        // We move it *before* the click, so the user sees the rocket at the level for the current word
+        let progress = (currentChunkIndex / originalChunks.length);
+        // Rocket moves from 5% (start) to 85% (finish)
+        let newBottom = 5 + (progress * 80); 
+        rocket.style.bottom = `${newBottom}%`;
+    }
+
+
+    /**
+     * NEW checkAnswer function logic
+     */
+    function checkAnswer(cloudElement) {
+        if (isGameOver) return; // Don't allow clicks if game is over (e.g., during crash)
+
+        let isCorrect = (cloudElement.dataset.isCorrect === 'true');
+
+        if (isCorrect) {
+            // --- CORRECT ANSWER ---
+            currentChunkIndex++;
+
+            // 1. Check if sentence is finished
+            if (currentChunkIndex === originalChunks.length) {
+                // --- SENTENCE FINISHED (LAUNCH!) ---
+                isGameOver = true;
+                stopSentenceTimer();
+                cloudAreaWrapper.innerHTML = ''; // Clear clouds
+
+                // Trigger launch animation
+                triggerLaunch(); 
+
+                // Show feedback and next button after a delay
+                setTimeout(() => {
+                    feedbackElement.textContent = 'Great launch!';
+                    feedbackElement.style.color = 'green';
+                    bottomControlsWrapper.appendChild(feedbackElement);
+                    feedbackElement.classList.remove('hide');
+
+                    buttonPen.appendChild(nextButton);
+                    nextButton.classList.remove('hide');
+                }, 1000); // Show controls after 1s
+
+            } else {
+                // --- NOT FINISHED, SHOW NEXT WORD ---
+                // Load the clouds for the *next* word
+                displayNextWordOptions();
+            }
+
+        } else {
+            // --- WRONG ANSWER ---
+            triggerFailure(cloudElement);
+        }
+    }
+
+    /**
+     * NEW FUNCTION: Triggers the rocket launch animation
+     */
+    function triggerLaunch() {
+        rocket.classList.add('launch');
+    }
+
+
+    /**
+     * MODIFIED FUNCTION: Renamed triggerFall to triggerFailure
+     */
+    function triggerFailure(wrongCloudElement) {
+        if (isGameOver) return;
+        isGameOver = true;
+        stopSentenceTimer();
+
+        if (wrongCloudElement) wrongCloudElement.classList.add('wrong');
+
+        // Reset class first to be safe
+        rocket.classList.remove('crash');
+        // Force browser reflow
+        void rocket.offsetWidth; 
+
+        // Add class to trigger CSS transition
+        requestAnimationFrame(() => {
+            rocket.classList.add('crash');
+        });
+
+        lives--;
+        updateLivesDisplay();
+
+        feedbackElement.textContent = wrongCloudElement
+            ? 'Oh no, a wrong word! Try this sentence again.'
+            : 'Time\'s up! The rocket crashed!';
+        feedbackElement.style.color = 'red';
+        feedbackElement.classList.remove('hide');
+
+        // Wait for the animation to finish before resetting.
+        setTimeout(() => {
+            if (wrongCloudElement) wrongCloudElement.classList.remove('wrong');
+
+            if (lives > 0) {
+                // Let displaySentence handle the reset.
+                displaySentence(); 
+            } else {
+                // Game over
+                rocket.classList.remove('crash'); // Clean up before end screen
+                gameScreen.style.display = 'none';
+                endScreen.classList.remove('hide');
+                document.getElementById('end-title').textContent = '😞 Game Over 😞';
+                document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
+            }
+        }, CRASHANIMATIONDURATION); 
+    }
+
+    function nextText() {
+        stopSentenceTimer(); // Stop timer before loading next
+        currentTextIndex++;
+        displaySentence(); // Load the next sentence (will also start timer)
+    }
+
+    function resetActivity() {
+        startGame(); // Resets everything including timer
+    }
+
+    // --- Utility Functions ---
+
+    /**
+     * This function already works perfectly for the new design,
+     * as it splits "hello world" into [['hello'], ['world']]
+     */
+    function getWordChunks(text) {
+        var words = text.split(/\s+/).filter(Boolean);
+        var chunks = [];
+        for (var i = 0; i < words.length; i++) {
+            chunks.push([words[i]]);
+        }
+        return chunks;
+    }
+
+    function shuffleArray(array) {
+        for (var i = array.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var temp = array[i];
+            array[i] = array[j];
+            array[j] = temp;
+        }
+        return array;
+    }
+</script>
+</body>
+</html>
