@@ -530,75 +530,87 @@
      * Strategy: append element, then try randomized pixel positions in left/right bands,
      * check bounding boxes against already placed clouds. Max attempts to avoid infinite loops.
      */
-    function placeCloudsWithoutOverlap(options) {
-        const placedBoxes = [];
-        // Need pixel dimensions of container
-        const areaRect = cloudAreaWrapper.getBoundingClientRect();
-        const areaW = areaRect.width;
-        const areaH = areaRect.height;
+   function placeCloudsWithoutOverlap(options) {
+    const placedBoxes = [];
+    const areaRect = cloudAreaWrapper.getBoundingClientRect();
+    const areaW = areaRect.width;
+    const areaH = areaRect.height;
 
-        options.forEach((optionText, index) => {
-            const cloud = document.createElement('div');
-            cloud.classList.add('cloud-option');
-            cloud.textContent = optionText;
-            // Mark correct
-            cloud.dataset.isCorrect = (optionText === originalChunks[currentChunkIndex].join(' '));
-            cloud.onclick = function() { checkAnswer(this); };
+    const SAFE_PADDING = 18; // prevents touching/overlapping
+    const MAX_ATTEMPTS = 200;
 
-            // temporarily append so getBoundingClientRect works after setting pos
-            cloudAreaWrapper.appendChild(cloud);
+    // vertical bands to distribute 8 clouds more evenly
+    const verticalBands = [
+        [0.05, 0.18],
+        [0.18, 0.33],
+        [0.33, 0.48],
+        [0.48, 0.63],
+        [0.63, 0.78],
+        [0.20, 0.40],
+        [0.40, 0.60],
+        [0.60, 0.80]
+    ];
 
-            // Choose region: first 3 to left band, last 3 to right band (but positions still randomized)
-            const isLeftBand = index < 4;
+    options.forEach((optionText, index) => {
+        const cloud = document.createElement('div');
+        cloud.classList.add('cloud-option');
+        cloud.textContent = optionText;
 
-            let placed = false;
-            let attempts = 0;
-            while (!placed && attempts < 80) {
-                attempts++;
-                // horizontal bands expressed in pixels
-                const leftPct = isLeftBand
-                    ? (0.04 + Math.random() * 0.12)  // 4% - 16%
-                    : (0.66 + Math.random() * 0.14); // 66% - 80%
-                const topPct = 0.08 + Math.random() * 0.72; // 8% - 80%
+        cloud.dataset.isCorrect = (optionText === originalChunks[currentChunkIndex].join(' '));
+        cloud.onclick = () => checkAnswer(cloud);
 
-                const leftPx = Math.round(areaW * leftPct);
-                const topPx = Math.round(areaH * topPct);
+        cloudAreaWrapper.appendChild(cloud);
 
-                cloud.style.left = leftPx + 'px';
-                cloud.style.top = topPx + 'px';
+        const isLeftBand = index < 4; // 4 left, 4 right
 
-                // measure
-                const box = cloud.getBoundingClientRect();
+        const band = verticalBands[index];
 
-                // Translate bounding rect into container-relative coords for comparisons
-                const relBox = {
-                    left: box.left - areaRect.left,
-                    top: box.top - areaRect.top,
-                    right: box.right - areaRect.left,
-                    bottom: box.bottom - areaRect.top
-                };
+        let placed = false;
+        let attempts = 0;
 
-                // check overlap with existing placedBoxes
-                let overlap = placedBoxes.some(pb => {
-                    return !(relBox.right < pb.left || 
-                             relBox.left > pb.right || 
-                             relBox.bottom < pb.top || 
-                             relBox.top > pb.bottom);
-                });
+        while (!placed && attempts < MAX_ATTEMPTS) {
+            attempts++;
 
-                if (!overlap) {
-                    placedBoxes.push(relBox);
-                    placed = true;
-                }
+            // Left or right zone
+            const leftPct = isLeftBand
+                ? (0.06 + Math.random() * 0.18)  // 6%–24%
+                : (0.68 + Math.random() * 0.20); // 68%–88%
+
+            const topPct = band[0] + Math.random() * (band[1] - band[0]);
+
+            const leftPx = areaW * leftPct;
+            const topPx = areaH * topPct;
+
+            cloud.style.left = leftPx + "px";
+            cloud.style.top = topPx + "px";
+
+            const box = cloud.getBoundingClientRect();
+
+            const relBox = {
+                left: box.left - areaRect.left - SAFE_PADDING,
+                top: box.top - areaRect.top - SAFE_PADDING,
+                right: box.right - areaRect.left + SAFE_PADDING,
+                bottom: box.bottom - areaRect.top + SAFE_PADDING
+            };
+
+            // collision check
+            let overlap = placedBoxes.some(pb => {
+                return !(
+                    relBox.right < pb.left ||
+                    relBox.left > pb.right ||
+                    relBox.bottom < pb.top ||
+                    relBox.top > pb.bottom
+                );
+            });
+
+            if (!overlap) {
+                placedBoxes.push(relBox);
+                placed = true;
             }
+        }
+    });
+}
 
-            // If couldn't place without overlap, we still leave the cloud where it last was (best-effort)
-        });
-    }
-
-    /**
-     * checkAnswer function logic
-     */
     function checkAnswer(cloudElement) {
         if (isGameOver) return;
 
