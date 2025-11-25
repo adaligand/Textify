@@ -39,7 +39,7 @@
         }
 
         #game-screen {
-            display: none; 
+            display: none; /* Will be set to flex in JS on load */
             width: 100%;
             position: relative;
         }
@@ -53,7 +53,7 @@
             height: 100%;
             z-index: 70; 
             
-            background-color: rgba(255, 255, 255, 0.6); 
+            background-color: rgba(255, 255, 255, 0.9); /* Opaque overlay */
             
             display: flex;
             flex-direction: column;
@@ -151,15 +151,15 @@
         #lives-container {
             font-size: 24px;
             text-align: right;
-            /* FIX APPLIED HERE */
             white-space: nowrap; 
             display: inline-block;
+        }
         
         /* --- END HEADER LAYOUT --- */
 
 
         .hide {
-            display: none;
+            display: none !important;
             pointer-events: none !important;
         }
 
@@ -369,12 +369,12 @@
 
             <div id="rocket-wrapper">
                 <img id="rocket-img"
-                      src="https://adaligand.github.io/Textify/Sentences/rocket.png"
-                      alt="rocket">
+                     src="https://adaligand.github.io/Textify/Sentences/rocket.png"
+                     alt="rocket">
                 <img id="explosion-gif" 
-                      src="https://adaligand.github.io/Textify/Sentences/explosion.gif" 
-                      alt="explosion" 
-                      class="hide">
+                     src="https://adaligand.github.io/Textify/Sentences/explosion.gif" 
+                     alt="explosion" 
+                     class="hide">
             </div>
             
             <div id="cloud-area-wrapper"></div>
@@ -436,7 +436,7 @@
      * Retourne un nombre aléatoire entre min (inclus) et max (exclus).
      */
     function randomInRange(min, max) {
-          return Math.random() * (max - min) + min;
+            return Math.random() * (max - min) + min;
     }
     
     /**
@@ -487,7 +487,8 @@
                     return;
                 }
                 if (allFrenchWords.length < 8) { 
-                    subtitle.textContent = "⚠️ Not enough unique words.";
+                    // This check is a bit arbitrary, assuming a decent pool of words is needed
+                    subtitle.textContent = "⚠️ Not enough unique words in CSV (need at least 8).";
                     return;
                 }
 
@@ -510,16 +511,16 @@
         currentTextIndex = 0;
         lives = 5;
         stopSentenceTimer();
-        shuffleArray(sentencePairs);
+        shuffleArray(sentencePairs); // Reshuffle sentences for a new game
 
         // --- Réinitialisation pour la nouvelle partie ---
-        rocket.style.opacity = 1; 
         rocket.classList.remove('crash', 'launch'); 
-        rocket.style.transition = 'none'; 
+        rocket.style.transition = 'none'; // Temporarily disable transition for instant reset
         rocket.style.bottom = `var(--rocket-start-bottom)`;
         rocket.style.transform = 'translateX(-50%) rotate(0deg)'; 
-        rocket.offsetHeight; 
-        rocket.style.transition = ''; 
+        rocket.style.opacity = 1; 
+        rocket.offsetHeight; // Force reflow
+        rocket.style.transition = ''; // Restore transitions
         
         explosionGif.classList.add('hide'); 
         explosionGif.style.display = 'none'; 
@@ -546,7 +547,7 @@
             if (remainingTime <= 0) {
                 stopSentenceTimer();
                 if (!isGameOver) {
-                    triggerFailure(null);
+                    triggerFailure(null); // Timeout failure
                 }
             }
         }, 1000);
@@ -647,7 +648,8 @@
         // 1. Obtenir 8 options (1 correcte + 7 fausses)
         while (options.length < 8) {
             let randomWord = allFrenchWords[Math.floor(Math.random() * allFrenchWords.length)];
-            if (!options.includes(randomWord) && randomWord.toLowerCase() !== correctAnswer.toLowerCase()) {
+            // Ensure the decoy word is not the correct answer, case-insensitive
+            if (!options.map(o => o.toLowerCase()).includes(randomWord.toLowerCase())) {
                 options.push(randomWord);
             }
         }
@@ -662,7 +664,7 @@
             { top: [ 0, 5], left: [65, 80] },  
             { top: [25, 30], left: [68, 85] },  
             { top: [50, 55], left: [65, 80] },  
-            { top: [75, 80], left: [68, 85] }    
+            { top: [75, 80], left: [68, 85] }   
         ];
         
         shuffleArray(zones);
@@ -673,7 +675,8 @@
             cloud.classList.add('cloud-option');
             cloud.textContent = optionText;
 
-            cloud.dataset.isCorrect = (optionText === correctAnswer);
+            // Use the original case for the check, but maybe a case-insensitive check is better for French
+            cloud.dataset.isCorrect = (optionText === correctAnswer).toString(); 
             cloud.onclick = () => checkAnswer(cloud);
 
             const zone = zones[index];
@@ -705,11 +708,15 @@
             // --- CORRECT ANSWER ---
             currentChunkIndex++;
             updateSubtitleWithProgress();
+            
+            // Immediately disable all cloud options to prevent multiple clicks
+            Array.from(cloudAreaWrapper.children).forEach(cloud => cloud.onclick = null);
 
            if (currentChunkIndex === originalChunks.length) {
                 // --- SENTENCE FINISHED (LAUNCH!) ---
                 stopSentenceTimer();
                 cloudAreaWrapper.innerHTML = ''; 
+                // Set bottom to empty string to let the 'launch' class take over the transition
                 rocket.style.bottom = ''; 
 
                 triggerLaunch();
@@ -722,12 +729,13 @@
                         triggerWin(); // DÉCLENCHE LA VICTOIRE GLOBALE AUTOMATIQUEMENT
                     } else {
                         // Logique pour passer à la phrase suivante (nécessite clic Next)
-                        feedbackElement.textContent = 'Great launch!';
+                        feedbackElement.textContent = 'Great launch! Ready for the next one.';
                         feedbackElement.style.color = 'green';
                         feedbackElement.classList.remove('hide');
                         nextButton.classList.remove('hide');
+                        isGameOver = true; // Prevents re-check while waiting for next button
                     }
-                }, LAUNCHANIMATIONDURATION); 
+                }, LAUNCHANIMATIONDURATION + 50); // Add a small buffer
 
             } else {
                 // --- NOT FINISHED, SHOW NEXT WORD ---
@@ -760,65 +768,77 @@
         if (isGameOver) return;
         isGameOver = true;
         stopSentenceTimer();
+        
+        // Immediately disable all cloud options
+        Array.from(cloudAreaWrapper.children).forEach(cloud => cloud.onclick = null);
 
         if (wrongCloudElement) wrongCloudElement.classList.add('wrong');
-
-        rocket.classList.remove('crash', 'launch');
-        void rocket.offsetWidth;
 
         lives--;
         updateLivesDisplay();
 
         if (lives <= 0) {
-            // --- GAME OVER (0 VIES) : EXPLOSION ET AFFICHAGE DU GIF ---
-            feedbackElement.classList.add('hide');
-
+            // --- GAME OVER (0 LIVES) : EXPLOSION ET AFFICHAGE DU GIF ---
+            
+            // Calculate explosion position at the center of the rocket
             const rocketRect = rocket.getBoundingClientRect();
             const skyRect = skyContainer.getBoundingClientRect();
-
-            const currentRocketBottom = skyRect.height - (rocketRect.bottom - skyRect.top);
-            const currentRocketLeft = rocketRect.left - skyRect.left;
-
-            const explosionSize = 100; 
-            explosionGif.style.bottom = `${currentRocketBottom - (explosionSize / 2)}px`;
-            explosionGif.style.left = `${currentRocketLeft + rocketRect.width / 2}px`;
+            
+            // Calculate rocket center position relative to sky-container
+            // rocketRect.top is absolute. rocketRect.bottom - rocketRect.height / 2 is rocket center top position
+            // skyRect.height is sky height
+            const rocketCenterY = rocketRect.top + rocketRect.height / 2;
+            const skyContainerTop = skyRect.top;
+            const skyContainerHeight = skyRect.height;
+            
+            // Bottom position is distance from bottom of sky container
+            const explosionBottom = skyContainerHeight - (rocketCenterY - skyContainerTop); 
+            
+            const rocketCenterX = rocketRect.left + rocketRect.width / 2;
+            const skyContainerLeft = skyRect.left;
+            const explosionLeft = rocketCenterX - skyContainerLeft;
+            
+            explosionGif.style.bottom = `${explosionBottom - 50}px`; // -50 to roughly center the 100px explosion gif
+            explosionGif.style.left = `${explosionLeft}px`;
             explosionGif.style.transform = `translateX(-50%)`;
 
             explosionGif.classList.remove('hide'); 
             explosionGif.style.display = 'block'; 
+            rocket.style.opacity = 0; // Hide the rocket after calculation
+            
+            feedbackElement.classList.add('hide');
+            nextButton.classList.add('hide');
 
             setTimeout(() => {
                 endScreen.classList.add('visible'); 
                 document.getElementById('end-title').textContent = '💥 Game Over 💥';
-                document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
+                document.getElementById('end-subtitle').textContent = `You completed ${currentTextIndex} out of ${sentencePairs.length} sentences.`;
             }, EXPLOSION_DURATION);
 
-            return;
-        }
+        } else {
+            // --- CRASH (Lives remaining) --- 
+            rocket.classList.remove('crash', 'launch');
+            void rocket.offsetWidth;
 
-        // --- CRASH (Reste des vies) --- 
-        requestAnimationFrame(() => {
-            rocket.classList.add('crash');
-        });
+            requestAnimationFrame(() => {
+                rocket.classList.add('crash');
+            });
 
-        feedbackElement.textContent = wrongCloudElement
-            ? 'Oh no, a wrong word! Try this sentence again.'
-            : 'Time\'s up! The rocket crashed!';
-        feedbackElement.style.color = 'red';
-        feedbackElement.classList.remove('hide');
+            feedbackElement.textContent = wrongCloudElement
+                ? 'Oh no, a wrong word! Try this sentence again.'
+                : 'Time\'s up! The rocket crashed!';
+            feedbackElement.style.color = 'red';
+            feedbackElement.classList.remove('hide');
+            nextButton.classList.add('hide'); // Ensure next button is hidden
 
-        setTimeout(() => {
-            if (wrongCloudElement) wrongCloudElement.classList.remove('wrong');
-
-            if (lives > 0) {
+            setTimeout(() => {
+                if (wrongCloudElement) wrongCloudElement.classList.remove('wrong');
+                
+                // If lives > 0 after the crash animation, restart the sentence
                 displaySentence();
-            } else {
-                rocket.classList.remove('crash');
-                endScreen.classList.add('visible'); 
-                document.getElementById('end-title').textContent = '😞 Game Over 😞';
-                document.getElementById('end-subtitle').textContent = 'You ran out of lives.';
-            }
-        }, CRASHANIMATIONDURATION);
+                
+            }, CRASHANIMATIONDURATION);
+        }
     }
     
     /**
@@ -834,12 +854,14 @@
     }
 
     function nextText() {
-        stopSentenceTimer();
-        currentTextIndex++;
-        
-        // La logique de victoire globale est maintenant gérée dans checkAnswer via triggerWin().
-        
-        displaySentence(); 
+        if (currentTextIndex + 1 < sentencePairs.length) {
+            stopSentenceTimer();
+            currentTextIndex++;
+            displaySentence(); 
+        } else {
+            // Should be handled by triggerWin, but for safety
+            triggerWin();
+        }
     }
 
     /**
@@ -848,7 +870,10 @@
     function resetActivity() {
         startGame();
     }
-
+    // Make resetActivity globally available as it's used in onclick="resetActivity()"
+    window.resetActivity = resetActivity;
+    window.nextText = nextText; // Also make nextText globally available if it's used in onclick
+    
 </script>
 </body>
 </html>
