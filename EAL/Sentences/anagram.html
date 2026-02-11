@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Anagram</title>
+    <title>Anagram with Clues</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
-        /* ✅ Updated body styles for background and centering */
         body {
             font-family: Arial, sans-serif;
             background-color: #f4f4f9;
@@ -18,7 +17,6 @@
             padding: 20px;
             box-sizing: border-box;
         }
-        /* ✅ New wrapper for the white box effect */
         .game-wrapper {
             background-color: white;
             padding: 20px 40px;
@@ -50,6 +48,26 @@
             text-align: center;
             margin-bottom: 10px;
         }
+        
+        /* ✅ New Clue Styles */
+        .clue-container {
+            text-align: center;
+            margin-bottom: 20px;
+            min-height: 120px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+        }
+        .clue-image {
+            max-height: 120px;
+            max-width: 30%;
+            border: 2px solid #eee;
+            border-radius: 10px;
+            object-fit: contain;
+            background: #fff;
+        }
+
         button {
             padding: 10px 20px;
             font-size: 14px;
@@ -69,32 +87,31 @@
         }
         .anagram-letter {
             cursor: pointer;
-            padding: 5px 10px;
-            margin: 0 5px;
-            font-size: 20px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
+            padding: 8px 15px;
+            margin: 5px;
+            font-size: 22px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
             display: inline-block;
-            margin-top: 10px;
+            background: white;
         }
         .inserted-letter {
             font-weight: normal;
+            color: #888;
         }
-        .anagram-letter:hover {
-            background-color: #f0f0f0;
-        }
-        .hide {
-            display: none;
-        }
-        .center {
-            text-align: center;
-        }
+        .hide { display: none; }
+        .center { text-align: center; }
         .sentence-row {
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
-            gap: 10px;
+            gap: 15px;
             margin-top: 15px;
+        }
+        h2#anagram {
+            font-size: 28px;
+            margin: 10px 0;
+            min-height: 40px;
         }
     </style>
 </head>
@@ -103,24 +120,28 @@
     <div class="container">
         <div class="title">Anagram</div>
         <div class="subtitle">Unjumble the words.</div>
+        
         <div class="exercise-box">
             <div class="counter" id="counter"></div>
+            
+            <div id="clue-display" class="clue-container"></div>
+
             <div class="letter-container" id="letter-container">
                 <div class="sentence-row">
                     <h2 class="center" id="anagram"></h2>
-                    <button id="next-btn" class="hide">Next</button>
+                    <button id="next-btn" class="hide">Next ➔</button>
                 </div>
                 <div id="letter-buttons"></div>
             </div>
             <div class="center" style="margin-top:20px;">
-                <button id="reset-btn" class="hide">Restart</button>
+                <button id="reset-btn" class="hide">Restart Game</button>
             </div>
         </div>
     </div>
 </div>
 
-  <script>
-    let allSentences = []; // ✅ Holds all sentences from the sheet
+<script>
+    let allData = []; 
     let currentWordIndex = 0;
     let currentWordAnagram = '';
     let currentSentenceIndex = 0;
@@ -132,27 +153,26 @@
     if (!sheetUrl) {
         document.querySelector('.container').innerHTML = "<h1>⚠️ No sheet URL provided.</h1>";
     } else {
-        // ✅ Load and parse data from the Google Sheet
         Papa.parse(sheetUrl, {
             download: true,
-            header: false, // Read by column index
+            header: false,
             skipEmptyLines: true,
             complete: function(results) {
                 results.data.forEach((row, index) => {
-                    // Skip the header row
                     if (index === 0) return;
-                    // Read sentences from Column F (index 5)
+                    // Column F (5) for Sentence, Column G (6) for Images
                     if (row[5] && row[5].trim()) {
-                        allSentences.push(row[5].trim());
+                        allData.push({
+                            text: row[5].trim(),
+                            clues: row[6] ? row[6].trim() : ''
+                        });
                     }
                 });
 
-                if (allSentences.length === 0) {
+                if (allData.length === 0) {
                     document.querySelector('.container').innerHTML = "<h1>⚠️ No data found in Column F.</h1>";
                     return;
                 }
-                
-                // ✅ Start the game after data has loaded
                 initializeGame();
             },
             error: function(err) {
@@ -168,42 +188,47 @@
         updateCounter();
     };
 
-    document.getElementById("next-btn").addEventListener("click", function() {
-        currentSentenceIndex++;
-        if (currentSentenceIndex < selectedSentences.length) {
-            updateCounter();
-            generateExercise();
-            document.getElementById("next-btn").classList.add("hide");
-        } else {
-            document.getElementById("reset-btn").classList.remove("hide");
-            document.getElementById("next-btn").classList.add("hide");
-            document.getElementById("anagram").innerHTML = "🎉 Well done!";
-            document.getElementById("letter-buttons").innerHTML = "";
+    function generateRandomOrder() {
+        const shuffled = shuffleArray([...allData]);
+        selectedSentences = shuffled.slice(0, 10);
+    }
+
+    function updateCounter() {
+        document.getElementById("counter").textContent = (currentSentenceIndex + 1) + "/" + selectedSentences.length;
+    }
+
+    function generateExercise() {
+        currentWordIndex = 0;
+        const currentData = selectedSentences[currentSentenceIndex];
+        const words = currentData.text.match(/\w+|[^\s\w]/g);
+        
+        // Initialiser l'anagramme du premier mot
+        currentWordAnagram = '*'.repeat(words[currentWordIndex].replace(/[^a-zA-Z']/ug, "").length);
+        
+        displayClues(currentData.clues);
+        displayAnagram();
+    }
+
+    function displayClues(clueString) {
+        const container = document.getElementById("clue-display");
+        container.innerHTML = '';
+        
+        if (clueString) {
+            const urls = clueString.split(',').map(url => url.trim()).filter(url => url.length > 0);
+            urls.forEach(url => {
+                const img = document.createElement("img");
+                img.src = url;
+                img.classList.add("clue-image");
+                img.onerror = function() { this.style.display = 'none'; };
+                container.appendChild(img);
+            });
         }
-    });
-
-    document.getElementById("reset-btn").addEventListener("click", function() {
-        currentSentenceIndex = 0;
-        generateRandomOrder();
-        generateExercise();
-        document.getElementById("reset-btn").classList.add("hide");
-        updateCounter();
-    });
-
-    document.addEventListener("keydown", function(event) {
-        const key = event.key.toLowerCase();
-        const letterButtons = document.querySelectorAll(".anagram-letter");
-        letterButtons.forEach(function(button) {
-            if (button.textContent.toLowerCase() === key) {
-                revealLetter(button.textContent, button);
-            }
-        });
-    });
+    }
 
     function displayAnagram() {
         const anagramContainer = document.getElementById("anagram");
         const letterButtonsContainer = document.getElementById("letter-buttons");
-        const words = selectedSentences[currentSentenceIndex].english.match(/\w+|[^\s\w]/g);
+        const words = selectedSentences[currentSentenceIndex].text.match(/\w+|[^\s\w]/g);
         let fullAnagram = '';
 
         for (let i = 0; i < words.length; i++) {
@@ -226,23 +251,21 @@
         anagramContainer.innerHTML = fullAnagram;
         letterButtonsContainer.innerHTML = '';
         
+        // Boutons de lettres pour le mot actuel
         const currentWord = words[currentWordIndex].replace(/[^a-zA-Z']/ug, "");
         const clickableLetters = shuffleArray(currentWord.split(''));
         for (let letter of clickableLetters) {
             const button = document.createElement("button");
             button.textContent = letter;
             button.classList.add("anagram-letter");
-            button.addEventListener("click", function() {
-                revealLetter(letter, button);
-            });
+            button.addEventListener("click", () => revealLetter(letter, button));
             letterButtonsContainer.appendChild(button);
         }
     }
 
     function revealLetter(letter, button) {
-        const words = selectedSentences[currentSentenceIndex].english.match(/\w+|[^\s\w]/g);
-        const word = words[currentWordIndex];
-        const wordWithoutPunctuation = word.replace(/[^a-zA-Z']/ug, "");
+        const words = selectedSentences[currentSentenceIndex].text.match(/\w+|[^\s\w]/g);
+        const wordWithoutPunctuation = words[currentWordIndex].replace(/[^a-zA-Z']/ug, "");
         const indexToReplace = currentWordAnagram.indexOf('*');
 
         if (letter.toLowerCase() === wordWithoutPunctuation[indexToReplace].toLowerCase()) {
@@ -251,18 +274,20 @@
 
             if (!currentWordAnagram.includes('*')) {
                 currentWordIndex++;
+                // Skip punctuation words
                 while (currentWordIndex < words.length && /[^a-zA-Z']/u.test(words[currentWordIndex])) {
                     currentWordIndex++;
                 }
+                
                 if (currentWordIndex < words.length) {
                     currentWordAnagram = '*'.repeat(words[currentWordIndex].replace(/[^a-zA-Z']/ug, "").length);
                     displayAnagram();
                 } else {
-                    document.getElementById("anagram").textContent = selectedSentences[currentSentenceIndex].english;
-                    document.getElementById("letter-buttons").innerHTML = ""; // Clear buttons on completion
+                    // Sentence Finished
+                    document.getElementById("anagram").textContent = selectedSentences[currentSentenceIndex].text;
+                    document.getElementById("letter-buttons").innerHTML = "";
                     if (currentSentenceIndex === selectedSentences.length - 1) {
                         document.getElementById("reset-btn").classList.remove("hide");
-                        document.getElementById("next-btn").classList.add("hide");
                     } else {
                         document.getElementById("next-btn").classList.remove("hide");
                     }
@@ -272,32 +297,29 @@
         }
     }
 
+    document.getElementById("next-btn").addEventListener("click", function() {
+        currentSentenceIndex++;
+        updateCounter();
+        generateExercise();
+        this.classList.add("hide");
+    });
+
+    document.getElementById("reset-btn").addEventListener("click", function() {
+        currentSentenceIndex = 0;
+        generateRandomOrder();
+        generateExercise();
+        this.classList.add("hide");
+        updateCounter();
+    });
+
     function shuffleArray(array) {
-        const shuffledArray = array.slice();
-        for (let i = shuffledArray.length - 1; i > 0; i--) {
+        const shuffled = array.slice();
+        for (let i = shuffled.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            [shuffledArray[i], shuffledArray[j]] = [shuffledArray[j], shuffledArray[i]];
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
         }
-        return shuffledArray;
+        return shuffled;
     }
-
-    // ✅ Updated to use the dynamically loaded 'allSentences' array
-    function generateRandomOrder() {
-        const shuffledSentences = shuffleArray([...allSentences]);
-        selectedSentences = shuffledSentences.slice(0, 10).map(s => ({ english: s }));
-    }
-
-    function updateCounter() {
-        document.getElementById("counter").textContent = (currentSentenceIndex + 1) + "/" + selectedSentences.length;
-    }
-
-    function generateExercise() {
-        currentWordIndex = 0;
-        const words = selectedSentences[currentSentenceIndex].english.match(/\w+|[^\s\w]/g);
-        currentWordAnagram = '*'.repeat(words[currentWordIndex].replace(/[^a-zA-Z']/ug, "").length);
-        displayAnagram();
-    }
-  </script>
+</script>
 </body>
-
 </html>
