@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder - Final Pro Layout</title>
+    <title>Sentence Builder - Adaptive Layout</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -12,42 +12,38 @@
         body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; }
         
         #builder-title { font-size: 24px; padding: 10px; width: 100%; max-width: 600px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 20px; outline: none; }
-        .toolbar { background: white; padding: 12px; border-radius: 8px; margin-bottom: 25px; display: flex; gap: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); align-items: center; }
+        .toolbar { background: white; padding: 12px; border-radius: 8px; margin-bottom: 25px; display: flex; gap: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); align-items: center; position: sticky; top: 0; z-index: 1000; }
 
         .grid-canvas { display: inline-grid; background-color: var(--line); border: 2px solid var(--line); gap: 2px; }
 
         .cell { 
-            background: white; min-width: 280px; min-height: 130px; 
+            background: white; min-width: 300px; min-height: 130px; 
             display: flex; flex-direction: column; 
             justify-content: center; /* Vertical centering */
             align-items: flex-start; 
-            padding: 40px 15px 40px 15px; /* Increased padding top/bottom for controls */
+            padding: 40px 15px 40px 15px; 
             position: relative; box-sizing: border-box; 
+            transition: min-width 0.2s ease;
         }
 
-        /* Checkbox stays top-left */
-        .top-ui { 
-            position: absolute; top: 8px; left: 8px; 
-            height: 25px; pointer-events: none;
-        }
-        .cell-checkbox { 
-            width: 22px !important; height: 22px !important; 
-            min-width: 22px; cursor: pointer; pointer-events: auto;
-        }
+        /* Expand cell width if internal split is active */
+        .cell.is-split { min-width: 580px; } 
 
-        /* Emojis moved to bottom-right */
+        .top-ui { position: absolute; top: 8px; left: 8px; pointer-events: none; }
+        .cell-checkbox { width: 22px !important; height: 22px !important; cursor: pointer; pointer-events: auto; }
+
         .bottom-ui { 
             position: absolute; bottom: 8px; right: 8px;
-            display: flex; gap: 10px; align-items: center;
-            height: 25px; pointer-events: none;
+            display: flex; gap: 12px; align-items: center;
+            pointer-events: none;
         }
         .bottom-ui * { pointer-events: auto; }
 
-        .icon-btn { font-size: 18px; cursor: pointer; opacity: 0.6; transition: 0.2s; }
+        .icon-btn { font-size: 18px; cursor: pointer; opacity: 0.5; transition: 0.2s; user-select: none; }
         .icon-btn:hover { opacity: 1; transform: scale(1.1); }
 
         .vocab-list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
-        .vocab-list.split { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; }
+        .vocab-list.split { display: grid; grid-template-columns: 1fr 1fr; column-gap: 30px; }
 
         .vocab-item { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
         
@@ -59,7 +55,7 @@
         .btn-plus { background: var(--green); color: white; }
         .btn-minus { background: var(--red); color: white; }
 
-        .color-picker { position: absolute; bottom: 30px; right: 0; background: white; border: 1px solid #ccc; padding: 5px; display: none; z-index: 110; grid-template-columns: repeat(3, 22px); gap: 4px; border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .color-picker { position: absolute; bottom: 35px; right: 0; background: white; border: 1px solid #ccc; padding: 5px; display: none; z-index: 110; grid-template-columns: repeat(3, 22px); gap: 4px; border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .swatch { width: 22px; height: 22px; cursor: pointer; border: 1px solid #ddd; }
         button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 4px; font-weight: 500; }
         button:disabled { opacity: 0.3; }
@@ -129,13 +125,15 @@
         const container = document.getElementById('grid-container');
         container.innerHTML = '';
         const cols = grid[0].length;
-        container.style.gridTemplateColumns = `repeat(${cols}, minmax(280px, auto))`;
+        
+        // Use fit-content so columns can expand if a cell inside is set to "split"
+        container.style.gridTemplateColumns = `repeat(${cols}, fit-content(800px))`;
 
         grid.forEach((row, r) => {
             row.forEach((cell, cIdx) => {
                 if (cell.hidden) return;
                 const cellDiv = document.createElement('div');
-                cellDiv.className = 'cell';
+                cellDiv.className = `cell ${cell.split ? 'is-split' : ''}`;
                 cellDiv.style.gridColumn = `span ${cell.cS}`;
                 cellDiv.style.gridRow = `span ${cell.rS}`;
                 cellDiv.style.backgroundColor = cell.color;
@@ -203,7 +201,8 @@
             render();
             setTimeout(() => {
                 const list = document.getElementById(`list-${r}-${cIdx}`);
-                list.querySelectorAll('.target-input')[i+1].focus();
+                const inputs = list.querySelectorAll('.target-input');
+                if(inputs[i+1]) inputs[i+1].focus();
             }, 10);
         }
         if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
@@ -211,22 +210,20 @@
             grid[r][cIdx].items.splice(i, 1); 
             render();
             const prev = Math.max(0, i-1); 
-            document.getElementById(`list-${r}-${cIdx}`).querySelectorAll('.target-input')[prev].focus();
+            const list = document.getElementById(`list-${r}-${cIdx}`);
+            const inputs = list.querySelectorAll('.target-input');
+            if(inputs[prev]) inputs[prev].focus();
         }
     }
 
+    function toggleCellSplit(r, c) { grid[r][c].split = !grid[r][c].split; render(); }
+    function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
     function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); }
     function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); }
     function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); } }
     function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); } }
-    function toggleCellSplit(r, c) { grid[r][c].split = !grid[r][c].split; render(); }
-    function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
     function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
-    function updateUI() {
-        document.getElementById('undoBtn').disabled = historyStep <= 0;
-        document.getElementById('redoBtn').disabled = historyStep >= history.length - 1;
-    }
-
+    
     function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
@@ -249,6 +246,11 @@
             }
         }));
         render();
+    }
+
+    function updateUI() {
+        document.getElementById('undoBtn').disabled = historyStep <= 0;
+        document.getElementById('redoBtn').disabled = historyStep >= history.length - 1;
     }
 
     function addIcon(p, t, pos, l, a) { 
