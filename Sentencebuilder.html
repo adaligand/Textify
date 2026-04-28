@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder - Adaptive Layout</title>
+    <title>Sentence Builder - Auto-Clear Selection</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -19,24 +19,18 @@
         .cell { 
             background: white; min-width: 300px; min-height: 130px; 
             display: flex; flex-direction: column; 
-            justify-content: center; /* Vertical centering */
+            justify-content: center; /* Vertical alignment */
             align-items: flex-start; 
-            padding: 40px 15px 40px 15px; 
+            padding: 40px 15px; 
             position: relative; box-sizing: border-box; 
-            transition: min-width 0.2s ease;
         }
 
-        /* Expand cell width if internal split is active */
         .cell.is-split { min-width: 580px; } 
 
         .top-ui { position: absolute; top: 8px; left: 8px; pointer-events: none; }
         .cell-checkbox { width: 22px !important; height: 22px !important; cursor: pointer; pointer-events: auto; }
 
-        .bottom-ui { 
-            position: absolute; bottom: 8px; right: 8px;
-            display: flex; gap: 12px; align-items: center;
-            pointer-events: none;
-        }
+        .bottom-ui { position: absolute; bottom: 8px; right: 8px; display: flex; gap: 12px; align-items: center; pointer-events: none; }
         .bottom-ui * { pointer-events: auto; }
 
         .icon-btn { font-size: 18px; cursor: pointer; opacity: 0.5; transition: 0.2s; user-select: none; }
@@ -55,7 +49,7 @@
         .btn-plus { background: var(--green); color: white; }
         .btn-minus { background: var(--red); color: white; }
 
-        .color-picker { position: absolute; bottom: 35px; right: 0; background: white; border: 1px solid #ccc; padding: 5px; display: none; z-index: 110; grid-template-columns: repeat(3, 22px); gap: 4px; border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .color-picker { position: absolute; bottom: 35px; right: 0; background: white; border: 1px solid #ccc; padding: 5px; display: none; z-index: 110; grid-template-columns: repeat(3, 22px); gap: 4px; border-radius: 4px; }
         .swatch { width: 22px; height: 22px; cursor: pointer; border: 1px solid #ddd; }
         button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 4px; font-weight: 500; }
         button:disabled { opacity: 0.3; }
@@ -68,17 +62,18 @@
 <div class="toolbar">
     <button id="undoBtn" onclick="undo()">↩️ Undo</button>
     <button id="redoBtn" onclick="redo()">↪️ Redo</button>
-    <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 10px;"></div>
+    <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 5px;"></div>
     <button onclick="toggleMode('add-row')">+ Row</button>
     <button onclick="toggleMode('del-row')">- Row</button>
     <button onclick="toggleMode('add-col')">+ Col</button>
     <button onclick="toggleMode('del-col')">- Col</button>
-    <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 10px;"></div>
+    <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 5px;"></div>
     <button onclick="mergeSelected()">Merge</button>
     <button onclick="splitSelected()">Split</button>
     <button onclick="saveProject()">💾 Save</button>
     <button onclick="document.getElementById('fileIn').click()">📂 Load</button>
-    <button onclick="exportPDF()" style="background:var(--green); color:white; border:none;">📄 PDF</button>
+    <button onclick="exportPDF()" style="background:#e11d48; color:white; border:none;">📄 PDF</button>
+    <button onclick="exportDOC()" style="background:#2563eb; color:white; border:none;">📝 DOC</button>
     <input type="file" id="fileIn" style="display:none" onchange="loadProject(event)">
 </div>
 
@@ -100,33 +95,17 @@
         history = history.slice(0, historyStep + 1);
         history.push(state);
         historyStep++;
-        if (history.length > 50) history.shift(), historyStep--;
         updateUI();
     }
 
-    function undo() {
-        if (historyStep > 0) {
-            historyStep--;
-            grid = JSON.parse(history[historyStep]);
-            render(false);
-        }
-    }
-
-    function redo() {
-        if (historyStep < history.length - 1) {
-            historyStep++;
-            grid = JSON.parse(history[historyStep]);
-            render(false);
-        }
-    }
+    function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
+    function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
 
     function render(doSave = true) {
         if (doSave) pushHistory();
         const container = document.getElementById('grid-container');
         container.innerHTML = '';
         const cols = grid[0].length;
-        
-        // Use fit-content so columns can expand if a cell inside is set to "split"
         container.style.gridTemplateColumns = `repeat(${cols}, fit-content(800px))`;
 
         grid.forEach((row, r) => {
@@ -143,28 +122,24 @@
                         <input type="text" class="target-input" placeholder="Target Language" 
                             onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
                             oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
-                        <div class="bracket-wrapper">
-                            <span>(</span>
-                            <input type="text" class="translation-input" placeholder="Translation" 
-                                onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})"
-                                oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
-                            <span>)</span>
-                        </div>
+                        <div class="bracket-wrapper"><span>(</span>
+                        <input type="text" class="translation-input" placeholder="Translation" 
+                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})"
+                            oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
+                        <span>)</span></div>
                     </div>
                 `).join('');
 
                 cellDiv.innerHTML = `
-                    <div class="top-ui no-export">
-                        <input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} onchange="grid[${r}][${cIdx}].sel=this.checked">
-                    </div>
-                    <div class="vocab-list ${cell.split ? 'split' : ''}" id="list-${r}-${cIdx}">${listHTML}</div>
+                    <div class="top-ui no-export"><input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} onchange="grid[${r}][${cIdx}].sel=this.checked"></div>
+                    <div class="vocab-list ${cell.split ? 'split' : ''}">${listHTML}</div>
                     <div class="bottom-ui no-export">
                         <span class="icon-btn" onclick="toggleCellSplit(${r},${cIdx})">Ξ</span>
                         <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
                         <div class="color-picker" id="cp-${r}-${cIdx}">${pastels.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}</div>
                     </div>
                 `;
-
+                
                 if (currentMode === 'add-col' && r === 0) {
                     addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
                     if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
@@ -183,99 +158,104 @@
         updateUI();
     }
 
-    function updateVal(r, cIdx, i, f, v) { 
-        grid[r][cIdx].items[i][f] = v; 
-        clearTimeout(typingTimer);
-        typingTimer = setTimeout(pushHistory, 1000);
-    }
-
-    function syncSize(el) {
-        if (el.value === "") el.style.width = el.classList.contains('target-input') ? "120px" : "80px";
-        else { el.style.width = '0px'; el.style.width = (el.scrollWidth + 2) + 'px'; }
-    }
-
-    function handleKey(e, r, cIdx, i) {
-        if (e.key === 'Enter') {
-            e.preventDefault(); 
-            grid[r][cIdx].items.splice(i + 1, 0, {t: "", tr: ""}); 
-            render();
-            setTimeout(() => {
-                const list = document.getElementById(`list-${r}-${cIdx}`);
-                const inputs = list.querySelectorAll('.target-input');
-                if(inputs[i+1]) inputs[i+1].focus();
-            }, 10);
-        }
-        if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
-            e.preventDefault(); 
-            grid[r][cIdx].items.splice(i, 1); 
-            render();
-            const prev = Math.max(0, i-1); 
-            const list = document.getElementById(`list-${r}-${cIdx}`);
-            const inputs = list.querySelectorAll('.target-input');
-            if(inputs[prev]) inputs[prev].focus();
-        }
-    }
-
-    function toggleCellSplit(r, c) { grid[r][c].split = !grid[r][c].split; render(); }
-    function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
-    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); }
-    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); }
-    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); } }
-    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); } }
-    function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
-    
     function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
         let root = sel[0], items = [];
         sel.forEach(p => { items = [...items, ...grid[p.r][p.c].items.filter(it => it.t || it.tr)]; });
         let maxR = Math.max(...sel.map(i => i.r + grid[i.r][i.c].rS)), maxC = Math.max(...sel.map(i => i.c + grid[i.r][i.c].cS));
+        
         grid[root.r][root.c].items = items.length ? items : [{t:"", tr:""}];
-        grid[root.r][root.c].rS = maxR - root.r; grid[root.r][root.c].cS = maxC - root.c;
-        for(let r=root.r; r<maxR; r++) for(let c=root.c; c<maxC; c++) { if(r===root.r && c===root.c) continue; grid[r][c].hidden = true; grid[r][c].sel = false; }
+        grid[root.r][root.c].rS = maxR - root.r; 
+        grid[root.r][root.c].cS = maxC - root.c;
+        grid[root.r][root.c].sel = false; // Clear selection on root cell
+
+        for(let r=root.r; r<maxR; r++) {
+            for(let c=root.c; c<maxC; c++) {
+                if(r===root.r && c===root.c) continue;
+                grid[r][c].hidden = true; 
+                grid[r][c].sel = false; // Clear selection on all hidden cells
+            }
+        }
         render();
     }
 
     function splitSelected() {
         grid.forEach((row, r) => row.forEach((cell, cIdx) => {
             if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
-                for (let i = r; i < r + cell.rS; i++) for (let j = cIdx; j < cIdx + cell.cS; j++) {
-                    grid[i][j].hidden = false; grid[i][j].rS = 1; grid[i][j].cS = 1; grid[i][j].sel = false;
-                    if (i !== r || j !== cIdx) grid[i][j].items = [{t: "", tr: ""}];
+                const rs = cell.rS; const cs = cell.cS;
+                for (let i = r; i < r + rs; i++) {
+                    for (let j = cIdx; j < cIdx + cs; j++) {
+                        grid[i][j].hidden = false;
+                        grid[i][j].rS = 1;
+                        grid[i][j].cS = 1;
+                        grid[i][j].sel = false; // Force clear checkbox on split
+                        if (i !== r || j !== cIdx) {
+                            grid[i][j].items = [{t: "", tr: ""}];
+                            grid[i][j].color = "#ffffff";
+                        }
+                    }
                 }
             }
+            grid[r][cIdx].sel = false; // General catch-all to unselect everything else
         }));
         render();
     }
 
-    function updateUI() {
-        document.getElementById('undoBtn').disabled = historyStep <= 0;
-        document.getElementById('redoBtn').disabled = historyStep >= history.length - 1;
+    function updateVal(r, cIdx, i, f, v) { grid[r][cIdx].items[i][f] = v; clearTimeout(typingTimer); typingTimer = setTimeout(pushHistory, 1000); }
+    function syncSize(el) { if (el.value === "") el.style.width = el.classList.contains('target-input') ? "120px" : "80px"; else { el.style.width = '0px'; el.style.width = (el.scrollWidth + 2) + 'px'; } }
+    function handleKey(e, r, cIdx, i) {
+        if (e.key === 'Enter') { e.preventDefault(); grid[r][cIdx].items.splice(i+1, 0, {t:"", tr:""}); render(); }
+        if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) { e.preventDefault(); grid[r][cIdx].items.splice(i, 1); render(); }
     }
 
-    function addIcon(p, t, pos, l, a) { 
-        const b = document.createElement('div'); b.className = `action-btn ${t}`; b.innerText = l; 
-        const s = { 'left': 'left:-15px; top:45%;', 'right': 'right:-15px; top:45%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' };
-        b.style = s[pos]; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b); 
+    function exportDOC() {
+        const title = document.getElementById('builder-title').value;
+        let tableHtml = `<table style="border-collapse: collapse; width: 100%;">`;
+        grid.forEach((row, rIdx) => {
+            tableHtml += `<tr>`;
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden) return;
+                tableHtml += `<td rowspan="${cell.rS}" colspan="${cell.cS}" style="border: 1pt solid #94a3b8; background-color: ${cell.color}; padding: 10pt; vertical-align: middle;">`;
+                cell.items.forEach(item => {
+                    if(!item.t && !item.tr) return;
+                    const display = cell.split ? 'display:inline-block; width:45%;' : 'display:block;';
+                    tableHtml += `<div style="${display} margin: 2pt;"><b>${item.t}</b> <i style="color:#2980b9">(${item.tr})</i></div>`;
+                });
+                tableHtml += `</td>`;
+            });
+            tableHtml += `</tr>`;
+        });
+        tableHtml += `</table>`;
+        const content = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+            <head><style>@page Section1 {size:841.9pt 595.3pt; mso-page-orientation:landscape; margin:0.5in;} div.Section1 {page:Section1;}</style></head>
+            <body><div class='Section1'><h1>${title}</h1>${tableHtml}</div></body></html>`;
+        saveAs(new Blob(['\ufeff', content], { type: 'application/msword' }), `${title}.doc`);
     }
 
+    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); }
+    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); }
+    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); } }
+    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); } }
+    function toggleCellSplit(r, c) { grid[r][c].split = !grid[r][c].split; render(); }
+    function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
+    function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
+    function updateUI() { document.getElementById('undoBtn').disabled = historyStep <= 0; document.getElementById('redoBtn').disabled = historyStep >= history.length - 1; }
+    function addIcon(p, t, pos, l, a) { const b = document.createElement('div'); b.className = `action-btn ${t}`; b.innerText = l; b.style = { 'left': 'left:-15px; top:45%;', 'right': 'right:-15px; top:45%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' }[pos]; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b); }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
     window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
-    window.onkeydown = (e) => { if(e.ctrlKey && e.key === 'z') undo(); if(e.ctrlKey && e.key === 'y') redo(); };
-
+    
     async function exportPDF() {
         const edits = document.querySelectorAll('.no-export, .action-btn');
         edits.forEach(el => el.style.visibility = 'hidden');
         const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
         edits.forEach(el => el.style.visibility = 'visible');
         const pdf = new jspdf.jsPDF('l', 'mm', 'a4');
-        pdf.text(document.getElementById('builder-title').value, 10, 15);
         pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
         pdf.save(`${document.getElementById('builder-title').value}.pdf`);
     }
     function saveProject() { saveAs(new Blob([JSON.stringify(grid)], {type: "application/json"}), "project.json"); }
     function loadProject(e) { const fr = new FileReader(); fr.onload = (ev) => { grid = JSON.parse(ev.target.result); history = [JSON.stringify(grid)]; historyStep = 0; render(false); }; fr.readAsText(e.target.files[0]); }
-    
     render(false);
 </script>
 </body>
