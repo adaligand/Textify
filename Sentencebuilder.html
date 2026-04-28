@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sentence Builder - Final Stable Version</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+        :root { --accent: #2196f3; --green: #4caf50; --red: #f44336; --line: #94a3b8; --translation-blue: #2980b9; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; }
+        
+        .toolbar { 
+            background: white; padding: 12px; border-radius: 8px; margin-bottom: 25px;
+            display: flex; gap: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); align-items: center;
+        }
+
+        .grid-canvas { 
+            display: inline-grid; background-color: var(--line); 
+            border: 2px solid var(--line); gap: 2px; position: relative;
+        }
+
+        .cell {
+            background: white; min-width: 170px; min-height: 110px;
+            display: flex; flex-direction: column; padding: 8px; position: relative;
+            box-sizing: border-box;
+        }
+
+        .action-btn {
+            position: absolute; width: 26px; height: 26px; border-radius: 4px; 
+            border: 2px solid white; cursor: pointer; display: flex; 
+            align-items: center; justify-content: center; font-weight: bold; 
+            z-index: 100; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .btn-plus { background: var(--green); color: white; }
+        .btn-minus { background: var(--red); color: white; }
+
+        .input-container { flex-grow: 1; display: flex; flex-direction: column; margin-top: 5px; }
+        
+        .target-input { 
+            border: none; background: transparent; resize: none; outline: none; 
+            font-size: 14px; font-family: inherit; color: black; height: 45px;
+        }
+        
+        .translation-input { 
+            border: none; background: transparent; resize: none; outline: none; 
+            font-family: inherit; margin-top: 2px; color: var(--translation-blue);
+            font-size: 13px; font-style: italic; height: 35px;
+        }
+
+        .color-picker {
+            position: absolute; top: 35px; right: 5px; background: white;
+            border: 1px solid #ccc; padding: 4px; display: none; z-index: 110;
+            grid-template-columns: repeat(4, 22px); gap: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .swatch { width: 22px; height: 22px; cursor: pointer; border: 1px solid #ddd; }
+        button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 4px; }
+        .mode-active { background: #eff6ff; border-color: var(--accent); color: var(--accent); font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="toolbar">
+    <button id="btn-add-row" onclick="toggleMode('add-row')">+ Row</button>
+    <button id="btn-del-row" onclick="toggleMode('del-row')">- Row</button>
+    <button id="btn-add-col" onclick="toggleMode('add-col')">+ Column</button>
+    <button id="btn-del-col" onclick="toggleMode('del-col')">- Column</button>
+    <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 10px;"></div>
+    <button onclick="mergeSelected()">Merge</button>
+    <button onclick="splitSelected()">Split</button>
+    <button onclick="saveProject()">💾 Save JSON</button>
+    <button onclick="document.getElementById('fileIn').click()">📂 Load</button>
+    <button onclick="exportPDF()" style="background:var(--green); color:white; border:none;">📄 PDF Export</button>
+    <input type="file" id="fileIn" style="display:none" onchange="loadProject(event)">
+</div>
+
+<div id="grid-container" class="grid-canvas"></div>
+
+<script>
+    let grid = [[c(), c(), c()], [c(), c(), c()]];
+    let currentMode = null; 
+    const pastels = ["#ffffff", "#fff5f5", "#fffaf0", "#f0fff4", "#f0f5ff", "#f5f3ff", "#fff5fb", "#f1f5f9"];
+
+    function c() { return { target: "", translation: "", color: "#ffffff", rS: 1, cS: 1, hidden: false, sel: false }; }
+
+    function render() {
+        const container = document.getElementById('grid-container');
+        container.innerHTML = '';
+        container.style.gridTemplateColumns = `repeat(${grid[0].length}, 170px)`;
+
+        grid.forEach((row, r) => {
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden) return;
+                const cellDiv = document.createElement('div');
+                cellDiv.className = 'cell';
+                cellDiv.style.gridColumn = `span ${cell.cS}`;
+                cellDiv.style.gridRow = `span ${cell.rS}`;
+                cellDiv.style.backgroundColor = cell.color;
+
+                cellDiv.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <input type="checkbox" ${cell.sel ? 'checked' : ''} onchange="tgl(${r},${cIdx})">
+                        <span style="cursor:pointer; font-size:18px;" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
+                        <div class="color-picker" id="cp-${r}-${cIdx}">
+                            ${pastels.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}
+                        </div>
+                    </div>
+                    <div class="input-container">
+                        <textarea class="target-input" oninput="upd(${r},${cIdx},'target',this.value)" placeholder="Target">${cell.target}</textarea>
+                        <textarea class="translation-input" oninput="upd(${r},${cIdx},'translation',this.value)" placeholder="(Translation)">${cell.translation}</textarea>
+                    </div>
+                `;
+
+                if (currentMode === 'add-col' && r === 0) {
+                    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                    if (cIdx === grid[0].length - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(grid[0].length));
+                }
+                if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+                if (currentMode === 'add-row' && cIdx === 0) {
+                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+                }
+                if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+
+                container.appendChild(cellDiv);
+            });
+        });
+    }
+
+    function upd(r, c, field, v) {
+        if (field === 'translation') {
+            let raw = v.replace(/[()]/g, "").trim();
+            grid[r][c][field] = raw ? `(${raw})` : "";
+            // Update input visually without re-rendering everything
+            const active = document.activeElement;
+            if(active && active.classList.contains('translation-input')) active.value = grid[r][c][field];
+        } else {
+            grid[r][c][field] = v;
+        }
+    }
+
+    // PDF EXPORT FIX: We use the global jspdf namespace correctly here
+    async function exportPDF() {
+        const { jsPDF } = window.jspdf;
+        const container = document.getElementById('grid-container');
+        
+        const canvas = await html2canvas(container, {
+            scale: 2,
+            useCORS: true,
+            ignoreElements: (el) => el.type === 'checkbox' || el.classList.contains('action-btn') || el.classList.contains('color-picker')
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('l', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const imgWidth = pdfWidth - 20;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+        pdf.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
+        pdf.save("my_sentence_builder.pdf");
+    }
+
+    function saveProject() {
+        const data = JSON.stringify(grid);
+        const blob = new Blob([data], {type: "application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "sentence_builder_save.json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    // Rest of the logic...
+    function addIcon(parent, type, pos, label, action) {
+        const btn = document.createElement('div');
+        btn.className = `action-btn ${type}`;
+        btn.innerText = label;
+        if (pos === 'left') btn.style = "left: -14px; top: 40%;";
+        if (pos === 'right') btn.style = "right: -14px; top: 40%;";
+        if (pos === 'top-center') btn.style = "top: -14px; left: 42%;";
+        if (pos === 'top-edge') btn.style = "top: -14px; left: 15px;";
+        if (pos === 'bottom-edge') btn.style = "bottom: -14px; left: 15px;";
+        if (pos === 'left-edge') btn.style = "left: -14px; top: 15px;";
+        btn.onclick = (e) => { e.stopPropagation(); action(); };
+        parent.appendChild(btn);
+    }
+    function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(); }
+    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); }
+    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); }
+    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); } }
+    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); } }
+    function tgl(r, c) { grid[r][c].sel = !grid[r][c].sel; }
+    function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
+    function showColors(e, r, c) {
+        e.stopPropagation();
+        document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
+        document.getElementById(`cp-${r}-${c}`).style.display = 'grid';
+    }
+    function mergeSelected() {
+        let sel = [];
+        grid.forEach((row, r) => row.forEach((cell, c) => { if(cell.sel) sel.push({r, c}); }));
+        if(sel.length < 2) return;
+        let root = sel[0], maxR = Math.max(...sel.map(i => i.r + grid[i.r][i.c].rS)), maxC = Math.max(...sel.map(i => i.c + grid[i.r][i.c].cS));
+        grid[root.r][root.c].rS = maxR - root.r; grid[root.r][root.c].cS = maxC - root.c;
+        for(let r = root.r; r < maxR; r++) for(let c = root.c; c < maxC; c++) {
+            if(r === root.r && c === root.c) continue;
+            grid[r][c].hidden = true; grid[r][c].sel = false;
+        }
+        grid[root.r][root.c].sel = false; render();
+    }
+    function splitSelected() {
+        grid.forEach((row, r) => row.forEach((cell, c) => {
+            if(cell.sel && (cell.rS > 1 || cell.cS > 1)) {
+                for(let i = r; i < r + cell.rS; i++) for(let j = c; j < c + cell.cS; j++) {
+                    grid[i][j].hidden = false; grid[i][j].rS = 1; grid[i][j].cS = 1; grid[i][j].sel = false;
+                }
+            }
+        }));
+        render();
+    }
+    function loadProject(e) {
+        const r = new FileReader();
+        r.onload = (ev) => { grid = JSON.parse(ev.target.result); render(); };
+        r.readAsText(e.target.files[0]);
+    }
+    render();
+</script>
+</body>
+</html>
