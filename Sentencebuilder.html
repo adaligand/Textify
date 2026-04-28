@@ -2,17 +2,25 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder - Final Stable Version</title>
+    <title>Sentence Builder - Professional Editor</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://unpkg.com/docx@7.8.2/build/index.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
     <style>
         :root { --accent: #2196f3; --green: #4caf50; --red: #f44336; --line: #94a3b8; --translation-blue: #2980b9; }
         body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; }
         
+        .header-section { margin-bottom: 20px; }
+        #builder-title { 
+            font-size: 24px; padding: 10px; width: 100%; max-width: 600px; 
+            border: 1px solid #cbd5e1; border-radius: 8px; outline: none;
+        }
+
         .toolbar { 
             background: white; padding: 12px; border-radius: 8px; margin-bottom: 25px;
-            display: flex; gap: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); align-items: center;
+            display: flex; gap: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); align-items: center; flex-wrap: wrap;
         }
 
         .grid-canvas { 
@@ -26,6 +34,10 @@
             box-sizing: border-box;
         }
 
+        /* HIDE THESE DURING EXPORT */
+        @media print { .no-export { display: none !important; } }
+        .no-export { cursor: pointer; }
+
         .action-btn {
             position: absolute; width: 26px; height: 26px; border-radius: 4px; 
             border: 2px solid white; cursor: pointer; display: flex; 
@@ -36,41 +48,37 @@
         .btn-minus { background: var(--red); color: white; }
 
         .input-container { flex-grow: 1; display: flex; flex-direction: column; margin-top: 5px; }
-        
-        .target-input { 
-            border: none; background: transparent; resize: none; outline: none; 
-            font-size: 14px; font-family: inherit; color: black; height: 45px;
-        }
-        
-        .translation-input { 
-            border: none; background: transparent; resize: none; outline: none; 
-            font-family: inherit; margin-top: 2px; color: var(--translation-blue);
-            font-size: 13px; font-style: italic; height: 35px;
-        }
+        .target-input { border: none; background: transparent; resize: none; outline: none; font-size: 14px; color: black; height: 45px; font-family: inherit; }
+        .translation-input { border: none; background: transparent; resize: none; outline: none; margin-top: 2px; color: var(--translation-blue); font-size: 13px; font-style: italic; height: 35px; font-family: inherit; }
 
         .color-picker {
             position: absolute; top: 35px; right: 5px; background: white;
             border: 1px solid #ccc; padding: 4px; display: none; z-index: 110;
-            grid-template-columns: repeat(4, 22px); gap: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            grid-template-columns: repeat(4, 22px); gap: 4px;
         }
         .swatch { width: 22px; height: 22px; cursor: pointer; border: 1px solid #ddd; }
-        button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 4px; }
+        button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 4px; font-weight: 500; }
         .mode-active { background: #eff6ff; border-color: var(--accent); color: var(--accent); font-weight: bold; }
     </style>
 </head>
 <body>
+
+<div class="header-section">
+    <input type="text" id="builder-title" placeholder="Enter Sentence Builder Title..." value="My_Project">
+</div>
 
 <div class="toolbar">
     <button id="btn-add-row" onclick="toggleMode('add-row')">+ Row</button>
     <button id="btn-del-row" onclick="toggleMode('del-row')">- Row</button>
     <button id="btn-add-col" onclick="toggleMode('add-col')">+ Column</button>
     <button id="btn-del-col" onclick="toggleMode('del-col')">- Column</button>
-    <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 10px;"></div>
+    <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 5px;"></div>
     <button onclick="mergeSelected()">Merge</button>
     <button onclick="splitSelected()">Split</button>
     <button onclick="saveProject()">💾 Save JSON</button>
     <button onclick="document.getElementById('fileIn').click()">📂 Load</button>
-    <button onclick="exportPDF()" style="background:var(--green); color:white; border:none;">📄 PDF Export</button>
+    <button onclick="exportPDF()" style="background:var(--green); color:white; border:none;">📄 PDF</button>
+    <button onclick="exportGDoc()" style="background:#4285F4; color:white; border:none;">🟦 Google Doc</button>
     <input type="file" id="fileIn" style="display:none" onchange="loadProject(event)">
 </div>
 
@@ -82,6 +90,11 @@
     const pastels = ["#ffffff", "#fff5f5", "#fffaf0", "#f0fff4", "#f0f5ff", "#f5f3ff", "#fff5fb", "#f1f5f9"];
 
     function c() { return { target: "", translation: "", color: "#ffffff", rS: 1, cS: 1, hidden: false, sel: false }; }
+
+    function getFileName() {
+        const title = document.getElementById('builder-title').value.replace(/[^a-z0-9]/gi, '_');
+        return title ? `${title}_SB` : "SentenceBuilder_SB";
+    }
 
     function render() {
         const container = document.getElementById('grid-container');
@@ -98,16 +111,16 @@
                 cellDiv.style.backgroundColor = cell.color;
 
                 cellDiv.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <input type="checkbox" ${cell.sel ? 'checked' : ''} onchange="tgl(${r},${cIdx})">
-                        <span style="cursor:pointer; font-size:18px;" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
-                        <div class="color-picker" id="cp-${r}-${cIdx}">
+                    <div style="display:flex; justify-content:space-between; align-items:center;" class="no-export">
+                        <input type="checkbox" ${cell.sel ? 'checked' : ''} onchange="tgl(${r},${cIdx})" class="no-export">
+                        <span class="no-export" style="font-size:18px;" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
+                        <div class="color-picker no-export" id="cp-${r}-${cIdx}">
                             ${pastels.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}
                         </div>
                     </div>
                     <div class="input-container">
-                        <textarea class="target-input" oninput="upd(${r},${cIdx},'target',this.value)" placeholder="Target">${cell.target}</textarea>
-                        <textarea class="translation-input" oninput="upd(${r},${cIdx},'translation',this.value)" placeholder="(Translation)">${cell.translation}</textarea>
+                        <textarea class="target-input" oninput="upd(${r},${cIdx},'target',this.value)">${cell.target}</textarea>
+                        <textarea class="translation-input" oninput="upd(${r},${cIdx},'translation',this.value)">${cell.translation}</textarea>
                     </div>
                 `;
 
@@ -131,7 +144,6 @@
         if (field === 'translation') {
             let raw = v.replace(/[()]/g, "").trim();
             grid[r][c][field] = raw ? `(${raw})` : "";
-            // Update input visually without re-rendering everything
             const active = document.activeElement;
             if(active && active.classList.contains('translation-input')) active.value = grid[r][c][field];
         } else {
@@ -139,41 +151,64 @@
         }
     }
 
-    // PDF EXPORT FIX: We use the global jspdf namespace correctly here
     async function exportPDF() {
         const { jsPDF } = window.jspdf;
         const container = document.getElementById('grid-container');
         
-        const canvas = await html2canvas(container, {
-            scale: 2,
-            useCORS: true,
-            ignoreElements: (el) => el.type === 'checkbox' || el.classList.contains('action-btn') || el.classList.contains('color-picker')
-        });
+        // Temporarily hide edit elements
+        const edits = document.querySelectorAll('.no-export, .action-btn');
+        edits.forEach(el => el.style.visibility = 'hidden');
 
-        const imgData = canvas.toDataURL('image/png');
+        const canvas = await html2canvas(container, { scale: 2, useCORS: true });
+        
+        edits.forEach(el => el.style.visibility = 'visible');
+
         const pdf = new jsPDF('l', 'mm', 'a4');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const imgWidth = pdfWidth - 20;
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-        pdf.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
-        pdf.save("my_sentence_builder.pdf");
+        const imgData = canvas.toDataURL('image/png');
+        pdf.addImage(imgData, 'PNG', 10, 20, 275, 0);
+        pdf.text(document.getElementById('builder-title').value, 10, 15);
+        pdf.save(`${getFileName()}.pdf`);
     }
 
     function saveProject() {
-        const data = JSON.stringify(grid);
-        const blob = new Blob([data], {type: "application/json"});
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = "sentence_builder_save.json";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const blob = new Blob([JSON.stringify(grid)], {type: "application/json"});
+        saveAs(blob, `${getFileName()}.json`);
     }
 
-    // Rest of the logic...
+    async function exportGDoc() {
+        const { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, WidthType, AlignmentType, Italic } = docx;
+
+        const tableRows = grid.map(row => {
+            return new TableRow({
+                children: row.filter(c => !c.hidden).map(cell => {
+                    return new TableCell({
+                        width: { size: 100 / grid[0].length, type: WidthType.PERCENTAGE },
+                        shading: { fill: cell.color.replace("#", "") },
+                        children: [
+                            new Paragraph({ children: [new TextRun({ text: cell.target, size: 24 })] }),
+                            new Paragraph({ 
+                                children: [new TextRun({ text: cell.translation, color: "2980b9", italics: true, size: 20 })] 
+                            })
+                        ],
+                    });
+                })
+            });
+        });
+
+        const doc = new Document({
+            sections: [{
+                children: [
+                    new Paragraph({ text: document.getElementById('builder-title').value, heading: "Title" }),
+                    new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: tableRows })
+                ],
+            }],
+        });
+
+        const blob = await Packer.toBlob(doc);
+        saveAs(blob, `${getFileName()}.docx`);
+    }
+
+    // Grid Utility Functions (Keep previous logic)
     function addIcon(parent, type, pos, label, action) {
         const btn = document.createElement('div');
         btn.className = `action-btn ${type}`;
