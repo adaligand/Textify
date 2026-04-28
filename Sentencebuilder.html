@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder - Professional Editor</title>
+    <title>Sentence Builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://unpkg.com/docx@7.8.2/build/index.js"></script>
@@ -34,8 +34,6 @@
             box-sizing: border-box;
         }
 
-        /* HIDE THESE DURING EXPORT */
-        @media print { .no-export { display: none !important; } }
         .no-export { cursor: pointer; }
 
         .action-btn {
@@ -48,8 +46,17 @@
         .btn-minus { background: var(--red); color: white; }
 
         .input-container { flex-grow: 1; display: flex; flex-direction: column; margin-top: 5px; }
-        .target-input { border: none; background: transparent; resize: none; outline: none; font-size: 14px; color: black; height: 45px; font-family: inherit; }
-        .translation-input { border: none; background: transparent; resize: none; outline: none; margin-top: 2px; color: var(--translation-blue); font-size: 13px; font-style: italic; height: 35px; font-family: inherit; }
+        
+        /* RESTORED PLACEHOLDERS AND STYLE */
+        .target-input { 
+            border: none; background: transparent; resize: none; outline: none; 
+            font-size: 14px; color: black; height: 45px; font-family: inherit; 
+        }
+        .translation-input { 
+            border: none; background: transparent; resize: none; outline: none; 
+            margin-top: 2px; color: var(--translation-blue); font-size: 13px; 
+            font-style: italic; height: 35px; font-family: inherit; 
+        }
 
         .color-picker {
             position: absolute; top: 35px; right: 5px; background: white;
@@ -112,15 +119,15 @@
 
                 cellDiv.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center;" class="no-export">
-                        <input type="checkbox" ${cell.sel ? 'checked' : ''} onchange="tgl(${r},${cIdx})" class="no-export">
-                        <span class="no-export" style="font-size:18px;" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
-                        <div class="color-picker no-export" id="cp-${r}-${cIdx}">
+                        <input type="checkbox" ${cell.sel ? 'checked' : ''} onchange="tgl(${r},${cIdx})">
+                        <span style="font-size:18px;" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
+                        <div class="color-picker" id="cp-${r}-${cIdx}">
                             ${pastels.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}
                         </div>
                     </div>
                     <div class="input-container">
-                        <textarea class="target-input" oninput="upd(${r},${cIdx},'target',this.value)">${cell.target}</textarea>
-                        <textarea class="translation-input" oninput="upd(${r},${cIdx},'translation',this.value)">${cell.translation}</textarea>
+                        <textarea class="target-input" oninput="upd(${r},${cIdx},'target',this.value)" placeholder="Target Language">${cell.target}</textarea>
+                        <textarea class="translation-input" oninput="upd(${r},${cIdx},'translation',this.value)" placeholder="(Translation)">${cell.translation}</textarea>
                     </div>
                 `;
 
@@ -155,28 +162,22 @@
         const { jsPDF } = window.jspdf;
         const container = document.getElementById('grid-container');
         
-        // Temporarily hide edit elements
+        // Hide UI elements
         const edits = document.querySelectorAll('.no-export, .action-btn');
         edits.forEach(el => el.style.visibility = 'hidden');
 
         const canvas = await html2canvas(container, { scale: 2, useCORS: true });
-        
         edits.forEach(el => el.style.visibility = 'visible');
 
         const pdf = new jsPDF('l', 'mm', 'a4');
         const imgData = canvas.toDataURL('image/png');
-        pdf.addImage(imgData, 'PNG', 10, 20, 275, 0);
         pdf.text(document.getElementById('builder-title').value, 10, 15);
+        pdf.addImage(imgData, 'PNG', 10, 20, 275, 0);
         pdf.save(`${getFileName()}.pdf`);
     }
 
-    function saveProject() {
-        const blob = new Blob([JSON.stringify(grid)], {type: "application/json"});
-        saveAs(blob, `${getFileName()}.json`);
-    }
-
     async function exportGDoc() {
-        const { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, WidthType, AlignmentType, Italic } = docx;
+        const { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, WidthType, PageOrientation } = docx;
 
         const tableRows = grid.map(row => {
             return new TableRow({
@@ -186,9 +187,7 @@
                         shading: { fill: cell.color.replace("#", "") },
                         children: [
                             new Paragraph({ children: [new TextRun({ text: cell.target, size: 24 })] }),
-                            new Paragraph({ 
-                                children: [new TextRun({ text: cell.translation, color: "2980b9", italics: true, size: 20 })] 
-                            })
+                            new Paragraph({ children: [new TextRun({ text: cell.translation, color: "2980b9", italics: true, size: 20 })] })
                         ],
                     });
                 })
@@ -197,6 +196,7 @@
 
         const doc = new Document({
             sections: [{
+                properties: { page: { orientation: PageOrientation.LANDSCAPE } },
                 children: [
                     new Paragraph({ text: document.getElementById('builder-title').value, heading: "Title" }),
                     new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: tableRows })
@@ -208,7 +208,11 @@
         saveAs(blob, `${getFileName()}.docx`);
     }
 
-    // Grid Utility Functions (Keep previous logic)
+    function saveProject() {
+        const blob = new Blob([JSON.stringify(grid)], {type: "application/json"});
+        saveAs(blob, `${getFileName()}.json`);
+    }
+
     function addIcon(parent, type, pos, label, action) {
         const btn = document.createElement('div');
         btn.className = `action-btn ${type}`;
