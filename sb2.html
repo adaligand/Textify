@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sheet Creator</title>
+    <title>Sentence  Master</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <style>
         :root { --accent: #2196f3; --green: #4caf50; --red: #f44336; --line: #94a3b8; --translation-blue: #2980b9; }
@@ -18,17 +18,16 @@
         .action-btn { position: absolute; width: 26px; height: 26px; border-radius: 4px; border: 2px solid white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: bold; z-index: 100; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
         .btn-plus { background: var(--green); }
         .btn-minus { background: var(--red); }
-        .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 25px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); display: none; z-index: 2000; width: 700px; max-height: 80vh; overflow-y: auto; }
+        .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 25px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); display: none; z-index: 2000; width: 750px; max-height: 85vh; overflow-y: auto; }
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; z-index: 1999; }
-        .preview-row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #f1f5f9; }
         button { padding: 8px 12px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 4px; font-weight: 500; }
-        .btn-blue { background: #0ea5e9; color: white; border: none; }
         .btn-purple { background: #8b5cf6; color: white; border: none; }
+        .activity-row { padding: 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 10px; }
     </style>
 </head>
 <body>
 
-<input type="text" id="builder-title" value="Substitution_Table_Pro">
+<input type="text" id="builder-title" value="My_Sentence_Builder_Project">
 
 <div class="toolbar">
     <button onclick="undo()">↩️ Undo</button>
@@ -40,25 +39,29 @@
     <button onclick="splitSelected()">✂️ Split</button>
     <button onclick="saveProject()">💾 Save</button>
     <button onclick="document.getElementById('fileIn').click()">📂 Load</button>
-    <button onclick="showPreview()" class="btn-blue">👁️ Preview</button>
-    <button onclick="openActivityMenu()" class="btn-purple">🎯 Worksheet</button>
+    <button onclick="openActivityMenu()" class="btn-purple">🎯 Generate Worksheet</button>
     <input type="file" id="fileIn" style="display:none" onchange="loadProject(event)">
 </div>
 
 <div id="grid-container" class="grid-canvas"></div>
 <div class="overlay" id="overlay" onclick="closeModals()"></div>
 
-<div id="preview-modal" class="modal">
-    <h3>Sentence Assembly Logic Check</h3>
-    <div id="preview-content"></div>
-    <div style="margin-top:15px; text-align:right;"><button onclick="closeModals()">Close</button></div>
-</div>
-
 <div id="activity-menu" class="modal">
-    <h3>Select All Activities to Export</h3>
+    <h2 style="margin-top:0">Worksheet Options</h2>
+    <div style="background:#f8fafc; padding:15px; border-radius:8px; margin-bottom:15px; display:flex; gap:20px; align-items:center;">
+        <div>
+            <label>Sentence Count: </label>
+            <select id="sentence-count">
+                <option value="10">10 Sentences</option>
+                <option value="20" selected>20 Sentences</option>
+                <option value="50">50 Sentences</option>
+            </select>
+        </div>
+        <p style="font-size:12px; color:#64748b; margin:0;">(Applies to Study List and random selection for activities)</p>
+    </div>
     <div id="activity-list"></div>
     <div style="margin-top: 20px; display: flex; gap: 10px;">
-        <button onclick="generateMasterDoc()" class="btn-purple" style="flex:1;">Generate .doc</button>
+        <button onclick="generateMasterDoc()" class="btn-purple" style="flex:2;">Download .doc Worksheet</button>
         <button onclick="closeModals()" style="flex:1;">Cancel</button>
     </div>
 </div>
@@ -167,80 +170,132 @@
         for (let r = 0; r < grid.length; r++) {
             let rowCells = [];
             for(let c=0; c<grid[0].length; c++) rowCells.push(getCellAt(r, c));
-            let maxLines = Math.max(...rowCells.map(cell => cell ? cell.items.length : 0));
-            for (let l = 0; l < maxLines; l++) {
-                let t = [], tr = [];
+            let maxL = Math.max(...rowCells.map(cell => cell ? cell.items.length : 0));
+            for (let l = 0; l < maxL; l++) {
+                let tParts = [], trParts = [], meta = [];
                 for (let c = 0; c < grid[0].length; c++) {
                     let cell = getCellAt(r, c);
                     if (!cell || (c > 0 && getCellAt(r, c - 1) === cell)) continue;
                     let it = cell.items[Math.min(l, cell.items.length - 1)];
-                    if (it && it.t.trim()) { t.push(it.t.trim()); tr.push(it.tr.trim()); }
+                    if (it && it.t.trim()) {
+                        tParts.push(it.t.trim());
+                        trParts.push(it.tr.trim());
+                        meta.push({t: it.t.trim(), tr: it.tr.trim(), col: c});
+                    }
                 }
-                if (t.length > 0) compiled.push({ t: t.join(' '), tr: tr.join(' ') });
+                if (tParts.length > 0) compiled.push({ t: tParts.join(' '), tr: trParts.join(' '), parts: meta });
             }
         }
         return compiled;
     }
 
+    function applyDashes(text, regex) {
+        return text.split('').map((char, i, arr) => {
+            if (char.match(regex)) {
+                let suffix = (i < arr.length - 1 && arr[i+1].match(regex)) ? ' ' : '';
+                return '_ _' + suffix;
+            }
+            return char;
+        }).join('');
+    }
+
     function generateMasterDoc() {
-        const fullSentences = getAssembledSentences();
+        const fullList = getAssembledSentences();
+        const count = parseInt(document.getElementById('sentence-count').value);
         const selected = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
-        let html = `<html><head><style>body{font-family:Arial; line-height:1.6;} .blue{color:#2980b9; font-style:italic;} .line{margin-bottom:15px; border-bottom:1px solid #000; height:20px;}</style></head><body><h1>${document.getElementById('builder-title').value}</h1>`;
+        
+        let html = `<html><head><style>
+            body{font-family:Arial; line-height:1.6;} 
+            .blue{color:#2980b9; font-style:italic;} 
+            .line{border-bottom:1px solid #000; height:25px; margin-bottom:20px; width:100%; display:block;}
+            table{width:100%; border-collapse:collapse; margin-bottom:30px;}
+            th, td{border:1px solid #ccc; padding:10px; vertical-align:top;}
+        </style></head><body><h1>${document.getElementById('builder-title').value}</h1>`;
 
         selected.forEach(type => {
-            let sents = [...fullSentences].sort(() => 0.5 - Math.random()).slice(0, 10);
+            let sents = [...fullList].sort(() => 0.5 - Math.random()).slice(0, Math.min(count, fullList.length));
             let label = document.querySelector(`input[value="${type}"]`).parentElement.innerText;
             html += `<h2>${label}</h2>`;
 
             if (type === 'study') {
-                html += `<table border="1" style="width:100%; border-collapse:collapse;"><tr><th>Target</th><th>Translation</th></tr>`;
-                fullSentences.slice(0, 20).forEach(s => html += `<tr><td><b>${s.t}</b></td><td><i>${s.tr}</i></td></tr>`);
+                html += `<table><tr><th>Target Language</th><th>English Translation</th></tr>`;
+                sents.forEach(s => html += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
                 html += `</table>`;
+            } else if (type === 'matching') {
+                let targetTen = sents.slice(0, 10);
+                let englishTen = [...targetTen].sort(() => 0.5 - Math.random());
+                html += `<table>`;
+                targetTen.forEach((s, i) => {
+                    let eng = englishTen[i];
+                    let letter = String.fromCharCode(65 + i);
+                    html += `<tr>
+                        <td style="border:none; width:45%;">${i+1}. ${s.t}</td>
+                        <td style="border:none; width:10%;">[ &nbsp;&nbsp; ]</td>
+                        <td style="border:none; width:45%;">${letter}. ${eng.tr}</td>
+                    </tr>`;
+                });
+                html += `</table><div class="line"></div>`;
+            } else if (type === 'faulty') {
+                sents.slice(0, 10).forEach((s, i) => {
+                    let modParts = [...s.parts];
+                    let swapIdx = Math.floor(Math.random() * modParts.length);
+                    let colIdx = modParts[swapIdx].col;
+                    let alternatives = fullList.map(fs => fs.parts.find(p => p.col === colIdx)).filter(p => p && p.tr !== modParts[swapIdx].tr);
+                    if(alternatives.length) {
+                        modParts[swapIdx].tr = alternatives[Math.floor(Math.random()*alternatives.length)].tr;
+                    }
+                    let faultyTr = modParts.map(p => p.tr).join(' ');
+                    html += `<p>${i+1}. ${s.t} = <span class="blue">${faultyTr}</span></p><div class="line"></div>`;
+                });
             } else {
                 sents.forEach((s, i) => {
-                    let text = s.t;
-                    if (type === 'vowels') text = s.t.replace(/[aeiouàéèíóúü]/gi, "_ _");
-                    if (type === 'consonants') text = s.t.replace(/[bcdfghjklmnpqrstvwxyz]/gi, "_ _");
-                    if (type === 'nospaces') text = s.t.replace(/\s+/g, '').toLowerCase();
-                    if (type === 'jumbled') text = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
-                    if (type === 'faulty') {
-                        let wrong = fullSentences[Math.floor(Math.random()*fullSentences.length)].tr;
-                        text = `${s.t} = ${wrong}?`;
+                    let out = s.t;
+                    if (type === 'vowels') out = applyDashes(s.t, /[aeiouàéèíóúü]/gi);
+                    if (type === 'consonants') out = applyDashes(s.t, /[bcdfghjklmnpqrstvwxyz]/gi);
+                    if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
+                    if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
+                    if (type === 'gap-t') {
+                        let words = s.t.split(' ');
+                        words[Math.floor(Math.random()*words.length)] = "__________";
+                        out = words.join(' ');
                     }
-                    html += `<p>${i+1}. ${text} <span class="blue">(${s.tr})</span></p><div class="line"></div>`;
+                    if (type === 'gap-en') {
+                        let words = s.tr.split(' ');
+                        words[Math.floor(Math.random()*words.length)] = "__________";
+                        html += `<p>${i+1}. <b>${s.t}</b><br><span class="blue">${words.join(' ')}</span></p><div class="line"></div>`;
+                        return;
+                    }
+                    if (type === 'trans-en') { html += `<p>${i+1}. ${s.t}</p><div class="line"></div>`; return; }
+
+                    html += `<p>${i+1}. ${out} <span class="blue">(${s.tr})</span></p><div class="line"></div>`;
                 });
             }
             html += `<hr style="page-break-after:always;">`;
         });
 
         html += `</body></html>`;
-        saveAs(new Blob(['\ufeff', html], { type: 'application/msword' }), "Language_Worksheet.doc");
+        saveAs(new Blob(['\ufeff', html], { type: 'application/msword' }), "Worksheet.doc");
         closeModals();
     }
 
     function openActivityMenu() {
         const list = [
-            {id:'study', label:'Study List (Top 20)'},
-            {id:'vowels', label:'Missing Vowels'},
-            {id:'consonants', label:'Missing Consonants'},
-            {id:'nospaces', label:'No Spaces'},
+            {id:'study', label:'Randomized Study List'},
+            {id:'vowels', label:'Missing Vowels (_ _)'},
+            {id:'consonants', label:'Missing Consonants (_ _)'},
+            {id:'nospaces', label:'No Spaces (lowercase)'},
             {id:'jumbled', label:'Unjumble Sentences'},
-            {id:'faulty', label:'Spot the Mistake'},
-            {id:'matching', label:'Matching L1/L2'},
-            {id:'gapfill-t', label:'Gap Fill (Target)'},
-            {id:'gapfill-en', label:'Gap Fill (English)'}
+            {id:'faulty', label:'Spot the Mistake (Cell Swap)'},
+            {id:'matching', label:'Matching L1/L2 (A-J Boxes)'},
+            {id:'gap-t', label:'Gap Fill (Target Language)'},
+            {id:'gap-en', label:'Gap Fill (English)'},
+            {id:'trans-en', label:'Translate into English'}
         ];
-        document.getElementById('activity-list').innerHTML = list.map(a => `<div class="preview-row"><label><input type="checkbox" value="${a.id}"> ${a.label}</label></div>`).join('');
+        document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}" id="chk-${a.id}"> <label for="chk-${a.id}">${a.label}</label></div>`).join('');
         document.getElementById('activity-menu').style.display = 'block'; document.getElementById('overlay').style.display = 'block';
     }
 
-    function showPreview() { 
-        document.getElementById('preview-modal').style.display = 'block'; document.getElementById('overlay').style.display = 'block'; 
-        const sents = getAssembledSentences().slice(0, 20);
-        document.getElementById('preview-content').innerHTML = sents.map((s, i) => `<div class="preview-row"><span>${i+1}. ${s.t}</span><span style="color:var(--translation-blue)">(${s.tr})</span></div>`).join('');
-    }
     function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
-    function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); document.getElementById('overlay').style.display = 'none'; }
     function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
     function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); render(); }
     function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); render(); }
@@ -251,6 +306,7 @@
         const styles = { 'left': 'left:-15px; top:40%;', 'right': 'right:-15px; top:40%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' };
         b.style = styles[pos]; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b);
     }
+    function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); document.getElementById('overlay').style.display = 'none'; }
     function saveProject() { saveAs(new Blob([JSON.stringify(grid)], {type: "application/json"}), "project.json"); }
     function loadProject(e) { const fr = new FileReader(); fr.onload = (ev) => { grid = JSON.parse(ev.target.result); render(); }; fr.readAsText(e.target.files[0]); }
     
