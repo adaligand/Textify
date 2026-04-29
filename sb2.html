@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence</title>
+    <title>Sentence Builder - Fixed Logic</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -34,12 +34,11 @@
         .color-picker { position: absolute; bottom: 30px; right: 0; background: white; border: 1px solid #ccc; padding: 5px; display: none; grid-template-columns: repeat(3, 20px); gap: 4px; border-radius: 4px; z-index: 110; }
         .swatch { width: 20px; height: 20px; cursor: pointer; border: 1px solid #ddd; }
         button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 6px; font-weight: 500; }
-        button:hover { background: #f8fafc; }
     </style>
 </head>
 <body>
 
-<input type="text" id="builder-title" value="My_Sentences">
+<input type="text" id="builder-title" value="Substitution_Table">
 
 <div class="toolbar">
     <button onclick="undo()">↩️ Undo</button>
@@ -55,7 +54,7 @@
     <button onclick="saveProject()">💾 Save</button>
     <button onclick="document.getElementById('fileIn').click()">📂 Load</button>
     <button onclick="exportPDF()" style="background:#e11d48; color:white; border:none;">📄 PDF</button>
-    <button onclick="openActivityMenu()" style="background:#8b5cf6; color:white; border:none;">🎯 Worksheet</button>
+    <button onclick="openActivityMenu()" style="background:#8b5cf6; color:white; border:none;">🎯 Multi-Activity</button>
     <input type="file" id="fileIn" style="display:none" onchange="loadProject(event)">
 </div>
 
@@ -72,7 +71,7 @@
 </div>
 
 <script>
-    let grid = [[c(), c(), c()], [c(), c(), c()], [c(), c(), c()]];
+    let grid = [[c(), c(), c()], [c(), c(), c()]];
     let history = [JSON.stringify(grid)];
     let historyStep = 0;
     let currentMode = null;
@@ -86,7 +85,8 @@
         { id: 'no-spaces', label: 'No Spaces' },
         { id: 'gap-target', label: 'Gap Fill' },
         { id: 'matching', label: 'Matching' },
-        { id: 'jumbled', label: 'Unscramble' }
+        { id: 'jumbled', label: 'Unscramble' },
+        { id: 'to-target', label: 'Translate to Target' }
     ];
 
     function c() { return { items: [{t: "", tr: ""}], color: "#ffffff", rS: 1, cS: 1, hidden: false, sel: false, split: false }; }
@@ -175,27 +175,34 @@
         render();
     }
 
-    // NEW FIXED ASSEMBLY LOGIC: Entire row gathered as one sentence
+    // UPDATED ASSEMBLY LOGIC: Repeated prefix for uneven lines
     function getAssembledSentences() {
         let compiled = [];
-        grid.forEach((row, rIdx) => {
-            // Find the maximum number of lines in ANY cell in this row
-            let maxLines = Math.max(...row.map(cell => cell.items.length));
-            
-            for (let lineIdx = 0; lineIdx < maxLines; lineIdx++) {
+        grid.forEach((row) => {
+            let visibleInRow = row.filter(cell => !cell.hidden);
+            if (visibleInRow.length === 0) return;
+
+            // Step 1: Find the max lines in this row
+            let maxRowLines = Math.max(...visibleInRow.map(c => c.items.length));
+
+            // Step 2: Build each line
+            for (let l = 0; l < maxRowLines; l++) {
                 let tParts = [], trParts = [];
-                row.forEach(cell => {
-                    if (cell.hidden) return; // Skip merged-away cells
-                    // Get text for this specific line index, or repeat the last line if shorter
-                    let item = cell.items[lineIdx] || cell.items[cell.items.length - 1] || {t:"", tr:""};
-                    if(item.t.trim()) tParts.push(item.t.trim());
-                    if(item.tr.trim()) trParts.push(item.tr.trim());
+                visibleInRow.forEach(cell => {
+                    // CARRY OVER LOGIC: 
+                    // If this cell has fewer lines than the row max, use its LAST available line
+                    let itemIndex = Math.min(l, cell.items.length - 1);
+                    let item = cell.items[itemIndex];
+                    
+                    if (item && (item.t.trim() || item.tr.trim())) {
+                        tParts.push(item.t.trim());
+                        trParts.push(item.tr.trim());
+                    }
                 });
-                
                 if (tParts.length > 0) {
                     compiled.push({ 
-                        t: tParts.join(' ').replace(/\s+/g, ' '), 
-                        tr: trParts.join(' ').replace(/\s+/g, ' ') 
+                        t: tParts.join(' '), 
+                        tr: trParts.join(' ') 
                     });
                 }
             }
@@ -207,30 +214,31 @@
         const selected = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
         if (!selected.length) return;
         const sentences = getAssembledSentences();
-        let htmlContent = `<h1>Activity Pack</h1>`;
+        let html = `<h1>Activity Pack</h1>`;
 
         selected.forEach((type, idx) => {
-            htmlContent += `<h3>Task ${idx+1}: ${ACTIVITY_TYPES.find(a=>a.id===type).label}</h3>`;
+            html += `<h3>Task ${idx+1}: ${ACTIVITY_TYPES.find(a=>a.id===type).label}</h3>`;
             sentences.forEach((s, i) => {
-                if(type==='both') htmlContent += `<p>${i+1}. <b>${s.t}</b> (${s.tr})</p>`;
-                if(type==='target') htmlContent += `<p>${i+1}. ${s.t}</p>`;
-                if(type==='no-vowels') htmlContent += `<p>${i+1}. ${s.t.replace(/[aeiouàéèíóúü]/gi, '_')} (${s.tr})</p>`;
-                if(type==='no-spaces') htmlContent += `<p>${i+1}. ${s.t.replace(/\s+/g, '').toLowerCase()} (${s.tr})</p>`;
-                if(type==='jumbled') htmlContent += `<p>${i+1}. [ ${s.t.split(' ').sort(()=>Math.random()-0.5).join(' / ')} ] (${s.tr})</p>`;
+                if(type==='both') html += `<p>${i+1}. <b>${s.t}</b> (${s.tr})</p>`;
+                if(type==='target') html += `<p>${i+1}. ${s.t}</p>`;
+                if(type==='no-vowels') html += `<p>${i+1}. ${s.t.replace(/[aeiouàéèíóúü]/gi, '_')} (${s.tr})</p>`;
+                if(type==='no-spaces') html += `<p>${i+1}. ${s.t.replace(/\s+/g, '').toLowerCase()} (${s.tr})</p>`;
+                if(type==='jumbled') html += `<p>${i+1}. [ ${s.t.split(' ').sort(()=>Math.random()-0.5).join(' / ')} ] (${s.tr})</p>`;
+                if(type==='to-target') html += `<p>${i+1}. ${s.tr} <br>________________________________</p>`;
                 if(type==='gap-target') {
                     let w = s.t.split(' '); let r = Math.floor(Math.random()*w.length); w[r] = "_______";
-                    htmlContent += `<p>${i+1}. ${w.join(' ')} (${s.tr})</p>`;
+                    html += `<p>${i+1}. ${w.join(' ')} (${s.tr})</p>`;
                 }
             });
             if(type==='matching') {
                 let rands = [...sentences].map((s, i) => ({tr: s.tr, id: String.fromCharCode(65+i)})).sort(()=>Math.random()-0.5);
-                htmlContent += `<table border="0" width="100%">`;
-                sentences.forEach((s, i) => htmlContent += `<tr><td>${i+1}. ${s.t}</td><td>____</td><td>${rands[i].id}. ${rands[i].tr}</td></tr>`);
-                htmlContent += `</table>`;
+                html += `<table border="0" width="100%">`;
+                sentences.forEach((s, i) => html += `<tr><td>${i+1}. ${s.t}</td><td>____</td><td>${rands[i].id}. ${rands[i].tr}</td></tr>`);
+                html += `</table>`;
             }
-            htmlContent += `<hr style="page-break-after:always;">`;
+            html += `<hr style="page-break-after:always;">`;
         });
-        saveAs(new Blob(['\ufeff', `<html><body>${htmlContent}</body></html>`], {type:'application/msword'}), "Activity_Pack.doc");
+        saveAs(new Blob(['\ufeff', `<html><body>${html}</body></html>`], {type:'application/msword'}), "Worksheet.doc");
         closeActivityMenu();
     }
 
