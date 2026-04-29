@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder</title>
+    <title>Sentence Builder - Simple Preview</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -53,20 +53,21 @@
         .color-picker { position: absolute; bottom: 30px; right: 0; background: white; border: 1px solid #ccc; padding: 5px; display: none; z-index: 110; grid-template-columns: repeat(3, 20px); gap: 4px; border-radius: 4px; }
         .swatch { width: 20px; height: 20px; cursor: pointer; border: 1px solid #ddd; }
 
-        /* Modal Logic */
+        /* Simplified Modal Logic */
         .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 25px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); display: none; z-index: 2000; width: 650px; max-height: 80vh; overflow-y: auto; }
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; z-index: 1999; }
         button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 4px; font-weight: 500; }
         .btn-purple { background: #8b5cf6; color: white; border: none; }
         
-        .preview-sentence { font-size: 15px; margin-bottom: 10px; padding: 10px; border-bottom: 1px solid #f1f5f9; background: #fafafa; border-radius: 4px; }
-        .preview-sentence b { color: #1e293b; }
-        .preview-sentence i { color: var(--translation-blue); display: block; font-size: 13px; margin-top: 4px; }
+        /* THE SIMPLE PREVIEW STYLE */
+        .preview-sentence { font-size: 15px; line-height: 1.2; margin: 0; padding: 2px 0; }
+        .preview-sentence b { font-weight: 600; }
+        .preview-sentence span.tr-text { color: var(--translation-blue); font-style: italic; margin-left: 6px; }
     </style>
 </head>
 <body>
 
-<input type="text" id="builder-title" value="Title">
+<input type="text" id="builder-title" value="My_Project">
 
 <div class="toolbar">
     <button onclick="undo()">↩️ Undo</button>
@@ -92,13 +93,13 @@
 <div class="overlay" id="overlay" onclick="closeModals()"></div>
 
 <div id="preview-modal" class="modal">
-    <h2 style="margin-top:0;">Sentence Preview</h2>
+    <h3 style="margin-top:0; border-bottom: 1px solid #eee; padding-bottom: 10px;">Sentence List</h3>
     <div id="preview-content"></div>
-    <button onclick="closeModals()" style="width:100%; margin-top:15px;">Close</button>
+    <button onclick="closeModals()" style="width:100%; margin-top:20px;">Close</button>
 </div>
 
 <div id="activity-menu" class="modal">
-    <h2 style="margin-top:0;">Generate Worksheet</h2>
+    <h3 style="margin-top:0;">Generate Worksheet</h3>
     <div id="activity-list" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;"></div>
     <div style="margin-top:20px; display:flex; gap:10px;">
         <button onclick="generateMasterDoc()" class="btn-purple" style="flex:1;">Download .doc</button>
@@ -123,6 +124,9 @@
         history.push(state);
         historyStep++;
     }
+
+    function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
+    function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
 
     function render(doSave = true) {
         if (doSave) pushHistory();
@@ -163,9 +167,7 @@
                     </div>
                 `;
                 
-                if (currentMode?.includes('add') || currentMode?.includes('del')) {
-                    setupActionButtons(cellDiv, r, cIdx, cols);
-                }
+                if (currentMode?.includes('add') || currentMode?.includes('del')) setupActionButtons(cellDiv, r, cIdx, cols);
 
                 container.appendChild(cellDiv);
                 cellDiv.querySelectorAll('input').forEach(syncSize);
@@ -175,8 +177,11 @@
 
     function openPreview() {
         const sentences = getAssembledSentences();
-        const content = sentences.map(s => `<div class="preview-sentence"><b>${s.t}</b> <i>(${s.tr})</i></div>`).join('');
-        document.getElementById('preview-content').innerHTML = content || "No sentences found. Start typing in the grid!";
+        // SIMPLE PREVIEW: No extra gaps, target and translation on one line
+        const content = sentences.map((s, i) => `
+            <div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>
+        `).join('');
+        document.getElementById('preview-content').innerHTML = content || "Grid is empty.";
         document.getElementById('preview-modal').style.display = 'block';
         document.getElementById('overlay').style.display = 'block';
     }
@@ -209,14 +214,10 @@
     function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
     function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
     function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); document.getElementById('overlay').style.display = 'none'; }
-    function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
-    function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
-
     function handleKey(e, r, cIdx, i) {
         if (e.key === 'Enter') { e.preventDefault(); grid[r][cIdx].items.splice(i+1, 0, {t:"", tr:""}); render(); setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}"]`).focus(); }, 10); }
         if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) { e.preventDefault(); grid[r][cIdx].items.splice(i, 1); render(); setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}"]`).focus(); }, 10); }
     }
-
     function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
@@ -229,7 +230,6 @@
         for(let r=root.r; r<maxR; r++) for(let c=root.c; c<maxC; c++) { if(r===root.r && c===root.c) continue; grid[r][c].hidden = true; grid[r][c].sel = false; }
         render();
     }
-
     function splitSelected() {
         grid.forEach((row, r) => row.forEach((cell, cIdx) => {
             if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
@@ -242,7 +242,6 @@
         }));
         render();
     }
-
     function setupActionButtons(cellDiv, r, cIdx, cols) {
         if (currentMode === 'add-col' && r === 0) {
             addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
@@ -255,13 +254,11 @@
         }
         if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
     }
-
     function addIcon(p, t, pos, l, a) {
         const b = document.createElement('div'); b.className = `action-btn ${t}`; b.innerText = l;
         const s = { 'left': 'left:-15px; top:45%;', 'right': 'right:-15px; top:45%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' }[pos];
         b.style = s; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b);
     }
-
     async function exportPDF() {
         const title = document.getElementById('builder-title').value;
         const edits = document.querySelectorAll('.no-export, .action-btn');
@@ -273,31 +270,27 @@
         pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
         pdf.save(`${title}.pdf`);
     }
-
     function openActivityMenu() {
-        const list = [{id:'study', label:'Sentence Table'}, {id:'vowels', label:'Missing Vowels'}, {id:'nospaces', label:'No Spaces'}, {id:'jumbled', label:'Unjumble'}];
+        const list = [{id:'study', label:'Table'}, {id:'vowels', label:'Vowels'}, {id:'nospaces', label:'Spaces'}, {id:'jumbled', label:'Unjumble'}];
         document.getElementById('activity-list').innerHTML = list.map(a => `<div><input type="checkbox" value="${a.id}"> ${a.label}</div>`).join('');
         document.getElementById('activity-menu').style.display = 'block'; document.getElementById('overlay').style.display = 'block';
     }
-
     function generateMasterDoc() {
         const fullList = getAssembledSentences();
         const selected = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
-        let html = `<html><head><style>body{font-family:Arial;} .blue{color:blue; font-style:italic;}</style></head><body>`;
+        let html = `<html><body>`;
         selected.forEach(type => {
-            html += `<h2>${type.toUpperCase()}</h2>`;
+            html += `<h3>${type.toUpperCase()}</h3>`;
             fullList.forEach((s, i) => {
                 let out = s.t;
-                let hint = `<span class="blue">(${s.tr})</span>`;
                 if (type === 'vowels') out = s.t.replace(/[aeiou]/gi, '_');
                 if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
-                html += `<p>${i+1}. ${out} ${hint}<br>____________________________________________________</p>`;
+                html += `<p>${i+1}. ${out} (${s.tr})</p>`;
             });
         });
-        saveAs(new Blob(['\ufeff', html], { type: 'application/msword' }), "Worksheet.doc");
+        saveAs(new Blob(['\ufeff', html + `</body></html>`], { type: 'application/msword' }), "Worksheet.doc");
         closeModals();
     }
-
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
     function saveProject() { saveAs(new Blob([JSON.stringify(grid)], {type: "application/json"}), "project.json"); }
     function loadProject(e) { const fr = new FileReader(); fr.onload = (ev) => { grid = JSON.parse(ev.target.result); render(); }; fr.readAsText(e.target.files[0]); }
