@@ -55,7 +55,15 @@
 
         .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 25px; border-radius: 12px; box-shadow: 0 15px 50px rgba(0,0,0,0.4); display: none; z-index: 2000; width: 650px; max-height: 85vh; overflow-y: auto; }
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; z-index: 1999; }
-        .activity-row { padding: 10px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; }
+        
+        /* Grid Layout for Activity List */
+        #activity-list { 
+            display: grid; 
+            grid-template-columns: 1fr 1fr; 
+            gap: 10px; 
+            margin-top: 10px;
+        }
+        .activity-row { padding: 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 10px; }
 
         /* PREVIEW STYLING */
         .preview-sentence { font-size: 16px; line-height: 1.4; margin: 0; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
@@ -173,7 +181,7 @@
                             oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
                         <div class="bracket-wrapper"><span>(</span>
                         <input type="text" class="translation-input" placeholder="Translation" 
-                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})"
+                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
                             oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
                         <span>)</span></div>
                     </div>
@@ -242,7 +250,6 @@
         }
     }
 
-    // --- PREVIEW LOGIC ---
     function openPreview() {
         const sentences = getAssembledSentences();
         const content = sentences.map((s, i) => `<div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`).join('');
@@ -252,16 +259,30 @@
     }
 
     function openActivityMenu() {
+        // Re-ordered list as requested
         const list = [
-            {id:'study', label:'Sentence Table'}, {id:'vowels', label:'Missing Vowels'},
-            {id:'cons', label:'Missing Consonants'}, {id:'nospaces', label:'No Spaces'},
-            {id:'jumbled', label:'Unjumble'}, {id:'match', label:'Match up'},
-            {id:'gap-t', label:'Gap Fill (TL)'}, {id:'gap-en', label:'Gap Fill (English)'},
-            {id:'trans-en', label:'Translate (English)'}, {id:'trans-target', label:'Translate (TL)'},
-            {id:'faulty', label:'Faulty Translation'}
+            {id:'study', label:'Sentence Table'}, 
+            {id:'match', label:'Match up'},
+            {id:'nospaces', label:'No Spaces'}, 
+            {id:'jumbled', label:'Unjumble'}, 
+            {id:'gap-en', label:'Gap Fill (English)'}, 
+            {id:'gap-t', label:'Gap Fill (TL)'}, 
+            {id:'vowels', label:'Missing Vowels'},
+            {id:'cons', label:'Missing Consonants'}, 
+            {id:'faulty', label:'Faulty Translation'},
+            {id:'trans-en', label:'Translate (English)'}, 
+            {id:'trans-target', label:'Translate (TL)'}
         ];
-        document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}" id="chk-${a.id}"> <label for="chk-${a.id}">${a.label}</label></div>`).join('');
-        document.getElementById('activity-menu').style.display = 'block'; document.getElementById('overlay').style.display = 'block';
+        
+        document.getElementById('activity-list').innerHTML = list.map(a => `
+            <div class="activity-row">
+                <input type="checkbox" value="${a.id}" id="chk-${a.id}"> 
+                <label for="chk-${a.id}" style="cursor:pointer">${a.label}</label>
+            </div>
+        `).join('');
+        
+        document.getElementById('activity-menu').style.display = 'block'; 
+        document.getElementById('overlay').style.display = 'block';
     }
 
     function toggleAllActivities(master) {
@@ -273,7 +294,18 @@
         if (fullList.length === 0) return alert("Please fill in some vocab first!");
         
         const count = parseInt(document.getElementById('sentence-count').value);
-        const selected = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
+        
+        // We ensure we process in the order they appear in the UI list
+        const activityList = [
+            'study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 
+            'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'
+        ];
+        
+        const selected = activityList.filter(id => {
+            const cb = document.getElementById(`chk-${id}`);
+            return cb && cb.checked;
+        });
+
         if (selected.length === 0) return alert("Select at least one activity!");
 
         const line = "<br><br>__________________________________________________________________<br>";
@@ -281,7 +313,8 @@
 
         selected.forEach(type => {
             let sents = [...fullList].sort(() => 0.5 - Math.random()).slice(0, count);
-            html += `<h2>${document.querySelector(`input[value="${type}"]`).parentElement.innerText}</h2>`;
+            const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
+            html += `<h2>${label}</h2>`;
 
             if (type === 'study') {
                 html += `<table><tr><th>Target Language</th><th>English</th></tr>`;
@@ -301,6 +334,7 @@
                     else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
                     else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
                     else if (type === 'gap-t') { let w = s.t.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); }
+                    else if (type === 'gap-en') { let w = s.tr.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; }
                     else if (type === 'trans-en') { out = s.t; hint = ""; }
                     else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
                     else if (type === 'faulty') {
