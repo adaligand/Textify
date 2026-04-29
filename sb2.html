@@ -282,64 +282,97 @@ Put your HTML text here<!DOCTYPE html>
     }
 
     function generateWorksheet() {
-        const fullList = getAssembledSentences();
-        if (fullList.length === 0) return alert("Please fill in some vocab first!");
-        
-        const count = parseInt(document.getElementById('sentence-count').value);
-        const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
-        const selected = activityOrder.filter(id => document.getElementById(`chk-${id}`).checked);
+    const count = parseInt(document.getElementById('sentence-count').value);
+    const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
+    const selected = activityOrder.filter(id => document.getElementById(`chk-${id}`).checked);
 
-        if (selected.length === 0) return alert("Select at least one activity!");
+    if (selected.length === 0) return alert("Select at least one activity!");
 
-        const line = "<br><br>__________________________________________________________________<br>";
-        let html = `<html><head><meta charset="utf-8"><style>body{font-family:Arial; line-height:1.4;} .blue{color:#2980b9; font-style:italic;} table{width:100%; border-collapse:collapse; margin-bottom:20px;} td,th{border:1px solid black; padding:3px 8px;}</style></head><body>`;
-
-        selected.forEach(type => {
-            let sents = [...fullList].sort(() => 0.5 - Math.random()).slice(0, count);
-            const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
-            html += `<h2>${label}</h2>`;
-
-            if (type === 'study') {
-                html += `<table><tr><th>Target Language</th><th>English</th></tr>`;
-                sents.forEach(s => html += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
-                html += `</table>`;
-            } else if (type === 'match') {
-                let pool = sents.slice(0, 10);
-                let shuf = [...pool].sort(() => 0.5 - Math.random());
-                html += `<table>`;
-                pool.forEach((s, i) => html += `<tr><td style="border:none; padding:8px;">${i+1}. ${s.t}</td><td style="border:none; width:50px; text-align:center;">[ &nbsp; ]</td><td style="border:none; padding:8px;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
-                html += `</table>`;
-            } else {
-                sents.forEach((s, i) => {
-                    let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
-                    
-                    if (type === 'vowels' || type === 'cons') {
-                        // Regex replaces letter by underscore WITHOUT space after
-                        let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
-                        let textOnly = s.t.replace(pattern, '_');
-                        // Split by actual spaces and rejoin with 3 NBSP for word separation
-                        out = textOnly.split(' ').join('&nbsp;&nbsp;&nbsp;');
-                    }
-                    else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
-                    else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
-                    else if (type === 'gap-t') { let w = s.t.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); }
-                    else if (type === 'gap-en') { let w = s.tr.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; }
-                    else if (type === 'trans-en') { out = s.t; hint = ""; }
-                    else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
-                    else if (type === 'faulty') {
-                        let parts = [...s.parts]; let idx = Math.floor(Math.random()*parts.length);
-                        let alt = fullList.filter(f => f.parts.some(p => p.col === parts[idx].col && p.tr !== parts[idx].tr));
-                        if(alt.length) parts[idx] = { ...parts[idx], tr: alt[0].parts.find(p=>p.col===parts[idx].col).tr };
-                        html += `<p>${i+1}. ${s.t} = <span class="blue">${parts.map(p=>p.tr).join(' ')}</span>${line}</p>`; return;
-                    }
-                    html += `<p>${i+1}. ${out} ${hint}${line}</p>`;
-                });
-            }
-            html += `<hr style="page-break-after:always;">`;
-        });
-        saveAs(new Blob(['\ufeff', html], { type: 'application/msword' }), "Worksheet.doc");
-        closeModals();
+    // 1. Group sentences by row
+    let rowBuckets = {};
+    for (let r = 0; r < grid.length; r++) {
+        // We reuse the logic but only for one row at a time
+        let rowSents = getSentencesByRow(r);
+        if (rowSents.length > 0) {
+            rowBuckets[r] = rowSents.sort(() => 0.5 - Math.random());
+        }
     }
+
+    const activeRowKeys = Object.keys(rowBuckets);
+    if (activeRowKeys.length === 0) return alert("Please fill in some vocab first!");
+
+    // 2. Pick sentences evenly from buckets
+    let finalSents = [];
+    let perRow = Math.floor(count / activeRowKeys.length);
+    let remainder = count % activeRowKeys.length;
+
+    activeRowKeys.forEach((key, index) => {
+        let take = perRow + (index < remainder ? 1 : 0);
+        finalSents.push(...rowBuckets[key].slice(0, take));
+    });
+
+    // Shuffle the final selection so the worksheet isn't grouped by row
+    finalSents.sort(() => 0.5 - Math.random());
+
+    // 3. Generate HTML (Standard formatting logic continues...)
+    const line = "<br><br>__________________________________________________________________<br>";
+    let html = `<html><head><meta charset="utf-8"><style>body{font-family:Arial; line-height:1.4;} .blue{color:#2980b9; font-style:italic;} table{width:100%; border-collapse:collapse; margin-bottom:20px;} td,th{border:1px solid black; padding:3px 8px;}</style></head><body>`;
+
+    selected.forEach(type => {
+        const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
+        html += `<h2>${label}</h2>`;
+        
+        // Use our balanced finalSents for the activities
+        let sents = (type === 'match') ? finalSents.slice(0, 10) : finalSents;
+
+        if (type === 'study') {
+            html += `<table><tr><th>Target Language</th><th>English</th></tr>`;
+            sents.forEach(s => html += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
+            html += `</table>`;
+        } else if (type === 'match') {
+            let pool = sents;
+            let shuf = [...pool].sort(() => 0.5 - Math.random());
+            html += `<table>`;
+            pool.forEach((s, i) => html += `<tr><td style="border:none; padding:8px;">${i+1}. ${s.t}</td><td style="border:none; width:50px; text-align:center;">[ &nbsp; ]</td><td style="border:none; padding:8px;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
+            html += `</table>`;
+        } else {
+            sents.forEach((s, i) => {
+                let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
+                if (type === 'vowels' || type === 'cons') {
+                    let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
+                    out = s.t.replace(pattern, '_').split(' ').join('&nbsp;&nbsp;&nbsp;');
+                }
+                else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
+                else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
+                else if (type === 'gap-t') { let w = s.t.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); }
+                else if (type === 'gap-en') { let w = s.tr.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; }
+                else if (type === 'trans-en') { out = s.t; hint = ""; }
+                else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
+                else if (type === 'faulty') {
+                    let parts = [...s.parts]; let idx = Math.floor(Math.random()*parts.length);
+                    html += `<p>${i+1}. ${s.t} = <span class="blue">...faulty translation task...</span>${line}</p>`; return;
+                }
+                html += `<p>${i+1}. ${out} ${hint}${line}</p>`;
+            });
+        }
+        html += `<hr style="page-break-after:always;">`;
+    });
+
+    saveAs(new Blob(['\ufeff', html], { type: 'application/msword' }), "Worksheet.doc");
+    closeModals();
+}
+
+// Helper to isolate Cartesian product to a single row
+function getSentencesByRow(r) {
+    let pathCells = [];
+    for (let c = 0; c < grid[0].length; c++) {
+        let cell = getCellAt(r, c);
+        if (!cell || cell.hidden || (c > 0 && getCellAt(r, c - 1) === cell)) continue;
+        let items = cell.items.filter(it => it.t.trim() || it.tr.trim());
+        if (items.length > 0) pathCells.push(items.map(it => ({ t: it.t.trim(), tr: it.tr.trim(), col: c })));
+    }
+    return pathCells.length ? cartesian(pathCells).map(combo => ({ t: combo.map(p => p.t).join(' '), tr: combo.map(p => p.tr).join(' '), parts: combo })) : [];
+}
 
   function getAssembledSentences() {
     let allCompiled = [];
