@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder - Merge Aware</title>
+    <title>Sentence Builder - Full Pro Version</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -19,15 +19,16 @@
         .target-input, .translation-input { border: none; background: transparent; outline: none; font-family: inherit; font-size: 16px; width: auto; min-width: 10px; }
         .target-input { font-weight: 600; }
         .bracket-wrapper { color: var(--translation-blue); font-size: 14px; font-style: italic; }
-        #activity-menu { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 16px; box-shadow: 0 20px 25px rgba(0,0,0,0.2); display: none; z-index: 2000; width: 500px; }
+        #activity-menu { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 16px; box-shadow: 0 20px 25px rgba(0,0,0,0.2); display: none; z-index: 2000; width: 500px; max-height: 80vh; overflow-y: auto; }
         .menu-row { display: flex; align-items: center; gap: 12px; padding: 10px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; z-index: 1999; }
         button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 6px; font-weight: 500; }
+        button:hover { background: #f1f5f9; }
     </style>
 </head>
 <body>
 
-<input type="text" id="builder-title" value="My_French_Activities">
+<input type="text" id="builder-title" value="My_Substitution_Table">
 
 <div class="toolbar">
     <button onclick="undo()">↩️ Undo</button>
@@ -37,8 +38,10 @@
     <button onclick="mergeSelected()">Merge</button>
     <button onclick="splitSelected()">Split</button>
     <button onclick="saveProject()">💾 Save</button>
+    <button onclick="document.getElementById('fileIn').click()">📂 Load</button>
     <button onclick="exportPDF()" style="background:#e11d48; color:white; border:none;">📄 PDF</button>
-    <button onclick="openActivityMenu()" style="background:#8b5cf6; color:white; border:none;">🎯 Multi-Activity</button>
+    <button onclick="openActivityMenu()" style="background:#8b5cf6; color:white; border:none;">🎯 Worksheet</button>
+    <input type="file" id="fileIn" style="display:none" onchange="loadProject(event)">
 </div>
 
 <div id="grid-container" class="grid-canvas"></div>
@@ -65,21 +68,31 @@
     let grid = [[c(), c(), c()], [c(), c(), c()], [c(), c(), c()]];
     let history = [JSON.stringify(grid)];
     let historyStep = 0;
+    let typingTimer;
 
     const ACTIVITIES = [
         { id: 'study', label: 'Study List (Target + Translation)' },
         { id: 'vowels', label: 'Missing Vowels' },
         { id: 'consonants', label: 'Missing Consonants' },
-        { id: 'no-spaces', label: 'No Spaces' },
+        { id: 'no-spaces', label: 'No Spaces (Run-on)' },
         { id: 'to-target', label: 'Translation to Target Language' },
         { id: 'to-trans', label: 'Translation to English (Blue Text)' },
-        { id: 'bad-trans', label: 'Spot the Bad Translation' },
-        { id: 'jumbled', label: 'Unscramble' }
+        { id: 'bad-trans', label: 'Bad Translation (Spot the Error)' },
+        { id: 'jumbled', label: 'Unscramble Sentences' }
     ];
 
     function c() { return { items: [{t: "", tr: ""}], rS: 1, cS: 1, hidden: false, sel: false }; }
 
-    function render() {
+    function pushHistory() {
+        const state = JSON.stringify(grid);
+        if (state === history[historyStep]) return;
+        history = history.slice(0, historyStep + 1);
+        history.push(state);
+        historyStep++;
+    }
+
+    function render(doPush = true) {
+        if(doPush) pushHistory();
         const container = document.getElementById('grid-container');
         container.innerHTML = '';
         container.style.gridTemplateColumns = `repeat(${grid[0].length}, fit-content(800px))`;
@@ -91,7 +104,7 @@
                 cellDiv.style.gridColumn = `span ${cell.cS}`;
                 cellDiv.style.gridRow = `span ${cell.rS}`;
                 cellDiv.innerHTML = `
-                    <div class="top-ui"><input type="checkbox" onchange="grid[${r}][${cIdx}].sel=this.checked"></div>
+                    <div class="top-ui"><input type="checkbox" ${cell.sel?'checked':''} onchange="grid[${r}][${cIdx}].sel=this.checked"></div>
                     <div class="vocab-list">${cell.items.map((it, i) => `
                         <div class="vocab-item">
                             <input type="text" class="target-input" oninput="grid[${r}][${cIdx}].items[${i}].t=this.value" value="${it.t}">
@@ -102,15 +115,12 @@
         });
     }
 
-    // SPAN-AWARE ASSEMBLY: Now looks "up" or "left" to find merged parents
-    function getCellContentAt(r, c) {
-        // Find the actual visible cell that covers this coordinate
+    // Logic to find the origin cell of a merge (handles vertical/horizontal)
+    function getCellAt(r, c) {
         for (let row = 0; row <= r; row++) {
             for (let col = 0; col <= c; col++) {
                 let cell = grid[row][col];
-                if (!cell.hidden) {
-                    if (r < row + cell.rS && c < col + cell.cS) return cell;
-                }
+                if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell;
             }
         }
         return null;
@@ -118,36 +128,22 @@
 
     function getAssembledSentences() {
         let sentences = [];
-        const numRows = grid.length;
-        const numCols = grid[0].length;
-
-        for (let r = 0; r < numRows; r++) {
-            // Find max lines for this logical row across all columns
+        for (let r = 0; r < grid.length; r++) {
             let rowCells = [];
-            for(let c=0; c<numCols; c++) rowCells.push(getCellContentAt(r, c));
+            for (let c = 0; c < grid[0].length; c++) rowCells.push(getCellAt(r, c));
             let maxLines = Math.max(...rowCells.map(cell => cell ? cell.items.length : 0));
 
             for (let l = 0; l < maxLines; l++) {
                 let tParts = [], trParts = [];
-                for (let c = 0; c < numCols; c++) {
-                    let cell = getCellContentAt(r, c);
-                    if (!cell) continue;
-                    
-                    // Skip if we already processed this column in this row (horizontal merge)
-                    if (c > 0 && getCellContentAt(r, c-1) === cell) continue;
-
+                for (let c = 0; c < grid[0].length; c++) {
+                    let cell = getCellAt(r, c);
+                    if (!cell || (c > 0 && getCellAt(r, c - 1) === cell)) continue;
                     let it = cell.items[Math.min(l, cell.items.length - 1)];
-                    if (it && it.t.trim()) {
-                        tParts.push(it.t.trim());
-                        trParts.push(it.tr.trim());
-                    }
+                    if (it && it.t.trim()) { tParts.push(it.t.trim()); trParts.push(it.tr.trim()); }
                 }
-                if (tParts.length > 0) {
-                    sentences.push({ t: tParts.join(' '), tr: trParts.join(' ') });
-                }
+                if (tParts.length > 0) sentences.push({ t: tParts.join(' '), tr: trParts.join(' ') });
             }
         }
-        // Unique sentences only
         return sentences.filter((v, i, a) => a.findIndex(t => (t.t === v.t)) === i);
     }
 
@@ -155,47 +151,42 @@
         const fullList = getAssembledSentences();
         const selectedTypes = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
         const studyLimit = parseInt(document.getElementById('study-list-count').value);
-        
-        let html = `<html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;} .blue{color:#2980b9; font-style:italic;}</style></head><body>`;
+        let html = `<html><head><style>.blue{color:#2980b9; font-weight:bold;}</style></head><body>`;
 
         selectedTypes.forEach(type => {
             let limit = (type === 'study') ? studyLimit : 10;
-            // Weighted random selection to ensure even row distribution
-            let subset = fullList.sort(() => 0.5 - Math.random()).slice(0, limit);
-            
+            let subset = [...fullList].sort(() => 0.5 - Math.random()).slice(0, limit);
             html += `<h2>${ACTIVITIES.find(a => a.id === type).label}</h2>`;
             subset.forEach((s, i) => {
-                let ln = `${i+1}. `;
-                if(type==='study') ln += `<b>${s.t}</b> <span class="blue">(${s.tr})</span>`;
-                if(type==='vowels') ln += `${s.t.replace(/[aeiouàâéèêëîïôûù]/gi, '_')} (${s.tr})`;
-                if(type==='consonants') ln += `${s.t.replace(/[^aeiouàâéèêëîïôûù\s]/gi, '_')} (${s.tr})`;
-                if(type==='no-spaces') ln += `${s.t.replace(/\s/g, '').toLowerCase()} (${s.tr})`;
-                if(type==='to-target') ln += `(${s.tr}) : _________________________________`;
-                if(type==='to-trans') ln += `${s.t} : <span class="blue">_________________________________</span>`;
-                if(type==='jumbled') ln += `[ ${s.t.split(' ').sort(()=>0.5-Math.random()).join(' / ')} ] (${s.tr})`;
+                let content = `${i+1}. `;
+                if(type==='study') content += `<b>${s.t}</b> <span class="blue">(${s.tr})</span>`;
+                if(type==='vowels') content += `${s.t.replace(/[aeiouàâéèêëîïôûù]/gi, '_')} (${s.tr})`;
+                if(type==='consonants') content += `${s.t.replace(/[^aeiouàâéèêëîïôûù\s]/gi, '_')} (${s.tr})`;
+                if(type==='no-spaces') content += `${s.t.replace(/\s/g, '').toLowerCase()} (${s.tr})`;
+                if(type==='to-target') content += `(${s.tr}) : __________________________`;
+                if(type==='to-trans') content += `${s.t} : <span class="blue">__________________________</span>`;
+                if(type==='jumbled') content += `[ ${s.t.split(' ').sort(()=>0.5-Math.random()).join(' / ')} ] (${s.tr})`;
                 if(type==='bad-trans') {
-                    let isBad = Math.random() > 0.5;
-                    let displayTr = isBad ? fullList[Math.floor(Math.random()*fullList.length)].tr : s.tr;
-                    ln += `Correct Translation? <b>${s.t}</b> -> <i>${displayTr}</i> ( YES / NO )`;
+                    let bad = fullList[Math.floor(Math.random()*fullList.length)].tr;
+                    content += `True or False? <b>${s.t}</b> = <i>${Math.random()>0.5?s.tr:bad}</i>`;
                 }
-                html += `<p>${ln}</p>`;
+                html += `<p>${content}</p>`;
             });
             html += `<hr style="page-break-after:always;">`;
         });
-
-        html += `</body></html>`;
-        saveAs(new Blob(['\ufeff', html], {type:'application/msword'}), "Language_Worksheet.doc");
+        saveAs(new Blob(['\ufeff', html], {type:'application/msword'}), "Activities.doc");
         closeActivityMenu();
     }
 
-    function openActivityMenu() {
-        document.getElementById('activity-list').innerHTML = ACTIVITIES.map(a => `<label class="menu-row"><input type="checkbox" value="${a.id}"> ${a.label}</label>`).join('');
-        document.getElementById('activity-menu').style.display = 'block';
-        document.getElementById('overlay').style.display = 'block';
+    function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
+    function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
+    function saveProject() { saveAs(new Blob([JSON.stringify(grid)], {type: "application/json"}), "project.json"); }
+    function loadProject(e) { 
+        const fr = new FileReader(); 
+        fr.onload = (ev) => { grid = JSON.parse(ev.target.result); history = [JSON.stringify(grid)]; historyStep = 0; render(false); }; 
+        fr.readAsText(e.target.files[0]); 
     }
 
-    function closeActivityMenu() { document.getElementById('activity-menu').style.display = 'none'; document.getElementById('overlay').style.display = 'none'; }
-    
     function mergeSelected() {
         let sel = []; grid.forEach((r, ri) => r.forEach((c, ci) => { if(c.sel) sel.push({r:ri, c:ci}); }));
         if(sel.length < 2) return;
@@ -210,22 +201,27 @@
 
     function splitSelected() {
         grid.forEach(row => row.forEach(cell => {
-            if(cell.sel) {
-                let rs = cell.rS, cs = cell.cS;
-                for(let i=0; i<grid.length; i++) for(let j=0; j<grid[0].length; j++) {
-                    // This is a simplification; a full split would re-activate all hidden cells in range
-                    cell.rS = 1; cell.cS = 1; cell.hidden = false; cell.sel = false;
-                }
-            }
+            if(cell.sel) { cell.rS = 1; cell.cS = 1; cell.hidden = false; cell.sel = false; }
         }));
+        // Re-enable all hidden cells to be safe
+        grid.forEach(row => row.forEach(c => { if(c.hidden) c.hidden = false; }));
         render();
     }
 
     function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); render(); }
     function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); render(); }
-    function undo() { /* Historical push omitted for length */ }
-    function redo() { /* Historical push omitted for length */ }
-    function saveProject() { saveAs(new Blob([JSON.stringify(grid)], {type: "application/json"}), "sub_table.json"); }
+    function openActivityMenu() {
+        document.getElementById('activity-list').innerHTML = ACTIVITIES.map(a => `<label class="menu-row"><input type="checkbox" value="${a.id}"> ${a.label}</label>`).join('');
+        document.getElementById('activity-menu').style.display = 'block';
+        document.getElementById('overlay').style.display = 'block';
+    }
+    function closeActivityMenu() { document.getElementById('activity-menu').style.display = 'none'; document.getElementById('overlay').style.display = 'none'; }
+    async function exportPDF() {
+        const canvas = await html2canvas(document.getElementById('grid-container'));
+        const pdf = new jspdf.jsPDF('l', 'mm', 'a4');
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 10, 275, 0);
+        pdf.save("Table.pdf");
+    }
 
     render();
 </script>
