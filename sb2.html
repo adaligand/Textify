@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder - Fixed Split & Merging</title>
+    <title>Sentence Builder - Fixed Logic</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -39,7 +39,7 @@
 </head>
 <body>
 
-<input type="text" id="builder-title" value="Substitution_Table_Project">
+<input type="text" id="builder-title" value="Substitution_Table">
 
 <div class="toolbar">
     <button onclick="undo()">↩️ Undo</button>
@@ -107,8 +107,8 @@
                 if (cell.hidden) return;
                 const cellDiv = document.createElement('div');
                 cellDiv.className = `cell ${cell.split ? 'is-split' : ''}`;
-                cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS}`;
-                cellDiv.style.gridRow = `${r + 1} / span ${cell.rS}`;
+                cellDiv.style.gridColumn = `span ${cell.cS}`;
+                cellDiv.style.gridRow = `span ${cell.rS}`;
                 cellDiv.style.backgroundColor = cell.color;
 
                 const listHTML = cell.items.map((item, i) => `
@@ -152,55 +152,31 @@
         }
     }
 
+    // RESTORED ORIGINAL MERGE LOGIC
     function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
-        
-        let root = sel[0];
-        let items = [];
-        let maxR = 0, maxC = 0;
-
-        sel.forEach(p => {
-            let cell = grid[p.r][p.c];
-            items = [...items, ...cell.items.filter(it => it.t || it.tr)];
-            maxR = Math.max(maxR, p.r + cell.rS);
-            maxC = Math.max(maxC, p.c + cell.cS);
-        });
-
+        let root = sel[0], items = [];
+        sel.forEach(p => { items = [...items, ...grid[p.r][p.c].items.filter(it => it.t || it.tr)]; });
+        let maxR = Math.max(...sel.map(i => i.r + grid[i.r][i.c].rS)), maxC = Math.max(...sel.map(i => i.c + grid[i.r][i.c].cS));
         grid[root.r][root.c].items = items.length ? items : [{t:"", tr:""}];
-        grid[root.r][root.c].rS = maxR - root.r;
-        grid[root.r][root.c].cS = maxC - root.c;
+        grid[root.r][root.c].rS = maxR - root.r; grid[root.r][root.c].cS = maxC - root.c;
         grid[root.r][root.c].sel = false;
-
-        sel.slice(1).forEach(p => {
-            grid[p.r][p.c].hidden = true;
-            grid[p.r][p.c].sel = false;
-        });
+        for(let r=root.r; r<maxR; r++) for(let c=root.c; c<maxC; c++) { if(r===root.r && c===root.c) continue; grid[r][c].hidden = true; grid[r][c].sel = false; }
         render();
     }
 
+    // RESTORED ORIGINAL SPLIT LOGIC
     function splitSelected() {
         grid.forEach((row, r) => row.forEach((cell, cIdx) => {
-            if(cell.sel) {
-                // Restore EVERY coordinate inside the span
-                for(let i=r; i < r + cell.rS; i++) {
-                    for(let j=cIdx; j < cIdx + cell.cS; j++) {
-                        grid[i][j].hidden = false;
-                        grid[i][j].rS = 1;
-                        grid[i][j].cS = 1;
-                        grid[i][j].sel = false;
-                        // Reset items only if it's NOT the root cell to avoid losing data
-                        if(i !== r || j !== cIdx) {
-                            grid[i][j].items = [{t:"", tr:""}];
-                            grid[i][j].color = "#ffffff";
-                        }
-                    }
+            if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
+                const rs = cell.rS; const cs = cell.cS;
+                for (let i = r; i < r + rs; i++) for (let j = cIdx; j < cIdx + cs; j++) {
+                    grid[i][j].hidden = false; grid[i][j].rS = 1; grid[i][j].cS = 1; grid[i][j].sel = false;
+                    if (i !== r || j !== cIdx) { grid[i][j].items = [{t: "", tr: ""}]; grid[i][j].color = "#ffffff"; }
                 }
-                // Finally reset root cell spans
-                cell.rS = 1;
-                cell.cS = 1;
-                cell.sel = false;
             }
+            grid[r][cIdx].sel = false;
         }));
         render();
     }
