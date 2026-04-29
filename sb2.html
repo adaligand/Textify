@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder - Simple Preview</title>
+    <title>Sentence Builder - Full Pro Edition</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -29,7 +29,6 @@
         }
 
         .cell.is-split { min-width: 580px; } 
-
         .top-ui { position: absolute; top: 6px; left: 6px; }
         .cell-checkbox { width: 18px !important; height: 18px !important; cursor: pointer; }
 
@@ -50,24 +49,24 @@
         .btn-plus { background: var(--green); }
         .btn-minus { background: var(--red); }
 
-        .color-picker { position: absolute; bottom: 30px; right: 0; background: white; border: 1px solid #ccc; padding: 5px; display: none; z-index: 110; grid-template-columns: repeat(3, 20px); gap: 4px; border-radius: 4px; }
-        .swatch { width: 20px; height: 20px; cursor: pointer; border: 1px solid #ddd; }
-
-        /* Simplified Modal Logic */
+        /* Modal & Layout */
         .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 25px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); display: none; z-index: 2000; width: 650px; max-height: 80vh; overflow-y: auto; }
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; z-index: 1999; }
         button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 4px; font-weight: 500; }
         .btn-purple { background: #8b5cf6; color: white; border: none; }
         
-        /* THE SIMPLE PREVIEW STYLE */
+        /* Simple Preview Style */
         .preview-sentence { font-size: 15px; line-height: 1.2; margin: 0; padding: 2px 0; }
         .preview-sentence b { font-weight: 600; }
         .preview-sentence span.tr-text { color: var(--translation-blue); font-style: italic; margin-left: 6px; }
+
+        .color-picker { position: absolute; bottom: 30px; right: 0; background: white; border: 1px solid #ccc; padding: 5px; display: none; z-index: 110; grid-template-columns: repeat(3, 20px); gap: 4px; border-radius: 4px; }
+        .swatch { width: 20px; height: 20px; cursor: pointer; border: 1px solid #ddd; }
     </style>
 </head>
 <body>
 
-<input type="text" id="builder-title" value="My_Project">
+<input type="text" id="builder-title" value="Project_1">
 
 <div class="toolbar">
     <button onclick="undo()">↩️ Undo</button>
@@ -125,13 +124,11 @@
         historyStep++;
     }
 
-    function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
-    function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
-
     function render(doSave = true) {
         if (doSave) pushHistory();
         const container = document.getElementById('grid-container');
         container.innerHTML = '';
+        const rows = grid.length;
         const cols = grid[0].length;
         container.style.gridTemplateColumns = `repeat(${cols}, fit-content(800px))`;
 
@@ -167,7 +164,17 @@
                     </div>
                 `;
                 
-                if (currentMode?.includes('add') || currentMode?.includes('del')) setupActionButtons(cellDiv, r, cIdx, cols);
+                // FIXED ADD BUTTON LOGIC
+                if (currentMode === 'add-col' && r === 0) {
+                    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+                }
+                if (currentMode === 'add-row' && cIdx === 0) {
+                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                    if (r === rows - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(rows));
+                }
+                if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+                if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
 
                 container.appendChild(cellDiv);
                 cellDiv.querySelectorAll('input').forEach(syncSize);
@@ -175,9 +182,14 @@
         });
     }
 
+    function addIcon(p, t, pos, l, a) {
+        const b = document.createElement('div'); b.className = `action-btn ${t}`; b.innerText = l;
+        const s = { 'left': 'left:-15px; top:45%;', 'right': 'right:-15px; top:45%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' }[pos];
+        b.style = s; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b);
+    }
+
     function openPreview() {
         const sentences = getAssembledSentences();
-        // SIMPLE PREVIEW: No extra gaps, target and translation on one line
         const content = sentences.map((s, i) => `
             <div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>
         `).join('');
@@ -207,6 +219,46 @@
         return compiled;
     }
 
+    function openActivityMenu() {
+        const list = [
+            {id:'study', label:'Complete Sentences'}, 
+            {id:'vowels', label:'Missing Vowels'}, 
+            {id:'nospaces', label:'No Spaces'}, 
+            {id:'jumbled', label:'Unjumble words'},
+            {id:'translation', label:'English to Target'},
+            {id:'dictation', label:'Dictation lines'}
+        ];
+        document.getElementById('activity-list').innerHTML = list.map(a => `<div><input type="checkbox" value="${a.id}"> ${a.label}</div>`).join('');
+        document.getElementById('activity-menu').style.display = 'block'; 
+        document.getElementById('overlay').style.display = 'block';
+    }
+
+    function generateMasterDoc() {
+        const fullList = getAssembledSentences();
+        const selected = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
+        let html = `<html><head><style>body{font-family: Arial; line-height:1.6;} .section{margin-bottom:30px;} .blue{color:#2980b9; font-style:italic;}</style></head><body>`;
+        
+        selected.forEach(type => {
+            let title = {study:'SENTENCE LIST', vowels:'MISSING VOWELS', nospaces:'NO SPACES', jumbled:'UNJUMBLE', translation:'TRANSLATION', dictation:'DICTATION'}[type];
+            html += `<div class="section"><h2>${title}</h2>`;
+            fullList.forEach((s, i) => {
+                let out = s.t;
+                if (type === 'vowels') out = s.t.replace(/[aeiou]/gi, '_');
+                if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
+                if (type === 'jumbled') out = s.t.split(' ').sort(() => Math.random() - 0.5).join(' / ');
+                if (type === 'translation') out = "[Translate this sentence]";
+                if (type === 'dictation') out = "_________________________________________________";
+                
+                html += `<p>${i+1}. ${out} <span class="blue">(${s.tr})</span><br>____________________________________________________</p>`;
+            });
+            html += `</div>`;
+        });
+        
+        saveAs(new Blob(['\ufeff', html + `</body></html>`], { type: 'application/msword' }), "Worksheet.doc");
+        closeModals();
+    }
+
+    // Standard Grid Utilities
     function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
     function syncSize(el) { if (el.value === "") el.style.width = el.classList.contains('target-input') ? "120px" : "80px"; else { el.style.width = '0px'; el.style.width = (el.scrollWidth + 2) + 'px'; } }
     function updateVal(r, cIdx, i, f, v) { grid[r][cIdx].items[i][f] = v; clearTimeout(typingTimer); typingTimer = setTimeout(pushHistory, 1000); }
@@ -214,6 +266,12 @@
     function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
     function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
     function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); document.getElementById('overlay').style.display = 'none'; }
+    function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
+    function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
+    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); render(); }
+    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); render(); }
+    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); render(); } }
+    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); render(); } }
     function handleKey(e, r, cIdx, i) {
         if (e.key === 'Enter') { e.preventDefault(); grid[r][cIdx].items.splice(i+1, 0, {t:"", tr:""}); render(); setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}"]`).focus(); }, 10); }
         if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) { e.preventDefault(); grid[r][cIdx].items.splice(i, 1); render(); setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}"]`).focus(); }, 10); }
@@ -242,23 +300,6 @@
         }));
         render();
     }
-    function setupActionButtons(cellDiv, r, cIdx, cols) {
-        if (currentMode === 'add-col' && r === 0) {
-            addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-            if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-        }
-        if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-        if (currentMode === 'add-row' && cIdx === 0) {
-            addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-            if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-        }
-        if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
-    }
-    function addIcon(p, t, pos, l, a) {
-        const b = document.createElement('div'); b.className = `action-btn ${t}`; b.innerText = l;
-        const s = { 'left': 'left:-15px; top:45%;', 'right': 'right:-15px; top:45%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' }[pos];
-        b.style = s; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b);
-    }
     async function exportPDF() {
         const title = document.getElementById('builder-title').value;
         const edits = document.querySelectorAll('.no-export, .action-btn');
@@ -270,34 +311,9 @@
         pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
         pdf.save(`${title}.pdf`);
     }
-    function openActivityMenu() {
-        const list = [{id:'study', label:'Table'}, {id:'vowels', label:'Vowels'}, {id:'nospaces', label:'Spaces'}, {id:'jumbled', label:'Unjumble'}];
-        document.getElementById('activity-list').innerHTML = list.map(a => `<div><input type="checkbox" value="${a.id}"> ${a.label}</div>`).join('');
-        document.getElementById('activity-menu').style.display = 'block'; document.getElementById('overlay').style.display = 'block';
-    }
-    function generateMasterDoc() {
-        const fullList = getAssembledSentences();
-        const selected = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
-        let html = `<html><body>`;
-        selected.forEach(type => {
-            html += `<h3>${type.toUpperCase()}</h3>`;
-            fullList.forEach((s, i) => {
-                let out = s.t;
-                if (type === 'vowels') out = s.t.replace(/[aeiou]/gi, '_');
-                if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
-                html += `<p>${i+1}. ${out} (${s.tr})</p>`;
-            });
-        });
-        saveAs(new Blob(['\ufeff', html + `</body></html>`], { type: 'application/msword' }), "Worksheet.doc");
-        closeModals();
-    }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
     function saveProject() { saveAs(new Blob([JSON.stringify(grid)], {type: "application/json"}), "project.json"); }
     function loadProject(e) { const fr = new FileReader(); fr.onload = (ev) => { grid = JSON.parse(ev.target.result); render(); }; fr.readAsText(e.target.files[0]); }
-    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); render(); }
-    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); render(); }
-    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); render(); } }
-    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); render(); } }
     window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
     render(false);
 </script>
