@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder - Fixed Logic</title>
+    <title>Sentence</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -39,7 +39,7 @@
 </head>
 <body>
 
-<input type="text" id="builder-title" value="Substitution_Table">
+<input type="text" id="builder-title" value="My_Sentences">
 
 <div class="toolbar">
     <button onclick="undo()">↩️ Undo</button>
@@ -55,7 +55,7 @@
     <button onclick="saveProject()">💾 Save</button>
     <button onclick="document.getElementById('fileIn').click()">📂 Load</button>
     <button onclick="exportPDF()" style="background:#e11d48; color:white; border:none;">📄 PDF</button>
-    <button onclick="openActivityMenu()" style="background:#8b5cf6; color:white; border:none;">🎯 Multi-Activity</button>
+    <button onclick="openActivityMenu()" style="background:#8b5cf6; color:white; border:none;">🎯 Worksheet</button>
     <input type="file" id="fileIn" style="display:none" onchange="loadProject(event)">
 </div>
 
@@ -80,17 +80,13 @@
     const pastels = ["#ffffff", "#fee2d5", "#fef3c7", "#dcfce7", "#dbeafe", "#f3e8ff", "#fce7f3"];
 
     const ACTIVITY_TYPES = [
-        { id: 'both', label: 'Complete Sentences (Study List)' },
-        { id: 'target', label: 'Complete Sentences (Target Only)' },
+        { id: 'both', label: 'Study List (Target + Translation)' },
+        { id: 'target', label: 'Target Only' },
         { id: 'no-vowels', label: 'Missing Vowels' },
-        { id: 'no-consonants', label: 'Missing Consonants' },
-        { id: 'matching', label: 'Matching (Sentence Level)' },
         { id: 'no-spaces', label: 'No Spaces' },
-        { id: 'gap-target', label: 'Gap Fill (Target)' },
-        { id: 'gap-trans', label: 'Gap Fill (Translation)' },
-        { id: 'jumbled', label: 'Unscramble Sentences' },
-        { id: 'to-target', label: 'Translate to Target' },
-        { id: 'to-trans', label: 'Translate to Native' }
+        { id: 'gap-target', label: 'Gap Fill' },
+        { id: 'matching', label: 'Matching' },
+        { id: 'jumbled', label: 'Unscramble' }
     ];
 
     function c() { return { items: [{t: "", tr: ""}], color: "#ffffff", rS: 1, cS: 1, hidden: false, sel: false, split: false }; }
@@ -152,7 +148,6 @@
         }
     }
 
-    // RESTORED ORIGINAL MERGE LOGIC
     function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
@@ -166,7 +161,6 @@
         render();
     }
 
-    // RESTORED ORIGINAL SPLIT LOGIC
     function splitSelected() {
         grid.forEach((row, r) => row.forEach((cell, cIdx) => {
             if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
@@ -181,20 +175,29 @@
         render();
     }
 
+    // NEW FIXED ASSEMBLY LOGIC: Entire row gathered as one sentence
     function getAssembledSentences() {
         let compiled = [];
-        grid.forEach((row) => {
-            let visibleCells = row.filter(cell => !cell.hidden);
-            if(visibleCells.length === 0) return;
-            let maxLines = Math.max(...visibleCells.map(cell => cell.items.length));
+        grid.forEach((row, rIdx) => {
+            // Find the maximum number of lines in ANY cell in this row
+            let maxLines = Math.max(...row.map(cell => cell.items.length));
+            
             for (let lineIdx = 0; lineIdx < maxLines; lineIdx++) {
                 let tParts = [], trParts = [];
-                visibleCells.forEach(cell => {
+                row.forEach(cell => {
+                    if (cell.hidden) return; // Skip merged-away cells
+                    // Get text for this specific line index, or repeat the last line if shorter
                     let item = cell.items[lineIdx] || cell.items[cell.items.length - 1] || {t:"", tr:""};
                     if(item.t.trim()) tParts.push(item.t.trim());
                     if(item.tr.trim()) trParts.push(item.tr.trim());
                 });
-                if (tParts.length > 0) compiled.push({ t: tParts.join(' '), tr: trParts.join(' ') });
+                
+                if (tParts.length > 0) {
+                    compiled.push({ 
+                        t: tParts.join(' ').replace(/\s+/g, ' '), 
+                        tr: trParts.join(' ').replace(/\s+/g, ' ') 
+                    });
+                }
             }
         });
         return compiled;
@@ -203,36 +206,31 @@
     function generateMasterDoc() {
         const selected = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
         if (!selected.length) return;
-        const title = document.getElementById('builder-title').value;
         const sentences = getAssembledSentences();
-        let htmlContent = `<h1>${title}</h1>`;
+        let htmlContent = `<h1>Activity Pack</h1>`;
 
         selected.forEach((type, idx) => {
-            let task = `<h3>Task ${idx+1}: ${ACTIVITY_TYPES.find(a=>a.id===type).label}</h3>`;
+            htmlContent += `<h3>Task ${idx+1}: ${ACTIVITY_TYPES.find(a=>a.id===type).label}</h3>`;
             sentences.forEach((s, i) => {
-                let t = s.t, tr = s.tr;
-                if(type==='both') task += `<p>${i+1}. <b>${t}</b> (${tr})</p>`;
-                if(type==='target') task += `<p>${i+1}. ${t}</p>`;
-                if(type==='no-vowels') task += `<p>${i+1}. ${t.replace(/[aeiouàéèíóúü]/gi, '_')} (${tr})</p>`;
-                if(type==='no-consonants') task += `<p>${i+1}. ${t.replace(/[bcdfghjklmnpqrstvwxyz]/gi, '_')} (${tr})</p>`;
-                if(type==='no-spaces') task += `<p>${i+1}. ${t.replace(/\s+/g, '').toLowerCase()} (${tr})</p>`;
-                if(type==='jumbled') task += `<p>${i+1}. [ ${t.split(' ').sort(()=>Math.random()-0.5).join(' / ')} ] (${tr})</p>`;
-                if(type==='to-target') task += `<p>${i+1}. ${tr}<br>________________________________</p>`;
-                if(type==='to-trans') task += `<p>${i+1}. ${t}<br>________________________________</p>`;
+                if(type==='both') htmlContent += `<p>${i+1}. <b>${s.t}</b> (${s.tr})</p>`;
+                if(type==='target') htmlContent += `<p>${i+1}. ${s.t}</p>`;
+                if(type==='no-vowels') htmlContent += `<p>${i+1}. ${s.t.replace(/[aeiouàéèíóúü]/gi, '_')} (${s.tr})</p>`;
+                if(type==='no-spaces') htmlContent += `<p>${i+1}. ${s.t.replace(/\s+/g, '').toLowerCase()} (${s.tr})</p>`;
+                if(type==='jumbled') htmlContent += `<p>${i+1}. [ ${s.t.split(' ').sort(()=>Math.random()-0.5).join(' / ')} ] (${s.tr})</p>`;
                 if(type==='gap-target') {
-                    let w = t.split(' '); let r = Math.floor(Math.random()*w.length); w[r] = "_______";
-                    task += `<p>${i+1}. ${w.join(' ')} (${tr})</p>`;
+                    let w = s.t.split(' '); let r = Math.floor(Math.random()*w.length); w[r] = "_______";
+                    htmlContent += `<p>${i+1}. ${w.join(' ')} (${s.tr})</p>`;
                 }
             });
             if(type==='matching') {
                 let rands = [...sentences].map((s, i) => ({tr: s.tr, id: String.fromCharCode(65+i)})).sort(()=>Math.random()-0.5);
-                task += `<table border="0" width="100%">`;
-                sentences.forEach((s, i) => task += `<tr><td>${i+1}. ${s.t}</td><td>____</td><td>${rands[i].id}. ${rands[i].tr}</td></tr>`);
-                task += `</table>`;
+                htmlContent += `<table border="0" width="100%">`;
+                sentences.forEach((s, i) => htmlContent += `<tr><td>${i+1}. ${s.t}</td><td>____</td><td>${rands[i].id}. ${rands[i].tr}</td></tr>`);
+                htmlContent += `</table>`;
             }
-            htmlContent += `<div style="page-break-after:always;">${task}</div><hr>`;
+            htmlContent += `<hr style="page-break-after:always;">`;
         });
-        saveAs(new Blob(['\ufeff', `<html><body style="font-family:Arial;">${htmlContent}</body></html>`], {type:'application/msword'}), `${title}_Worksheet.doc`);
+        saveAs(new Blob(['\ufeff', `<html><body>${htmlContent}</body></html>`], {type:'application/msword'}), "Activity_Pack.doc");
         closeActivityMenu();
     }
 
