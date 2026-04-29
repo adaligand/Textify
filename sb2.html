@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Substitution Table Master - Final Logic</title>
+    <title>SB</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -22,7 +22,7 @@
         .vocab-list { width: 100%; display: flex; flex-direction: column; gap: 4px; }
         .vocab-list.split { display: grid; grid-template-columns: 1fr 1fr; column-gap: 25px; }
         .vocab-item { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
-        .target-input, .translation-input { border: none; background: transparent; outline: none; font-family: inherit; font-size: 16px; padding: 0; }
+        .target-input, .translation-input { border: none; background: transparent; outline: none; font-family: inherit; font-size: 16px; padding: 0; width: auto; min-width: 10px; }
         .target-input { font-weight: 600; }
         .bracket-wrapper { color: var(--translation-blue); font-size: 14px; font-style: italic; }
         #activity-menu { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 16px; box-shadow: 0 20px 25px rgba(0,0,0,0.2); display: none; z-index: 2000; width: 450px; max-height: 80vh; overflow-y: auto; }
@@ -39,7 +39,7 @@
 </head>
 <body>
 
-<input type="text" id="builder-title" value="Substitution_Table_Worksheet">
+<input type="text" id="builder-title" value="Sentence_Builder_Project">
 
 <div class="toolbar">
     <button onclick="undo()">↩️ Undo</button>
@@ -66,13 +66,13 @@
     <h3 style="margin-top:0">Choose Activities</h3>
     <div id="activity-list"></div>
     <div style="margin-top: 20px; display: flex; gap: 10px;">
-        <button onclick="generateMasterDoc()" style="flex:1; background: var(--green); color: white; border: none;">Generate Document</button>
+        <button onclick="generateMasterDoc()" style="flex:1; background: var(--green); color: white; border: none;">Generate</button>
         <button onclick="closeActivityMenu()" style="flex:1;">Cancel</button>
     </div>
 </div>
 
 <script>
-    let grid = [[c(), c(), c()], [c(), c(), c()]];
+    let grid = [[c(), c(), c()], [c(), c(), c()], [c(), c(), c()]];
     let history = [JSON.stringify(grid)];
     let historyStep = 0;
     let currentMode = null;
@@ -95,33 +95,6 @@
 
     function c() { return { items: [{t: "", tr: ""}], color: "#ffffff", rS: 1, cS: 1, hidden: false, sel: false, split: false }; }
 
-    // --- REFINED ASSEMBLE LOGIC: PERSISTENT ANCHORS PER ROW ---
-    function getAssembledSentences() {
-        let compiled = [];
-        grid.forEach((row) => {
-            let visibleCells = row.filter(cell => !cell.hidden);
-            if(visibleCells.length === 0) return;
-
-            // Find how many lines the 'longest' cell in this row has
-            let maxLines = Math.max(...visibleCells.map(cell => cell.items.length));
-            
-            for (let lineIdx = 0; lineIdx < maxLines; lineIdx++) {
-                let tParts = [], trParts = [];
-                visibleCells.forEach(cell => {
-                    // Logic: Use the line index, but if this cell is shorter, 
-                    // use its LAST line (this creates the 'anchor' effect)
-                    let item = cell.items[lineIdx] || cell.items[cell.items.length - 1] || {t:"", tr:""};
-                    if(item.t.trim()) tParts.push(item.t.trim());
-                    if(item.tr.trim()) trParts.push(item.tr.trim());
-                });
-                if (tParts.length > 0) {
-                    compiled.push({ t: tParts.join(' '), tr: trParts.join(' ') });
-                }
-            }
-        });
-        return compiled;
-    }
-
     function render(doSave = true) {
         if (doSave) pushHistory();
         const container = document.getElementById('grid-container');
@@ -134,8 +107,8 @@
                 if (cell.hidden) return;
                 const cellDiv = document.createElement('div');
                 cellDiv.className = `cell ${cell.split ? 'is-split' : ''}`;
-                cellDiv.style.gridColumn = `span ${cell.cS}`;
-                cellDiv.style.gridRow = `span ${cell.rS}`;
+                cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS}`;
+                cellDiv.style.gridRow = `${r + 1} / span ${cell.rS}`;
                 cellDiv.style.backgroundColor = cell.color;
 
                 const listHTML = cell.items.map((item, i) => `
@@ -182,17 +155,63 @@
     function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
+        
         let root = sel[0];
         let items = [];
-        sel.forEach(p => { items = [...items, ...grid[p.r][p.c].items.filter(it => it.t || it.tr)]; });
+        let maxR = 0, maxC = 0;
+
+        sel.forEach(p => {
+            let cell = grid[p.r][p.c];
+            items = [...items, ...cell.items.filter(it => it.t || it.tr)];
+            maxR = Math.max(maxR, p.r + cell.rS);
+            maxC = Math.max(maxC, p.c + cell.cS);
+        });
+
         grid[root.r][root.c].items = items.length ? items : [{t:"", tr:""}];
-        sel.forEach((p, i) => { if(i>0) grid[p.r][p.c].hidden = true; grid[p.r][p.c].sel = false; });
+        grid[root.r][root.c].rS = maxR - root.r;
+        grid[root.r][root.c].cS = maxC - root.c;
+        grid[root.r][root.c].sel = false;
+
+        sel.slice(1).forEach(p => {
+            grid[p.r][p.c].hidden = true;
+            grid[p.r][p.c].sel = false;
+        });
         render();
     }
 
     function splitSelected() {
-        grid.forEach(row => row.forEach(cell => { if(cell.sel) { cell.hidden = false; cell.rS=1; cell.cS=1; cell.sel=false; } }));
+        grid.forEach((row, r) => row.forEach((cell, cIdx) => {
+            if(cell.sel) {
+                for(let i=r; i<r+cell.rS; i++) {
+                    for(let j=cIdx; j<cIdx+cell.cS; j++) {
+                        grid[i][j].hidden = false;
+                        grid[i][j].rS = 1;
+                        grid[i][j].cS = 1;
+                        grid[i][j].sel = false;
+                    }
+                }
+            }
+        }));
         render();
+    }
+
+    function getAssembledSentences() {
+        let compiled = [];
+        grid.forEach((row) => {
+            let visibleCells = row.filter(cell => !cell.hidden);
+            if(visibleCells.length === 0) return;
+            let maxLines = Math.max(...visibleCells.map(cell => cell.items.length));
+            for (let lineIdx = 0; lineIdx < maxLines; lineIdx++) {
+                let tParts = [], trParts = [];
+                visibleCells.forEach(cell => {
+                    let item = cell.items[lineIdx] || cell.items[cell.items.length - 1] || {t:"", tr:""};
+                    if(item.t.trim()) tParts.push(item.t.trim());
+                    if(item.tr.trim()) trParts.push(item.tr.trim());
+                });
+                if (tParts.length > 0) compiled.push({ t: tParts.join(' '), tr: trParts.join(' ') });
+            }
+        });
+        return compiled;
     }
 
     function generateMasterDoc() {
@@ -205,17 +224,18 @@
         selected.forEach((type, idx) => {
             let task = `<h3>Task ${idx+1}: ${ACTIVITY_TYPES.find(a=>a.id===type).label}</h3>`;
             sentences.forEach((s, i) => {
-                if(type==='both') task += `<p>${i+1}. <b>${s.t}</b> (${s.tr})</p>`;
-                if(type==='target') task += `<p>${i+1}. ${s.t}</p>`;
-                if(type==='no-vowels') task += `<p>${i+1}. ${s.t.replace(/[aeiouàéèíóúü]/gi, '_')} (${s.tr})</p>`;
-                if(type==='no-consonants') task += `<p>${i+1}. ${s.t.replace(/[bcdfghjklmnpqrstvwxyz]/gi, '_')} (${s.tr})</p>`;
-                if(type==='no-spaces') task += `<p>${i+1}. ${s.t.replace(/\s+/g, '').toLowerCase()} (${s.tr})</p>`;
-                if(type==='jumbled') task += `<p>${i+1}. [ ${s.t.split(' ').sort(()=>Math.random()-0.5).join(' / ')} ] (${s.tr})</p>`;
-                if(type==='to-target') task += `<p>${i+1}. ${s.tr}<br>________________________________</p>`;
-                if(type==='to-trans') task += `<p>${i+1}. ${s.t}<br>________________________________</p>`;
+                let t = s.t, tr = s.tr;
+                if(type==='both') task += `<p>${i+1}. <b>${t}</b> (${tr})</p>`;
+                if(type==='target') task += `<p>${i+1}. ${t}</p>`;
+                if(type==='no-vowels') task += `<p>${i+1}. ${t.replace(/[aeiouàéèíóúü]/gi, '_')} (${tr})</p>`;
+                if(type==='no-consonants') task += `<p>${i+1}. ${t.replace(/[bcdfghjklmnpqrstvwxyz]/gi, '_')} (${tr})</p>`;
+                if(type==='no-spaces') task += `<p>${i+1}. ${t.replace(/\s+/g, '').toLowerCase()} (${tr})</p>`;
+                if(type==='jumbled') task += `<p>${i+1}. [ ${t.split(' ').sort(()=>Math.random()-0.5).join(' / ')} ] (${tr})</p>`;
+                if(type==='to-target') task += `<p>${i+1}. ${tr}<br>________________________________</p>`;
+                if(type==='to-trans') task += `<p>${i+1}. ${t}<br>________________________________</p>`;
                 if(type==='gap-target') {
-                    let w = s.t.split(' '); if(w.length > 1) w[Math.floor(Math.random()*w.length)] = "_______";
-                    task += `<p>${i+1}. ${w.join(' ')} (${s.tr})</p>`;
+                    let w = t.split(' '); let r = Math.floor(Math.random()*w.length); w[r] = "_______";
+                    task += `<p>${i+1}. ${w.join(' ')} (${tr})</p>`;
                 }
             });
             if(type==='matching') {
@@ -230,7 +250,6 @@
         closeActivityMenu();
     }
 
-    // Common Utilities
     function pushHistory() { const state = JSON.stringify(grid); if (state === history[historyStep]) return; history = history.slice(0, historyStep + 1); history.push(state); historyStep++; }
     function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
     function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
@@ -241,7 +260,7 @@
     function toggleCellSplit(r, c) { grid[r][c].split = !grid[r][c].split; render(); }
     function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
     function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
-    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); render(); }
+    function insertRow(i) { let cols = grid[0].length; grid.splice(i, 0, Array.from({length: cols}, () => c())); render(); }
     function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); render(); }
     function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); render(); } }
     function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); render(); } }
