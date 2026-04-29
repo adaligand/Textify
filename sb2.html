@@ -2,7 +2,7 @@ Put your HTML text here<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder</title>
+    <title>Sentence Builder2</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -288,14 +288,14 @@ function generateWorksheet() {
 
     if (selected.length === 0) return alert("Select at least one activity!");
 
-    // 1. Gather all combinations organized by row (NO SHUFFLE here)
+    // 1. Gather all combinations organized by row
     let rowBuckets = [];
     for (let r = 0; r < grid.length; r++) {
-        let rowSents = getSentencesByRow(r); // Natural order from cartesian product
+        let rowSents = getSentencesByRow(r); 
         if (rowSents.length > 0) {
             rowBuckets.push({
                 rowIndex: r,
-                sentences: rowSents // Keep natural grid order
+                sentences: rowSents 
             });
         }
     }
@@ -305,20 +305,16 @@ function generateWorksheet() {
     // Helper: Picks 'limit' sentences.
     function getBalancedSelection(limit, isStudyTable = false) {
         let selection = [];
-        // Clone buckets to avoid depleting data for subsequent activities
         let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
         
         if (isStudyTable) {
-            // For the study table, we just take the first N sentences in sequence
-            // across the rows to maintain the exact grid reading order.
             for (let b of tempBuckets) {
                 while (b.sentences.length > 0 && selection.length < limit) {
                     selection.push({ ...b.sentences.shift(), originRow: b.rowIndex });
                 }
             }
-            return selection; // No sorting needed, it's already in order
+            return selection; 
         } else {
-            // For other exercises, we still want a random balanced mix
             let bucketPointer = 0;
             let randomizedBuckets = tempBuckets.map(b => {
                 b.sentences.sort(() => 0.5 - Math.random());
@@ -362,9 +358,11 @@ function generateWorksheet() {
         } else {
             currentSents.forEach((s, i) => {
                 let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
+
                 if (type === 'vowels' || type === 'cons') {
                     let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
-                    out = s.t.replace(pattern, '_').split(' ').join('&nbsp;&nbsp;&nbsp;');
+                    let masked = s.t.replace(pattern, '_');
+                    out = masked.replace(/_(?=_)/g, '_ ').split(' ').join('&nbsp;&nbsp;');
                 }
                 else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
                 else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
@@ -380,12 +378,29 @@ function generateWorksheet() {
                 else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
                 else if (type === 'faulty') {
                     let parts = [...s.parts];
-                    let idx = Math.floor(Math.random() * parts.length);
-                    let rowSents = getSentencesByRow(s.originRow); 
-                    let alt = rowSents.filter(f => f.parts[idx] && f.parts[idx].tr !== parts[idx].tr);
-                    let faultyTr = (alt.length > 0) ? alt[Math.floor(Math.random()*alt.length)].parts[idx].tr : "???";
-                    let translatedParts = parts.map((p, i) => i === idx ? faultyTr : p.tr);
-                    html += `<p>${i+1}. ${s.t} = <span class="blue">${translatedParts.join(' ')}</span>${line}</p>`; 
+                    let rowSents = getSentencesByRow(s.originRow);
+                    
+                    // Shuffle indices to try parts in random order
+                    let indices = parts.map((_, idx) => idx).sort(() => 0.5 - Math.random());
+                    let faultyTr = null;
+                    let swapIdx = -1;
+
+                    for (let idx of indices) {
+                        let alternatives = rowSents.filter(f => f.parts[idx] && f.parts[idx].tr !== parts[idx].tr);
+                        if (alternatives.length > 0) {
+                            faultyTr = alternatives[Math.floor(Math.random() * alternatives.length)].parts[idx].tr;
+                            swapIdx = idx;
+                            break;
+                        }
+                    }
+
+                    if (swapIdx !== -1) {
+                        let translatedParts = parts.map((p, i) => i === swapIdx ? faultyTr : p.tr);
+                        html += `<p>${i+1}. ${s.t} = <span class="blue">${translatedParts.join(' ')}</span>${line}</p>`;
+                    } else {
+                        // Fallback if the sentence is completely unique (no alternatives in any cell)
+                        html += `<p>${i+1}. ${s.t} = <span class="blue">...[Translation task]...</span>${line}</p>`;
+                    }
                     return;
                 }
                 html += `<p>${i+1}. ${out} ${hint}${line}</p>`;
@@ -397,7 +412,6 @@ function generateWorksheet() {
     saveAs(new Blob(['\ufeff', html], { type: 'application/msword' }), "Worksheet.doc");
     closeModals();
 }
-
 // Helper to isolate Cartesian product to a single row
 function getSentencesByRow(r) {
     let pathCells = [];
