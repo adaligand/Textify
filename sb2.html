@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder Pro - Pedagogy Edition</title>
+    <title>Sentence Builder</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
     <style>
         :root { --accent: #2196f3; --green: #4caf50; --red: #f44336; --line: #94a3b8; --translation-blue: #2980b9; }
         body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; color: #1e293b; }
@@ -26,10 +29,11 @@
 </head>
 <body>
 
-<input type="text" id="builder-title" value="My_Language_Worksheet">
+<input type="text" id="builder-title" value="Title">
 
 <div class="toolbar">
     <button onclick="undo()">↩️ Undo</button>
+    <button onclick="redo()">↪️ Redo</button>
     <button onclick="toggleMode('add-row')">+ Row</button>
     <button onclick="toggleMode('del-row')">- Row</button>
     <button onclick="toggleMode('add-col')">+ Col</button>
@@ -38,7 +42,8 @@
     <button onclick="splitSelected()">✂️ Split</button>
     <button onclick="saveProject()">💾 Save</button>
     <button onclick="document.getElementById('fileIn').click()">📂 Load</button>
-    <button onclick="openActivityMenu()" class="btn-purple">🎯 Generate Worksheet</button>
+    <button onclick="exportPDF()" style="background:#e11d48; color:white; border:none;">📄PDF</button>
+    <button onclick="openActivityMenu()" class="btn-purple">🎯 Worksheet</button>
     <input type="file" id="fileIn" style="display:none" onchange="loadProject(event)">
 </div>
 
@@ -96,7 +101,7 @@
                 cellDiv.style.gridColumn = `span ${cell.cS}`;
                 cellDiv.style.gridRow = `span ${cell.rS}`;
                 cellDiv.innerHTML = `
-                    <div style="position:absolute; top:4px; left:4px;"><input type="checkbox" ${cell.sel ? 'checked' : ''} onchange="grid[${r}][${cIdx}].sel=this.checked"></div>
+                    <div style="position:absolute; top:4px; left:4px;" class="no-pdf"><input type="checkbox" ${cell.sel ? 'checked' : ''} onchange="grid[${r}][${cIdx}].sel=this.checked"></div>
                     <div class="vocab-list">${cell.items.map((it, i) => `
                         <div class="vocab-item">
                             <input type="text" class="target-input" value="${it.t}" data-pos="${r}-${cIdx}-${i}" onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" oninput="grid[${r}][${cIdx}].items[${i}].t=this.value">
@@ -118,41 +123,25 @@
         });
     }
 
-    function toggleAll(master) {
-        document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
-    }
-
-    function openActivityMenu() {
-        const list = [
-            {id:'study', label:'Sentence table'},
-            {id:'vowels', label:'Missing Vowels'},
-            {id:'consonants', label:'Missing Consonants'},
-            {id:'nospaces', label:'No Spaces'},
-            {id:'jumbled', label:'Unjumble'},
-            {id:'faulty', label:'Faulty Translation'},
-            {id:'matching', label:'Match up'},
-            {id:'gap-t', label:'Gap Fill (Target Language)'},
-            {id:'gap-en', label:'Gap Fill (English)'},
-            {id:'trans-en', label:'Translate into English'},
-            {id:'trans-target', label:'Translate into Target Language'}
-        ];
-        document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}" id="chk-${a.id}"> <label for="chk-${a.id}">${a.label}</label></div>`).join('');
-        document.getElementById('sel-all').checked = false;
-        document.getElementById('activity-menu').style.display = 'block'; document.getElementById('overlay').style.display = 'block';
-    }
-
-    function dashRegex(text, regex) {
-        return text.split(' ').map(word => {
-            return word.split('').map(char => char.match(regex) ? '_ ' : char).join('');
-        }).join('&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'); 
+    async function exportPDF() {
+        const title = document.getElementById('builder-title').value;
+        const noPdf = document.querySelectorAll('.no-pdf, .action-btn');
+        noPdf.forEach(el => el.style.visibility = 'hidden');
+        
+        const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
+        noPdf.forEach(el => el.style.visibility = 'visible');
+        
+        const pdf = new jspdf.jsPDF('l', 'mm', 'a4');
+        pdf.setFontSize(18);
+        pdf.text(title, 14, 15);
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
+        pdf.save(`${title}.pdf`);
     }
 
     function generateMasterDoc() {
         const fullList = getAssembledSentences();
         const count = parseInt(document.getElementById('sentence-count').value);
         const selected = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
-        
-        // Increased line spacing for students
         const writingLine = "<br><br>__________________________________________________________________<br>";
         
         let html = `<html><head><style>
@@ -180,7 +169,7 @@
                 pool.forEach((s, i) => {
                     html += `<tr><td style="border:none;">${i+1}. ${s.t}</td><td style="border:none; width:40px; text-align:center;">[ &nbsp; ]</td><td style="border:none;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`;
                 });
-                html += `</table>`; // Removed writingLine here
+                html += `</table>`;
             } else if (type === 'gap-t') {
                 sents.forEach((s, i) => {
                     let w = s.t.split(' '); 
@@ -196,16 +185,14 @@
             } else {
                 sents.forEach((s, i) => {
                     let out = s.t;
-                    let displayTranslation = `(${s.tr})`;
+                    let hint = `(${s.tr})`;
 
                     if (type === 'vowels') out = dashRegex(s.t, /[aeiouàéèíóúü]/gi);
                     else if (type === 'consonants') out = dashRegex(s.t, /[bcdfghjklmnpqrstvwxyz]/gi);
                     else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
                     else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
-                    else if (type === 'trans-target') {
-                        out = `<span class="blue">${s.tr}</span>`;
-                        displayTranslation = "";
-                    }
+                    else if (type === 'trans-en') { out = s.t; hint = ""; }
+                    else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
                     else if (type === 'faulty') {
                         let parts = JSON.parse(JSON.stringify(s.parts));
                         let swapIdx = Math.floor(Math.random() * parts.length);
@@ -219,65 +206,31 @@
                         html += `<p>${i+1}. ${s.t} = <span class="blue">${parts.map(p=>p.tr).join(' ')}</span>${writingLine}</p>`;
                         return;
                     }
-                    
-                    html += `<p>${i+1}. ${out} <span class="blue">${displayTranslation}</span>${writingLine}</p>`;
+                    html += `<p>${i+1}. ${out} <span class="blue">${hint}</span>${writingLine}</p>`;
                 });
             }
             html += `</div><hr style="page-break-after:always;">`;
         });
-
-        html += `</body></html>`;
         saveAs(new Blob(['\ufeff', html], { type: 'application/msword' }), "Language_Worksheet.doc");
         closeModals();
     }
 
-    function getAssembledSentences() {
-        let compiled = [];
-        for (let r = 0; r < grid.length; r++) {
-            let rowCells = [];
-            for(let c=0; c<grid[0].length; c++) rowCells.push(getCellAt(r, c));
-            let maxL = Math.max(...rowCells.map(cell => cell ? cell.items.length : 0));
-            for (let l = 0; l < maxL; l++) {
-                let tParts = [], trParts = [], meta = [];
-                for (let c = 0; c < grid[0].length; c++) {
-                    let cell = getCellAt(r, c);
-                    if (!cell || (c > 0 && getCellAt(r, c - 1) === cell)) continue;
-                    let it = cell.items[Math.min(l, cell.items.length - 1)];
-                    if (it && it.t.trim()) {
-                        tParts.push(it.t.trim()); trParts.push(it.tr.trim());
-                        meta.push({t: it.t.trim(), tr: it.tr.trim(), col: c, row: r});
-                    }
-                }
-                if (tParts.length > 0) compiled.push({ t: tParts.join(' '), tr: trParts.join(' '), parts: meta });
-            }
-        }
-        return compiled;
-    }
-
-    function getCellAt(r, c) {
-        for (let row = 0; row <= r; row++) {
-            for (let col = 0; col <= c; col++) {
-                let cell = grid[row][col];
-                if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell;
-            }
-        }
-        return null;
-    }
-
-    function handleKey(e, r, cIdx, i) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            grid[r][cIdx].items.splice(i + 1, 0, {t: "", tr: ""});
-            render();
-            setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}"]`).focus(); }, 10);
-        }
+    function toggleAll(master) { document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked); }
+    function openActivityMenu() {
+        const list = [
+            {id:'study', label:'Sentence table'}, {id:'vowels', label:'Missing Vowels'},
+            {id:'consonants', label:'Missing Consonants'}, {id:'nospaces', label:'No Spaces'},
+            {id:'jumbled', label:'Unjumble'}, {id:'faulty', label:'Faulty Translation'},
+            {id:'matching', label:'Match up'}, {id:'gap-t', label:'Gap Fill (Target Language)'},
+            {id:'gap-en', label:'Gap Fill (English)'}, {id:'trans-en', label:'Translate into English'},
+            {id:'trans-target', label:'Translate into Target Language'}
+        ];
+        document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}" id="chk-${a.id}"> <label for="chk-${a.id}">${a.label}</label></div>`).join('');
+        document.getElementById('sel-all').checked = false;
+        document.getElementById('activity-menu').style.display = 'block'; document.getElementById('overlay').style.display = 'block';
     }
     function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
-    function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
-    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); render(); }
-    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); render(); }
-    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); render(); } }
-    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); render(); } }
+    function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
     function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
@@ -303,6 +256,33 @@
         }));
         render();
     }
+    function getAssembledSentences() {
+        let compiled = [];
+        for (let r = 0; r < grid.length; r++) {
+            let rowCells = [];
+            for(let c=0; c<grid[0].length; c++) rowCells.push(getCellAt(r, c));
+            let maxL = Math.max(...rowCells.map(cell => cell ? cell.items.length : 0));
+            for (let l = 0; l < maxL; l++) {
+                let tParts = [], trParts = [], meta = [];
+                for (let c = 0; c < grid[0].length; c++) {
+                    let cell = getCellAt(r, c);
+                    if (!cell || (c > 0 && getCellAt(r, c - 1) === cell)) continue;
+                    let it = cell.items[Math.min(l, cell.items.length - 1)];
+                    if (it && it.t.trim()) { tParts.push(it.t.trim()); trParts.push(it.tr.trim()); meta.push({t: it.t.trim(), tr: it.tr.trim(), col: c, row: r}); }
+                }
+                if (tParts.length > 0) compiled.push({ t: tParts.join(' '), tr: trParts.join(' '), parts: meta });
+            }
+        }
+        return compiled;
+    }
+    function dashRegex(text, regex) { return text.split(' ').map(word => word.split('').map(char => char.match(regex) ? '_ ' : char).join('')).join('&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'); }
+    function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
+    function handleKey(e, r, cIdx, i) { if (e.key === 'Enter') { e.preventDefault(); grid[r][cIdx].items.splice(i + 1, 0, {t: "", tr: ""}); render(); setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}"]`).focus(); }, 10); } }
+    function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
+    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); render(); }
+    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); render(); }
+    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); render(); } }
+    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); render(); } }
     function addIcon(p, t, pos, l, a) {
         const b = document.createElement('div'); b.className = `action-btn ${t}`; b.innerText = l;
         const styles = { 'left': '-10px', 'right': '-10px', 'top-center': '45%', 'top-edge': '12px', 'bottom-edge': '12px', 'left-edge': '-10px' };
