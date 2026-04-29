@@ -2,7 +2,7 @@ Put your HTML text here<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder</title>
+    <title>Sentence Builder1</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -281,7 +281,7 @@ Put your HTML text here<!DOCTYPE html>
         document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
     }
 
-  function generateWorksheet() {
+ function generateWorksheet() {
     const count = parseInt(document.getElementById('sentence-count').value);
     const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
     const selected = activityOrder.filter(id => document.getElementById(`chk-${id}`).checked);
@@ -293,33 +293,42 @@ Put your HTML text here<!DOCTYPE html>
     for (let r = 0; r < grid.length; r++) {
         let rowSents = getSentencesByRow(r);
         if (rowSents.length > 0) {
-            // Shuffle each row's internal sentences first
-            rowBuckets.push(rowSents.sort(() => 0.5 - Math.random()));
+            // Keep the internal row sentences shuffled, but we'll track which row they came from
+            rowBuckets.push({
+                rowIndex: r,
+                sentences: rowSents.sort(() => 0.5 - Math.random())
+            });
         }
     }
 
     if (rowBuckets.length === 0) return alert("Please fill in some vocab first!");
 
-    // Helper: Picks 'limit' sentences distributed evenly across rows
-    function getBalancedSelection(limit) {
+    // Helper: Picks 'limit' sentences. 
+    // If isSorted is true, it returns them ordered by Row Index.
+    function getBalancedSelection(limit, isSorted = false) {
         let selection = [];
-        let tempBuckets = rowBuckets.map(b => [...b]); // Clone buckets to avoid depleting master
-        let bucketIndex = 0;
+        let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
+        let bucketPointer = 0;
 
-        // Keep picking one sentence from each row bucket until we hit the limit 
-        // or run out of all possible sentences
         while (selection.length < limit) {
-            let activeBuckets = tempBuckets.filter(b => b.length > 0);
-            if (activeBuckets.length === 0) break; // Safety: no more sentences available
+            let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
+            if (activeBuckets.length === 0) break;
 
-            if (tempBuckets[bucketIndex].length > 0) {
-                selection.push(tempBuckets[bucketIndex].shift());
+            if (tempBuckets[bucketPointer].sentences.length > 0) {
+                let sent = tempBuckets[bucketPointer].sentences.shift();
+                // Attach the rowIndex so we can sort by it later if needed
+                selection.push({ ...sent, originRow: tempBuckets[bucketPointer].rowIndex });
             }
-            
-            bucketIndex = (bucketIndex + 1) % tempBuckets.length;
+            bucketPointer = (bucketPointer + 1) % tempBuckets.length;
         }
-        // Shuffle the result so it's not ordered by row
-        return selection.sort(() => 0.5 - Math.random());
+
+        if (isSorted) {
+            // Sort by row index first, then naturally by the order they were picked
+            return selection.sort((a, b) => a.originRow - b.originRow);
+        } else {
+            // Full random for other exercises
+            return selection.sort(() => 0.5 - Math.random());
+        }
     }
 
     // 2. Generate HTML
@@ -330,9 +339,9 @@ Put your HTML text here<!DOCTYPE html>
         const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
         html += `<h2>${label}</h2>`;
         
-        // CRITICAL FIX: Study gets 'count' (10/20/50), others get 10.
-        // We call the helper inside the loop so every activity is unique.
-        let currentSents = (type === 'study') ? getBalancedSelection(count) : getBalancedSelection(10);
+        // TABLE (Study) uses isSorted = true. Others stay random.
+        let isStudy = (type === 'study');
+        let currentSents = isStudy ? getBalancedSelection(count, true) : getBalancedSelection(10, false);
 
         if (type === 'study') {
             html += `<table><tr><th>Target Language</th><th>English</th></tr>`;
@@ -355,20 +364,18 @@ Put your HTML text here<!DOCTYPE html>
                 else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
                 else if (type === 'gap-t') { 
                     let w = s.t.split(' '); 
-                    let idx = Math.floor(Math.random() * w.length);
-                    w[idx] = "________"; out = w.join(' '); 
+                    w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); 
                 }
                 else if (type === 'gap-en') { 
                     let w = s.tr.split(' '); 
-                    let idx = Math.floor(Math.random() * w.length);
-                    w[idx] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; 
+                    w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; 
                 }
                 else if (type === 'trans-en') { out = s.t; hint = ""; }
                 else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
                 else if (type === 'faulty') {
                     let parts = [...s.parts];
                     let idx = Math.floor(Math.random() * parts.length);
-                    let rowSents = getSentencesByRow(parts[idx].row || 0); 
+                    let rowSents = getSentencesByRow(s.originRow); 
                     let alt = rowSents.filter(f => f.parts[idx] && f.parts[idx].tr !== parts[idx].tr);
                     let faultyTr = (alt.length > 0) ? alt[Math.floor(Math.random()*alt.length)].parts[idx].tr : "???";
                     let translatedParts = parts.map((p, i) => i === idx ? faultyTr : p.tr);
