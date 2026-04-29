@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder - Pro Edition</title>
+    <title>Sentence Builder - Live Preview Edition</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
     <style>
         :root { --accent: #2196f3; --green: #4caf50; --red: #f44336; --line: #94a3b8; --translation-blue: #2980b9; }
-        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; color: #1e293b; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; margin-bottom: 120px; }
         
         #builder-title { font-size: 24px; padding: 10px; width: 100%; max-width: 600px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 20px; outline: none; }
-        .toolbar { background: white; padding: 12px; border-radius: 8px; margin-bottom: 25px; display: flex; gap: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); align-items: center; position: sticky; top: 0; z-index: 1000; flex-wrap: wrap; }
+        .toolbar { background: white; padding: 12px; border-radius: 8px; margin-bottom: 25px; display: flex; gap: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); align-items: center; position: sticky; top: 0; z-index: 1000; }
 
         .grid-canvas { display: inline-grid; background-color: var(--line); border: 2px solid var(--line); gap: 2px; }
 
@@ -52,13 +52,18 @@
 
         .color-picker { position: absolute; bottom: 30px; right: 0; background: white; border: 1px solid #ccc; padding: 5px; display: none; z-index: 110; grid-template-columns: repeat(3, 20px); gap: 4px; border-radius: 4px; }
         .swatch { width: 20px; height: 20px; cursor: pointer; border: 1px solid #ddd; }
-        
-        /* Modal Styles for Worksheet Generation */
+
+        /* Preview Panel */
+        #preview-panel { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 2px solid #e2e8f0; padding: 15px; height: 100px; overflow-y: auto; z-index: 1500; box-shadow: 0 -4px 10px rgba(0,0,0,0.05); }
+        .preview-sentence { font-size: 14px; margin-bottom: 5px; border-bottom: 1px solid #f1f5f9; padding-bottom: 2px; }
+        .preview-sentence b { color: #334155; }
+        .preview-sentence i { color: var(--translation-blue); margin-left: 8px; }
+
+        /* Modal Styles */
         .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 25px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); display: none; z-index: 2000; width: 600px; max-height: 80vh; overflow-y: auto; }
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; z-index: 1999; }
         button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 4px; font-weight: 500; }
         .btn-purple { background: #8b5cf6; color: white; border: none; }
-        .activity-row { padding: 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; }
     </style>
 </head>
 <body>
@@ -84,14 +89,16 @@
 </div>
 
 <div id="grid-container" class="grid-canvas"></div>
+
+<div id="preview-panel">
+    <div style="font-weight: bold; color: #64748b; font-size: 11px; text-transform: uppercase; margin-bottom: 8px;">Sentence Preview</div>
+    <div id="preview-content"></div>
+</div>
+
 <div class="overlay" id="overlay" onclick="closeModals()"></div>
 
 <div id="activity-menu" class="modal">
     <h2 style="margin:0 0 15px 0">Worksheet Options</h2>
-    <div style="background:#f1f5f9; padding:12px; border-radius:6px; margin-bottom:15px; display:flex; justify-content:space-between;">
-        <div>Sentence Count: <select id="sentence-count"><option value="10">10</option><option value="20" selected>20</option></select></div>
-        <div><input type="checkbox" id="sel-all" onchange="toggleAll(this)"> Select All</div>
-    </div>
     <div id="activity-list"></div>
     <div style="margin-top:20px; display:flex; gap:10px;">
         <button onclick="generateMasterDoc()" class="btn-purple" style="flex:1;">Download .doc</button>
@@ -174,88 +181,44 @@
                 cellDiv.querySelectorAll('input').forEach(syncSize);
             });
         });
+        updatePreview();
     }
 
-    function handleKey(e, r, cIdx, i) {
-        if (e.key === 'Enter') {
-            e.preventDefault(); 
-            grid[r][cIdx].items.splice(i+1, 0, {t:"", tr:""}); 
-            render();
-            setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}"]`).focus(); }, 10);
-        }
-        if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
-            e.preventDefault(); 
-            grid[r][cIdx].items.splice(i, 1); 
-            render();
-            setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}"]`).focus(); }, 10);
-        }
-    }
-
-    async function exportPDF() {
-        const title = document.getElementById('builder-title').value;
-        const edits = document.querySelectorAll('.no-export, .action-btn');
-        edits.forEach(el => el.style.visibility = 'hidden');
-        const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
-        edits.forEach(el => el.style.visibility = 'visible');
-        const pdf = new jspdf.jsPDF('l', 'mm', 'a4');
-        pdf.text(title, 14, 15);
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
-        pdf.save(`${title}.pdf`);
-    }
-
-    function openActivityMenu() {
-        const list = [
-            {id:'study', label:'Sentence table'}, {id:'vowels', label:'Missing Vowels'},
-            {id:'nospaces', label:'No Spaces'}, {id:'jumbled', label:'Unjumble'},
-            {id:'gap-t', label:'Gap Fill (Target)'}, {id:'trans-en', label:'Translate to English'}
-        ];
-        document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}"> ${a.label}</div>`).join('');
-        document.getElementById('activity-menu').style.display = 'block';
-        document.getElementById('overlay').style.display = 'block';
-    }
-
-    function generateMasterDoc() {
-        const fullList = getAssembledSentences();
-        const selected = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
-        let html = `<html><head><style>body{font-family:Arial;} .blue{color:blue; font-style:italic;}</style></head><body>`;
-        
-        selected.forEach(type => {
-            html += `<h2>${type.toUpperCase()}</h2>`;
-            fullList.forEach((s, i) => {
-                let out = s.t;
-                let hint = `<span class="blue">(${s.tr})</span>`;
-                if (type === 'vowels') out = s.t.replace(/[aeiou]/gi, '_');
-                if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
-                if (type === 'trans-en') { out = s.t; hint = ""; }
-                html += `<p>${i+1}. ${out} ${hint}<br>____________________________________________________</p>`;
-            });
-        });
-        saveAs(new Blob(['\ufeff', html], { type: 'application/msword' }), "Worksheet.doc");
-        closeModals();
+    function updatePreview() {
+        const sentences = getAssembledSentences();
+        const content = sentences.map(s => `<div class="preview-sentence"><b>${s.t}</b> <i>(${s.tr})</i></div>`).join('');
+        document.getElementById('preview-content').innerHTML = content || '<span style="color:#94a3b8; font-size:12px;">Type in the grid to see sentences...</span>';
     }
 
     function getAssembledSentences() {
         let compiled = [];
         for (let r = 0; r < grid.length; r++) {
-            let maxL = Math.max(...grid[r].map(c => c.items.length));
+            let rowCells = []; for(let c=0; c<grid[0].length; c++) { let cell = getCellAt(r,c); if(cell && !rowCells.includes(cell)) rowCells.push(cell); }
+            let maxL = Math.max(...rowCells.map(cell => cell.items.length));
             for (let l = 0; l < maxL; l++) {
                 let t = [], tr = [];
-                grid[r].forEach(cell => {
-                    if (cell.hidden) return;
-                    let it = cell.items[Math.min(l, cell.items.length-1)];
-                    if(it.t) { t.push(it.t); tr.push(it.tr); }
+                rowCells.forEach(cell => {
+                    let it = cell.items[Math.min(l, cell.items.length - 1)];
+                    if (it.t.trim()) { t.push(it.t.trim()); tr.push(it.tr.trim()); }
                 });
-                if(t.length) compiled.push({t: t.join(' '), tr: tr.join(' ')});
+                if (t.length) compiled.push({ t: t.join(' '), tr: tr.join(' ') });
             }
         }
         return compiled;
     }
 
-    function updateVal(r, cIdx, i, f, v) { grid[r][cIdx].items[i][f] = v; clearTimeout(typingTimer); typingTimer = setTimeout(pushHistory, 1000); }
+    function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
     function syncSize(el) { if (el.value === "") el.style.width = el.classList.contains('target-input') ? "120px" : "80px"; else { el.style.width = '0px'; el.style.width = (el.scrollWidth + 2) + 'px'; } }
+    function updateVal(r, cIdx, i, f, v) { grid[r][cIdx].items[i][f] = v; updatePreview(); clearTimeout(typingTimer); typingTimer = setTimeout(pushHistory, 1000); }
     function toggleCellSplit(r, c) { grid[r][c].split = !grid[r][c].split; render(); }
     function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
     function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
+    function openActivityMenu() {
+        const list = [{id:'study', label:'Sentence table'}, {id:'vowels', label:'Missing Vowels'}, {id:'nospaces', label:'No Spaces'}, {id:'jumbled', label:'Unjumble'}];
+        document.getElementById('activity-list').innerHTML = list.map(a => `<div><input type="checkbox" value="${a.id}"> ${a.label}</div>`).join('');
+        document.getElementById('activity-menu').style.display = 'block'; document.getElementById('overlay').style.display = 'block';
+    }
+    function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); document.getElementById('overlay').style.display = 'none'; }
     function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
@@ -271,29 +234,42 @@
     function splitSelected() {
         grid.forEach((row, r) => row.forEach((cell, cIdx) => {
             if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
-                const rs = cell.rS; const cs = cell.cS;
+                const rs = cell.rS, cs = cell.cS;
                 for (let i = r; i < r + rs; i++) for (let j = cIdx; j < cIdx + cs; j++) {
                     grid[i][j].hidden = false; grid[i][j].rS = 1; grid[i][j].cS = 1; grid[i][j].sel = false;
-                    if (i !== r || j !== cIdx) { grid[i][j].items = [{t: "", tr: ""}]; grid[i][j].color = "#ffffff"; }
+                    if (i !== r || j !== cIdx) { grid[i][j].items = [{t: "", tr: ""}]; }
                 }
             }
         }));
         render();
     }
+    function handleKey(e, r, cIdx, i) {
+        if (e.key === 'Enter') { e.preventDefault(); grid[r][cIdx].items.splice(i+1, 0, {t:"", tr:""}); render(); setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}"]`).focus(); }, 10); }
+        if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) { e.preventDefault(); grid[r][cIdx].items.splice(i, 1); render(); setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}"]`).focus(); }, 10); }
+    }
+    function addIcon(p, t, pos, l, a) {
+        const b = document.createElement('div'); b.className = `action-btn ${t}`; b.innerText = l;
+        const s = { 'left': 'left:-15px; top:45%;', 'right': 'right:-15px; top:45%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' }[pos];
+        b.style = s; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b);
+    }
+    async function exportPDF() {
+        const title = document.getElementById('builder-title').value;
+        const edits = document.querySelectorAll('.no-export, .action-btn, #preview-panel');
+        edits.forEach(el => el.style.visibility = 'hidden');
+        const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
+        edits.forEach(el => el.style.visibility = 'visible');
+        const pdf = new jspdf.jsPDF('l', 'mm', 'a4');
+        pdf.text(title, 14, 15);
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
+        pdf.save(`${title}.pdf`);
+    }
+    function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
     function saveProject() { saveAs(new Blob([JSON.stringify(grid)], {type: "application/json"}), "project.json"); }
     function loadProject(e) { const fr = new FileReader(); fr.onload = (ev) => { grid = JSON.parse(ev.target.result); render(); }; fr.readAsText(e.target.files[0]); }
     function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); render(); }
     function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); render(); }
     function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); render(); } }
     function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); render(); } }
-    function addIcon(p, t, pos, l, a) {
-        const b = document.createElement('div'); b.className = `action-btn ${t}`; b.innerText = l;
-        const s = { 'left': 'left:-15px; top:45%;', 'right': 'right:-15px; top:45%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' }[pos];
-        b.style = s; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b);
-    }
-    function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
-    function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); document.getElementById('overlay').style.display = 'none'; }
-    function toggleAll(m) { document.querySelectorAll('#activity-list input').forEach(c => c.checked = m.checked); }
     window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
     render(false);
 </script>
