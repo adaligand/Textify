@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder - Full Pro Version</title>
+    <title>Sentence Builder - Stable Merging</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -23,24 +23,23 @@
         .menu-row { display: flex; align-items: center; gap: 12px; padding: 10px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
         .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; z-index: 1999; }
         button { padding: 8px 14px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 6px; font-weight: 500; }
-        button:hover { background: #f1f5f9; }
     </style>
 </head>
 <body>
 
-<input type="text" id="builder-title" value="My_Substitution_Table">
+<input type="text" id="builder-title" value="Substitution_Table_Pro">
 
 <div class="toolbar">
     <button onclick="undo()">↩️ Undo</button>
     <button onclick="redo()">↪️ Redo</button>
     <button onclick="insertRow(grid.length)">+ Row</button>
     <button onclick="insertCol(grid[0].length)">+ Col</button>
-    <button onclick="mergeSelected()">Merge</button>
-    <button onclick="splitSelected()">Split</button>
+    <button onclick="mergeSelected()" style="background:#f1f5f9;">🔗 Merge</button>
+    <button onclick="splitSelected()" style="background:#f1f5f9;">✂️ Split</button>
     <button onclick="saveProject()">💾 Save</button>
     <button onclick="document.getElementById('fileIn').click()">📂 Load</button>
     <button onclick="exportPDF()" style="background:#e11d48; color:white; border:none;">📄 PDF</button>
-    <button onclick="openActivityMenu()" style="background:#8b5cf6; color:white; border:none;">🎯 Worksheet</button>
+    <button onclick="openActivityMenu()" style="background:#8b5cf6; color:white; border:none;">🎯 Multi-Activity</button>
     <input type="file" id="fileIn" style="display:none" onchange="loadProject(event)">
 </div>
 
@@ -68,13 +67,12 @@
     let grid = [[c(), c(), c()], [c(), c(), c()], [c(), c(), c()]];
     let history = [JSON.stringify(grid)];
     let historyStep = 0;
-    let typingTimer;
 
     const ACTIVITIES = [
         { id: 'study', label: 'Study List (Target + Translation)' },
         { id: 'vowels', label: 'Missing Vowels' },
         { id: 'consonants', label: 'Missing Consonants' },
-        { id: 'no-spaces', label: 'No Spaces (Run-on)' },
+        { id: 'no-spaces', label: 'No Spaces' },
         { id: 'to-target', label: 'Translation to Target Language' },
         { id: 'to-trans', label: 'Translation to English (Blue Text)' },
         { id: 'bad-trans', label: 'Bad Translation (Spot the Error)' },
@@ -115,7 +113,7 @@
         });
     }
 
-    // Logic to find the origin cell of a merge (handles vertical/horizontal)
+    // COORDINATE MAPPING
     function getCellAt(r, c) {
         for (let row = 0; row <= r; row++) {
             for (let col = 0; col <= c; col++) {
@@ -147,35 +145,45 @@
         return sentences.filter((v, i, a) => a.findIndex(t => (t.t === v.t)) === i);
     }
 
-    function generateMasterDoc() {
-        const fullList = getAssembledSentences();
-        const selectedTypes = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
-        const studyLimit = parseInt(document.getElementById('study-list-count').value);
-        let html = `<html><head><style>.blue{color:#2980b9; font-weight:bold;}</style></head><body>`;
+    function mergeSelected() {
+        let sel = [];
+        grid.forEach((r, ri) => r.forEach((c, ci) => { if(c.sel) sel.push({r:ri, c:ci}); }));
+        if(sel.length < 2) return;
 
-        selectedTypes.forEach(type => {
-            let limit = (type === 'study') ? studyLimit : 10;
-            let subset = [...fullList].sort(() => 0.5 - Math.random()).slice(0, limit);
-            html += `<h2>${ACTIVITIES.find(a => a.id === type).label}</h2>`;
-            subset.forEach((s, i) => {
-                let content = `${i+1}. `;
-                if(type==='study') content += `<b>${s.t}</b> <span class="blue">(${s.tr})</span>`;
-                if(type==='vowels') content += `${s.t.replace(/[aeiouàâéèêëîïôûù]/gi, '_')} (${s.tr})`;
-                if(type==='consonants') content += `${s.t.replace(/[^aeiouàâéèêëîïôûù\s]/gi, '_')} (${s.tr})`;
-                if(type==='no-spaces') content += `${s.t.replace(/\s/g, '').toLowerCase()} (${s.tr})`;
-                if(type==='to-target') content += `(${s.tr}) : __________________________`;
-                if(type==='to-trans') content += `${s.t} : <span class="blue">__________________________</span>`;
-                if(type==='jumbled') content += `[ ${s.t.split(' ').sort(()=>0.5-Math.random()).join(' / ')} ] (${s.tr})`;
-                if(type==='bad-trans') {
-                    let bad = fullList[Math.floor(Math.random()*fullList.length)].tr;
-                    content += `True or False? <b>${s.t}</b> = <i>${Math.random()>0.5?s.tr:bad}</i>`;
+        let minR = Math.min(...sel.map(s => s.r)), maxR = Math.max(...sel.map(s => s.r + grid[s.r][s.c].rS));
+        let minC = Math.min(...sel.map(s => s.c)), maxC = Math.max(...sel.map(s => s.c + grid[s.r][s.c].cS));
+
+        let root = grid[minR][minC];
+        root.rS = maxR - minR;
+        root.cS = maxC - minC;
+        root.sel = false;
+
+        for (let r = minR; r < maxR; r++) {
+            for (let c = minC; c < maxC; c++) {
+                if (r === minR && c === minC) continue;
+                grid[r][c].hidden = true;
+                grid[r][c].sel = false;
+            }
+        }
+        render();
+    }
+
+    function splitSelected() {
+        grid.forEach((row, r) => row.forEach((cell, c) => {
+            if (cell.sel) {
+                let rowSpan = cell.rS;
+                let colSpan = cell.cS;
+                for (let i = r; i < r + rowSpan; i++) {
+                    for (let j = c; j < c + colSpan; j++) {
+                        grid[i][j].hidden = false;
+                        grid[i][j].rS = 1;
+                        grid[i][j].cS = 1;
+                        grid[i][j].sel = false;
+                    }
                 }
-                html += `<p>${content}</p>`;
-            });
-            html += `<hr style="page-break-after:always;">`;
-        });
-        saveAs(new Blob(['\ufeff', html], {type:'application/msword'}), "Activities.doc");
-        closeActivityMenu();
+            }
+        }));
+        render();
     }
 
     function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
@@ -187,25 +195,35 @@
         fr.readAsText(e.target.files[0]); 
     }
 
-    function mergeSelected() {
-        let sel = []; grid.forEach((r, ri) => r.forEach((c, ci) => { if(c.sel) sel.push({r:ri, c:ci}); }));
-        if(sel.length < 2) return;
-        let root = sel[0];
-        let maxR = Math.max(...sel.map(s => s.r + grid[s.r][s.c].rS));
-        let maxC = Math.max(...sel.map(s => s.c + grid[s.r][s.c].cS));
-        grid[root.r][root.c].rS = maxR - root.r;
-        grid[root.r][root.c].cS = maxC - root.c;
-        sel.forEach(s => { if(s.r !== root.r || s.c !== root.c) grid[s.r][s.c].hidden = true; grid[s.r][s.c].sel = false; });
-        render();
-    }
+    function generateMasterDoc() {
+        const fullList = getAssembledSentences();
+        const selectedTypes = Array.from(document.querySelectorAll('#activity-list input:checked')).map(cb => cb.value);
+        const studyLimit = parseInt(document.getElementById('study-list-count').value);
+        let html = `<html><head><style>.blue{color:#2980b9; font-weight:bold; font-style:italic;}</style></head><body>`;
 
-    function splitSelected() {
-        grid.forEach(row => row.forEach(cell => {
-            if(cell.sel) { cell.rS = 1; cell.cS = 1; cell.hidden = false; cell.sel = false; }
-        }));
-        // Re-enable all hidden cells to be safe
-        grid.forEach(row => row.forEach(c => { if(c.hidden) c.hidden = false; }));
-        render();
+        selectedTypes.forEach(type => {
+            let limit = (type === 'study') ? studyLimit : 10;
+            let subset = [...fullList].sort(() => 0.5 - Math.random()).slice(0, limit);
+            html += `<h2>${ACTIVITIES.find(a => a.id === type).label}</h2>`;
+            subset.forEach((s, i) => {
+                let ln = `${i+1}. `;
+                if(type==='study') ln += `<b>${s.t}</b> <span class="blue">(${s.tr})</span>`;
+                if(type==='vowels') ln += `${s.t.replace(/[aeiouàâéèêëîïôûù]/gi, '_')} (${s.tr})`;
+                if(type==='consonants') ln += `${s.t.replace(/[^aeiouàâéèêëîïôûù\s]/gi, '_')} (${s.tr})`;
+                if(type==='no-spaces') ln += `${s.t.replace(/\s/g, '').toLowerCase()} (${s.tr})`;
+                if(type==='to-target') ln += `(${s.tr}) : __________________________`;
+                if(type==='to-trans') ln += `${s.t} : <span class="blue">__________________________</span>`;
+                if(type==='jumbled') ln += `[ ${s.t.split(' ').sort(()=>0.5-Math.random()).join(' / ')} ] (${s.tr})`;
+                if(type==='bad-trans') {
+                    let bad = fullList[Math.floor(Math.random()*fullList.length)].tr;
+                    ln += `True or False? <b>${s.t}</b> = <i>${Math.random()>0.5?s.tr:bad}</i>`;
+                }
+                html += `<p>${ln}</p>`;
+            });
+            html += `<hr style="page-break-after:always;">`;
+        });
+        saveAs(new Blob(['\ufeff', html], {type:'application/msword'}), "Activities.doc");
+        closeActivityMenu();
     }
 
     function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); render(); }
