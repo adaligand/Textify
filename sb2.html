@@ -2,7 +2,7 @@ Put your HTML text here<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder1</title>
+    <title>Sentence Builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -281,52 +281,59 @@ Put your HTML text here<!DOCTYPE html>
         document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
     }
 
- function generateWorksheet() {
+function generateWorksheet() {
     const count = parseInt(document.getElementById('sentence-count').value);
     const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
     const selected = activityOrder.filter(id => document.getElementById(`chk-${id}`).checked);
 
     if (selected.length === 0) return alert("Select at least one activity!");
 
-    // 1. Gather all combinations organized by row
+    // 1. Gather all combinations organized by row (NO SHUFFLE here)
     let rowBuckets = [];
     for (let r = 0; r < grid.length; r++) {
-        let rowSents = getSentencesByRow(r);
+        let rowSents = getSentencesByRow(r); // Natural order from cartesian product
         if (rowSents.length > 0) {
-            // Keep the internal row sentences shuffled, but we'll track which row they came from
             rowBuckets.push({
                 rowIndex: r,
-                sentences: rowSents.sort(() => 0.5 - Math.random())
+                sentences: rowSents // Keep natural grid order
             });
         }
     }
 
     if (rowBuckets.length === 0) return alert("Please fill in some vocab first!");
 
-    // Helper: Picks 'limit' sentences. 
-    // If isSorted is true, it returns them ordered by Row Index.
-    function getBalancedSelection(limit, isSorted = false) {
+    // Helper: Picks 'limit' sentences.
+    function getBalancedSelection(limit, isStudyTable = false) {
         let selection = [];
+        // Clone buckets to avoid depleting data for subsequent activities
         let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
-        let bucketPointer = 0;
-
-        while (selection.length < limit) {
-            let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
-            if (activeBuckets.length === 0) break;
-
-            if (tempBuckets[bucketPointer].sentences.length > 0) {
-                let sent = tempBuckets[bucketPointer].sentences.shift();
-                // Attach the rowIndex so we can sort by it later if needed
-                selection.push({ ...sent, originRow: tempBuckets[bucketPointer].rowIndex });
+        
+        if (isStudyTable) {
+            // For the study table, we just take the first N sentences in sequence
+            // across the rows to maintain the exact grid reading order.
+            for (let b of tempBuckets) {
+                while (b.sentences.length > 0 && selection.length < limit) {
+                    selection.push({ ...b.sentences.shift(), originRow: b.rowIndex });
+                }
             }
-            bucketPointer = (bucketPointer + 1) % tempBuckets.length;
-        }
-
-        if (isSorted) {
-            // Sort by row index first, then naturally by the order they were picked
-            return selection.sort((a, b) => a.originRow - b.originRow);
+            return selection; // No sorting needed, it's already in order
         } else {
-            // Full random for other exercises
+            // For other exercises, we still want a random balanced mix
+            let bucketPointer = 0;
+            let randomizedBuckets = tempBuckets.map(b => {
+                b.sentences.sort(() => 0.5 - Math.random());
+                return b;
+            });
+
+            while (selection.length < limit) {
+                let activeBuckets = randomizedBuckets.filter(b => b.sentences.length > 0);
+                if (activeBuckets.length === 0) break;
+
+                if (randomizedBuckets[bucketPointer].sentences.length > 0) {
+                    selection.push({ ...randomizedBuckets[bucketPointer].sentences.shift(), originRow: randomizedBuckets[bucketPointer].rowIndex });
+                }
+                bucketPointer = (bucketPointer + 1) % randomizedBuckets.length;
+            }
             return selection.sort(() => 0.5 - Math.random());
         }
     }
@@ -339,9 +346,8 @@ Put your HTML text here<!DOCTYPE html>
         const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
         html += `<h2>${label}</h2>`;
         
-        // TABLE (Study) uses isSorted = true. Others stay random.
         let isStudy = (type === 'study');
-        let currentSents = isStudy ? getBalancedSelection(count, true) : getBalancedSelection(10, false);
+        let currentSents = getBalancedSelection(isStudy ? count : 10, isStudy);
 
         if (type === 'study') {
             html += `<table><tr><th>Target Language</th><th>English</th></tr>`;
