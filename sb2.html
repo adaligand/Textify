@@ -2,7 +2,7 @@ Put your HTML text here<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder</title>
+    <title>Sentence Builder2</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -334,44 +334,38 @@ function generateWorksheet() {
         }
     }
 
-    // 2. Generate HTML
+    // 2. Build the Content
     const line = "<br><br>__________________________________________________________________<br>";
-    let html = `<html><head><meta charset="utf-8"><style>body{font-family:Arial; line-height:1.4;} .blue{color:#2980b9; font-style:italic;} table{width:100%; border-collapse:collapse; margin-bottom:20px;} td,th{border:1px solid black; padding:3px 8px;}</style></head><body>`;
+    let contentHtml = "";
 
     selected.forEach(type => {
         const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
-        html += `<h2>${label}</h2>`;
+        contentHtml += `<h2>${label}</h2>`;
         
         let isStudy = (type === 'study');
         let currentSents = getBalancedSelection(isStudy ? count : 10, isStudy);
 
         if (type === 'study') {
-            html += `<table><tr><th>Target Language</th><th>English</th></tr>`;
-            currentSents.forEach(s => html += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
-            html += `</table>`;
+            contentHtml += `<table><tr><th>Target Language</th><th>English</th></tr>`;
+            currentSents.forEach(s => contentHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
+            contentHtml += `</table>`;
         } else if (type === 'match') {
             let pool = [...currentSents];
             let shuf = [...pool].sort(() => 0.5 - Math.random());
-            html += `<table>`;
-            pool.forEach((s, i) => html += `<tr><td style="border:none; padding:8px;">${i+1}. ${s.t}</td><td style="border:none; width:50px; text-align:center;">[ &nbsp; ]</td><td style="border:none; padding:8px;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
-            html += `</table>`;
+            contentHtml += `<table>`;
+            pool.forEach((s, i) => contentHtml += `<tr><td style="border:none; padding:8px;">${i+1}. ${s.t}</td><td style="border:none; width:50px; text-align:center;">[ &nbsp; ]</td><td style="border:none; padding:8px;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
+            contentHtml += `</table>`;
         } else {
             currentSents.forEach((s, i) => {
                 let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
 
                 if (type === 'vowels' || type === 'cons') {
                     let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
-                    
-                    // First, identify word boundaries by splitting by existing spaces
                     let words = s.t.split(' ');
                     let processedWords = words.map(word => {
-                        // Mask the letters
                         let masked = word.replace(pattern, '_');
-                        // Insert a narrow space ONLY between consecutive underscores
                         return masked.replace(/_(?=_)/g, '_ ');
                     });
-
-                    // Join words back together with a VERY wide gap (4 non-breaking spaces)
                     out = processedWords.join('&nbsp;&nbsp;&nbsp;&nbsp;');
                 }
                 else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
@@ -404,19 +398,35 @@ function generateWorksheet() {
 
                     if (swapIdx !== -1) {
                         let translatedParts = parts.map((p, i) => i === swapIdx ? faultyTr : p.tr);
-                        html += `<p>${i+1}. ${s.t} = <span class="blue">${translatedParts.join(' ')}</span>${line}</p>`;
+                        contentHtml += `<p>${i+1}. ${s.t} = <span class="blue">${translatedParts.join(' ')}</span>${line}</p>`;
                     } else {
-                        html += `<p>${i+1}. ${s.t} = <span class="blue">...[Translation task]...</span>${line}</p>`;
+                        contentHtml += `<p>${i+1}. ${s.t} = <span class="blue">...[Translation task]...</span>${line}</p>`;
                     }
                     return;
                 }
-                html += `<p>${i+1}. ${out} ${hint}${line}</p>`;
+                contentHtml += `<p>${i+1}. ${out} ${hint}${line}</p>`;
             });
         }
-        html += `<hr style="page-break-after:always;">`;
+        contentHtml += `<hr style="page-break-after:always;">`;
     });
 
-    saveAs(new Blob(['\ufeff', html], { type: 'application/msword' }), "Worksheet.doc");
+    // 3. The "Word Magic" Wrapper
+    // This tells Word to open in Print Layout (Normal View)
+    const header = `
+        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+        <head><meta charset='utf-8'><title>Worksheet</title>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.4; }
+            .blue { color: #2980b9; font-style: italic; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+            td, th { border: 1px solid black; padding: 3px 8px; }
+            @page { size: A4; margin: 2cm; }
+        </style></head><body>`;
+    
+    const footer = "</body></html>";
+    const fullHtml = header + contentHtml + footer;
+
+    saveAs(new Blob(['\ufeff', fullHtml], { type: 'application/msword' }), "Worksheet.doc");
     closeModals();
 }
 // Helper to isolate Cartesian product to a single row
