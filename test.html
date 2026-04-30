@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Buildler</title>
+    <title>Sentence Builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -593,62 +593,46 @@ const firebaseConfig = {
     appId: "1:607531947255:web:85162d052bdb53296deff2"
 };
 
+/* =========================
+   FIREBASE INIT
+========================= */
 firebase.initializeApp(firebaseConfig);
+
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-/* IMPORTANT: set persistence once at startup */
 auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
 
 /* =========================
    STATE
 ========================= */
 let currentUser = null;
-let currentDocId = null;
 
-let nav = {
-    lang: null,
-    year: null,
-    topic: null
-};
-
-let grid = [[c(), c(), c()], [c(), c(), c()]];
-let history = [JSON.stringify(grid)];
-let historyStep = 0;
-let currentMode = null;
-let typingTimer;
-let meta = { lang: '', year: '', topic: '' };
-
-const allColors = ["#ffffff","#f1f5f9","#fee2e2","#ffedd5","#fef9c3","#dcfce7","#d1fae5","#e0f2fe","#e0e7ff","#ede9fe","#fae8ff","#fce7f3","#ffccd5","#bbf7d0"];
-
-// =========================
-// LOGIN
-// =========================
-async function login() {
+/* =========================
+   LOGIN
+========================= */
+function login() {
     const provider = new firebase.auth.GoogleAuthProvider();
-
-    try {
-        await auth.signInWithRedirect(provider);
-    } catch (e) {
-        console.error(e);
-        alert(e.message);
-    }
+    auth.signInWithRedirect(provider);
 }
 
-// OPTIONAL: handle redirect result (safe to include)
+/* =========================
+   HANDLE REDIRECT RESULT
+========================= */
 auth.getRedirectResult()
     .then((result) => {
-        if (!result || !result.user) return;
-        console.log("Redirect login success:", result.user.email);
+        if (result?.user) {
+            console.log("Login success:", result.user.email);
+        }
     })
-    .catch((error) => {
-        console.error(error);
+    .catch((err) => {
+        console.error("Redirect error:", err);
+        alert(err.message);
     });
 
-
-// =========================
-// AUTH STATE LISTENER
-// =========================
+/* =========================
+   AUTH STATE (MAIN CONTROL)
+========================= */
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
         currentUser = null;
@@ -658,6 +642,13 @@ auth.onAuthStateChanged(async (user) => {
 
     const email = (user.email || "").toLowerCase();
 
+    // safety check
+    if (!email) {
+        await auth.signOut();
+        alert("Invalid login");
+        return;
+    }
+
     // domain restriction
     if (!email.endsWith("@cedarsupper.co.uk")) {
         await auth.signOut();
@@ -665,15 +656,20 @@ auth.onAuthStateChanged(async (user) => {
         return;
     }
 
-    // valid user
     currentUser = user;
-    document.getElementById('user-display').innerText = email;
+
+    const display = document.getElementById('user-display');
+    if (display) display.innerText = email;
 
     nav = { lang: null, year: null, topic: null };
 
     showPage('library-page');
     renderLibrary();
 });
+
+/* =========================
+   LOGOUT
+========================= */
 async function logout() {
     await auth.signOut();
     location.reload();
