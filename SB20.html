@@ -120,7 +120,7 @@
     <h2 style="margin: 0 0 15px 0">Worksheet Options</h2>
     <div id="activity-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;"></div>
     <div style="margin-top: 25px; display: flex; gap: 12px;">
-        <button onclick="generateWorksheet()" class="btn-purple" style="flex:1;">Download .doc</button>
+        <button onclick="Worksheet()" class="btn-purple" style="flex:1;">Download .doc</button>
         <button onclick="closeModals()" style="flex:1;">Cancel</button>
     </div>
 </div>
@@ -300,119 +300,126 @@
         }, [[]]);
     }
 
-    function generateWorksheet() {
-        const count = parseInt(document.getElementById('sentence-count').value);
-        const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
-        const selected = activityOrder.filter(id => document.getElementById(`chk-${id}`).checked);
-
-        if (selected.length === 0) return alert("Select at least one activity!");
-
-        let rowBuckets = [];
-        for (let r = 0; r < grid.length; r++) {
-            let rowSents = getSentencesByRow(r); 
-            if (rowSents.length > 0) {
-                rowBuckets.push({ rowIndex: r, sentences: rowSents });
-            }
-        }
-
-        if (rowBuckets.length === 0) return alert("Please fill in some vocab first!");
-
-        function getBalancedSelection(limit, isStudyTable = false) {
-            let selection = [];
-            let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
-            if (!isStudyTable) tempBuckets.forEach(b => b.sentences.sort(() => 0.5 - Math.random()));
-
-            let bucketPointer = 0;
-            while (selection.length < limit) {
-                let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
-                if (activeBuckets.length === 0) break;
-                if (tempBuckets[bucketPointer].sentences.length > 0) {
-                    selection.push({ ...tempBuckets[bucketPointer].sentences.shift(), originRow: tempBuckets[bucketPointer].rowIndex });
-                }
-                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
-            }
-            return selection;
-        }
-
-        let contentHtml = "";
-        const underscoreLine = "__________________________________________________________________";
-
-        selected.forEach(type => {
-            const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
-            // Wrap activity in a container that allows logical page flow
-            let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
-            
-            let isStudy = (type === 'study');
-            let currentSents = getBalancedSelection(isStudy ? count : 10, isStudy);
-            currentSents.sort((a, b) => a.originRow - b.originRow);
-
-            if (type === 'study') {
-                activityHtml += `<table><tr><th>Target Language</th><th>English</th></tr>`;
-                currentSents.forEach(s => activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
-                activityHtml += `</table>`;
-            } else if (type === 'match') {
-                let pool = [...currentSents];
-                let shuf = [...pool].sort(() => 0.5 - Math.random());
-                activityHtml += `<table>`;
-                pool.forEach((s, i) => activityHtml += `<tr><td style="border:none; padding:4pt;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none; padding:4pt;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
-                activityHtml += `</table>`;
-            } else {
-                currentSents.forEach((s, i) => {
-                    let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
-
-                    if (type === 'vowels' || type === 'cons') {
-                        let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
-                        out = s.t.split(' ').map(word => word.replace(pattern, '_').replace(/_(?=_)/g, '_ ')).join('&nbsp;&nbsp;');
-                    }
-                    else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
-                    else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
-                    else if (type === 'gap-t') { let w = s.t.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); }
-                    else if (type === 'gap-en') { let w = s.tr.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; }
-                    else if (type === 'trans-en') { out = s.t; hint = ""; }
-                    else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
-                    else if (type === 'faulty') {
-                        let parts = [...s.parts];
-                        let rowSents = getSentencesByRow(s.originRow);
-                        let faultyTr = null; let swapIdx = -1;
-                        let indices = parts.map((_, idx) => idx).sort(() => 0.5 - Math.random());
-                        for (let idx of indices) {
-                            let alternatives = rowSents.filter(f => f.parts[idx] && f.parts[idx].tr !== parts[idx].tr);
-                            if (alternatives.length > 0) { faultyTr = alternatives[Math.floor(Math.random() * alternatives.length)].parts[idx].tr; swapIdx = idx; break; }
-                        }
-                        let trText = (swapIdx !== -1) ? parts.map((p, i) => i === swapIdx ? faultyTr : p.tr).join(' ') : "...";
-                        activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${trText}</span><br>${underscoreLine}</p>`;
-                        return;
-                    }
-                    activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>${underscoreLine}</p>`;
-                });
-            }
-            activityHtml += `</div>`;
-            contentHtml += activityHtml;
-        });
-
-        const header = `
-            <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-            <head><style>
-                @page { size: A4 landscape; margin: 1cm; }
-                body { font-family: Arial, sans-serif; }
-                .blue { color: #2980b9; font-style: italic; }
-                table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; table-layout: auto; }
-                td, th { border: 1px solid black; padding: 2pt 5pt; font-size: 10pt; white-space: nowrap; }
-                td p { margin: 0 !important; line-height: 1.0; }
-                td.blue { white-space: normal; width: 45%; }
-                
-                .activity-container { 
-                    page-break-inside: avoid; /* Prevents splitting a single activity across pages */
-                    margin-bottom: 20pt; 
-                }
-                .activity-item { margin-bottom: 2pt; line-height: 1.8; font-size: 11pt; }
-                h2 { border-bottom: 1px solid #ccc; padding-bottom: 3pt; font-size: 14pt; margin-top: 15pt; margin-bottom: 8pt; }
-            </style></head>
-            <body><div class="Section1">${contentHtml}</div></body></html>`;
-
-        saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
-        closeModals();
+  function generateWorksheet() {
+    // 1. Safety Check: Is FileSaver loaded?
+    if (typeof saveAs === "undefined") {
+        alert("Error: FileSaver library not loaded. Please check your internet connection or script tags.");
+        return;
     }
+
+    // 2. Get the count safely
+    const countEl = document.getElementById('sentence-count');
+    const count = countEl ? parseInt(countEl.value) : 10;
+    
+    const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
+    
+    // 3. Get selected checkboxes
+    const selected = activityOrder.filter(id => {
+        const cb = document.getElementById(`chk-${id}`);
+        return cb && cb.checked;
+    });
+
+    if (selected.length === 0) return alert("Select at least one activity!");
+
+    // 4. Gather rowBuckets (Must be inside the function)
+    let rowBuckets = [];
+    for (let r = 0; r < grid.length; r++) {
+        let rowSents = getSentencesByRow(r); 
+        if (rowSents.length > 0) {
+            rowBuckets.push({ rowIndex: r, sentences: rowSents });
+        }
+    }
+
+    if (rowBuckets.length === 0) return alert("Please fill in some vocab first!");
+
+    // 5. Helper Function
+    function getBalancedSelection(limit, isStudyTable = false) {
+        let selection = [];
+        let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
+        if (!isStudyTable) tempBuckets.forEach(b => b.sentences.sort(() => 0.5 - Math.random()));
+
+        let bucketPointer = 0;
+        while (selection.length < limit) {
+            let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
+            if (activeBuckets.length === 0) break;
+            if (tempBuckets[bucketPointer].sentences.length > 0) {
+                selection.push({ ...tempBuckets[bucketPointer].sentences.shift(), originRow: tempBuckets[bucketPointer].rowIndex });
+            }
+            bucketPointer = (bucketPointer + 1) % tempBuckets.length;
+        }
+        return selection;
+    }
+
+    let contentHtml = "";
+    const underscoreLine = "__________________________________________________________________";
+
+    // 6. Generate Content
+    selected.forEach(type => {
+        const labelEl = document.querySelector(`label[for="chk-${type}"]`);
+        const label = labelEl ? labelEl.innerText : type;
+        let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
+        
+        let isStudy = (type === 'study');
+        let currentSents = getBalancedSelection(isStudy ? count : 10, isStudy);
+        currentSents.sort((a, b) => a.originRow - b.originRow);
+
+        if (type === 'study') {
+            activityHtml += `<table border="1" style="border-collapse:collapse; width:100%;"><tr><th>Target Language</th><th>English</th></tr>`;
+            currentSents.forEach(s => activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
+            activityHtml += `</table>`;
+        } else if (type === 'match') {
+            let pool = [...currentSents];
+            let shuf = [...pool].sort(() => 0.5 - Math.random());
+            activityHtml += `<table>`;
+            pool.forEach((s, i) => activityHtml += `<tr><td style="border:none; padding:4pt;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none; padding:4pt;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
+            activityHtml += `</table>`;
+        } else {
+            currentSents.forEach((s, i) => {
+                let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
+                if (type === 'vowels' || type === 'cons') {
+                    let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
+                    out = s.t.split(' ').map(word => word.replace(pattern, '_').replace(/_(?=_)/g, '_ ')).join('&nbsp;&nbsp;');
+                }
+                else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
+                else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
+                else if (type === 'gap-t') { let w = s.t.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); }
+                else if (type === 'gap-en') { let w = s.tr.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; }
+                else if (type === 'trans-en') { out = s.t; hint = ""; }
+                else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
+                else if (type === 'faulty') {
+                    let parts = [...s.parts];
+                    let rowSents = getSentencesByRow(s.originRow);
+                    let faultyTr = "_____"; let swapIdx = Math.floor(Math.random() * parts.length);
+                    let alternatives = rowSents.filter(f => f.parts[swapIdx] && f.parts[swapIdx].tr !== parts[swapIdx].tr);
+                    if (alternatives.length > 0) faultyTr = alternatives[Math.floor(Math.random() * alternatives.length)].parts[swapIdx].tr;
+                    let trText = parts.map((p, i) => i === swapIdx ? faultyTr : p.tr).join(' ');
+                    activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${trText}</span><br>${underscoreLine}</p>`;
+                    return;
+                }
+                activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>${underscoreLine}</p>`;
+            });
+        }
+        activityHtml += `</div><br style="page-break-before:always;">`;
+        contentHtml += activityHtml;
+    });
+
+    // 7. Final Blob and Save
+    const header = `
+        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+        <head><style>
+            @page { size: A4 landscape; margin: 1cm; }
+            body { font-family: Arial, sans-serif; }
+            .blue { color: #2980b9; font-style: italic; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; }
+            td, th { border: 1px solid black; padding: 5pt; font-size: 11pt; }
+            h2 { border-bottom: 1px solid #ccc; font-size: 14pt; margin-top: 15pt; }
+        </style></head>
+        <body>${contentHtml}</body></html>`;
+
+    const blob = new Blob(['\ufeff', header], { type: 'application/msword' });
+    saveAs(blob, "Worksheet.doc");
+    closeModals();
+}
 
     function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
     function mergeSelected() {
