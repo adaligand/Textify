@@ -302,37 +302,42 @@ function generateWorksheet() {
     if (rowBuckets.length === 0) return alert("Please fill in some vocab first!");
 
     // Helper: Picks 'limit' sentences.
-    function getBalancedSelection(limit, isStudyTable = false) {
+   function getBalancedSelection(limit, isStudyTable = false) {
         let selection = [];
-        let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
-        
-        if (isStudyTable) {
-            for (let b of tempBuckets) {
-                while (b.sentences.length > 0 && selection.length < limit) {
-                    selection.push({ ...b.sentences.shift(), originRow: b.rowIndex });
-                }
-            }
-            return selection; 
-        } else {
-            let bucketPointer = 0;
-            let randomizedBuckets = tempBuckets.map(b => {
-                b.sentences.sort(() => 0.5 - Math.random());
-                return b;
-            });
+        // Create a deep copy of the buckets so we don't mutate the original data
+        let tempBuckets = rowBuckets.map(b => ({
+            rowIndex: b.rowIndex,
+            sentences: [...b.sentences]
+        }));
 
-            while (selection.length < limit) {
-                let activeBuckets = randomizedBuckets.filter(b => b.sentences.length > 0);
-                if (activeBuckets.length === 0) break;
-
-                if (randomizedBuckets[bucketPointer].sentences.length > 0) {
-                    selection.push({ ...randomizedBuckets[bucketPointer].sentences.shift(), originRow: randomizedBuckets[bucketPointer].rowIndex });
-                }
-                bucketPointer = (bucketPointer + 1) % randomizedBuckets.length;
-            }
-            return selection.sort(() => 0.5 - Math.random());
+        // For non-study activities, shuffle the sentences within each bucket first
+        if (!isStudyTable) {
+            tempBuckets.forEach(b => b.sentences.sort(() => 0.5 - Math.random()));
         }
-    }
 
+        let bucketPointer = 0;
+        while (selection.length < limit) {
+            // Check if there are any sentences left anywhere
+            let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
+            if (activeBuckets.length === 0) break;
+
+            // Move pointer to the next bucket that actually has content
+            if (tempBuckets[bucketPointer].sentences.length > 0) {
+                let sent = tempBuckets[bucketPointer].sentences.shift();
+                selection.push({ ...sent, originRow: tempBuckets[bucketPointer].rowIndex });
+            }
+            
+            // Increment pointer round-robin style
+            bucketPointer = (bucketPointer + 1) % tempBuckets.length;
+        }
+
+        // If it's not a study table, shuffle the final result so Row 1 isn't always "Sentence 1"
+        if (!isStudyTable) {
+            selection.sort(() => 0.5 - Math.random());
+        }
+        
+        return selection;
+    }
     // 2. Build the Content
     const line = "<br><br>__________________________________________________________________<br>";
     let contentHtml = "";
