@@ -179,125 +179,339 @@
         }
     }
 
-    // 4. EDITOR ENGINE (WITH MERGE/SPLIT & FLOATING ICONS)
-    function render(doSave = true) {
-        if (doSave) {
-            const state = JSON.stringify(grid);
-            if (state !== history[historyStep]) { history = history.slice(0, historyStep + 1); history.push(state); historyStep++; }
-        }
-        const container = document.getElementById('grid-container'); container.innerHTML = '';
-        container.style.gridTemplateColumns = `repeat(${grid[0].length}, fit-content(900px))`;
-
-        grid.forEach((row, r) => row.forEach((cell, cIdx) => {
-            if (cell.hidden) return;
-            const div = document.createElement('div');
-            div.className = `cell ${cell.split ? 'is-split' : ''}`;
-            div.style.gridColumn = `span ${cell.cS}`; div.style.gridRow = `span ${cell.rS}`;
-            div.style.backgroundColor = cell.color;
-
-            div.innerHTML = `
-                <div class="top-ui"><input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} onchange="grid[${r}][${cIdx}].sel=this.checked"></div>
-                <div class="vocab-list ${cell.split ? 'split' : ''}">
-                    ${cell.items.map((it, i) => `
-                        <div class="vocab-item">
-                            <input type="text" class="target-input" value="${it.t}" oninput="grid[${r}][${cIdx}].items[${i}].t=this.value" placeholder="...">
-                            <div class="bracket-wrapper">(<input type="text" class="translation-input" value="${it.tr}" oninput="grid[${r}][${cIdx}].items[${i}].tr=this.value" placeholder="...">)</div>
-                        </div>`).join('')}
-                </div>
-                <div class="bottom-ui">
-                    <span class="icon-btn" onclick="addVocabRow(${r}, ${cIdx})">☰</span>
-                    <span class="icon-btn" onclick="grid[${r}][${cIdx}].split=!grid[${r}][${cIdx}].split;render()">↔</span>
-                    <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
-                    <div class="color-picker" id="cp-${r}-${cIdx}">${['#ffffff','#f1f5f9','#fee2e2','#fef9c3','#dcfce7','#e0f2fe'].map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}</div>
-                </div>
-            `;
-
-            if (currentMode === 'add-col' && r === 0) {
-                addIcon(div, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-                if (cIdx === grid[0].length - 1) addIcon(div, 'btn-plus', 'right', '+', () => insertCol(grid[0].length));
-            }
-            if (currentMode === 'del-col' && r === 0) addIcon(div, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-            if (currentMode === 'add-row' && cIdx === 0) {
-                addIcon(div, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-                if (r === grid.length - 1) addIcon(div, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-            }
-            if (currentMode === 'del-row' && cIdx === 0) addIcon(div, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
-
-            container.appendChild(div);
-        }));
+    function pushHistory() {
+        const state = JSON.stringify(grid);
+        if (state === history[historyStep]) return;
+        history = history.slice(0, historyStep + 1);
+        history.push(state);
+        historyStep++;
     }
 
-    // 5. RESTORED CORE FUNCTIONS
     function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
     function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
-    function addVocabRow(r, c) { grid[r][c].items.push({t:"", tr:""}); render(); }
-    function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
-    function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
-    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); }
-    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); }
-    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); } }
-    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); } }
-    
+
+    function render(doSave = true) {
+        if (doSave) pushHistory();
+        const container = document.getElementById('grid-container');
+        container.innerHTML = '';
+        const cols = grid[0].length;
+        container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
+
+        grid.forEach((row, r) => {
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden) return;
+                const cellDiv = document.createElement('div');
+                cellDiv.className = `cell ${cell.split ? 'is-split' : ''}`;
+                cellDiv.style.gridColumn = `span ${cell.cS}`;
+                cellDiv.style.gridRow = `span ${cell.rS}`;
+                cellDiv.style.backgroundColor = cell.color;
+
+                const listHTML = cell.items.map((item, i) => `
+                    <div class="vocab-item">
+                        <input type="text" class="target-input" placeholder="Target" data-pos="${r}-${cIdx}-${i}"
+                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
+                            oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
+                        <div class="bracket-wrapper"><span>(</span>
+                        <input type="text" class="translation-input" placeholder="Translation" 
+                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
+                            oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
+                        <span>)</span></div>
+                    </div>
+                `).join('');
+
+                cellDiv.innerHTML = `
+                    <div class="top-ui no-export"><input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} onchange="grid[${r}][${cIdx}].sel=this.checked"></div>
+                    <div class="vocab-list ${cell.split ? 'split' : ''}">${listHTML}</div>
+                    <div class="bottom-ui no-export">
+                        <span class="icon-btn" onclick="toggleCellSplit(${r},${cIdx})">Ξ</span>
+                        <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
+                        <div class="color-picker" id="cp-${r}-${cIdx}">${allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}</div>
+                    </div>
+                `;
+                
+                if (currentMode === 'add-col' && r === 0) {
+                    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+                }
+                if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+                if (currentMode === 'add-row' && cIdx === 0) {
+                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+                }
+                if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+
+                container.appendChild(cellDiv);
+                cellDiv.querySelectorAll('input').forEach(syncSize);
+            });
+        });
+    }
+
+    function updateVal(r, cIdx, i, f, v) { 
+        grid[r][cIdx].items[i][f] = v; 
+        clearTimeout(typingTimer); 
+        typingTimer = setTimeout(pushHistory, 1000); 
+    }
+
+    function syncSize(el) { 
+        if (el.value === "") {
+            el.style.width = el.classList.contains('target-input') ? "120px" : "90px"; 
+        } else {
+            el.style.width = '0px'; 
+            el.style.width = (el.scrollWidth + 5) + 'px'; 
+        } 
+    }
+
+    function handleKey(e, r, cIdx, i) {
+        if (e.key === 'Enter') {
+            e.preventDefault(); 
+            grid[r][cIdx].items.splice(i+1, 0, {t:"", tr:""}); 
+            render();
+            setTimeout(() => {
+                const nextInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}"]`);
+                if(nextInput) nextInput.focus();
+            }, 10);
+        }
+        if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
+            e.preventDefault(); 
+            grid[r][cIdx].items.splice(i, 1); 
+            render();
+            setTimeout(() => {
+                const prevInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}"]`);
+                if(prevInput) prevInput.focus();
+            }, 10);
+        }
+    }
+
+    function openPreview() {
+        const sentences = getAssembledSentences();
+        const content = sentences.map((s, i) => `<div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`).join('');
+        document.getElementById('preview-content').innerHTML = content || "No content yet. Add some vocabulary to the grid!";
+        document.getElementById('preview-modal').style.display = 'block';
+        document.getElementById('overlay').style.display = 'block';
+    }
+
+    function openActivityMenu() {
+        const list = [
+            {id:'study', label:'Sentence Table'}, {id:'match', label:'Match up'},
+            {id:'nospaces', label:'No Spaces'}, {id:'jumbled', label:'Unjumble'}, 
+            {id:'gap-en', label:'Gap Fill (English)'}, {id:'gap-t', label:'Gap Fill (TL)'}, 
+            {id:'vowels', label:'Missing Vowels'}, {id:'cons', label:'Missing Consonants'}, 
+            {id:'faulty', label:'Faulty Translation'}, {id:'trans-en', label:'Translate (English)'}, 
+            {id:'trans-target', label:'Translate (TL)'}
+        ];
+        
+        document.getElementById('activity-list').innerHTML = list.map(a => `
+            <div class="activity-row">
+                <input type="checkbox" value="${a.id}" id="chk-${a.id}"> 
+                <label for="chk-${a.id}" style="cursor:pointer">${a.label}</label>
+            </div>
+        `).join('');
+        
+        document.getElementById('activity-menu').style.display = 'block'; 
+        document.getElementById('overlay').style.display = 'block';
+    }
+
+    function toggleAllActivities(master) {
+        document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
+    }
+
+    function getSentencesByRow(r) {
+        let pathCells = [];
+        for (let c = 0; c < grid[0].length; c++) {
+            let cell = getCellAt(r, c);
+            if (!cell || cell.hidden || (c > 0 && getCellAt(r, c - 1) === cell)) continue;
+            let items = cell.items.filter(it => it.t.trim() || it.tr.trim());
+            if (items.length > 0) pathCells.push(items.map(it => ({ t: it.t.trim(), tr: it.tr.trim(), col: c })));
+        }
+        return pathCells.length ? cartesian(pathCells).map(combo => ({ t: combo.map(p => p.t).join(' '), tr: combo.map(p => p.tr).join(' '), parts: combo })) : [];
+    }
+
+    function getAssembledSentences() {
+        let allCompiled = [];
+        for (let r = 0; r < grid.length; r++) {
+            let rowSents = getSentencesByRow(r);
+            rowSents.forEach(s => allCompiled.push({...s, originRow: r}));
+        }
+        return allCompiled;
+    }
+
+    function cartesian(args) {
+        return args.reduce((a, b) => {
+            let ret = [];
+            a.forEach(a_item => {
+                b.forEach(b_item => {
+                    ret.push(a_item.concat([b_item]));
+                });
+            });
+            return ret;
+        }, [[]]);
+    }
+
+    function generateWorksheet() {
+        const count = parseInt(document.getElementById('sentence-count').value);
+        const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
+        const selected = activityOrder.filter(id => document.getElementById(`chk-${id}`).checked);
+
+        if (selected.length === 0) return alert("Select at least one activity!");
+
+        let rowBuckets = [];
+        for (let r = 0; r < grid.length; r++) {
+            let rowSents = getSentencesByRow(r); 
+            if (rowSents.length > 0) {
+                rowBuckets.push({ rowIndex: r, sentences: rowSents });
+            }
+        }
+
+        if (rowBuckets.length === 0) return alert("Please fill in some vocab first!");
+
+        function getBalancedSelection(limit, isStudyTable = false) {
+            let selection = [];
+            let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
+            if (!isStudyTable) tempBuckets.forEach(b => b.sentences.sort(() => 0.5 - Math.random()));
+
+            let bucketPointer = 0;
+            while (selection.length < limit) {
+                let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
+                if (activeBuckets.length === 0) break;
+                if (tempBuckets[bucketPointer].sentences.length > 0) {
+                    selection.push({ ...tempBuckets[bucketPointer].sentences.shift(), originRow: tempBuckets[bucketPointer].rowIndex });
+                }
+                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
+            }
+            return selection;
+        }
+
+        let contentHtml = "";
+        const underscoreLine = "__________________________________________________________________";
+
+        selected.forEach(type => {
+            const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
+            // Wrap activity in a container that allows logical page flow
+            let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
+            
+            let isStudy = (type === 'study');
+            let currentSents = getBalancedSelection(isStudy ? count : 10, isStudy);
+            currentSents.sort((a, b) => a.originRow - b.originRow);
+
+            if (type === 'study') {
+                activityHtml += `<table><tr><th>Target Language</th><th>English</th></tr>`;
+                currentSents.forEach(s => activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
+                activityHtml += `</table>`;
+            } else if (type === 'match') {
+                let pool = [...currentSents];
+                let shuf = [...pool].sort(() => 0.5 - Math.random());
+                activityHtml += `<table>`;
+                pool.forEach((s, i) => activityHtml += `<tr><td style="border:none; padding:4pt;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none; padding:4pt;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
+                activityHtml += `</table>`;
+            } else {
+                currentSents.forEach((s, i) => {
+                    let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
+
+                    if (type === 'vowels' || type === 'cons') {
+                        let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
+                        out = s.t.split(' ').map(word => word.replace(pattern, '_').replace(/_(?=_)/g, '_ ')).join('&nbsp;&nbsp;');
+                    }
+                    else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
+                    else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
+                    else if (type === 'gap-t') { let w = s.t.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); }
+                    else if (type === 'gap-en') { let w = s.tr.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; }
+                    else if (type === 'trans-en') { out = s.t; hint = ""; }
+                    else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
+                    else if (type === 'faulty') {
+                        let parts = [...s.parts];
+                        let rowSents = getSentencesByRow(s.originRow);
+                        let faultyTr = null; let swapIdx = -1;
+                        let indices = parts.map((_, idx) => idx).sort(() => 0.5 - Math.random());
+                        for (let idx of indices) {
+                            let alternatives = rowSents.filter(f => f.parts[idx] && f.parts[idx].tr !== parts[idx].tr);
+                            if (alternatives.length > 0) { faultyTr = alternatives[Math.floor(Math.random() * alternatives.length)].parts[idx].tr; swapIdx = idx; break; }
+                        }
+                        let trText = (swapIdx !== -1) ? parts.map((p, i) => i === swapIdx ? faultyTr : p.tr).join(' ') : "...";
+                        activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${trText}</span><br>${underscoreLine}</p>`;
+                        return;
+                    }
+                    activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>${underscoreLine}</p>`;
+                });
+            }
+            activityHtml += `</div>`;
+            contentHtml += activityHtml;
+        });
+
+        const header = `
+            <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+            <head><style>
+                @page { size: A4 landscape; margin: 1cm; }
+                body { font-family: Arial, sans-serif; }
+                .blue { color: #2980b9; font-style: italic; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; table-layout: auto; }
+                td, th { border: 1px solid black; padding: 2pt 5pt; font-size: 10pt; white-space: nowrap; }
+                td p { margin: 0 !important; line-height: 1.0; }
+                td.blue { white-space: normal; width: 45%; }
+                
+                .activity-container { 
+                    page-break-inside: avoid; /* Prevents splitting a single activity across pages */
+                    margin-bottom: 20pt; 
+                }
+                .activity-item { margin-bottom: 2pt; line-height: 1.8; font-size: 11pt; }
+                h2 { border-bottom: 1px solid #ccc; padding-bottom: 3pt; font-size: 14pt; margin-top: 15pt; margin-bottom: 8pt; }
+            </style></head>
+            <body><div class="Section1">${contentHtml}</div></body></html>`;
+
+        saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
+        closeModals();
+    }
+
+    function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
     function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
         let root = sel[0], items = [];
-        sel.forEach(p => items = [...items, ...grid[p.r][p.c].items.filter(it => it.t || it.tr)]);
+        sel.forEach(p => { items = [...items, ...grid[p.r][p.c].items.filter(it => it.t || it.tr)]; });
         let maxR = Math.max(...sel.map(i => i.r + grid[i.r][i.c].rS)), maxC = Math.max(...sel.map(i => i.c + grid[i.r][i.c].cS));
         grid[root.r][root.c].items = items.length ? items : [{t:"", tr:""}];
         grid[root.r][root.c].rS = maxR - root.r; grid[root.r][root.c].cS = maxC - root.c;
-        sel.forEach(p => { if(p.r!==root.r || p.c!==root.c) grid[p.r][p.c].hidden = true; grid[p.r][p.c].sel = false; });
+        grid[root.r][root.c].sel = false;
+        for(let r=root.r; r<maxR; r++) for(let c=root.c; c<maxC; c++) { if(r===root.r && c===root.c) continue; grid[r][c].hidden = true; grid[r][c].sel = false; }
         render();
     }
-    
     function splitSelected() {
         grid.forEach((row, r) => row.forEach((cell, cIdx) => {
-            if(cell.sel) { cell.rS = 1; cell.cS = 1; cell.hidden = false; }
-            if(cell.hidden) cell.hidden = false; // Comprehensive split
+            if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
+                const rs = cell.rS; const cs = cell.cS;
+                for (let i = r; i < r + rs; i++) for (let j = cIdx; j < cIdx + cs; j++) {
+                    grid[i][j].hidden = false; grid[i][j].rS = 1; grid[i][j].cS = 1; grid[i][j].sel = false;
+                    if (i !== r || j !== cIdx) { grid[i][j].items = [{t: "", tr: ""}]; grid[i][j].color = "#ffffff"; }
+                }
+            }
+            grid[r][cIdx].sel = false;
         }));
         render();
     }
-
-    // 6. FULL WORKSHEET ENGINE (WITH CARTESIAN LOGIC)
-    function openActivityMenu() {
-        const activities = ['Sentence Table', 'Match Up', 'No Spaces', 'Unjumble', 'Missing Vowels', 'Faulty Word'];
-        document.getElementById('activity-list').innerHTML = activities.map(a => `<div class="activity-row"><input type="checkbox" id="chk-${a.replace(/ /g,'').toLowerCase()}"> ${a}</div>`).join('');
-        document.getElementById('activity-menu').style.display='block'; document.getElementById('overlay').style.display='block';
+    async function exportPDF() {
+        const title = document.getElementById('builder-title').value;
+        const edits = document.querySelectorAll('.no-export, .action-btn');
+        edits.forEach(el => el.style.visibility = 'hidden');
+        const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
+        edits.forEach(el => el.style.visibility = 'visible');
+        const pdf = new jspdf.jsPDF('l', 'mm', 'a4');
+        pdf.text(title, 14, 15);
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
+        pdf.save(`${title}.pdf`);
     }
-
-    function generateWorksheet() {
-        const sentences = getAssembledSentences();
-        if(!sentences.length) return alert("Add vocab first!");
-        
-        let content = `<h1 style="text-align:center">${document.getElementById('builder-title').value}</h1>`;
-        // Faulty Word Example Logic
-        if(document.getElementById('chk-faultyword').checked) {
-            content += "<h2>Find the Faulty Word</h2>";
-            for(let i=0; i<10; i++) {
-                let s = sentences[Math.floor(Math.random()*sentences.length)];
-                content += `<p>${i+1}. ${s.t} = <span style="color:blue"><i>${s.tr} (Faulty Word Inserted Here)</i></span></p>`;
-            }
-        }
-        // ... (Remaining activity loops per your original version) ...
-        
-        saveAs(new Blob(['\ufeff', `<html><body>${content}</body></html>`], {type: 'application/msword'}), "Worksheet.doc");
-        closeModals();
-    }
-
-    function getAssembledSentences() {
-        let results = [];
-        for(let r=0; r<grid.length; r++) {
-            let rowParts = [];
-            for(let c=0; c<grid[0].length; c++) {
-                let cell = grid[r][c]; if(cell.hidden) continue;
-                rowParts.push(cell.items.filter(i => i.t).map(i => ({t: i.t, tr: i.tr})));
-            }
-            if(rowParts.length) results.push(...cartesian(rowParts).map(combo => ({t: combo.map(p=>p.t).join(' '), tr: combo.map(p=>p.tr).join(' ')})));
-        }
-        return results;
-    }
-
-    function cartesian(args) { return args.reduce((a, b) => { let r=[]; a.forEach(ai => b.forEach(bi => r.push(ai.concat([bi])))); return r; }, [[]]); }
+    function toggleCellSplit(r, c) { grid[r][c].split = !grid[r][c].split; render(); }
+    function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
+    function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
+    function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); document.getElementById('overlay').style.display = 'none'; }
+    function saveProject() { saveAs(new Blob([JSON.stringify(grid)], {type: "application/json"}), "project.json"); }
+    function loadProject(e) { const fr = new FileReader(); fr.onload = (ev) => { grid = JSON.parse(ev.target.result); history = [JSON.stringify(grid)]; historyStep = 0; render(false); }; fr.readAsText(e.target.files[0]); }
+    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); }
+    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); }
+    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); } }
+    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); } }
+    function addIcon(p, t, pos, l, a) { const b = document.createElement('div'); b.className = `action-btn ${t}`; b.innerText = l; b.style = { 'left': 'left:-15px; top:45%;', 'right': 'right:-15px; top:45%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' }[pos]; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b); }
+    function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
+    window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
+    render(false);
 
     // 7. CLOUD SYNC
     async function saveToCloud() {
