@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Builder Cloud</title>
+    <title>Sentence  Cloud</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -208,44 +208,65 @@
         document.getElementById(pageId).classList.add('active-page');
     }
 
-    // --- LIBRARY & CLOUD FUNCTIONS ---
-    async function renderLibrary() {
+     // --- DASHBOARD NAVIGATION ---
+    function renderDashboard() {
         const container = document.getElementById('library-content');
-        container.innerHTML = "<p>Syncing your builders...</p>";
+        const breadcrumb = document.getElementById('breadcrumb');
+        container.innerHTML = "";
         
-        const snap = await db.collection("builders").where("uid", "==", currentUser.uid).get();
-        if (snap.empty) { container.innerHTML = "<p>No builders found. Create your first one!</p>"; return; }
+        // Update Breadcrumb
+        let bcHtml = `<span onclick="resetView()">ROOT</span>`;
+        if (viewState.lang) bcHtml += ` > <span onclick="viewState.year=null;viewState.topic=null;renderDashboard()">${viewState.lang}</span>`;
+        if (viewState.year) bcHtml += ` > <span onclick="viewState.topic=null;renderDashboard()">${viewState.year}</span>`;
+        if (viewState.topic) bcHtml += ` > ${viewState.topic}`;
+        breadcrumb.innerHTML = bcHtml;
 
-        let org = {};
-        snap.forEach(doc => {
-            const d = doc.data(); d.id = doc.id;
-            if(!org[d.lang]) org[d.lang] = {};
-            if(!org[d.lang][d.year]) org[d.lang][d.year] = [];
-            org[d.lang][d.year].push(d);
-        });
-
-        let html = "";
-        for (let l in org) {
-            html += `<div class="library-section"><h2>${l}</h2>`;
-            for (let y in org[l]) {
-                html += `<div class="year-group"><h3>${y}</h3><div class="project-grid">`;
-                org[l][y].forEach(p => {
-                    html += `
-                        <div class="project-card">
-                            <h4>${p.topic}</h4>
-                            <p>${p.title}</p>
-                            <div style="margin-top:15px; display:flex; gap:10px;">
-                                <button onclick="loadProject('${p.id}')" style="flex:1; cursor:pointer;">Edit</button>
-                                <button onclick="deleteProject('${p.id}')" class="btn-red">Delete</button>
-                            </div>
-                        </div>`;
-                });
-                html += `</div></div>`;
-            }
-            html += `</div>`;
+        // Level 1: Languages
+        if (!viewState.lang) {
+            ["FRENCH", "GERMAN", "SPANISH", "EAL"].forEach(l => {
+                container.innerHTML += `<div class="folder-item" onclick="viewState.lang='${l}';renderDashboard()">
+                    <span class="folder-icon">🌍</span><span class="folder-name">${l}</span>
+                </div>`;
+            });
+        } 
+        // Level 2: Year Groups
+        else if (!viewState.year) {
+            const years = [...new Set(allBuilders.filter(b => b.lang.toUpperCase() === viewState.lang).map(b => b.year))];
+            if (years.length === 0) container.innerHTML = "<p>No Year Groups found. Create a builder first!</p>";
+            years.forEach(y => {
+                container.innerHTML += `<div class="folder-item" onclick="viewState.year='${y}';renderDashboard()">
+                    <span class="folder-icon">📂</span><span class="folder-name">${y}</span>
+                </div>`;
+            });
         }
-        container.innerHTML = html;
+        // Level 3: Topics
+        else if (!viewState.topic) {
+            const topics = [...new Set(allBuilders.filter(b => b.lang.toUpperCase() === viewState.lang && b.year === viewState.year).map(b => b.topic))];
+            topics.forEach(t => {
+                container.innerHTML += `<div class="folder-item" onclick="viewState.topic='${t}';renderDashboard()">
+                    <span class="folder-icon">📁</span><span class="folder-name">${t}</span>
+                </div>`;
+            });
+        }
+        // Level 4: The Builders
+        else {
+            container.style.display = "block"; // Switch to list mode
+            const list = allBuilders.filter(b => b.lang.toUpperCase() === viewState.lang && b.year === viewState.year && b.topic === viewState.topic);
+            list.forEach(p => {
+                container.innerHTML += `
+                <div class="project-card" style="margin-bottom:10px;">
+                    <div><strong>${p.title}</strong></div>
+                    <div>
+                        <button onclick="loadProject('${p.id}')">Edit</button>
+                        <button onclick="deleteProject('${p.id}')" class="btn-red">Delete</button>
+                    </div>
+                </div>`;
+            });
+        }
+        if (viewState.topic) container.style.display = "block"; else container.style.display = "grid";
     }
+
+    function resetView() { viewState = { lang: null, year: null, topic: null }; renderDashboard(); }
 
     async function saveToCloud() {
         const data = {
