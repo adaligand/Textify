@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentencec Builder</title>
+    <title>Sentence Cloud</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -470,7 +470,7 @@ button:hover {
 
 <div id="login-page" class="page active-page">
     <div id="login-card">
-        <h1 style="margin-bottom:10px;">Sentence Builder</h1>
+        <h1 style="margin-bottom:10px;">Sentence Builder Cloud</h1>
         <p style="color:#64748b; margin-bottom:30px;">Teacher Portal - Please sign in with school email.</p>
         <button onclick="login()" class="btn-purple" style="width:100%; padding:15px; font-size:18px;">Sign in with Google</button>
     </div>
@@ -593,91 +593,94 @@ const firebaseConfig = {
     appId: "1:607531947255:web:85162d052bdb53296deff2"
 };
 
-/* =========================
-   FIREBASE INIT
-========================= */
 firebase.initializeApp(firebaseConfig);
-
 const auth = firebase.auth();
 const db = firebase.firestore();
 
+/* IMPORTANT: set persistence once at startup */
 auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
 
 /* =========================
    STATE
 ========================= */
 let currentUser = null;
-let nav = {};
+let currentDocId = null;
+
+let nav = {
+    lang: null,
+    year: null,
+    topic: null
+};
+
+let grid = [[c(), c(), c()], [c(), c(), c()]];
+let history = [JSON.stringify(grid)];
+let historyStep = 0;
+let currentMode = null;
+let typingTimer;
+let meta = { lang: '', year: '', topic: '' };
+
+const allColors = ["#ffffff","#f1f5f9","#fee2e2","#ffedd5","#fef9c3","#dcfce7","#d1fae5","#e0f2fe","#e0e7ff","#ede9fe","#fae8ff","#fce7f3","#ffccd5","#bbf7d0"];
 
 /* =========================
-   LOGIN
+   AUTH
 ========================= */
-function login() {
+async function login() {
+
     const provider = new firebase.auth.GoogleAuthProvider();
-    auth.signInWithRedirect(provider);
-}
 
-/* =========================
-   HANDLE REDIRECT RESULT
-========================= */
-auth.getRedirectResult()
-    .then((result) => {
-        if (result?.user) {
-            console.log("Login success:", result.user.email);
+    try {
+        const result = await auth.signInWithPopup(provider);
+        const email = result.user.email.toLowerCase();
+
+        if (!email.endsWith("@cedarsupper.co.uk")) {
+            alert("Access Denied");
+            await auth.signOut();
+            return;
         }
-    })
-    .catch((err) => {
-        console.error("Redirect error:", err);
-        alert(err.message);
-    });
 
-/* =========================
-   AUTH STATE (MAIN CONTROL)
+        currentUser = result.user;
+        document.getElementById('user-display').innerText = email;
+
+    } catch (e) {
+        alert(e.message);
+    }
+}
 auth.onAuthStateChanged(async (user) => {
-    if (!user) {
+    if (user) {
+        const email = user.email.toLowerCase();
+
+        if (!email.endsWith("@cedarsupper.co.uk")) {
+            await auth.signOut();
+            alert("Access Denied");
+            return;
+        }
+
+        currentUser = user;
+        document.getElementById('user-display').innerText = email;
+
+        nav = { lang: null, year: null, topic: null };
+
+        showPage('library-page');
+        renderLibrary();
+    } else {
         currentUser = null;
         showPage('login-page');
-        return;
     }
-
-    const email = user.email?.toLowerCase();
-
-    // wait until Firebase finishes attaching email
-    if (!email) return;
-
-    const isValid =
-        email.endsWith("@cedarsupper.co.uk") &&
-        !/^[0-9]/.test(email);
-
-    if (!isValid) {
-        console.warn("Blocked login:", email);
-
-        // prevents redirect loop
-        if (auth.currentUser) {
-            await auth.signOut();
-        }
-
-        return;
-    }
-
-    currentUser = user;
-
-    document.getElementById('user-display').innerText = email;
-
-    nav = { lang: null, year: null, topic: null };
-
-    showPage('library-page');
-    renderLibrary();
 });
-
-/* =========================
-   LOGOUT
-========================= */
 async function logout() {
     await auth.signOut();
     location.reload();
 }
-    
+    function openNewModal() {
+    document.getElementById('new-modal').style.display='block';
+    document.getElementById('overlay').style.display='block';
+
+    // reset dropdown state every time
+    document.getElementById("new-lang").value = "French";
+    document.getElementById("new-year").disabled = false;
+    document.getElementById("new-year").style.opacity = "1";
+    document.getElementById("new-year").style.pointerEvents = "auto";
+}
 function handleNewLangChange() {
     const lang = document.getElementById("new-lang").value;
     const year = document.getElementById("new-year");
@@ -1136,7 +1139,8 @@ function toggleAllActivities(master) {
     p.appendChild(b);
 }
  
-        function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
+        ; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b); }
+    function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
     window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
 
     function mergeSelected() {
