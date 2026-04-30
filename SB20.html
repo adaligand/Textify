@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentence Cloud</title>
+    <title>Sentencec Cloud</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -284,7 +284,12 @@ button:hover {
     opacity: 1;
     transform: scale(1.2);
 }
-
+.language-btn {
+    font-size: 20px;
+    padding: 25px;
+    flex: 1;
+    min-width: 180px;
+}
 /* =========================
    GRID ACTION BUTTONS
 ========================= */
@@ -607,7 +612,8 @@ async function login() {
         document.getElementById('user-display').innerText = email;
 
         showPage('library-page');
-        renderLangPage();
+      nav = { lang: null, year: null, topic: null };
+renderLibrary();
 
     } catch (e) {
         alert(e.message);
@@ -628,48 +634,67 @@ function showPage(id) {
    NAVIGATION SYSTEM
 ========================= */
 
-function renderLangPage() {
-    nav = { lang: null, year: null, topic: null };
+function renderLibrary() {
+    const container = document.getElementById("library-content");
 
-    document.getElementById("library-content").innerHTML = `
-        <h2>Select Language</h2>
-        <div style="display:grid;grid-template-columns:repeat(2,200px);gap:15px;">
+    container.innerHTML = `
+        <h2>Dashboard</h2>
+
+        <!-- LANGUAGES (always visible, BIG buttons) -->
+        <div style="display:flex;gap:15px;flex-wrap:wrap;margin-bottom:20px;">
             ${["French","German","Spanish","EAL"].map(l => `
-                <button onclick="selectLang('${l}')">${l}</button>
+                <button onclick="selectLang('${l}')"
+                    style="
+                        font-size:18px;
+                        padding:20px 30px;
+                        flex:1;
+                        min-width:160px;
+                        border-radius:10px;
+                        ${nav.lang === l ? 'background:#8b5cf6;color:white;border:none;' : ''}
+                    ">
+                    ${l}
+                </button>
             `).join("")}
         </div>
+
+        ${nav.lang ? `
+            <!-- YEAR -->
+            <h3>Year Group</h3>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
+                ${["Year 9","GCSE","Year 12","Year 13"].map(y => `
+                    <button onclick="selectYear('${y}')"
+                        style="
+                            padding:10px 15px;
+                            ${nav.year === y ? 'background:#2196f3;color:white;border:none;' : ''}
+                        ">
+                        ${y}
+                    </button>
+                `).join("")}
+            </div>
+        ` : ""}
+
+        ${nav.year ? `
+            <!-- TOPICS -->
+            <h3>Topics</h3>
+            <div id="topic-area">Loading...</div>
+        ` : ""}
     `;
+
+    if (nav.year) renderTopicsInline();
 }
-function updateMeta() {
-    meta.year = document.getElementById("meta-year").value;
-    meta.topic = document.getElementById("meta-topic").value;
-}
-function selectLang(lang) {
+    function selectLang(lang) {
     nav.lang = lang;
-
-    if (lang === "EAL") {
-        nav.year = "EAL";
-        renderTopicPage();
-        return;
-    }
-
-    document.getElementById("library-content").innerHTML = `
-        <button onclick="renderLangPage()">← Back</button>
-        <h2>${lang} - Select Year</h2>
-        <div style="display:grid;grid-template-columns:repeat(2,200px);gap:15px;">
-            ${["Year 9","GCSE","Year 12","Year 13"].map(y => `
-                <button onclick="selectYear('${y}')">${y}</button>
-            `).join("")}
-        </div>
-    `;
+    nav.year = null;
+    nav.topic = null;
+    renderLibrary();
 }
 
 function selectYear(year) {
     nav.year = year;
-    renderTopicPage();
+    nav.topic = null;
+    renderLibrary();
 }
-
-async function renderTopicPage() {
+    async function renderTopicsInline() {
     const snap = await db.collection("builders")
         .where("uid", "==", currentUser.uid)
         .where("lang", "==", nav.lang)
@@ -680,21 +705,64 @@ async function renderTopicPage() {
     snap.forEach(doc => {
         const d = doc.data();
         if (!topics[d.topic]) topics[d.topic] = [];
-        topics[d.topic].push({ id: doc.id, ...d });
     });
 
-    document.getElementById("library-content").innerHTML = `
-        <button onclick="selectLang(nav.lang)">← Back</button>
-        <h2>${nav.lang} / ${nav.year}</h2>
-
-        <h3>Topics</h3>
-        <div style="display:grid;grid-template-columns:repeat(3,200px);gap:15px;">
+    const html = `
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
             ${Object.keys(topics).length ? Object.keys(topics).map(t => `
-                <button onclick="openTopic('${t}')">${t}</button>
+                <button onclick="selectTopic('${t}')"
+                    style="
+                        padding:10px 15px;
+                        ${nav.topic === t ? 'background:#4caf50;color:white;border:none;' : ''}
+                    ">
+                    ${t}
+                </button>
             `).join("") : "<p>No topics yet</p>"}
         </div>
+
+        ${nav.topic ? `<div id="projects-area">Loading...</div>` : ""}
     `;
+
+    document.getElementById("topic-area").innerHTML = html;
+
+    if (nav.topic) renderProjectsInline();
 }
+    function selectTopic(topic) {
+    nav.topic = topic;
+    renderLibrary();
+}
+    async function renderProjectsInline() {
+    const snap = await db.collection("builders")
+        .where("uid", "==", currentUser.uid)
+        .where("lang", "==", nav.lang)
+        .where("year", "==", nav.year)
+        .where("topic", "==", nav.topic)
+        .get();
+
+    let html = `<div class="project-grid">`;
+
+    snap.forEach(doc => {
+        const p = doc.data();
+        html += `
+            <div class="project-card">
+                <h4>${p.topic}</h4>
+                <p>${p.title}</p>
+                <div style="display:flex;gap:10px;margin-top:10px;">
+                    <button onclick="loadProject('${doc.id}')">Edit</button>
+                    <button onclick="deleteProject('${doc.id}')">Delete</button>
+                </div>
+            </div>
+        `;
+    });
+
+    html += `</div>`;
+    document.getElementById("projects-area").innerHTML = html;
+}
+function updateMeta() {
+    meta.year = document.getElementById("meta-year").value;
+    meta.topic = document.getElementById("meta-topic").value;
+}
+
 
 async function openTopic(topic) {
     nav.topic = topic;
