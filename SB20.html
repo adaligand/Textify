@@ -1,234 +1,163 @@
-<!-- index.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Sentence Builder Cloud</title>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
 <style>
-body{font-family:sans-serif;background:#f8fafc;padding:20px}
-.page{display:none}
-.active{display:block}
-.grid{display:inline-grid;gap:2px;background:#94a3b8}
-.cell{background:#fff;padding:15px;min-width:250px}
-.split{display:grid;grid-template-columns:1fr 1fr;gap:15px}
-.blue{color:#2980b9;font-style:italic}
-.folder{padding:20px;background:white;border:1px solid #ccc;cursor:pointer}
+body {
+    font-family: Arial;
+    background:#f8fafc;
+    margin:0;
+    padding:0;
+}
+
+.page {
+    display:none;
+    padding:40px;
+}
+
+.active {
+    display:block;
+}
+
+/* LOGIN SCREEN */
+#login-page {
+    text-align:center;
+    margin-top:120px;
+}
+
+button {
+    padding:12px 20px;
+    border:none;
+    border-radius:8px;
+    cursor:pointer;
+    background:#2196f3;
+    color:white;
+    font-size:16px;
+}
+
+button:hover {
+    opacity:0.9;
+}
+
+/* DASHBOARD */
+#dashboard {
+    max-width:900px;
+    margin:auto;
+}
+
+.card {
+    background:white;
+    padding:15px;
+    margin:10px 0;
+    border-radius:8px;
+    display:flex;
+    justify-content:space-between;
+    border:1px solid #ddd;
+}
 </style>
 </head>
 
 <body>
 
-<div id="login" class="page active">
-<button onclick="login()">Login</button>
+<!-- LOGIN PAGE -->
+<div id="login-page" class="page active">
+    <h1>Sentence Builder Cloud</h1>
+    <p>Please sign in to continue</p>
+    <button onclick="login()">🔵 Sign in with Google</button>
 </div>
 
-<div id="dash" class="page">
-<h2>Library</h2>
-<div id="path"></div>
-<div id="content"></div>
-<button onclick="newBuilder()">New</button>
-</div>
+<!-- DASHBOARD -->
+<div id="dashboard" class="page">
+    <h2>Dashboard</h2>
+    <p id="user-info"></p>
+    <button onclick="logout()" style="background:#ef4444;">Logout</button>
 
-<div id="editor" class="page">
-<button onclick="show('dash')">Back</button>
-<input id="title">
-<button onclick="openWorksheet()">Worksheet</button>
-<div id="grid"></div>
-</div>
-
-<div id="worksheet" class="page">
-<h2>Worksheet</h2>
-<div id="activities"></div>
-<select id="count"><option>10</option><option selected>20</option></select>
-<button onclick="download()">Download</button>
+    <div id="content"></div>
 </div>
 
 <script>
-/* ===== FIREBASE ===== */
-firebase.initializeApp({
-apiKey:"AIza...",
-authDomain:"sentencebuilder-50ef5.firebaseapp.com",
-projectId:"sentencebuilder-50ef5"
-});
-const db=firebase.firestore();
+/* ================= FIREBASE CONFIG ================= */
+const firebaseConfig = {
+    apiKey: "AIzaSyCE89XAuk9wzIhp9QEeCKkdVUK867PtK_Q",
+    authDomain: "sentencebuilder-50ef5.firebaseapp.com",
+    projectId: "sentencebuilder-50ef5",
+};
 
-/* ===== STATE ===== */
-let grid=[[cell(),cell(),cell()],[cell(),cell(),cell()]];
-let user=null,allBuilders=[];
-let view={lang:null,year:null};
-let currentId=null;
+firebase.initializeApp(firebaseConfig);
 
-/* ===== CELL ===== */
-function cell(){return{items:[{t:"",tr:""}],split:false}}
+const auth = firebase.auth();
+const db = firebase.firestore();
 
-/* ===== LOGIN ===== */
-async function login(){
-let r=await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider());
-user=r.user;
-show("dash");
-loadBuilders();
+let currentUser = null;
+
+/* ================= PAGE SWITCH ================= */
+function showPage(pageId) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById(pageId).classList.add('active');
 }
 
-/* ===== DASHBOARD ===== */
-const LANGS=["French","Spanish","German","EAL"];
-const YEARS=["Year 9","GCSE","A Level"];
+/* ================= AUTH STATE LISTENER (CRITICAL FIX) ================= */
+auth.onAuthStateChanged(user => {
+    if (user) {
+        currentUser = user;
 
-async function loadBuilders(){
-let snap=await db.collection("builders").where("uid","==",user.uid).get();
-allBuilders=snap.docs.map(d=>({id:d.id,...d.data()}));
-renderDash();
-}
+        document.getElementById("user-info").innerText =
+            "Logged in as: " + user.email;
 
-function renderDash(){
-let c=document.getElementById("content");
-let p=document.getElementById("path");
-c.innerHTML="";
+        showPage("dashboard");
 
-if(!view.lang){
-LANGS.forEach(l=>c.innerHTML+=`<div class="folder" onclick="view.lang='${l}';renderDash()">${l}</div>`);
-}
-else if(view.lang!=="EAL"&&!view.year){
-YEARS.forEach(y=>c.innerHTML+=`<div class="folder" onclick="view.year='${y}';renderDash()">${y}</div>`);
-}
-else{
-allBuilders.filter(b=>b.lang===view.lang&&(view.lang==="EAL"||b.year===view.year))
-.forEach(b=>c.innerHTML+=`<div>${b.title}<button onclick="openBuilder('${b.id}')">Edit</button></div>`);
-}
-}
-
-/* ===== GRID ===== */
-function render(){
-let g=document.getElementById("grid");
-g.innerHTML="";
-g.className="grid";
-g.style.gridTemplateColumns=`repeat(${grid[0].length},auto)`;
-
-grid.forEach((row,r)=>{
-row.forEach((c,i)=>{
-let d=document.createElement("div");
-d.className="cell";
-
-let list=document.createElement("div");
-list.className=c.split?"split":"";
-
-c.items.forEach((it,idx)=>{
-let inp=document.createElement("input");
-inp.value=it.t;
-inp.oninput=e=>grid[r][i].items[idx].t=e.target.value;
-
-let tr=document.createElement("input");
-tr.value=it.tr;
-tr.oninput=e=>grid[r][i].items[idx].tr=e.target.value;
-
-list.appendChild(inp);
-list.appendChild(tr);
+        loadDashboard();
+    } else {
+        currentUser = null;
+        showPage("login-page");
+    }
 });
 
-d.appendChild(list);
+/* ================= LOGIN ================= */
+async function login() {
+    const provider = new firebase.auth.GoogleAuthProvider();
 
-let btn=document.createElement("button");
-btn.innerText="split";
-btn.onclick=()=>{c.split=!c.split;render()};
-d.appendChild(btn);
-
-g.appendChild(d);
-});
-});
+    try {
+        await auth.signInWithPopup(provider);
+    } catch (err) {
+        console.error(err);
+        alert("Login failed. Check popup blocker or Firebase settings.");
+    }
 }
 
-/* ===== CARTESIAN ===== */
-function cartesian(a){
-return a.reduce((x,y)=>x.flatMap(d=>y.map(e=>[...d,e])),[[]]);
+/* ================= LOGOUT ================= */
+function logout() {
+    auth.signOut();
 }
 
-function sentences(){
-let out=[];
-grid.forEach(row=>{
-let parts=row.map(c=>c.items.filter(i=>i.t));
-if(parts.length){
-cartesian(parts).forEach(combo=>{
-out.push({
-t:combo.map(x=>x.t).join(" "),
-tr:combo.map(x=>x.tr).join(" ")
-});
-});
-}
-});
-return out;
-}
+/* ================= DASHBOARD CONTENT ================= */
+function loadDashboard() {
+    const content = document.getElementById("content");
+    content.innerHTML = "";
 
-/* ===== WORKSHEET ===== */
-function openWorksheet(){
-show("worksheet");
+    content.innerHTML += `
+        <div class="card">
+            <div>French - Year 9</div>
+            <button>Edit</button>
+        </div>
+    `;
 
-let list=[
-"study","match","nospaces","jumbled",
-"gap-en","gap-t","vowels","cons",
-"faulty","trans-en","trans-target"
-];
-
-let c=document.getElementById("activities");
-c.innerHTML=list.map(l=>`<label><input type="checkbox" value="${l}">${l}</label><br>`).join("");
+    content.innerHTML += `
+        <div class="card">
+            <div>Spanish - GCSE</div>
+            <button>Edit</button>
+        </div>
+    `;
 }
 
-function download(){
-let count=+document.getElementById("count").value;
-let selected=[...document.querySelectorAll("#activities input:checked")].map(x=>x.value);
-let data=sentences();
-
-let html="";
-
-selected.forEach(type=>{
-html+=`<h2>${type}</h2>`;
-
-data.slice(0,count).forEach((s,i)=>{
-let out=s.t;
-let hint=`(${s.tr})`;
-
-if(type==="nospaces") out=s.t.replace(/\s/g,"");
-if(type==="jumbled") out=s.t.split(" ").sort(()=>0.5-Math.random()).join(" / ");
-if(type==="gap-en"){
-let w=s.tr.split(" "); w[Math.floor(Math.random()*w.length)]="____";
-hint=`(${w.join(" ")})`;
-}
-if(type==="gap-t"){
-let w=s.t.split(" "); w[Math.floor(Math.random()*w.length)]="____";
-out=w.join(" ");
-}
-
-html+=`<p>${i+1}. ${out} <span class="blue">${hint}</span></p>`;
-});
-});
-
-saveAs(new Blob([html],{type:"application/msword"}),"worksheet.doc");
-}
-
-/* ===== CLOUD ===== */
-async function save(){
-await db.collection("builders").add({
-uid:user.uid,
-title:document.getElementById("title").value,
-grid:JSON.stringify(grid),
-lang:view.lang,
-year:view.year
-});
-}
-
-/* ===== NAV ===== */
-function show(id){
-document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
-document.getElementById(id).classList.add("active");
-}
-
-/* ===== INIT ===== */
-render();
+/* ================= SAFETY: FORCE LOGIN SCREEN ON LOAD ================= */
+showPage("login-page");
 </script>
 
 </body>
