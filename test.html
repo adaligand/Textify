@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sentence Cloud</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <style>
+:root {
+    --accent: #2196f3;
+    --green: #4caf50;
+    --red: #f44336;
+    --line: #94a3b8;
+    --translation-blue: #2980b9;
+    --purple: #8b5cf6;
+}
+
+/* =========================
+   BASE LAYOUT
+========================= */
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #f8fafc;
+    padding: 20px;
+    margin: 0;
+}
+
+/* =========================
+   PAGE SYSTEM
+========================= */
+.page {
+    display: none;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.active-page {
+    display: block;
+}
+
+/* =========================
+   LOGIN CARD
+========================= */
+#login-card {
+    text-align: center;
+    background: white;
+    padding: 60px 40px;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    margin: 100px auto;
+    max-width: 500px;
+}
+
+/* =========================
+   LIBRARY UI
+========================= */
+.library-section {
+    margin-bottom: 40px;
+}
+
+.year-group {
+    margin-left: 20px;
+    margin-bottom: 25px;
+}
+
+.project-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 15px;
+}
+
+.project-card {
+    background: white;
+    padding: 12px 15px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    transition: 0.2s;
+}
+
+.project-card:hover {
+    background: #f8fafc;
+}
+
+.project-left {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+
+.project-topic {
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.project-title {
+    color: #64748b;
+    font-size: 14px;
+}
+
+.project-actions {
+    display: flex;
+    gap: 10px;
+    font-size: 18px;
+}
+
+.project-actions span {
+    cursor: pointer;
+    opacity: 0.6;
+    transition: 0.2s;
+}
+
+.project-actions span:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
+/* =========================
+   GRID EDITOR
+========================= */
+#builder-title {
+    font-size: 20px;
+    padding: 8px;
+    width: 300px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    outline: none;
+}
+
+.toolbar {
+    background: white;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 25px;
+    display: flex;
+    gap: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    flex-wrap: wrap;
+}
+
+.grid-canvas {
+    display: inline-grid;
+    background-color: var(--line);
+    border: 2px solid var(--line);
+    gap: 2px;
+}
+
+.cell {
+    background: white;
+    min-width: 320px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 25px;
+    position: relative;
+    box-sizing: border-box;
+}
+
+.cell.is-split {
+    min-width: 600px;
+}
+
+/* =========================
+   VOCAB UI
+========================= */
+.vocab-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vocab-list.split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 30px;
+}
+
+.vocab-item {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+.target-input {
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 17px;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 0;
+    min-width: 10px;
+}
+
+.translation-input {
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: inherit;
+    font-family: inherit;
+    min-width: 10px;
+    padding: 0;
+}
+
+.bracket-wrapper {
+    display: inline-flex;
+    align-items: baseline;
+    color: var(--translation-blue);
+    font-size: 15px;
+    font-style: italic;
+}
+
+/* =========================
+   BUTTON SYSTEM (CLEAN)
+========================= */
+button {
+    padding: 8px 16px;
+    cursor: pointer;
+    border: 1px solid #cbd5e1;
+    background: white;
+    border-radius: 6px;
+    font-weight: 500;
+    transition: 0.2s ease;
+    font-family: inherit;
+}
+
+button:hover {
+    background: #f1f5f9;
+}
+
+.toolbar button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+/* dividers */
+.toolbar .divider {
+    width: 1px;
+    height: 24px;
+    background: #e2e8f0;
+    margin: 0 5px;
+}
+
+/* =========================
+   BUTTON VARIANTS
+========================= */
+.btn-purple {
+    background: var(--purple);
+    color: white;
+    border: none;
+}
+
+.btn-purple:hover {
+    background: #7c3aed;
+}
+
+.btn-info {
+    background: #0ea5e9;
+    color: white;
+    border: none;
+}
+
+.btn-info:hover {
+    background: #0284c7;
+}
+
+.btn-danger {
+    background: #e11d48;
+    color: white;
+    border: none;
+}
+
+.btn-danger:hover {
+    background: #be123c;
+}
+
+/* =========================
+   ICON BUTTONS
+========================= */
+.icon-btn {
+    font-size: 18px;
+    cursor: pointer;
+    opacity: 0.3;
+    transition: 0.2s;
+    user-select: none;
+}
+
+.icon-btn:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+.language-btn {
+    font-size: 20px;
+    padding: 25px;
+    flex: 1;
+    min-width: 180px;
+}
+/* =========================
+   GRID ACTION BUTTONS
+========================= */
+.action-btn {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    border: 2px solid white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    z-index: 100;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    color: white;
+    transition: 0.2s ease;
+}
+
+.action-btn:hover {
+    transform: scale(1.1);
+}
+
+.btn-plus {
+    background: var(--green);
+}
+
+.btn-minus {
+    background: var(--red);
+}
+
+/* =========================
+   MODALS
+========================= */
+.modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 15px 50px rgba(0,0,0,0.4);
+    display: none;
+    z-index: 2000;
+    width: 650px;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    z-index: 1999;
+}
+
+/* =========================
+   COLOR PICKER
+========================= */
+.color-picker {
+    position: absolute;
+    bottom: 35px;
+    right: 0;
+    background: white;
+    border: 1px solid #ccc;
+    padding: 8px;
+    display: none;
+    z-index: 110;
+    grid-template-columns: repeat(4, 22px);
+    gap: 6px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.swatch {
+    width: 22px;
+    height: 22px;
+    cursor: pointer;
+    border: 1px solid #eee;
+    border-radius: 3px;
+}
+
+/* =========================
+   PREVIEW
+========================= */
+.preview-sentence {
+    font-size: 16px;
+    line-height: 1.4;
+    margin: 0;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.preview-sentence span.tr-text {
+    color: var(--translation-blue);
+    font-style: italic;
+    margin-left: 8px;
+}
+
+/* =========================
+   ACTIVITY LIST
+========================= */
+#activity-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.activity-row {
+    padding: 8px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* =========================
+   CELL UI OVERLAYS
+========================= */
+.top-ui {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    pointer-events: none;
+}
+
+.cell-checkbox {
+    width: 18px !important;
+    height: 18px !important;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.bottom-ui {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    pointer-events: none;
+}
+
+.bottom-ui * {
+    pointer-events: auto;
+}
+    </style>
+</head>
+<body>
+
+<div id="login-page" class="page active-page">
+    <div id="login-card">
+        <h1 style="margin-bottom:10px;">Sentence Builder Cloud</h1>
+        <p style="color:#64748b; margin-bottom:30px;">Teacher Portal - Please sign in with school email.</p>
+        <button onclick="login()" class="btn-purple" style="width:100%; padding:15px; font-size:18px;">Sign in with Google</button>
+    </div>
+</div>
+
+<div id="library-page" class="page">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:30px; background:white; padding:20px; border-radius:12px; box-shadow:0 2px 5px rgba(0,0,0,0.05);">
+        <div>
+            <h2 style="margin:0;">Dashboard</h2>
+            <span id="user-display" style="color:#64748b; font-size:14px;"></span>
+        </div>
+        <div style="display:flex; gap:10px;">
+            <button onclick="openNewModal()" class="btn-purple">+ Create New Builder</button>
+            <button onclick="logout()" style="background:none; border:1px solid #cbd5e1; padding:8px 15px; border-radius:6px; cursor:pointer;">Sign Out</button>
+        </div>
+    </div>
+    <div id="library-content"></div>
+</div>
+
+<div id="editor-page" class="page">
+    <div style="background: white; padding: 15px; border-radius: 12px; margin-bottom: 20px; display: flex; gap: 15px; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+        <button onclick="showPage('library-page')" style="background: none; border: 1px solid #ccc; border-radius: 6px; padding: 8px 15px; cursor: pointer;">← Library</button>
+        <input type="text" id="builder-title" value="Untitled Builder">
+       <div style="display:flex; gap:10px; align-items:center;">
+<div id="meta-info" style="color:#64748b; font-size:14px;"></div>
+    <select id="meta-year" onchange="updateMeta()" style="padding:6px;">
+        <option>Year 9</option>
+        <option>GCSE</option>
+        <option>Year 12</option>
+        <option>Year 13</option>
+    </select>
+
+    <input id="meta-topic"
+           placeholder="Topic"
+           oninput="updateMeta()"
+           style="padding:6px;">
+
+</div>
+        <button onclick="saveToCloud()" class="btn-purple" style="margin-left: auto;">💾 Save to Cloud</button>
+        <button onclick="logout()" style="background:none; border:1px solid #cbd5e1; padding:8px 15px; border-radius:6px; cursor:pointer;">🚪 Sign Out</button>
+    </div>
+
+    <div class="toolbar">
+        <button onclick="undo()">↩️</button>
+        <button onclick="redo()">↪️</button>
+        <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 5px;"></div>
+        <button onclick="toggleMode('add-row')">+ Row</button>
+        <button onclick="toggleMode('del-row')">- Row</button>
+        <button onclick="toggleMode('add-col')">+ Col</button>
+        <button onclick="toggleMode('del-col')">- Col</button>
+        <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 5px;"></div>
+        <button onclick="mergeSelected()">🔗Merge</button>
+        <button onclick="splitSelected()">✂️Split</button>
+        <button onclick="exportPDF()" style="background:#e11d48; color:white; border:none;">📄PDF</button>
+        <button onclick="openPreview()" style="background:#0ea5e9; color:white; border:none;">👁️Preview</button>
+        <button onclick="openActivityMenu()" class="btn-purple">📜Worksheet</button>
+    </div>
+    <div id="grid-container" class="grid-canvas"></div>
+</div>
+
+<div id="overlay" class="overlay" onclick="closeModals()"></div>
+
+<div id="new-modal" class="modal" style="width:400px;">
+    <h2 style="margin-top:0;">New Builder</h2>
+    <div style="display: flex; flex-direction: column; gap: 15px;">
+        <div>
+            <label>Language</label>
+            <select id="new-lang" onchange="handleNewLangChange()" style="width:100%; padding:8px;"><option>French</option><option>German</option><option>Spanish</option><option>EAL</option></select>
+        </div>
+        <div>
+            <label>Year Group</label>
+            <select id="new-year" style="width:100%; padding:8px;"><option>Year 9</option><option>GCSE</option><option>Year 12</option><option>Year 13</option></select>
+        </div>
+        <div>
+            <label>Topic</label>
+            <input type="text" id="new-topic" placeholder="e.g. Holidays" style="width:100%; padding:8px; box-sizing:border-box;">
+        </div>
+        <button onclick="createNewProject()" class="btn-purple">Create Builder</button>
+    </div>
+</div>
+
+<div id="preview-modal" class="modal">
+    <h3 style="margin-top:0;">Sentence List Preview</h3>
+    <div id="preview-content" style="background:#fafafa; padding:15px; border-radius:8px; max-height: 60vh; overflow-y: auto;"></div>
+    <button onclick="closeModals()" style="width:100%; margin-top:20px; height: 45px; font-weight: bold; border:1px solid #ccc; cursor:pointer;">Close</button>
+</div>
+
+<div id="activity-menu" class="modal">
+    <h2 style="margin:0 0 15px 0">Worksheet Options</h2>
+    <div style="background:#f1f5f9; padding:15px; border-radius:8px; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <label><b>Sentences:</b></label>
+            <select id="sentence-count">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+            </select>
+        </div>
+        <div>
+            <input type="checkbox" id="sel-all" onchange="toggleAllActivities(this)"> <label for="sel-all"><b>Select / Unselect All</b></label>
+        </div>
+    </div>
+    <div id="activity-list"></div>
+    <div style="margin-top: 25px; display: flex; gap: 12px;">
+        <button onclick="generateWorksheet()" class="btn-purple" style="flex:1; height: 45px; font-size: 16px;">Download</button>
+        <button onclick="closeModals()" style="flex:1;">Cancel</button>
+    </div>
+</div>
+
+<script>
+/* =========================
+   FIREBASE
+========================= */
+const firebaseConfig = {
+    apiKey: "AIzaSyCE89XAuk9wzIhp9QEeCKkdVUK867PtK_Q",
+    authDomain: "sentencebuilder-50ef5.firebaseapp.com",
+    projectId: "sentencebuilder-50ef5",
+    storageBucket: "sentencebuilder-50ef5.firebasestorage.app",
+    messagingSenderId: "607531947255",
+    appId: "1:607531947255:web:85162d052bdb53296deff2"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+/* IMPORTANT: set persistence once at startup */
+auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+
+/* =========================
+   STATE
+========================= */
+let currentUser = null;
+let currentDocId = null;
+
+let nav = {
+    lang: null,
+    year: null,
+    topic: null
+};
+
+let grid = [[c(), c(), c()], [c(), c(), c()]];
+let history = [JSON.stringify(grid)];
+let historyStep = 0;
+let currentMode = null;
+let typingTimer;
+let meta = { lang: '', year: '', topic: '' };
+
+const allColors = ["#ffffff","#f1f5f9","#fee2e2","#ffedd5","#fef9c3","#dcfce7","#d1fae5","#e0f2fe","#e0e7ff","#ede9fe","#fae8ff","#fce7f3","#ffccd5","#bbf7d0"];
+
+/* =========================
+   AUTH
+========================= */
+async function login() {
+
+    const provider = new firebase.auth.GoogleAuthProvider();
+
+    try {
+        const result = await auth.signInWithPopup(provider);
+        const email = result.user.email.toLowerCase();
+
+        if (!email.endsWith("@cedarsupper.co.uk")) {
+            alert("Access Denied");
+            await auth.signOut();
+            return;
+        }
+
+        currentUser = result.user;
+        document.getElementById('user-display').innerText = email;
+
+    } catch (e) {
+        alert(e.message);
+    }
+}
+auth.onAuthStateChanged(async (user) => {
+    if (user) {
+        const email = user.email.toLowerCase();
+
+        if (!email.endsWith("@cedarsupper.co.uk")) {
+            await auth.signOut();
+            alert("Access Denied");
+            return;
+        }
+
+        currentUser = user;
+        document.getElementById('user-display').innerText = email;
+
+        nav = { lang: null, year: null, topic: null };
+
+        showPage('library-page');
+        renderLibrary();
+    } else {
+        currentUser = null;
+        showPage('login-page');
+    }
+});
+async function logout() {
+    await auth.signOut();
+    location.reload();
+}
+        // reset dropdown state every time
+    document.getElementById("new-lang").value = "French";
+    document.getElementById("new-year").disabled = false;
+    document.getElementById("new-year").style.opacity = "1";
+    document.getElementById("new-year").style.pointerEvents = "auto";
+}
+function handleNewLangChange() {
+    const lang = document.getElementById("new-lang").value;
+    const year = document.getElementById("new-year");
+
+    if (lang === "EAL") {
+        year.disabled = true;
+        year.style.opacity = "0.5";
+        year.style.pointerEvents = "none";
+    } else {
+        year.disabled = false;
+        year.style.opacity = "1";
+        year.style.pointerEvents = "auto";
+    }
+}
+function showPage(id) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active-page'));
+    document.getElementById(id).classList.add('active-page');
+}
+
+/* =========================
+   NAVIGATION SYSTEM
+========================= */
+
+function renderLibrary() {
+    const container = document.getElementById("library-content");
+
+    container.innerHTML = `
+        <h2>Dashboard</h2>
+
+        <!-- LANGUAGES (always visible, BIG buttons) -->
+        <div style="display:flex;gap:15px;flex-wrap:wrap;margin-bottom:20px;">
+            ${["French","German","Spanish","EAL"].map(l => `
+                <button onclick="selectLang('${l}')"
+                    style="
+                        font-size:18px;
+                        padding:20px 30px;
+                        flex:1;
+                        min-width:160px;
+                        border-radius:10px;
+                        ${nav.lang === l ? 'background:#8b5cf6;color:white;border:none;' : ''}
+                    ">
+                    ${l}
+                </button>
+            `).join("")}
+        </div>
+
+        ${nav.lang && nav.lang !== "EAL" ? `
+    <h3>Year Group</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
+        ${["Year 9","GCSE","Year 12","Year 13"].map(y => `
+            <button onclick="selectYear('${y}')"
+                style="
+                    padding:10px 15px;
+                    ${nav.year === y ? 'background:#2196f3;color:white;border:none;' : ''}
+                ">
+                ${y}
+            </button>
+        `).join("")}
+    </div>
+` : ""}
+        
+
+        ${nav.year ? `
+            <!-- TOPICS -->
+            <h3>Topics</h3>
+            <div id="topic-area">Loading...</div>
+        ` : ""}
+    `;
+
+    if (nav.year) renderTopicsInline();
+}
+  function selectLang(lang) {
+    nav.lang = lang;
+    nav.year = null;
+    nav.topic = null;
+
+    // 🔥 EAL skips year entirely
+    if (nav.lang === "EAL") {
+        nav.year = "EAL";
+    }
+
+    renderLibrary();
+}
+
+function selectYear(year) {
+    nav.year = year;
+    nav.topic = null;
+    renderLibrary();
+}
+async function renderTopicsInline() {
+    let query = db.collection("builders")
+        .where("uid", "==", currentUser.uid)
+        .where("lang", "==", nav.lang);
+
+    if (nav.lang !== "EAL" && nav.year) {
+        query = query.where("year", "==", nav.year);
+    }
+
+    const snap = await query.get();
+
+    const topicList = [...new Set(
+        snap.docs.map(d => d.data().topic).filter(Boolean)
+    )];
+
+    const html = `
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
+            ${topicList.length ? topicList.map(t => `
+                <button onclick="selectTopic('${t}')"
+                    style="padding:10px 15px;
+                    ${nav.topic === t ? 'background:#4caf50;color:white;border:none;' : ''}">
+                    ${t}
+                </button>
+            `).join("") : "<p>No topics yet</p>"}
+        </div>
+
+        ${nav.topic ? `<div id="projects-area"></div>` : ""}
+    `;
+
+    document.getElementById("topic-area").innerHTML = html;
+
+    if (nav.topic) renderProjectsInline();
+}
+ function selectTopic(topic) {
+    nav.topic = topic;
+    renderTopicsInline();
+}
+async function renderProjectsInline() {
+    if (!nav.lang || !nav.topic) {
+        document.getElementById("projects-area").innerHTML = "";
+        return;
+    }
+
+    let query = db.collection("builders")
+        .where("uid", "==", currentUser.uid)
+        .where("lang", "==", nav.lang)
+        .where("topic", "==", nav.topic);
+
+    if (nav.lang !== "EAL") {
+        query = query.where("year", "==", nav.year);
+    }
+
+    const snap = await query.get();
+
+    let html = `<div class="project-grid">`;
+
+    snap.forEach(doc => {
+        const p = doc.data();
+
+        html += `
+            <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer;">
+                <div class="project-left">
+                    <span class="project-topic">${p.topic}</span>
+                    <span>—</span>
+                    <span class="project-title">${p.title}</span>
+                </div>
+
+                <div class="project-actions" onclick="event.stopPropagation();">
+                    <span title="Delete" onclick="deleteProject('${doc.id}')">🗑️</span>
+                </div>
+            </div>
+        `;
+    });
+
+    html += `</div>`;
+    document.getElementById("projects-area").innerHTML = html;
+}
+    async function confirmDelete(id) {
+    const ok = confirm("Delete this builder permanently? This cannot be undone.");
+
+    if (!ok) return;
+
+    await db.collection("builders").doc(id).delete();
+    renderProjectsInline();
+}
+function updateMeta() {
+    meta.year = document.getElementById("meta-year").value;
+    meta.topic = document.getElementById("meta-topic").value;
+}
+
+async function openTopic(topic) {
+    nav.topic = topic;
+
+    let baseQuery = db.collection("builders")
+        .where("uid", "==", currentUser.uid)
+        .where("lang", "==", nav.lang)
+        .where("topic", "==", topic);
+
+    if (nav.lang !== "EAL") {
+        baseQuery = baseQuery.where("year", "==", nav.year);
+    }
+
+    const snap = await baseQuery.get();
+
+    let html = `
+        <button onclick="renderLibrary()">← Back</button>
+        <h2>${nav.lang} / ${nav.year || "All"} / ${topic}</h2>
+        <div class="project-grid">
+    `;
+
+    snap.forEach(doc => {
+        const p = doc.data();
+        html += `
+            <div class="project-card">
+                <h4>${p.topic}</h4>
+                <p>${p.title}</p>
+                <div style="display:flex;gap:10px;margin-top:10px;">
+                    <button onclick="loadProject('${doc.id}')">Edit</button>
+                    <button onclick="deleteProject('${doc.id}')" class="btn-danger">Delete</button>
+                </div>
+            </div>
+        `;
+    });
+
+    html += `</div>`;
+    document.getElementById("library-content").innerHTML = html;
+}
+    function renderTopicPage() {
+    renderLibrary();
+}
+/* =========================
+   CLOUD
+========================= */
+async function saveToCloud() {
+    meta.year = document.getElementById("meta-year").value;
+    meta.topic = document.getElementById("meta-topic").value;
+
+    const data = {
+        uid: currentUser.uid,
+        title: document.getElementById('builder-title').value,
+        lang: meta.lang,
+        year: meta.year,
+        topic: meta.topic,
+        grid: JSON.stringify(grid),
+        updated: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (currentDocId) {
+        await db.collection("builders").doc(currentDocId).update(data);
+    } else {
+        const doc = await db.collection("builders").add(data);
+        currentDocId = doc.id;
+    }
+
+    alert("Saved");
+}
+
+async function loadProject(id) {
+    const doc = await db.collection("builders").doc(id).get();
+    const d = doc.data();
+
+    currentDocId = id;
+
+    grid = JSON.parse(d.grid);
+
+    meta = {
+        lang: d.lang,
+        year: d.year,
+        topic: d.topic
+    };
+
+    // sync UI
+    document.getElementById('meta-year').value = d.year;
+    document.getElementById('meta-topic').value = d.topic;
+    document.getElementById('builder-title').value = d.title;
+
+    document.getElementById('meta-info').innerText =
+        `${meta.lang} | ${meta.year} | ${meta.topic}`;
+
+    history = [JSON.stringify(grid)];
+    historyStep = 0;
+
+    showPage("editor-page");
+    render(false);
+}
+
+async function deleteProject(id) {
+    const ok = confirm("Delete this builder permanently? This cannot be undone.");
+    if (!ok) return;
+
+    await db.collection("builders").doc(id).delete();
+
+    renderProjectsInline();
+}
+
+/* =========================
+   GRID CORE
+========================= */
+function c() {
+    return { items:[{t:"",tr:""}], color:"#ffffff", rS:1, cS:1, hidden:false, sel:false, split:false };
+}
+
+function pushHistory() {
+    const state = JSON.stringify(grid);
+    if (state === history[historyStep]) return;
+    history = history.slice(0, historyStep + 1);
+    history.push(state);
+    historyStep++;
+}
+
+    function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
+    function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
+
+    function render(doSave = true) {
+        if (doSave) pushHistory();
+        const container = document.getElementById('grid-container');
+        container.innerHTML = '';
+        const cols = grid[0].length;
+        container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
+
+        grid.forEach((row, r) => {
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden) return;
+                const cellDiv = document.createElement('div');
+                cellDiv.className = `cell ${cell.split ? 'is-split' : ''}`;
+                cellDiv.style.gridColumn = `span ${cell.cS}`;
+                cellDiv.style.gridRow = `span ${cell.rS}`;
+                cellDiv.style.backgroundColor = cell.color;
+
+                const listHTML = cell.items.map((item, i) => `
+                    <div class="vocab-item">
+                        <input type="text" class="target-input" placeholder="Target" data-pos="${r}-${cIdx}-${i}"
+                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
+                            oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
+                        <div class="bracket-wrapper"><span>(</span>
+                        <input type="text" class="translation-input" placeholder="Translation" 
+                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
+                            oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
+                        <span>)</span></div>
+                    </div>
+                `).join('');
+
+                cellDiv.innerHTML = `
+                    <div class="top-ui no-export"><input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} onchange="grid[${r}][${cIdx}].sel=this.checked"></div>
+                    <div class="vocab-list ${cell.split ? 'split' : ''}">${listHTML}</div>
+                    <div class="bottom-ui no-export">
+                        <span class="icon-btn" onclick="toggleCellSplit(${r},${cIdx})">Ξ</span>
+                        <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
+                        <div class="color-picker" id="cp-${r}-${cIdx}">${allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}</div>
+                    </div>
+                `;
+                
+                if (currentMode === 'add-col' && r === 0) {
+                    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+                }
+                if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+                if (currentMode === 'add-row' && cIdx === 0) {
+                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+                }
+                if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+
+                container.appendChild(cellDiv);
+                cellDiv.querySelectorAll('input').forEach(syncSize);
+            });
+        });
+    }
+
+    function updateVal(r, cIdx, i, f, v) { 
+        grid[r][cIdx].items[i][f] = v; 
+        clearTimeout(typingTimer); 
+        typingTimer = setTimeout(pushHistory, 1000); 
+    }
+
+    function syncSize(el) { 
+        if (el.value === "") {
+            el.style.width = el.classList.contains('target-input') ? "120px" : "90px"; 
+        } else {
+            el.style.width = '0px'; 
+            el.style.width = (el.scrollWidth + 5) + 'px'; 
+        } 
+    }
+function toggleAllActivities(master) {
+        document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
+    }
+    function handleKey(e, r, cIdx, i) {
+        if (e.key === 'Enter') {
+            e.preventDefault(); 
+            grid[r][cIdx].items.splice(i+1, 0, {t:"", tr:""}); 
+            render();
+            setTimeout(() => {
+                const nextInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}"]`);
+                if(nextInput) nextInput.focus();
+            }, 10);
+        }
+        if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
+            e.preventDefault(); 
+            grid[r][cIdx].items.splice(i, 1); 
+            render();
+            setTimeout(() => {
+                const prevInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}"]`);
+                if(prevInput) prevInput.focus();
+            }, 10);
+        }
+    }
+
+    // --- BUILDER ACTIONS ---
+    function openNewModal() { document.getElementById('new-modal').style.display='block'; document.getElementById('overlay').style.display='block'; }
+    function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); document.getElementById('overlay').style.display='none'; }
+    
+  function createNewProject() {
+    currentDocId = null;
+
+    meta = { 
+        lang: document.getElementById('new-lang').value, 
+        year: document.getElementById('new-year').value, 
+        topic: document.getElementById('new-topic').value || "New Topic"
+    };
+
+    document.getElementById('meta-year').value = meta.year;
+    document.getElementById('meta-topic').value = meta.topic;
+
+    grid = [[c(), c(), c()], [c(), c(), c()]];
+
+    document.getElementById('builder-title').value = "Title";
+
+    document.getElementById('meta-info').innerText =
+        `${meta.lang} | ${meta.year} | ${meta.topic}`;
+
+    history = [JSON.stringify(grid)];
+    historyStep = 0;
+
+    showPage('editor-page');
+    closeModals();
+    render(false);
+}
+
+    function toggleCellSplit(r, c) { grid[r][c].split = !grid[r][c].split; render(); }
+    function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
+    function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
+    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); }
+    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); }
+    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); } }
+    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); } }
+  function addIcon(p, t, pos, label, action) {
+    const b = document.createElement('div');
+    b.className = `action-btn ${t}`;
+
+    const positions = {
+        'left': 'left:-15px; top:45%;',
+        'right': 'right:-15px; top:45%;',
+        'top-center': 'top:-15px; left:45%;',
+        'top-edge': 'top:-15px; left:15px;',
+        'bottom-edge': 'bottom:-15px; left:15px;',
+        'left-edge': 'left:-15px; top:15px;'
+    };
+
+    b.style.cssText = positions[pos] || '';
+    b.innerText = label; // ✔️ THIS is where + / × goes
+
+    b.onclick = (e) => {
+        e.stopPropagation();
+        action();
+    };
+
+    p.appendChild(b);
+}
+ 
+        function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
+    window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
+
+    function mergeSelected() {
+        let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
+        if(sel.length < 2) return;
+        let root = sel[0], items = [];
+        sel.forEach(p => { items = [...items, ...grid[p.r][p.c].items.filter(it => it.t || it.tr)]; });
+        let maxR = Math.max(...sel.map(i => i.r + grid[i.r][i.c].rS)), maxC = Math.max(...sel.map(i => i.c + grid[i.r][i.c].cS));
+        grid[root.r][root.c].items = items.length ? items : [{t:"", tr:""}];
+        grid[root.r][root.c].rS = maxR - root.r; grid[root.r][root.c].cS = maxC - root.c;
+        grid[root.r][root.c].sel = false;
+        for(let r=root.r; r<maxR; r++) for(let c=root.c; c<maxC; c++) { if(r===root.r && c===root.c) continue; grid[r][c].hidden = true; grid[r][c].sel = false; }
+        render();
+    }
+    function splitSelected() {
+        grid.forEach((row, r) => row.forEach((cell, cIdx) => {
+            if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
+                const rs = cell.rS; const cs = cell.cS;
+                for (let i = r; i < r + rs; i++) for (let j = cIdx; j < cIdx + cs; j++) {
+                    grid[i][j].hidden = false; grid[i][j].rS = 1; grid[i][j].cS = 1; grid[i][j].sel = false;
+                    if (i !== r || j !== cIdx) { grid[i][j].items = [{t: "", tr: ""}]; grid[i][j].color = "#ffffff"; }
+                }
+            }
+            grid[r][cIdx].sel = false;
+        }));
+        render();
+    }
+
+    async function exportPDF() {
+        const title = document.getElementById('builder-title').value;
+        const edits = document.querySelectorAll('.no-export, .action-btn');
+        edits.forEach(el => el.style.visibility = 'hidden');
+        const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
+        edits.forEach(el => el.style.visibility = 'visible');
+        const pdf = new jspdf.jsPDF('l', 'mm', 'a4');
+        pdf.text(title, 14, 15);
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
+        pdf.save(`${title}.pdf`);
+    }
+
+    // --- WORKSHEET & PREVIEW ---
+    function openPreview() {
+        const sentences = getAssembledSentences();
+        const content = sentences.map((s, i) => `<div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`).join('');
+        document.getElementById('preview-content').innerHTML = content || "No content yet.";
+        document.getElementById('preview-modal').style.display = 'block';
+        document.getElementById('overlay').style.display = 'block';
+    }
+
+    function openActivityMenu() {
+        const list = [{id:'study', label:'Sentence Table'}, {id:'match', label:'Match up'}, {id:'nospaces', label:'No Spaces'}, {id:'jumbled', label:'Unjumble'}, {id:'gap-en', label:'Gap Fill (English)'}, {id:'gap-t', label:'Gap Fill (TL)'}, {id:'vowels', label:'Missing Vowels'}, {id:'cons', label:'Missing Consonants'}, {id:'faulty', label:'Faulty Translation'}, {id:'trans-en', label:'Translate (English)'}, {id:'trans-target', label:'Translate (TL)'}];
+        document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}" id="chk-${a.id}"><label for="chk-${a.id}" style="cursor:pointer">${a.label}</label></div>`).join('');
+        document.getElementById('activity-menu').style.display = 'block'; 
+        document.getElementById('overlay').style.display = 'block';
+    }
+
+    function getSentencesByRow(r) {
+        let pathCells = [];
+        for (let cIdx = 0; cIdx < grid[0].length; cIdx++) {
+            let cell = getCellAt(r, cIdx);
+            if (!cell || cell.hidden || (cIdx > 0 && getCellAt(r, cIdx - 1) === cell)) continue;
+            let items = cell.items.filter(it => it.t.trim() || it.tr.trim());
+            if (items.length > 0) pathCells.push(items.map(it => ({ t: it.t.trim(), tr: it.tr.trim(), col: cIdx })));
+        }
+        return pathCells.length ? cartesian(pathCells).map(combo => ({ t: combo.map(p => p.t).join(' '), tr: combo.map(p => p.tr).join(' '), parts: combo })) : [];
+    }
+
+    function getAssembledSentences() {
+        let allCompiled = [];
+        for (let r = 0; r < grid.length; r++) {
+            let rowSents = getSentencesByRow(r);
+            rowSents.forEach(s => allCompiled.push({...s, originRow: r}));
+        }
+        return allCompiled;
+    }
+
+    function cartesian(args) { return args.reduce((a, b) => { let ret = []; a.forEach(a_item => { b.forEach(b_item => { ret.push(a_item.concat([b_item])); }); }); return ret; }, [[]]); }
+    function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
+
+    function generateWorksheet() {
+        const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
+        const selected = activityOrder.filter(id => document.getElementById(`chk-${id}`).checked);
+        if (selected.length === 0) return alert("Select at least one activity!");
+
+        let rowBuckets = [];
+        for (let r = 0; r < grid.length; r++) {
+            let rowSents = getSentencesByRow(r); 
+            if (rowSents.length > 0) rowBuckets.push({ rowIndex: r, sentences: rowSents });
+        }
+
+        const getBalancedSelection = (limit, isStudyTable = false) => {
+            let selection = []; let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
+            if (!isStudyTable) tempBuckets.forEach(b => b.sentences.sort(() => 0.5 - Math.random()));
+            let bucketPointer = 0;
+            while (selection.length < limit) {
+                let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
+                if (activeBuckets.length === 0) break;
+                if (tempBuckets[bucketPointer].sentences.length > 0) selection.push({ ...tempBuckets[bucketPointer].sentences.shift(), originRow: tempBuckets[bucketPointer].rowIndex });
+                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
+            }
+            return selection;
+        };
+
+        let contentHtml = "";
+        selected.forEach(type => {
+            const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
+            let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
+            let isStudy = (type === 'study');
+            let currentSents = getBalancedSelection(isStudy ? 20 : 10, isStudy);
+            currentSents.sort((a, b) => a.originRow - b.originRow);
+
+            if (type === 'study') {
+                activityHtml += `<table><tr><th>Target Language</th><th>English</th></tr>`;
+                currentSents.forEach(s => activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
+                activityHtml += `</table>`;
+            } else if (type === 'match') {
+                let shuf = [...currentSents].sort(() => 0.5 - Math.random());
+                activityHtml += `<table>`;
+                currentSents.forEach((s, i) => activityHtml += `<tr><td style="border:none;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
+                activityHtml += `</table>`;
+            } else {
+                currentSents.forEach((s, i) => {
+                    let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
+                    if (type === 'vowels' || type === 'cons') {
+                        let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
+                        out = s.t.split(' ').map(word => word.replace(pattern, '_').replace(/_(?=_)/g, '_ ')).join('&nbsp;&nbsp;');
+                    }
+                    else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
+                    else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
+                    else if (type === 'gap-t') { let w = s.t.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); }
+                    else if (type === 'gap-en') { let w = s.tr.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; }
+                    else if (type === 'trans-en') { out = s.t; hint = ""; }
+                    else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
+                    else if (type === 'faulty') {
+                        let parts = [...s.parts]; let rowSents = getSentencesByRow(s.originRow);
+                        let faultyTr = null; let swapIdx = -1;
+                        let indices = parts.map((_, idx) => idx).sort(() => 0.5 - Math.random());
+                        for (let idx of indices) {
+                            let alternatives = rowSents.filter(f => f.parts[idx] && f.parts[idx].tr !== parts[idx].tr);
+                            if (alternatives.length > 0) { faultyTr = alternatives[Math.floor(Math.random() * alternatives.length)].parts[idx].tr; swapIdx = idx; break; }
+                        }
+                        let trText = (swapIdx !== -1) ? parts.map((p, i) => i === swapIdx ? faultyTr : p.tr).join(' ') : "...";
+                        activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${trText}</span><br>__________________________________________________________________</p>`;
+                        return;
+                    }
+                    activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>__________________________________________________________________</p>`;
+                });
+            }
+            activityHtml += `</div>`;
+            contentHtml += activityHtml;
+        });
+
+        const header = `<html><head><style>@page { size: A4 landscape; margin: 1cm; } body { font-family: Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; } table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; } td, th { border: 1px solid black; padding: 5pt; font-size: 10pt; } .activity-container { page-break-inside: avoid; margin-bottom: 20pt; } h2 { border-bottom: 1px solid #ccc; font-size: 14pt; }</style></head><body>${contentHtml}</body></html>`;
+        saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
+        closeModals();
+    }
+</script>
+</body>
+</html>
