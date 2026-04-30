@@ -1,12 +1,10 @@
-<!-- FULL RESTORED VERSION -->
+<!-- index.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Sentence Builder Cloud</title>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -14,221 +12,223 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
 <style>
-body{font-family:Segoe UI;background:#f8fafc;margin:0;padding:20px;}
-.page{display:none}.active-page{display:block}
-.toolbar{background:#fff;padding:10px;border-radius:8px;margin-bottom:20px;display:flex;gap:8px;flex-wrap:wrap}
-.grid-canvas{display:inline-grid;background:#94a3b8;gap:2px;border:2px solid #94a3b8}
-.cell{background:#fff;min-width:320px;padding:20px;position:relative}
-.cell.is-split{min-width:600px}
-.vocab-list{display:flex;flex-direction:column;gap:5px;width:100%}
-.vocab-list.split{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.vocab-item{display:flex;gap:5px}
-.target-input,.translation-input{border:none;background:transparent;outline:none}
-.color-picker{position:absolute;bottom:30px;right:0;background:#fff;display:none;grid-template-columns:repeat(4,20px);gap:5px;padding:5px}
-.swatch{width:20px;height:20px;cursor:pointer}
-.modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;padding:20px;display:none;width:600px;max-height:80vh;overflow:auto}
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none}
-.activity-item{margin-bottom:10px}
+body{font-family:sans-serif;background:#f8fafc;padding:20px}
+.page{display:none}
+.active{display:block}
+.grid{display:inline-grid;gap:2px;background:#94a3b8}
+.cell{background:#fff;padding:15px;min-width:250px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:15px}
 .blue{color:#2980b9;font-style:italic}
+.folder{padding:20px;background:white;border:1px solid #ccc;cursor:pointer}
 </style>
 </head>
 
 <body>
 
-<div id="editor-page" class="page active-page">
-
-<div class="toolbar">
-<button onclick="undo()">↩️</button>
-<button onclick="redo()">↪️</button>
-
-<button onclick="toggleMode('add-row')">+Row</button>
-<button onclick="toggleMode('add-col')">+Col</button>
-
-<button onclick="mergeSelected()">Merge</button>
-<button onclick="splitSelected()">Split</button>
-
-<button onclick="openPreview()">Preview</button>
-<button onclick="openActivityMenu()">Worksheet</button>
-
-<button onclick="saveProject()">Local Save</button>
-<button onclick="document.getElementById('fileIn').click()">Load</button>
-<input type="file" id="fileIn" hidden onchange="loadLocal(event)">
-
-<button onclick="exportPDF()">PDF</button>
+<div id="login" class="page active">
+<button onclick="login()">Login</button>
 </div>
 
-<div id="grid-container" class="grid-canvas"></div>
+<div id="dash" class="page">
+<h2>Library</h2>
+<div id="path"></div>
+<div id="content"></div>
+<button onclick="newBuilder()">New</button>
 </div>
 
-<div id="preview-modal" class="modal">
-<div id="preview-content"></div>
-<button onclick="closeModals()">Close</button>
+<div id="editor" class="page">
+<button onclick="show('dash')">Back</button>
+<input id="title">
+<button onclick="openWorksheet()">Worksheet</button>
+<div id="grid"></div>
 </div>
 
-<div id="activity-menu" class="modal">
-<h3>Worksheet</h3>
-<div id="activity-list"></div>
-<button onclick="generateWorksheet()">Download</button>
+<div id="worksheet" class="page">
+<h2>Worksheet</h2>
+<div id="activities"></div>
+<select id="count"><option>10</option><option selected>20</option></select>
+<button onclick="download()">Download</button>
 </div>
-
-<div id="overlay" class="overlay" onclick="closeModals()"></div>
 
 <script>
-let typingTimer;
-const allColors=["#fff","#fee2e2","#e0f2fe","#dcfce7","#fef9c3"];
+/* ===== FIREBASE ===== */
+firebase.initializeApp({
+apiKey:"AIza...",
+authDomain:"sentencebuilder-50ef5.firebaseapp.com",
+projectId:"sentencebuilder-50ef5"
+});
+const db=firebase.firestore();
 
-let grid=[[c(),c(),c()],[c(),c(),c()]];
-let history=[JSON.stringify(grid)],historyStep=0,currentMode=null;
+/* ===== STATE ===== */
+let grid=[[cell(),cell(),cell()],[cell(),cell(),cell()]];
+let user=null,allBuilders=[];
+let view={lang:null,year:null};
+let currentId=null;
 
-function c(){return{items:[{t:"",tr:""}],color:"#fff",rS:1,cS:1,hidden:false,sel:false,split:false};}
+/* ===== CELL ===== */
+function cell(){return{items:[{t:"",tr:""}],split:false}}
 
-/* ================== RENDER ================== */
-function render(save=true){
-if(save)pushHistory();
-const cont=document.getElementById('grid-container');
-cont.innerHTML="";
-cont.style.gridTemplateColumns=`repeat(${grid[0].length},auto)`;
+/* ===== LOGIN ===== */
+async function login(){
+let r=await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider());
+user=r.user;
+show("dash");
+loadBuilders();
+}
+
+/* ===== DASHBOARD ===== */
+const LANGS=["French","Spanish","German","EAL"];
+const YEARS=["Year 9","GCSE","A Level"];
+
+async function loadBuilders(){
+let snap=await db.collection("builders").where("uid","==",user.uid).get();
+allBuilders=snap.docs.map(d=>({id:d.id,...d.data()}));
+renderDash();
+}
+
+function renderDash(){
+let c=document.getElementById("content");
+let p=document.getElementById("path");
+c.innerHTML="";
+
+if(!view.lang){
+LANGS.forEach(l=>c.innerHTML+=`<div class="folder" onclick="view.lang='${l}';renderDash()">${l}</div>`);
+}
+else if(view.lang!=="EAL"&&!view.year){
+YEARS.forEach(y=>c.innerHTML+=`<div class="folder" onclick="view.year='${y}';renderDash()">${y}</div>`);
+}
+else{
+allBuilders.filter(b=>b.lang===view.lang&&(view.lang==="EAL"||b.year===view.year))
+.forEach(b=>c.innerHTML+=`<div>${b.title}<button onclick="openBuilder('${b.id}')">Edit</button></div>`);
+}
+}
+
+/* ===== GRID ===== */
+function render(){
+let g=document.getElementById("grid");
+g.innerHTML="";
+g.className="grid";
+g.style.gridTemplateColumns=`repeat(${grid[0].length},auto)`;
 
 grid.forEach((row,r)=>{
-row.forEach((cell,cIdx)=>{
-if(cell.hidden)return;
+row.forEach((c,i)=>{
+let d=document.createElement("div");
+d.className="cell";
 
-let div=document.createElement('div');
-div.className=`cell ${cell.split?'is-split':''}`;
-div.style.background=cell.color;
+let list=document.createElement("div");
+list.className=c.split?"split":"";
 
-div.innerHTML=`
-<input type="checkbox" ${cell.sel?'checked':''} onchange="grid[${r}][${cIdx}].sel=this.checked">
+c.items.forEach((it,idx)=>{
+let inp=document.createElement("input");
+inp.value=it.t;
+inp.oninput=e=>grid[r][i].items[idx].t=e.target.value;
 
-<div class="vocab-list ${cell.split?'split':''}">
-${cell.items.map((it,i)=>`
-<div class="vocab-item">
-<input class="target-input" value="${it.t}" oninput="updateVal(${r},${cIdx},${i},'t',this.value)">
-(
-<input class="translation-input" value="${it.tr}" oninput="updateVal(${r},${cIdx},${i},'tr',this.value)">
-)
-</div>`).join("")}
-</div>
+let tr=document.createElement("input");
+tr.value=it.tr;
+tr.oninput=e=>grid[r][i].items[idx].tr=e.target.value;
 
-<div onclick="toggleCellSplit(${r},${cIdx})">Ξ</div>
-<div onclick="showColors(event,${r},${cIdx})">🎨</div>
+list.appendChild(inp);
+list.appendChild(tr);
+});
 
-<div id="cp-${r}-${cIdx}" class="color-picker">
-${allColors.map(c=>`<div class="swatch" style="background:${c}" onclick="setClr(${r},${cIdx},'${c}')"></div>`).join("")}
-</div>
-`;
+d.appendChild(list);
 
-cont.appendChild(div);
+let btn=document.createElement("button");
+btn.innerText="split";
+btn.onclick=()=>{c.split=!c.split;render()};
+d.appendChild(btn);
+
+g.appendChild(d);
 });
 });
 }
 
-/* ================== CORE ================== */
-function updateVal(r,c,i,f,v){
-grid[r][c].items[i][f]=v;
-clearTimeout(typingTimer);
-typingTimer=setTimeout(pushHistory,500);
+/* ===== CARTESIAN ===== */
+function cartesian(a){
+return a.reduce((x,y)=>x.flatMap(d=>y.map(e=>[...d,e])),[[]]);
 }
 
-function pushHistory(){
-const s=JSON.stringify(grid);
-if(s===history[historyStep])return;
-history=history.slice(0,historyStep+1);
-history.push(s);
-historyStep++;
+function sentences(){
+let out=[];
+grid.forEach(row=>{
+let parts=row.map(c=>c.items.filter(i=>i.t));
+if(parts.length){
+cartesian(parts).forEach(combo=>{
+out.push({
+t:combo.map(x=>x.t).join(" "),
+tr:combo.map(x=>x.tr).join(" ")
+});
+});
+}
+});
+return out;
 }
 
-function undo(){if(historyStep>0){historyStep--;grid=JSON.parse(history[historyStep]);render(false);}}
-function redo(){if(historyStep<history.length-1){historyStep++;grid=JSON.parse(history[historyStep]);render(false);}}
+/* ===== WORKSHEET ===== */
+function openWorksheet(){
+show("worksheet");
 
-/* ================== SENTENCE ENGINE ================== */
-function getCellAt(r,c){
-for(let row=0;row<=r;row++){
-for(let col=0;col<=c;col++){
-let cell=grid[row][col];
-if(!cell.hidden&&r<row+cell.rS&&c<col+cell.cS)return cell;
-}}
-return null;
+let list=[
+"study","match","nospaces","jumbled",
+"gap-en","gap-t","vowels","cons",
+"faulty","trans-en","trans-target"
+];
+
+let c=document.getElementById("activities");
+c.innerHTML=list.map(l=>`<label><input type="checkbox" value="${l}">${l}</label><br>`).join("");
 }
 
-function cartesian(args){
-return args.reduce((a,b)=>a.flatMap(d=>b.map(e=>[...d,e])),[[]]);
-}
-
-function getSentencesByRow(r){
-let pathCells=[];
-for(let c=0;c<grid[0].length;c++){
-let cell=getCellAt(r,c);
-if(!cell||cell.hidden||(c>0&&getCellAt(r,c-1)===cell))continue;
-let items=cell.items.filter(i=>i.t||i.tr);
-if(items.length)pathCells.push(items);
-}
-return pathCells.length?cartesian(pathCells).map(combo=>({
-t:combo.map(p=>p.t).join(' '),
-tr:combo.map(p=>p.tr).join(' ')
-})):[];
-}
-
-/* ================== PREVIEW ================== */
-function openPreview(){
-let all=[];
-for(let r=0;r<grid.length;r++)all.push(...getSentencesByRow(r));
-document.getElementById('preview-content').innerHTML=
-all.map((s,i)=>`${i+1}. ${s.t} (${s.tr})`).join('<br>');
-showModal('preview-modal');
-}
-
-/* ================== WORKSHEET ================== */
-function openActivityMenu(){
-const list=['study','match','nospaces','jumbled','gap-en','gap-t','vowels','cons','faulty','trans-en','trans-target'];
-document.getElementById('activity-list').innerHTML=
-list.map(id=>`<div><input type="checkbox" id="chk-${id}">${id}</div>`).join('');
-showModal('activity-menu');
-}
-
-function generateWorksheet(){
-let selected=[...document.querySelectorAll('#activity-list input:checked')].map(c=>c.id.replace('chk-',''));
-if(!selected.length)return alert("select activity");
-
-let sentences=[];
-for(let r=0;r<grid.length;r++)sentences.push(...getSentencesByRow(r));
+function download(){
+let count=+document.getElementById("count").value;
+let selected=[...document.querySelectorAll("#activities input:checked")].map(x=>x.value);
+let data=sentences();
 
 let html="";
+
 selected.forEach(type=>{
-html+=`<h3>${type}</h3>`;
-sentences.slice(0,10).forEach((s,i)=>{
-html+=`<div class="activity-item">${i+1}. ${s.t} (${s.tr})</div>`;
+html+=`<h2>${type}</h2>`;
+
+data.slice(0,count).forEach((s,i)=>{
+let out=s.t;
+let hint=`(${s.tr})`;
+
+if(type==="nospaces") out=s.t.replace(/\s/g,"");
+if(type==="jumbled") out=s.t.split(" ").sort(()=>0.5-Math.random()).join(" / ");
+if(type==="gap-en"){
+let w=s.tr.split(" "); w[Math.floor(Math.random()*w.length)]="____";
+hint=`(${w.join(" ")})`;
+}
+if(type==="gap-t"){
+let w=s.t.split(" "); w[Math.floor(Math.random()*w.length)]="____";
+out=w.join(" ");
+}
+
+html+=`<p>${i+1}. ${out} <span class="blue">${hint}</span></p>`;
 });
 });
 
 saveAs(new Blob([html],{type:"application/msword"}),"worksheet.doc");
 }
 
-/* ================== UI ================== */
-function toggleCellSplit(r,c){grid[r][c].split=!grid[r][c].split;render();}
-function showColors(e,r,c){e.stopPropagation();document.querySelectorAll('.color-picker').forEach(p=>p.style.display='none');document.getElementById(`cp-${r}-${c}`).style.display='grid';}
-function setClr(r,c,clr){grid[r][c].color=clr;render();}
-function showModal(id){document.getElementById(id).style.display='block';document.getElementById('overlay').style.display='block';}
-function closeModals(){document.querySelectorAll('.modal').forEach(m=>m.style.display='none');document.getElementById('overlay').style.display='none';}
-
-/* ================== SAVE ================== */
-function saveProject(){saveAs(new Blob([JSON.stringify(grid)]),"project.json");}
-function loadLocal(e){
-const fr=new FileReader();
-fr.onload=x=>{grid=JSON.parse(x.target.result||"[]");render();};
-fr.readAsText(e.target.files[0]);
+/* ===== CLOUD ===== */
+async function save(){
+await db.collection("builders").add({
+uid:user.uid,
+title:document.getElementById("title").value,
+grid:JSON.stringify(grid),
+lang:view.lang,
+year:view.year
+});
 }
 
-/* ================== PDF ================== */
-async function exportPDF(){
-const canvas=await html2canvas(document.getElementById('grid-container'));
-const pdf=new jspdf.jsPDF();
-pdf.addImage(canvas.toDataURL(),'PNG',10,10,180,0);
-pdf.save("export.pdf");
+/* ===== NAV ===== */
+function show(id){
+document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+document.getElementById(id).classList.add("active");
 }
 
-/* ================== INIT ================== */
-render(false);
+/* ===== INIT ===== */
+render();
 </script>
 
 </body>
