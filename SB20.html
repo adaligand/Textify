@@ -1,164 +1,472 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Sentence Builder Cloud</title>
+    <meta charset="UTF-8">
+    <title>Language Sentence Builder</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <style>
+        :root { --accent: #2196f3; --green: #4caf50; --red: #f44336; --line: #94a3b8; --translation-blue: #2980b9; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; margin: 0; }
+        
+        /* Dashboard Styles */
+        #dashboard { max-width: 900px; margin: 40px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .nav-btn { display: block; width: 100%; padding: 18px; margin: 10px 0; text-align: left; font-size: 18px; cursor: pointer; border: 1px solid #e2e8f0; border-radius: 8px; background: white; transition: 0.2s; }
+        .nav-btn:hover { background: #f1f5f9; border-color: var(--accent); }
+        .topic-item { padding: 15px; border-bottom: 1px solid #f1f5f9; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .topic-item:hover { background: #f8fafc; color: var(--accent); }
+        .back-btn { background: #64748b; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-bottom: 20px; }
 
-<style>
-body {
-    font-family: Arial;
-    background:#f8fafc;
-    margin:0;
-    padding:0;
-}
-
-.page {
-    display:none;
-    padding:40px;
-}
-
-.active {
-    display:block;
-}
-
-/* LOGIN SCREEN */
-#login-page {
-    text-align:center;
-    margin-top:120px;
-}
-
-button {
-    padding:12px 20px;
-    border:none;
-    border-radius:8px;
-    cursor:pointer;
-    background:#2196f3;
-    color:white;
-    font-size:16px;
-}
-
-button:hover {
-    opacity:0.9;
-}
-
-/* DASHBOARD */
-#dashboard {
-    max-width:900px;
-    margin:auto;
-}
-
-.card {
-    background:white;
-    padding:15px;
-    margin:10px 0;
-    border-radius:8px;
-    display:flex;
-    justify-content:space-between;
-    border:1px solid #ddd;
-}
-</style>
+        /* Original Builder Styles */
+        #builder-title { font-size: 24px; padding: 10px; width: 100%; max-width: 600px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 20px; outline: none; }
+        .toolbar { background: white; padding: 12px; border-radius: 8px; margin-bottom: 25px; display: flex; gap: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); align-items: center; position: sticky; top: 0; z-index: 1000; flex-wrap: wrap; }
+        .grid-canvas { display: inline-grid; background-color: var(--line); border: 2px solid var(--line); gap: 2px; }
+        .cell { background: white; min-width: 320px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; padding: 25px; position: relative; box-sizing: border-box; }
+        .cell.is-split { min-width: 600px; } 
+        .top-ui { position: absolute; top: 8px; left: 8px; pointer-events: none; }
+        .cell-checkbox { width: 18px !important; height: 18px !important; cursor: pointer; pointer-events: auto; }
+        .bottom-ui { position: absolute; bottom: 8px; right: 8px; display: flex; gap: 12px; align-items: center; pointer-events: none; }
+        .bottom-ui * { pointer-events: auto; }
+        .icon-btn { font-size: 18px; cursor: pointer; opacity: 0.3; transition: 0.2s; user-select: none; }
+        .icon-btn:hover { opacity: 1; transform: scale(1.2); }
+        .vocab-list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+        .vocab-list.split { display: grid; grid-template-columns: 1fr 1fr; column-gap: 30px; }
+        .vocab-item { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+        .target-input { border: none; background: transparent; outline: none; font-size: 17px; font-weight: 600; font-family: inherit; padding: 0; min-width: 10px; }
+        .bracket-wrapper { display: inline-flex; align-items: baseline; color: var(--translation-blue); font-size: 15px; font-style: italic; }
+        .translation-input { border: none; background: transparent; outline: none; color: inherit; font-size: inherit; font-family: inherit; min-width: 10px; padding: 0; }
+        .action-btn { position: absolute; width: 30px; height: 30px; border-radius: 6px; border: 2px solid white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: bold; z-index: 100; box-shadow: 0 2px 6px rgba(0,0,0,0.2); color: white; }
+        .btn-plus { background: var(--green); }
+        .btn-minus { background: var(--red); }
+        .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 25px; border-radius: 12px; box-shadow: 0 15px 50px rgba(0,0,0,0.4); display: none; z-index: 2000; width: 650px; max-height: 85vh; overflow-y: auto; }
+        .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; z-index: 1999; }
+        #activity-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .activity-row { padding: 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 10px; }
+        .preview-sentence { font-size: 16px; line-height: 1.4; margin: 0; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+        .preview-sentence span.tr-text { color: var(--translation-blue); font-style: italic; margin-left: 8px; }
+        .color-picker { position: absolute; bottom: 35px; right: 0; background: white; border: 1px solid #ccc; padding: 8px; display: none; z-index: 110; grid-template-columns: repeat(4, 22px); gap: 6px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .swatch { width: 22px; height: 22px; cursor: pointer; border: 1px solid #eee; border-radius: 3px; }
+        .swatch:hover { transform: scale(1.1); }
+        button { padding: 8px 16px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 6px; font-weight: 500; transition: 0.2s; }
+        button:hover { background: #f1f5f9; }
+        .btn-purple { background: #8b5cf6; color: white; border: none; }
+        .btn-purple:hover { background: #7c3aed; }
+    </style>
 </head>
-
 <body>
 
-<!-- LOGIN PAGE -->
-<div id="login-page" class="page active">
-    <h1>Sentence Builder Cloud</h1>
-    <p>Please sign in to continue</p>
-    <button onclick="login()">🔵 Sign in with Google</button>
+<div id="dashboard">
+    <div id="dash-content">
+        <div style="text-align:center; padding: 50px;">
+            <h1>Sentence Builder Dashboard</h1>
+            <p>Loading Authentication...</p>
+        </div>
+    </div>
 </div>
 
-<!-- DASHBOARD -->
-<div id="dashboard" class="page">
-    <h2>Dashboard</h2>
-    <p id="user-info"></p>
-    <button onclick="logout()" style="background:#ef4444;">Logout</button>
+<div id="app-ui" style="display:none;">
+    <button class="back-btn" onclick="location.reload()">⬅ Back to Dashboard</button>
+    <br>
+    <input type="text" id="builder-title" value="Title">
 
-    <div id="content"></div>
+    <div class="toolbar">
+        <button onclick="undo()">↩️</button>
+        <button onclick="redo()">↪️</button>
+        <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 5px;"></div>
+        <button onclick="toggleMode('add-row')">+ Row</button>
+        <button onclick="toggleMode('del-row')">- Row</button>
+        <button onclick="toggleMode('add-col')">+ Col</button>
+        <button onclick="toggleMode('del-col')">- Col</button>
+        <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 5px;"></div>
+        <button onclick="mergeSelected()">🔗Merge</button>
+        <button onclick="splitSelected()">✂️Split</button>
+        <button onclick="saveProject()">💾 Export JSON</button>
+        <button onclick="exportPDF()" style="background:#e11d48; color:white; border:none;">📄PDF</button>
+        <button onclick="openPreview()" style="background:#0ea5e9; color:white; border:none;">👁️Preview</button>
+        <button onclick="openActivityMenu()" class="btn-purple">📜Worksheet</button>
+    </div>
+
+    <div id="grid-container" class="grid-canvas"></div>
 </div>
 
-<script>
-/* ================= FIREBASE CONFIG ================= */
-const firebaseConfig = {
-    apiKey: "AIzaSyCE89XAuk9wzIhp9QEeCKkdVUK867PtK_Q",
-    authDomain: "sentencebuilder-50ef5.firebaseapp.com",
-    projectId: "sentencebuilder-50ef5",
-};
+<div class="overlay" id="overlay" onclick="closeModals()"></div>
+<div id="preview-modal" class="modal">
+    <h3 style="margin-top:0;">Sentence List Preview</h3>
+    <div id="preview-content" style="background:#fafafa; padding:15px; border-radius:8px; max-height: 60vh; overflow-y: auto;"></div>
+    <button onclick="closeModals()" style="width:100%; margin-top:20px; height: 45px; font-weight: bold;">Close</button>
+</div>
 
-firebase.initializeApp(firebaseConfig);
-
-const auth = firebase.auth();
-const db = firebase.firestore();
-
-let currentUser = null;
-
-/* ================= PAGE SWITCH ================= */
-function showPage(pageId) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById(pageId).classList.add('active');
-}
-
-/* ================= AUTH STATE LISTENER (CRITICAL FIX) ================= */
-auth.onAuthStateChanged(user => {
-    if (user) {
-        currentUser = user;
-
-        document.getElementById("user-info").innerText =
-            "Logged in as: " + user.email;
-
-        showPage("dashboard");
-
-        loadDashboard();
-    } else {
-        currentUser = null;
-        showPage("login-page");
-    }
-});
-
-/* ================= LOGIN ================= */
-async function login() {
-    const provider = new firebase.auth.GoogleAuthProvider();
-
-    try {
-        await auth.signInWithPopup(provider);
-    } catch (err) {
-        console.error(err);
-        alert("Login failed. Check popup blocker or Firebase settings.");
-    }
-}
-
-/* ================= LOGOUT ================= */
-function logout() {
-    auth.signOut();
-}
-
-/* ================= DASHBOARD CONTENT ================= */
-function loadDashboard() {
-    const content = document.getElementById("content");
-    content.innerHTML = "";
-
-    content.innerHTML += `
-        <div class="card">
-            <div>French - Year 9</div>
-            <button>Edit</button>
+<div id="activity-menu" class="modal">
+    <h2 style="margin:0 0 15px 0">Worksheet Options</h2>
+    <div style="background:#f1f5f9; padding:15px; border-radius:8px; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <label><b>Sentences:</b></label>
+            <select id="sentence-count">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+            </select>
         </div>
-    `;
-
-    content.innerHTML += `
-        <div class="card">
-            <div>Spanish - GCSE</div>
-            <button>Edit</button>
+        <div>
+            <input type="checkbox" id="sel-all" onchange="toggleAllActivities(this)"> <label for="sel-all"><b>Select All</b></label>
         </div>
-    `;
-}
+    </div>
+    <div id="activity-list"></div>
+    <div style="margin-top: 25px; display: flex; gap: 12px;">
+        <button onclick="generateWorksheet()" class="btn-purple" style="flex:1; height: 45px; font-size: 16px;">Download</button>
+        <button onclick="closeModals()" style="flex:1;">Cancel</button>
+    </div>
+</div>
 
-/* ================= SAFETY: FORCE LOGIN SCREEN ON LOAD ================= */
-showPage("login-page");
+<script type="module">
+    // --- FIREBASE SETUP ---
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyCE89XAuk9wzIhp9QEeCKkdVUK867PtK_Q",
+        authDomain: "sentencebuilder-50ef5.firebaseapp.com",
+        projectId: "sentencebuilder-50ef5",
+        storageBucket: "sentencebuilder-50ef5.firebasestorage.app",
+        messagingSenderId: "607531947255",
+        appId: "1:607531947255:web:85162d052bdb53296deff2"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const provider = new GoogleAuthProvider();
+
+    // --- STATE ---
+    let grid = [[c(), c(), c()], [c(), c(), c()]];
+    let history = [JSON.stringify(grid)];
+    let historyStep = 0;
+    let currentMode = null;
+    let typingTimer;
+    let currentDocPath = null;
+    const allColors = ["#ffffff", "#f1f5f9", "#fee2e2", "#ffedd5", "#fef9c3", "#dcfce7", "#d1fae5", "#e0f2fe", "#e0e7ff", "#ede9fe", "#fae8ff", "#fce7f3", "#ffccd5", "#bbf7d0"];
+
+    // --- AUTH LOGIC ---
+    window.login = async () => {
+        try { await signInWithPopup(auth, provider); } catch (e) { alert(e.message); }
+    };
+
+    onAuthStateChanged(auth, (user) => {
+        if (user) { renderSubjects(); } 
+        else {
+            document.getElementById('dash-content').innerHTML = `
+                <div style="text-align:center;">
+                    <h1>Staff Portal</h1>
+                    <button onclick="login()" class="btn-purple" style="font-size:18px; padding:15px 30px;">Login with Google Account</button>
+                </div>`;
+        }
+    });
+
+    // --- DASHBOARD LOGIC ---
+    const navStructure = {
+        "French": ["Year 9", "GCSE", "A Level"],
+        "German": ["Year 9", "GCSE", "A Level"],
+        "Spanish": ["Year 9", "GCSE", "A Level"],
+        "EAL": ["Core Topics"]
+    };
+
+    window.renderSubjects = () => {
+        let html = `<h2>Select Subject</h2>`;
+        Object.keys(navStructure).forEach(s => {
+            html += `<button class="nav-btn" onclick="showLevels('${s}')">${s}</button>`;
+        });
+        document.getElementById('dash-content').innerHTML = html;
+    };
+
+    window.showLevels = (sub) => {
+        let html = `<button class="back-btn" onclick="renderSubjects()">⬅ Back</button><h2>${sub}</h2>`;
+        navStructure[sub].forEach(l => {
+            html += `<button class="nav-btn" onclick="loadFiles('${sub}', '${l}')">${l}</button>`;
+        });
+        document.getElementById('dash-content').innerHTML = html;
+    };
+
+    window.loadFiles = async (sub, lvl) => {
+        document.getElementById('dash-content').innerHTML = `<p>Loading files...</p>`;
+        const q = collection(db, "resources", sub, lvl);
+        const snap = await getDocs(q);
+        
+        let html = `<button class="back-btn" onclick="showLevels('${sub}')">⬅ Back</button><h2>${sub} - ${lvl}</h2>`;
+        html += `<button class="btn-purple" onclick="createNew('${sub}', '${lvl}')" style="width:100%; padding:15px; margin-bottom:20px;">+ Create New Builder</button>`;
+        
+        snap.forEach(d => {
+            html += `<div class="topic-item" onclick="openBuilder('${sub}','${lvl}','${d.id}')">
+                        <span>📄 ${d.id}</span>
+                        <small style="color:#94a3b8">Edit ➡</small>
+                     </div>`;
+        });
+        document.getElementById('dash-content').innerHTML = html;
+    };
+
+    // --- CORE BUILDER FUNCTIONS ---
+    function c() { return { items: [{t: "", tr: ""}], color: "#ffffff", rS: 1, cS: 1, hidden: false, sel: false, split: false }; }
+
+    window.createNew = (sub, lvl) => {
+        const name = prompt("Name of this builder?");
+        if (!name) return;
+        currentDocPath = { sub, lvl, id: name };
+        grid = [[c(), c(), c()], [c(), c(), c()]];
+        document.getElementById('builder-title').value = name;
+        startApp();
+    };
+
+    window.openBuilder = async (sub, lvl, id) => {
+        const dSnap = await getDoc(doc(db, "resources", sub, lvl, id));
+        if (dSnap.exists()) {
+            grid = dSnap.data().grid;
+            currentDocPath = { sub, lvl, id };
+            document.getElementById('builder-title').value = id;
+            startApp();
+        }
+    };
+
+    function startApp() {
+        document.getElementById('dashboard').style.display = 'none';
+        document.getElementById('app-ui').style.display = 'block';
+        history = [JSON.stringify(grid)];
+        historyStep = 0;
+        render(false);
+    }
+
+    async function syncToCloud() {
+        if (!currentDocPath) return;
+        const { sub, lvl, id } = currentDocPath;
+        await setDoc(doc(db, "resources", sub, lvl, id), {
+            grid: grid,
+            updated: new Date()
+        });
+    }
+
+    function pushHistory() {
+        const state = JSON.stringify(grid);
+        if (state === history[historyStep]) return;
+        history = history.slice(0, historyStep + 1);
+        history.push(state);
+        historyStep++;
+        syncToCloud(); // Auto-save
+    }
+
+    // --- ATTACHING ORIGINAL LOGIC TO WINDOW ---
+    window.undo = () => { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); syncToCloud(); } };
+    window.redo = () => { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); syncToCloud(); } };
+
+    function render(doSave = true) {
+        if (doSave) pushHistory();
+        const container = document.getElementById('grid-container');
+        container.innerHTML = '';
+        const cols = grid[0].length;
+        container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
+
+        grid.forEach((row, r) => {
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden) return;
+                const cellDiv = document.createElement('div');
+                cellDiv.className = `cell ${cell.split ? 'is-split' : ''}`;
+                cellDiv.style.gridColumn = `span ${cell.cS}`;
+                cellDiv.style.gridRow = `span ${cell.rS}`;
+                cellDiv.style.backgroundColor = cell.color;
+
+                const listHTML = cell.items.map((item, i) => `
+                    <div class="vocab-item">
+                        <input type="text" class="target-input" placeholder="Target" data-pos="${r}-${cIdx}-${i}"
+                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
+                            oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
+                        <div class="bracket-wrapper"><span>(</span>
+                        <input type="text" class="translation-input" placeholder="Translation" 
+                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
+                            oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
+                        <span>)</span></div>
+                    </div>`).join('');
+
+                cellDiv.innerHTML = `
+                    <div class="top-ui no-export"><input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} onchange="toggleSel(${r},${cIdx},this.checked)"></div>
+                    <div class="vocab-list ${cell.split ? 'split' : ''}">${listHTML}</div>
+                    <div class="bottom-ui no-export">
+                        <span class="icon-btn" onclick="toggleCellSplit(${r},${cIdx})">Ξ</span>
+                        <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
+                        <div class="color-picker" id="cp-${r}-${cIdx}">${allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}</div>
+                    </div>`;
+                
+                if (currentMode === 'add-col' && r === 0) {
+                    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+                }
+                if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+                if (currentMode === 'add-row' && cIdx === 0) {
+                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+                }
+                if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+
+                container.appendChild(cellDiv);
+                cellDiv.querySelectorAll('input').forEach(syncSize);
+            });
+        });
+    }
+
+    // Helper functions for the builder
+    window.toggleSel = (r, c, val) => { grid[r][c].sel = val; };
+    window.updateVal = (r, cIdx, i, f, v) => { 
+        grid[r][cIdx].items[i][f] = v; 
+        clearTimeout(typingTimer); 
+        typingTimer = setTimeout(pushHistory, 1000); 
+    };
+    window.syncSize = (el) => {
+        if (el.value === "") { el.style.width = el.classList.contains('target-input') ? "120px" : "90px"; } 
+        else { el.style.width = '0px'; el.style.width = (el.scrollWidth + 5) + 'px'; }
+    };
+    window.handleKey = (e, r, cIdx, i) => {
+        if (e.key === 'Enter') {
+            e.preventDefault(); 
+            grid[r][cIdx].items.splice(i+1, 0, {t:"", tr:""}); 
+            render();
+            setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}"]`).focus(); }, 10);
+        }
+        if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
+            e.preventDefault(); 
+            grid[r][cIdx].items.splice(i, 1); 
+            render();
+            setTimeout(() => { document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}"]`).focus(); }, 10);
+        }
+    };
+
+    window.toggleCellSplit = (r, c) => { grid[r][c].split = !grid[r][c].split; render(); };
+    window.setClr = (r, c, clr) => { grid[r][c].color = clr; render(); };
+    window.toggleMode = (m) => { currentMode = (currentMode === m) ? null : m; render(false); };
+    window.closeModals = () => { document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); document.getElementById('overlay').style.display = 'none'; };
+    window.showColors = (e, r, c) => { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; };
+    window.insertRow = (i) => { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); };
+    window.insertCol = (i) => { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); };
+    window.deleteRow = (i) => { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); } };
+    window.deleteCol = (i) => { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); } };
+
+    window.mergeSelected = () => {
+        let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
+        if(sel.length < 2) return;
+        let root = sel[0], items = [];
+        sel.forEach(p => { items = [...items, ...grid[p.r][p.c].items.filter(it => it.t || it.tr)]; });
+        let maxR = Math.max(...sel.map(i => i.r + grid[i.r][i.c].rS)), maxC = Math.max(...sel.map(i => i.c + grid[i.r][i.c].cS));
+        grid[root.r][root.c].items = items.length ? items : [{t:"", tr:""}];
+        grid[root.r][root.c].rS = maxR - root.r; grid[root.r][root.c].cS = maxC - root.c;
+        grid[root.r][root.c].sel = false;
+        for(let r=root.r; r<maxR; r++) for(let c=root.c; c<maxC; c++) { if(r===root.r && c===root.c) continue; grid[r][c].hidden = true; grid[r][c].sel = false; }
+        render();
+    };
+
+    window.splitSelected = () => {
+        grid.forEach((row, r) => row.forEach((cell, cIdx) => {
+            if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
+                const rs = cell.rS, cs = cell.cS;
+                for (let i = r; i < r + rs; i++) for (let j = cIdx; j < cIdx + cs; j++) {
+                    grid[i][j].hidden = false; grid[i][j].rS = 1; grid[i][j].cS = 1; grid[i][j].sel = false;
+                    if (i !== r || j !== cIdx) { grid[i][j].items = [{t: "", tr: ""}]; grid[i][j].color = "#ffffff"; }
+                }
+            }
+            grid[r][cIdx].sel = false;
+        }));
+        render();
+    };
+
+    function addIcon(p, t, pos, l, a) {
+        const b = document.createElement('div');
+        b.className = `action-btn ${t}`;
+        b.innerText = l;
+        const styles = { 'left': 'left:-15px; top:45%;', 'right': 'right:-15px; top:45%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' };
+        b.style = styles[pos];
+        b.onclick = (e) => { e.stopPropagation(); a(); };
+        p.appendChild(b);
+    }
+
+    // --- PDF / WORKSHEET LOGIC ---
+    window.openPreview = () => {
+        const sentences = getAssembledSentences();
+        const content = sentences.map((s, i) => `<div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`).join('');
+        document.getElementById('preview-content').innerHTML = content || "Grid is empty.";
+        document.getElementById('preview-modal').style.display = 'block';
+        document.getElementById('overlay').style.display = 'block';
+    };
+
+    window.exportPDF = async () => {
+        const title = document.getElementById('builder-title').value;
+        const edits = document.querySelectorAll('.no-export, .action-btn, .back-btn');
+        edits.forEach(el => el.style.visibility = 'hidden');
+        const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
+        edits.forEach(el => el.style.visibility = 'visible');
+        const pdf = new jspdf.jsPDF('l', 'mm', 'a4');
+        pdf.text(title, 14, 15);
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
+        pdf.save(`${title}.pdf`);
+    };
+
+    window.openActivityMenu = () => {
+        const list = [{id:'study', label:'Sentence Table'}, {id:'match', label:'Match up'}, {id:'nospaces', label:'No Spaces'}, {id:'jumbled', label:'Unjumble'}, {id:'gap-en', label:'Gap Fill (English)'}, {id:'gap-t', label:'Gap Fill (TL)'}, {id:'vowels', label:'Missing Vowels'}, {id:'cons', label:'Missing Consonants'}, {id:'faulty', label:'Faulty Translation'}, {id:'trans-en', label:'Translate (English)'}, {id:'trans-target', label:'Translate (TL)'}];
+        document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}" id="chk-${a.id}"><label for="chk-${a.id}">${a.label}</label></div>`).join('');
+        document.getElementById('activity-menu').style.display = 'block'; 
+        document.getElementById('overlay').style.display = 'block';
+    };
+
+    window.toggleAllActivities = (m) => { document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = m.checked); };
+
+    window.saveProject = () => { saveAs(new Blob([JSON.stringify(grid)], {type: "application/json"}), "project.json"); };
+
+    // Activity Generation Logic (Simplified version of your original for space)
+    function getAssembledSentences() {
+        let all = [];
+        for (let r = 0; r < grid.length; r++) {
+            let rowSents = getSentencesByRow(r);
+            rowSents.forEach(s => all.push({...s, originRow: r}));
+        }
+        return all;
+    }
+
+    function getSentencesByRow(r) {
+        let pathCells = [];
+        for (let c = 0; c < grid[0].length; c++) {
+            let cell = getCellAt(r, c);
+            if (!cell || cell.hidden || (c > 0 && getCellAt(r, c - 1) === cell)) continue;
+            let items = cell.items.filter(it => it.t.trim() || it.tr.trim());
+            if (items.length > 0) pathCells.push(items.map(it => ({ t: it.t.trim(), tr: it.tr.trim() })));
+        }
+        return pathCells.length ? cartesian(pathCells).map(combo => ({ t: combo.map(p => p.t).join(' '), tr: combo.map(p => p.tr).join(' '), parts: combo })) : [];
+    }
+
+    function cartesian(args) { return args.reduce((a, b) => { let ret = []; a.forEach(a_i => { b.forEach(b_i => { ret.push(a_i.concat([b_i])); }); }); return ret; }, [[]]); }
+    function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
+
+    window.generateWorksheet = () => {
+        const count = parseInt(document.getElementById('sentence-count').value);
+        const selected = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'].filter(id => document.getElementById(`chk-${id}`).checked);
+        if (!selected.length) return alert("Select an activity");
+
+        let contentHtml = "";
+        selected.forEach(type => {
+            const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
+            contentHtml += `<div style="page-break-inside:avoid"><h2>${label}</h2>`;
+            let sents = getAssembledSentences().sort(() => 0.5 - Math.random()).slice(0, 10);
+            if(type === 'study') {
+                contentHtml += "<table>";
+                getAssembledSentences().slice(0, count).forEach(s => contentHtml += `<tr><td>${s.t}</td><td style='color:#2980b9'>${s.tr}</td></tr>`);
+                contentHtml += "</table>";
+            } else {
+                sents.forEach((s, i) => contentHtml += `<p>${i+1}. ${s.t} (_________________)</p>`);
+            }
+            contentHtml += "</div>";
+        });
+
+        const header = `<html><head><style>body{font-family:Arial} table{width:100%; border-collapse:collapse} td{border:1px solid black; padding:5px}</style></head><body>${contentHtml}</body></html>`;
+        saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
+        closeModals();
+    };
+
+    window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
 </script>
-
 </body>
 </html>
