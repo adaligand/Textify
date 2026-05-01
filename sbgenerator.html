@@ -574,29 +574,20 @@ button:hover {
 
             <input type="text" id="meta-topic" class="editor-header-input" placeholder="Topic Name" oninput="updateMeta()" style="width: 150px;">
         </div>
+<button onclick="saveToCloud()" class="btn-purple">💾 Save</button>
+    <span id="manual-save-status" style="margin-left:10px; font-weight:bold; color:#10b981;"></span>
+    <button onclick="logout()" class="btn-danger-soft" style="white-space: nowrap;">Sign Out</button>
+</div>
 
-       <button onclick="saveToCloud()" class="btn-purple" style="white-space: nowrap;">💾 Save to Cloud</button>
-<span id="save-indicator" style="margin-left: 10px; font-size: 13px; color: #64748b; font-weight: 500;"></span>
-<button onclick="logout()" class="btn-danger-soft" style="white-space: nowrap;">Sign Out</button>
+<div class="toolbar">
     </div>
 
-    <div class="toolbar">
-        <button onclick="undo()">↩️</button>
-        <button onclick="redo()">↪️</button>
-            <div class="divider"></div>
-    <button onclick="toggleMode('add-row')">+ Row</button>
-    <button onclick="toggleMode('del-row')">- Row</button>
-    <button onclick="toggleMode('add-col')">+ Col</button>
-    <button onclick="toggleMode('del-col')">- Col</button>
-    <div class="divider"></div>
-        <button onclick="mergeSelected()">🔗 Merge</button>
-        <button onclick="splitSelected()">✂️ Split</button>
-        <button onclick="exportPDF()" class="btn-danger">📄 PDF</button>
-        <button onclick="openPreview()" class="btn-info">👁️ Preview</button>
-        <button onclick="openActivityMenu()" class="btn-purple">📜 Worksheet</button>
-    </div>
+<div id="grid-container" class="grid-canvas"></div>
 
-    <div id="grid-container" class="grid-canvas"></div>
+<div style="padding: 10px; text-align: right; border-top: 1px solid #eee; background: #f8fafc; border-radius: 0 0 8px 8px;">
+    <small id="autosave-indicator" style="color: #94a3b8; font-style: italic;">
+        Waiting for first save...
+    </small>
 </div>
 
 <div id="overlay" class="overlay" onclick="closeModals()"></div>
@@ -997,16 +988,15 @@ async function openTopic(topic) {
    CLOUD
 ========================= */
 async function saveToCloud(isAutosave = false) {
-    // 1. Check if we have a user and are in the editor
-    if (!currentUser || !document.getElementById('editor-page').classList.contains('active-page')) return;
+    if (!currentUser) return;
 
-    const indicator = document.getElementById('save-indicator');
-    if (!isAutosave) indicator.innerText = "Saving...";
+    // References to our two distinct status areas
+    const manualStatus = document.getElementById('manual-save-status');
+    const autoStatus = document.getElementById('autosave-indicator');
 
-    // 2. Gather data
     const data = {
         uid: currentUser.uid,
-        title: document.getElementById('builder-title').value,
+        title: document.getElementById('builder-title').value || "Untitled",
         lang: document.getElementById('meta-lang').value,
         year: document.getElementById('meta-year').value,
         topic: document.getElementById('meta-topic').value,
@@ -1018,23 +1008,29 @@ async function saveToCloud(isAutosave = false) {
         if (currentDocId) {
             await db.collection("builders").doc(currentDocId).update(data);
         } else {
-            // If it's a brand new builder, we MUST save manually first to get an ID
             const doc = await db.collection("builders").add(data);
             currentDocId = doc.id;
         }
 
-        // 3. Update the UI instead of showing an alert
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        indicator.innerText = isAutosave ? `Autosaved at ${time}` : "Saved!";
-        
-        // Clear the "Saved!" message after 3 seconds if it was a manual save
-        if (!isAutosave) {
-            setTimeout(() => { indicator.innerText = ""; }, 3000);
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        if (isAutosave) {
+            // Update the bottom indicator quietly
+            if (autoStatus) autoStatus.innerText = `Autosaved at ${time}`;
+        } else {
+            // Update the top indicator and show an alert
+            if (manualStatus) {
+                manualStatus.innerText = "Saved!";
+                setTimeout(() => { manualStatus.innerText = ""; }, 3000);
+            }
+            alert("✅ Project saved successfully!");
+            // Also sync the bottom timestamp so it's accurate
+            if (autoStatus) autoStatus.innerText = `Last saved at ${time}`;
         }
+
     } catch (e) {
         console.error("Save error:", e);
-        indicator.innerText = "Error saving!";
-        indicator.style.color = "red";
+        if (!isAutosave) alert("❌ Save failed. Check connection.");
     }
 }
 
@@ -1534,9 +1530,10 @@ function addIcon(parent, type, pos, label, action) {
 ========================= */
 setInterval(() => {
     const isEditor = document.getElementById('editor-page').classList.contains('active-page');
-    // If we are in the editor and a user is logged in, try to save
-    if (currentUser && isEditor) {
-        saveToCloud(true);
+    const hasTitle = document.getElementById('builder-title').value.trim() !== "";
+
+    if (currentUser && isEditor && hasTitle) {
+        saveToCloud(true); 
     }
 }, 60000);
 </script>
