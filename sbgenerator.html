@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedaksdd builder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1129,9 +1129,12 @@ function pushHistory() {
 function render(doSave = true) {
     if (doSave) pushHistory();
     const container = document.getElementById('grid-container');
+    if (!container) return; // Safety check
+    
     container.innerHTML = '';
-    const cols = grid[0].length;
-    container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
+    const rowsCount = grid.length;
+    const colsCount = grid[0].length;
+    container.style.gridTemplateColumns = `repeat(${colsCount}, fit-content(900px))`;
 
     grid.forEach((row, r) => {
         row.forEach((cell, cIdx) => {
@@ -1139,7 +1142,6 @@ function render(doSave = true) {
 
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
-            
             cellDiv.style.gridRow = `${r + 1} / span ${cell.rS || 1}`;
             cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
             cellDiv.style.backgroundColor = cell.color || "#ffffff";
@@ -1173,100 +1175,83 @@ function render(doSave = true) {
                     </div>
                 </div>
             `;
-            
-            // --- ROW/COL ADDITION BUTTONS ---
-const rows = grid.length;
-const cols = grid[0].length;
 
-// anchor positions
-const isTopRow = (() => {
-    for (let rr = 0; rr < r; rr++) {
-        if (!grid[rr][cIdx].hidden) return false;
-    }
-    return true;
-})();
+            // --- UI ANCHOR LOGIC ---
+            const isTopRow = (() => {
+                for (let rr = 0; rr < r; rr++) { if (!grid[rr][cIdx].hidden) return false; }
+                return true;
+            })();
 
-const isLeftCol = (() => {
-    for (let cc = 0; cc < cIdx; cc++) {
-        if (!grid[r][cc].hidden) return false;
-    }
-    return true;
-})();
+            const isLeftCol = (() => {
+                for (let cc = 0; cc < cIdx; cc++) { if (!grid[r][cc].hidden) return false; }
+                return true;
+            })();
 
-// --- ADD COL (ONLY TOP ROW) ---
-if (currentMode === 'add-col' && isTopRow && !grid[r][cIdx].hidden) {
+            // ADD COLUMN
+            if (currentMode === 'add-col' && isTopRow) {
+                if (isColSafe(cIdx)) addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                
+                const isLastVisibleCol = (() => {
+                    for (let c = cIdx + 1; c < colsCount; c++) { if (!grid[r][c].hidden) return false; }
+                    return true;
+                })();
+                if (isLastVisibleCol && isColSafe(colsCount)) {
+                    addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(colsCount));
+                }
+            }
 
-    // LEFT insert
-    if (isColSafe(cIdx)) {
-        addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-    }
+            // ADD ROW
+            if (currentMode === 'add-row' && isLeftCol) {
+                if (isRowSafe(r)) addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
 
-    const isLastVisibleCol = (() => {
-    for (let c = cIdx + 1; c < cols; c++) {
-        if (!grid[r][c].hidden) return false;
-    }
-    return true;
-})();
+                const isLastVisibleRow = (() => {
+                    for (let rr = r + 1; rr < rowsCount; rr++) { if (!grid[rr][cIdx].hidden) return false; }
+                    return true;
+                })();
+                if (isLastVisibleRow && isRowSafe(rowsCount)) {
+                    addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(rowsCount));
+                }
+            }
 
-if (isLastVisibleCol && isColSafe(cols)) {
-    addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-}
+            // DELETE
+            if (currentMode === 'del-col' && isTopRow) {
+                addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+            }
+            if (currentMode === 'del-row' && isLeftCol) {
+                addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+            }
 
-}
-
-// --- ADD ROW ---
-if (currentMode === 'add-row' && isLeftCol && !grid[r][cIdx].hidden) {
-
-    if (isRowSafe(r)) {
-        addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-    }
-
-    const isLastVisibleRow = (() => {
-        for (let rr = r + 1; rr < rows; rr++) {
-            if (!grid[rr][cIdx].hidden) return false;
-        }
-        return true;
-    })();
-
-    if (isLastVisibleRow && isRowSafe(rows)) {
-        addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(rows));
-    }
-}
-
-// ✅ DELETE must be OUTSIDE
-if (currentMode === 'del-col' && isTopRow && !grid[r][cIdx].hidden) {
-    addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-}
-
-if (currentMode === 'del-row' && isLeftCol && !grid[r][cIdx].hidden) {
-    addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
-}
-// --- DELETE (same restriction) ---
-if (currentMode === 'del-col' && isTopRow && !grid[r][cIdx].hidden) {
-    addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-}
-
-}     container.appendChild(cellDiv);
+            container.appendChild(cellDiv);
             cellDiv.querySelectorAll('input').forEach(syncSize);
         });
     });
 }
+
 function isColSafe(index) {
     for (let r = 0; r < grid.length; r++) {
         for (let c = 0; c < grid[0].length; c++) {
             const cell = grid[r][c];
             if (cell.hidden) continue;
-
             const start = c;
             const end = c + (cell.cS || 1) - 1;
-
-            // inserting inside a merged span
             if (index > start && index <= end) return false;
         }
     }
     return true;
 }
 
+function isRowSafe(index) {
+    for (let r = 0; r < grid.length; r++) {
+        for (let c = 0; c < grid[0].length; c++) {
+            const cell = grid[r][c];
+            if (cell.hidden) continue;
+            const start = r;
+            const end = r + (cell.rS || 1) - 1;
+            if (index > start && index <= end) return false;
+        }
+    }
+    return true;
+}
 function isRowSafe(index) {
     for (let r = 0; r < grid.length; r++) {
         for (let c = 0; c < grid[0].length; c++) {
