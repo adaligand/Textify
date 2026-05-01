@@ -1001,25 +1001,25 @@ function render(doSave = true) {
         row.forEach((cell, cIdx) => {
             if (cell.hidden) return;
             const cellDiv = document.createElement('div');
-            cellDiv.className = `cell ${cell.split ? 'is-split' : ''}`;
-            cellDiv.style.gridColumn = `span ${cell.cS}`;
-            cellDiv.style.gridRow = `span ${cell.rS}`;
-            cellDiv.style.backgroundColor = cell.color;
+            // ... (your cell style logic)
 
+            // --- REPLACE YOUR CURRENT listHTML WITH THIS ---
             const listHTML = cell.items.map((item, i) => `
                 <div class="vocab-item">
-                    <input type="text" class="target-input" placeholder="Target" data-pos="${r}-${cIdx}-${i}"
-                        onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
+                    <input type="text" class="target-input" placeholder="Target" 
+                        data-pos="${r}-${cIdx}-${i}-t"
+                        onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')" 
                         oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
                     
                     <div class="bracket-wrapper"><span>(</span>
                     <input type="text" class="translation-input" placeholder="Translation" 
-                        data-pos="${r}-${cIdx}-${i}" 
-                        onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
+                        data-pos="${r}-${cIdx}-${i}-tr"
+                        onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 'tr')" 
                         oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
                     <span>)</span></div>
                 </div>
             `).join('');
+            // ----------------------------------------------
 
             cellDiv.innerHTML = `
                 <div class="top-ui no-export"><input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} onchange="grid[${r}][${cIdx}].sel=this.checked"></div>
@@ -1031,39 +1031,30 @@ function render(doSave = true) {
                 </div>
             `;
             
-            // ... (rest of your addIcon logic stays the same)
-            if (currentMode === 'add-col' && r === 0) {
-                addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-                if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-            }
-            if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-            if (currentMode === 'add-row' && cIdx === 0) {
-                addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-                if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-            }
-            if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
-
+            // ... (rest of your addIcon / container.appendChild logic)
             container.appendChild(cellDiv);
             cellDiv.querySelectorAll('input').forEach(syncSize);
         });
     });
 }
 /* =========================
-   COPY & PASTE SYSTEM
+    COPY & PASTE SYSTEM
 ========================= */
 
 document.addEventListener('copy', (e) => {
     const active = document.activeElement;
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
-        const [r, cIdx] = active.dataset.pos.split('-').map(Number);
-        const cellData = grid[r][cIdx].items;
+        // Updated to handle the "-t" or "-tr" suffix
+        const posParts = active.dataset.pos.split('-');
+        const r = parseInt(posParts[0]);
+        const cIdx = parseInt(posParts[1]);
         
+        const cellData = grid[r][cIdx].items;
         const textToCopy = cellData.map(item => `${item.t}|${item.tr}`).join('\n');
         
         e.clipboardData.setData('text/plain', textToCopy);
         e.preventDefault();
         
-        // Optional: remove highlight after copying
         const cellEl = active.closest('.cell');
         if(cellEl) cellEl.classList.remove('visual-selected');
     }
@@ -1073,33 +1064,37 @@ document.addEventListener('paste', (e) => {
     const active = document.activeElement;
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
         e.preventDefault();
-        const [r, cIdx] = active.dataset.pos.split('-').map(Number);
-        const pastedData = e.clipboardData.getData('text/plain');
         
-        // Split by lines and then by our separator |
+        // Updated to handle the "-t" or "-tr" suffix
+        const posParts = active.dataset.pos.split('-');
+        const r = parseInt(posParts[0]);
+        const cIdx = parseInt(posParts[1]);
+        
+        const pastedData = e.clipboardData.getData('text/plain');
         const lines = pastedData.split('\n');
         const newItems = lines.map(line => {
             const [t, tr] = line.split('|');
-            return { t: t || "", tr: tr || "" };
-        }).filter(item => item.t || item.tr); // Don't paste empty lines
+            return { t: (t || "").trim(), tr: (tr || "").trim() };
+        }).filter(item => item.t || item.tr);
 
         if (newItems.length > 0) {
             grid[r][cIdx].items = newItems;
-            render(); // Refresh the UI
+            render(); 
             
-            // Refocus the first input in the newly pasted cell
+            // Focus the first input (target side) of the newly pasted cell
             setTimeout(() => {
-                const firstInput = document.querySelector(`input[data-pos="${r}-${cIdx}-0"]`);
+                const firstInput = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
                 if(firstInput) firstInput.focus();
             }, 10);
         }
     }
 });
-    function updateVal(r, cIdx, i, f, v) { 
-        grid[r][cIdx].items[i][f] = v; 
-        clearTimeout(typingTimer); 
-        typingTimer = setTimeout(pushHistory, 1000); 
-    }
+
+function updateVal(r, cIdx, i, f, v) { 
+    grid[r][cIdx].items[i][f] = v; 
+    clearTimeout(typingTimer); 
+    typingTimer = setTimeout(pushHistory, 1000); 
+}
 
     function syncSize(el) { 
         if (el.value === "") {
@@ -1112,36 +1107,43 @@ document.addEventListener('paste', (e) => {
 function toggleAllActivities(master) {
         document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
     }
-function handleKey(e, r, cIdx, i) {
+function handleKey(e, r, cIdx, i, type) { // Added 'type' parameter
     if (e.key === 'Enter') {
-        /* ... your existing Enter logic ... */
+        e.preventDefault(); 
+        grid[r][cIdx].items.splice(i + 1, 0, {t: "", tr: ""}); 
+        render();
+        setTimeout(() => {
+            // Focus the same side (Target or Translation) on the new line
+            const nextInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}-${type}"]`);
+            if (nextInput) nextInput.focus();
+        }, 10);
     }
     
     if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
-        /* ... your existing Backspace logic ... */
+        e.preventDefault(); 
+        grid[r][cIdx].items.splice(i, 1); 
+        render();
+        setTimeout(() => {
+            const prevInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}-${type}"]`);
+            if (prevInput) prevInput.focus();
+        }, 10);
     }
 
-    // NEW VISUAL SELECTION LOGIC
     if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-        e.preventDefault(); // Stop the browser from selecting just the one box
-        
-        // Find the parent cell and highlight it
+        e.preventDefault();
         const cellEl = e.target.closest('.cell');
         cellEl.classList.add('visual-selected');
 
-        // Remove the highlight if the user clicks away or types
         const removeHighlight = () => {
             cellEl.classList.remove('visual-selected');
             window.removeEventListener('mousedown', removeHighlight);
             window.removeEventListener('keydown', removeHighlight);
         };
         
-        // Wait a tiny bit so the current keypress doesn't immediate trigger the remover
         setTimeout(() => {
             window.addEventListener('mousedown', removeHighlight);
-            window.addEventListener('keydown', (event) => {
-                // Don't remove if they are just hitting Ctrl or C
-                if (!event.ctrlKey && !event.metaKey) removeHighlight();
+            window.addEventListener('keydown', (ev) => {
+                if (!ev.ctrlKey && !ev.metaKey) removeHighlight();
             });
         }, 10);
     }
