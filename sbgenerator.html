@@ -576,7 +576,7 @@ button:hover {
         </div>
 
         <button onclick="saveToCloud()" class="btn-purple" style="white-space: nowrap;">💾 Save to Cloud</button>
-        <button onclick="logout()" class="btn-danger-soft" style="white-space: nowrap;">Sign Out</button>
+               <button onclick="logout()" class="btn-danger-soft" style="white-space: nowrap;">Sign Out</button>
     </div>
 
     <div class="toolbar">
@@ -995,28 +995,46 @@ async function openTopic(topic) {
 /* =========================
    CLOUD
 ========================= */
-async function saveToCloud() {
-    meta.year = document.getElementById("meta-year").value;
-    meta.topic = document.getElementById("meta-topic").value;
+async function saveToCloud(isAutosave = false) {
+    // 1. Check if we have a user and are in the editor
+    if (!currentUser || !document.getElementById('editor-page').classList.contains('active-page')) return;
 
+    const indicator = document.getElementById('save-indicator');
+    if (!isAutosave) indicator.innerText = "Saving...";
+
+    // 2. Gather data
     const data = {
         uid: currentUser.uid,
         title: document.getElementById('builder-title').value,
-        lang: meta.lang,
-        year: meta.year,
-        topic: meta.topic,
+        lang: document.getElementById('meta-lang').value,
+        year: document.getElementById('meta-year').value,
+        topic: document.getElementById('meta-topic').value,
         grid: JSON.stringify(grid),
         updated: firebase.firestore.FieldValue.serverTimestamp()
     };
 
-    if (currentDocId) {
-        await db.collection("builders").doc(currentDocId).update(data);
-    } else {
-        const doc = await db.collection("builders").add(data);
-        currentDocId = doc.id;
-    }
+    try {
+        if (currentDocId) {
+            await db.collection("builders").doc(currentDocId).update(data);
+        } else {
+            // If it's a brand new builder, we MUST save manually first to get an ID
+            const doc = await db.collection("builders").add(data);
+            currentDocId = doc.id;
+        }
 
-    alert("Saved");
+        // 3. Update the UI instead of showing an alert
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        indicator.innerText = isAutosave ? `Autosaved at ${time}` : "Saved!";
+        
+        // Clear the "Saved!" message after 3 seconds if it was a manual save
+        if (!isAutosave) {
+            setTimeout(() => { indicator.innerText = ""; }, 3000);
+        }
+    } catch (e) {
+        console.error("Save error:", e);
+        indicator.innerText = "Error saving!";
+        indicator.style.color = "red";
+    }
 }
 
 async function loadProject(id) {
@@ -1510,6 +1528,15 @@ function addIcon(parent, type, pos, label, action) {
     btn.onclick = (e) => { e.stopPropagation(); action(); };
     parent.appendChild(btn);
 }
+    /* =========================
+   AUTOSAVE SYSTEM
+========================= */
+setInterval(() => {
+    // Only autosave if we've already saved once (have a currentDocId)
+    if (currentDocId) {
+        saveToCloud(true);
+    }
+}, 5000);
 </script>
 </body>
 </html>
