@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentcence Builder</title>
+    <title>Sentcencce Builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -504,21 +504,40 @@ button:hover {
 <div id="editor-page" class="page">
     <div style="background: white; padding: 15px; border-radius: 12px; margin-bottom: 20px; display: flex; gap: 15px; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
         <button onclick="showPage('library-page')" style="background: none; border: 1px solid #ccc; border-radius: 6px; padding: 8px 15px; cursor: pointer;">← Library</button>
-        <input type="text" id="builder-title" value="Untitled Builder">
-       <div style="display:flex; gap:10px; align-items:center;">
-<div id="meta-info" style="color:#64748b; font-size:14px;"></div>
-    <select id="meta-year" onchange="updateMeta()" style="padding:6px;">
-        <option>Year 9</option>
-        <option>GCSE</option>
-        <option>Year 12</option>
-        <option>Year 13</option>
-    </select>
+        
+        <input type="text" id="builder-title" value="Untitled Builder" style="padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; flex-grow: 1; max-width: 300px;">
 
-    <input id="meta-topic"
-           placeholder="Topic"
-           oninput="updateMeta()"
-           style="padding:6px;">
+        <div style="display:flex; gap:10px; align-items:center;">
+            <select id="meta-lang" onchange="updateMeta()" style="padding:6px; border-radius: 4px; border: 1px solid #cbd5e1;">
+                <option>French</option>
+                <option>German</option>
+                <option>Spanish</option>
+                <option>EAL</option>
+            </select>
 
+            <select id="meta-year" onchange="updateMeta()" style="padding:6px; border-radius: 4px; border: 1px solid #cbd5e1;">
+                <option>Year 9</option>
+                <option>GCSE</option>
+                <option>Year 12</option>
+                <option>Year 13</option>
+                <option>EAL</option>
+            </select>
+
+            <input id="meta-topic"
+                   placeholder="Topic"
+                   oninput="updateMeta()"
+                   style="padding:6px; border-radius: 4px; border: 1px solid #cbd5e1; width: 150px;">
+        </div>
+
+        <button onclick="saveToCloud()" class="btn-purple" style="margin-left: auto;">💾 Save to Cloud</button>
+        <button onclick="logout()" style="background:none; border:1px solid #cbd5e1; padding:8px 15px; border-radius:6px; cursor:pointer;">🚪 Sign Out</button>
+    </div>
+    
+    <div class="toolbar">
+        <button onclick="undo()">↩️</button>
+        <button onclick="redo()">↪️</button>
+        </div>
+    <div id="grid-container" class="grid-canvas"></div>
 </div>
         <button onclick="saveToCloud()" class="btn-purple" style="margin-left: auto;">💾 Save to Cloud</button>
         <button onclick="logout()" style="background:none; border:1px solid #cbd5e1; padding:8px 15px; border-radius:6px; cursor:pointer;">🚪 Sign Out</button>
@@ -867,10 +886,19 @@ async function renderProjectsInline() {
     renderProjectsInline();
 }
 function updateMeta() {
+    meta.lang = document.getElementById("meta-lang").value;
     meta.year = document.getElementById("meta-year").value;
     meta.topic = document.getElementById("meta-topic").value;
+    
+    // Auto-disable Year if EAL is selected in the editor header
+    const yearSelect = document.getElementById("meta-year");
+    if (meta.lang === "EAL") {
+        yearSelect.value = "EAL";
+        yearSelect.disabled = true;
+    } else {
+        yearSelect.disabled = false;
+    }
 }
-
 async function openTopic(topic) {
     nav.topic = topic;
 
@@ -943,7 +971,6 @@ async function loadProject(id) {
     const d = doc.data();
 
     currentDocId = id;
-
     grid = JSON.parse(d.grid);
 
     meta = {
@@ -952,13 +979,11 @@ async function loadProject(id) {
         topic: d.topic
     };
 
-    // sync UI
+    // Sync UI elements
+    document.getElementById('meta-lang').value = d.lang;
     document.getElementById('meta-year').value = d.year;
     document.getElementById('meta-topic').value = d.topic;
     document.getElementById('builder-title').value = d.title;
-
-    document.getElementById('meta-info').innerText =
-        `${meta.lang} | ${meta.year} | ${meta.topic}`;
 
     history = [JSON.stringify(grid)];
     historyStep = 0;
@@ -966,7 +991,6 @@ async function loadProject(id) {
     showPage("editor-page");
     render(false);
 }
-
 async function deleteProject(id) {
     const ok = confirm("Delete this builder permanently? This cannot be undone.");
     if (!ok) return;
@@ -1170,31 +1194,29 @@ function handleKey(e, r, cIdx, i, type) {
     function openNewModal() { document.getElementById('new-modal').style.display='block'; document.getElementById('overlay').style.display='block'; }
     function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); document.getElementById('overlay').style.display='none'; }
     
-  function createNewProject() {
+ function createNewProject() {
     currentDocId = null;
 
     meta = { 
         lang: document.getElementById('new-lang').value, 
-        year: document.getElementById('new-year').value, 
+        year: document.getElementById('new-lang').value === "EAL" ? "EAL" : document.getElementById('new-year').value, 
         topic: document.getElementById('new-topic').value || "New Topic"
     };
 
+    // Sync the editor header dropdowns
+    document.getElementById('meta-lang').value = meta.lang;
     document.getElementById('meta-year').value = meta.year;
     document.getElementById('meta-topic').value = meta.topic;
+    document.getElementById('builder-title').value = "Untitled Builder";
 
     grid = [[c(), c(), c()], [c(), c(), c()]];
-
-    document.getElementById('builder-title').value = "Title";
-
-    document.getElementById('meta-info').innerText =
-        `${meta.lang} | ${meta.year} | ${meta.topic}`;
-
     history = [JSON.stringify(grid)];
     historyStep = 0;
 
     showPage('editor-page');
     closeModals();
     render(false);
+    updateMeta(); // Run once to set disabled states
 }
 
     function toggleCellSplit(r, c) { grid[r][c].split = !grid[r][c].split; render(); }
