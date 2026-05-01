@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Senten buildlder</title>
+    <title>Sentence buildlder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -582,7 +582,12 @@ button:hover {
     <div class="toolbar">
         <button onclick="undo()">↩️</button>
         <button onclick="redo()">↪️</button>
-        <div class="divider"></div>
+            <div class="divider"></div>
+    <button onclick="toggleMode('add-row')">+ Row</button>
+    <button onclick="toggleMode('del-row')">- Row</button>
+    <button onclick="toggleMode('add-col')">+ Col</button>
+    <button onclick="toggleMode('del-col')">- Col</button>
+    <div class="divider"></div>
         <button onclick="mergeSelected()">🔗 Merge</button>
         <button onclick="splitSelected()">✂️ Split</button>
         <button onclick="exportPDF()" class="btn-danger">📄 PDF</button>
@@ -1074,24 +1079,21 @@ function render(doSave = true) {
 
     grid.forEach((row, r) => {
         row.forEach((cell, cIdx) => {
-            if (cell.hidden) return; // Skip cells that are part of a merge
+            if (cell.hidden) return;
 
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
             
-            // RESTORED: Grid spanning and background color
             cellDiv.style.gridRow = `${r + 1} / span ${cell.rS || 1}`;
             cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
             cellDiv.style.backgroundColor = cell.color || "#ffffff";
 
-            // The content of the cell (Target and Translation inputs)
             const listHTML = cell.items.map((item, i) => `
                 <div class="vocab-item">
                     <input type="text" class="target-input" placeholder="Target" 
                         data-pos="${r}-${cIdx}-${i}-t"
                         onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')" 
                         oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
-                    
                     <div class="bracket-wrapper"><span>(</span>
                     <input type="text" class="translation-input" placeholder="Translation" 
                         data-pos="${r}-${cIdx}-${i}-tr"
@@ -1116,6 +1118,23 @@ function render(doSave = true) {
                 </div>
             `;
             
+            // --- ADDED THIS SECTION ---
+            if (currentMode === 'add-col' && r === 0) {
+                addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+            }
+            if (currentMode === 'del-col' && r === 0) {
+                addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+            }
+            if (currentMode === 'add-row' && cIdx === 0) {
+                addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+            }
+            if (currentMode === 'del-row' && cIdx === 0) {
+                addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+            }
+            // --------------------------
+
             container.appendChild(cellDiv);
             cellDiv.querySelectorAll('input').forEach(syncSize);
         });
@@ -1426,6 +1445,56 @@ function handleKey(e, r, cIdx, i, type) {
         saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
         closeModals();
     }
+    function toggleMode(m) { 
+    currentMode = (currentMode === m) ? null : m; 
+    render(false); 
+}
+
+function insertRow(i) { 
+    const cols = grid[0].length;
+    grid.splice(i, 0, Array.from({length: cols}, () => c())); 
+    currentMode = null; 
+    render(); 
+}
+
+function insertCol(i) { 
+    grid.forEach(r => r.splice(i, 0, c())); 
+    currentMode = null; 
+    render(); 
+}
+
+function deleteRow(i) { 
+    if (grid.length > 1) { 
+        grid.splice(i, 1); 
+        currentMode = null; 
+        render(); 
+    } 
+}
+
+function deleteCol(i) { 
+    if (grid[0].length > 1) { 
+        grid.forEach(r => r.splice(i, 1)); 
+        currentMode = null; 
+        render(); 
+    } 
+}
+
+function addIcon(parent, type, pos, label, action) {
+    const btn = document.createElement('div');
+    btn.className = `action-btn ${type}`;
+    btn.innerText = label;
+    const styles = {
+        'left': 'left:-15px; top:50%; transform:translateY(-50%);',
+        'right': 'right:-15px; top:50%; transform:translateY(-50%);',
+        'top-center': 'top:-15px; left:50%; transform:translateX(-50%);',
+        'top-edge': 'top:-15px; left:15px;',
+        'bottom-edge': 'bottom:-15px; left:15px;',
+        'left-edge': 'left:-15px; top:15px;'
+    };
+    btn.style = styles[pos];
+    btn.onclick = (e) => { e.stopPropagation(); action(); };
+    parent.appendChild(btn);
+}
 </script>
 </body>
 </html>
