@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars cccbuiddlder</title>
+    <title>Cedars buiddlder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1431,32 +1431,52 @@ document.addEventListener('paste', (e) => {
         const pastedData = e.clipboardData.getData('text/plain').replace(/\r/g, '');
         const lines = pastedData.split('\n').filter(l => l.trim() !== "");
 
-        // If it looks like a "Cell" (contains | or multiple lines), use custom logic
+        // Determine if this is a "Cell-level" paste (contains | or multiple lines)
         if (pastedData.includes('|') || lines.length > 1) {
             e.preventDefault();
+            
             const posParts = active.dataset.pos.split('-');
             const r = parseInt(posParts[0]);
             const cIdx = parseInt(posParts[1]);
             const itemIdx = parseInt(posParts[2]);
             const type = posParts[3];
 
-            if (lines.length === 1) {
-                const content = lines[0].split('|');
-                grid[r][cIdx].items[itemIdx].t = content[0].trim();
-                grid[r][cIdx].items[itemIdx].tr = (content[1] || "").trim();
+            const cellEl = active.closest('.cell');
+            const isFullCellSelected = cellEl && cellEl.classList.contains('visual-selected');
+
+            // Map the pasted lines into item objects {t, tr}
+            const newItems = lines.map(line => {
+                const pts = line.split('|');
+                return pts.length > 1 
+                    ? { t: pts[0].trim(), tr: pts[1].trim() }
+                    : (type === 'tr' ? { t: "", tr: line.trim() } : { t: line.trim(), tr: "" });
+            });
+
+            if (isFullCellSelected) {
+                // SCENARIO A: Full Cell selected - OVERWRITE everything
+                grid[r][cIdx].items = newItems;
+                cellEl.classList.remove('visual-selected');
             } else {
-                const newItems = lines.map(line => {
-                    const pts = line.split('|');
-                    return pts.length > 1 
-                        ? { t: pts[0].trim(), tr: pts[1].trim() }
-                        : (type === 'tr' ? { t: "", tr: line.trim() } : { t: line.trim(), tr: "" });
-                });
-                grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
+                // SCENARIO B: Specific cursor position - APPEND/INSERT logic
+                if (lines.length === 1 && !pastedData.includes('|')) {
+                    // It's just a single word being pasted into a multi-line context
+                    grid[r][cIdx].items[itemIdx][type] = lines[0];
+                } else {
+                    // Multi-line paste starting at the current line
+                    grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
+                }
             }
+
             render();
             saveToCloud(true);
+
+            // Maintain focus in the cell
+            setTimeout(() => {
+                const first = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
+                if(first) first.focus();
+            }, 10);
         } 
-        // Else, it's just a normal word paste—let browser handle it
+        // Else: Normal browser paste handles single-word-to-single-box
     }
 });
     /* =========================
