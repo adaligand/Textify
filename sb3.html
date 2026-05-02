@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedaffs builder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -625,26 +625,24 @@ button:hover {
         
         <input type="text" id="builder-title" class="editor-header-input" placeholder="Untitled" style="flex-grow: 1; min-width: 200px;">
 
-     <div class="meta-group" style="display: flex; align-items: center; gap: 8px;">
-    <select id="meta-lang" class="editor-header-input" onchange="updateMeta()">
-        <option value="French">French</option>
-        <option value="German">German</option>
-        <option value="Spanish">Spanish</option>
-        <option value="EAL">EAL</option>
-    </select>
-    
-    <select id="meta-year" class="editor-header-input" onchange="updateMeta()">
-        <option value="Year 9">Year 9</option>
-        <option value="GCSE">GCSE</option>
-        <option value="Year 12">Year 12</option>
-        <option value="Year 13">Year 13</option>
-    </select>
+        <div class="meta-group" style="display: flex; align-items: center; gap: 8px;">
+            <select id="meta-lang" class="editor-header-input" onchange="updateMeta()">
+                <option value="French">French</option>
+                <option value="German">German</option>
+                <option value="Spanish">Spanish</option>
+                <option value="EAL">EAL</option>
+            </select>
+            
+            <select id="meta-year" class="editor-header-input" onchange="updateMeta()">
+                <option value="Year 9">Year 9</option>
+                <option value="GCSE">GCSE</option>
+                <option value="Year 12">Year 12</option>
+                <option value="Year 13">Year 13</option>
+            </select>
 
-    <input type="text" id="meta-topic" class="editor-header-input" 
-           placeholder="Topic Name" oninput="updateMeta()" 
-           list="existing-topics" style="width: 150px;">
-    <datalist id="existing-topics"></datalist>
-</div>
+            <input type="text" id="meta-topic" class="editor-header-input" placeholder="Topic Name" oninput="updateMeta()" style="width: 150px;">
+        </div>
+
         <button onclick="saveToCloud()" class="btn-purple">💾 Save</button>
         <span id="manual-save-status" style="margin-left:10px; font-weight:bold; color:#10b981;"></span>
         <button onclick="logout()" class="btn-danger-soft" style="white-space: nowrap;">Sign Out</button>
@@ -1112,53 +1110,6 @@ function updateMeta() {
         yearSelect.disabled = false;
     }
 }
-  async function populateTopicSuggestions() {
-    const datalist = document.getElementById('existing-topics');
-    const currentLang = document.getElementById('meta-lang').value;
-    const currentYear = document.getElementById('meta-year').value;
-    
-    if (!currentUser || !datalist) return;
-    datalist.innerHTML = '';
-
-    try {
-        const snapshot = await db.collection('projects')
-            .where('userId', '==', currentUser.uid)
-            .where('lang', '==', currentLang)
-            .where('year', '==', currentYear)
-            .get();
-
-        const topics = new Set();
-        snapshot.forEach(doc => {
-            const t = doc.data().topic;
-            if (t) topics.add(t);
-        });
-
-        topics.forEach(t => {
-            const opt = document.createElement('option');
-            opt.value = t;
-            datalist.appendChild(opt);
-        });
-    } catch (e) { console.error(e); }
-}
-function updateMeta() {
-    if (!currentDocId) return;
-    
-    const topicValue = document.getElementById('meta-topic').value;
-    const langValue = document.getElementById('meta-lang').value;
-    const yearValue = document.getElementById('meta-year').value;
-    const titleValue = document.getElementById('builder-title').value;
-
-    // Refresh the dropdown suggestions
-    populateTopicSuggestions();
-
-    db.collection('projects').doc(currentDocId).update({
-        topic: topicValue,
-        lang: langValue,
-        year: yearValue,
-        title: titleValue,
-        lastEdited: firebase.firestore.FieldValue.serverTimestamp()
-    }).catch(err => console.error("Update error:", err));
-}
 async function openTopic(topic) {
     nav.topic = topic;
 
@@ -1585,36 +1536,31 @@ function openNewModal() {
     document.getElementById('overlay').style.display='block'; 
 }
  function createNewProject() {
-    // 1. Get values from the Modal
-    const newLang = document.getElementById('new-lang').value;
-    const newYear = document.getElementById('new-year').value;
-    const newTopic = document.getElementById('new-topic').value || "Untitled Topic";
-
-    // 2. Reset Global State
     currentDocId = null;
-    grid = [
-        [c(), c(), c()], 
-        [c(), c(), c()]
-    ];
+    
+    // Set sensible defaults so the editor isn't empty
+    meta = { 
+        lang: "French", 
+        year: "Year 9", 
+        topic: "New Topic"
+    };
+
+    // Sync the editor header inputs immediately
+    document.getElementById('meta-lang').value = meta.lang;
+    document.getElementById('meta-year').value = meta.year;
+    document.getElementById('meta-topic').value = meta.topic;
+    document.getElementById('builder-title').value = "Untitled";
+
+    // Initialize a fresh 2x3 grid
+    grid = [[c(), c(), c()], [c(), c(), c()]];
     history = [JSON.stringify(grid)];
     historyStep = 0;
 
-    // 3. Sync the Editor Header UI
-    document.getElementById('meta-lang').value = newLang;
-    document.getElementById('meta-year').value = newYear;
-    document.getElementById('meta-topic').value = newTopic;
-    document.getElementById('builder-title').value = "New Sentence Builder";
-
-    // 4. UI Transition
+    // Switch view
     showPage('editor-page');
     closeModals();
-    render(); 
-    
-    // 5. Setup Topics Dropdown
-    populateTopicSuggestions();
-
-    // 6. Initial Save
-    saveToCloud(); 
+    render(false);
+    updateMeta(); 
 }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
     window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
