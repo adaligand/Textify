@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedhdfbdars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -667,15 +666,29 @@ button:hover {
     <div style="display: flex; flex-direction: column; gap: 15px;">
         <div>
             <label>Language</label>
-            <select id="new-lang" onchange="handleNewLangChange()" style="width:100%; padding:8px;"><option>French</option><option>German</option><option>Spanish</option><option>EAL</option></select>
+            <select id="new-lang" onchange="handleNewLangChange()" style="width:100%; padding:8px;">
+                <option>French</option>
+                <option>German</option>
+                <option>Spanish</option>
+                <option>EAL</option>
+            </select>
         </div>
         <div>
             <label>Year Group</label>
-            <select id="new-year" style="width:100%; padding:8px;"><option>Year 9</option><option>GCSE</option><option>Year 12</option><option>Year 13</option></select>
+            <select id="new-year" onchange="fetchExistingTopics()" style="width:100%; padding:8px;">
+                <option>Year 9</option>
+                <option>GCSE</option>
+                <option>Year 12</option>
+                <option>Year 13</option>
+            </select>
         </div>
         <div>
             <label>Topic</label>
-            <input type="text" id="new-topic" placeholder="e.g. Holidays" style="width:100%; padding:8px; box-sizing:border-box;">
+            <select id="topic-select" onchange="handleTopicSelectChange()" style="width:100%; padding:8px; margin-bottom: 5px;">
+                <option value="">-- Select Existing Topic --</option>
+                <option value="NEW_TOPIC">+ Create New Topic...</option>
+            </select>
+            <input type="text" id="new-topic" placeholder="New topic" style="width:100%; padding:8px; box-sizing:border-box; display:none;">
         </div>
         <button onclick="createNewProject()" class="btn-purple">Create Builder</button>
     </div>
@@ -801,9 +814,7 @@ async function logout() {
     await auth.signOut();
     location.reload();
 }
-    function openNewModal() {
-    document.getElementById('new-modal').style.display='block';
-    document.getElementById('overlay').style.display='block';
+  
 
     // reset dropdown state every time
     document.getElementById("new-lang").value = "French";
@@ -1003,6 +1014,67 @@ async function renderTopicsInline() {
     } catch (error) {
         console.error("Error fetching topics:", error);
     }
+}
+    // Fetches topics from Firestore based on current modal selections
+async function fetchExistingTopics() {
+    const lang = document.getElementById("new-lang").value;
+    const year = document.getElementById("new-year").value;
+    const topicSelect = document.getElementById("topic-select");
+    const newTopicInput = document.getElementById("new-topic");
+
+    // Reset UI
+    topicSelect.innerHTML = '<option value="">-- Select Existing Topic --</option><option value="NEW_TOPIC">+ Create New Topic...</option>';
+    newTopicInput.style.display = "none";
+    newTopicInput.value = "";
+
+    try {
+        let query = db.collection("builders").where("lang", "==", lang);
+        if (lang !== "EAL") {
+            query = query.where("year", "==", year);
+        }
+
+        const snap = await query.get();
+        const uniqueTopics = [...new Set(snap.docs.map(d => d.data().topic).filter(Boolean))].sort();
+
+        uniqueTopics.forEach(topic => {
+            const opt = document.createElement("option");
+            opt.value = topic;
+            opt.innerText = topic;
+            topicSelect.appendChild(opt);
+        });
+    } catch (e) {
+        console.error("Error fetching topics for modal:", e);
+    }
+}
+
+// Shows/Hides the text input based on dropdown selection
+function handleTopicSelectChange() {
+    const topicSelect = document.getElementById("topic-select");
+    const newTopicInput = document.getElementById("new-topic");
+    
+    if (topicSelect.value === "NEW_TOPIC") {
+        newTopicInput.style.display = "block";
+        newTopicInput.focus();
+    } else {
+        newTopicInput.style.display = "none";
+        newTopicInput.value = "";
+    }
+}
+
+// Update handleNewLangChange to also refresh topics
+function handleNewLangChange() {
+    const lang = document.getElementById("new-lang").value;
+    const year = document.getElementById("new-year");
+
+    if (lang === "EAL") {
+        year.disabled = true;
+        year.style.opacity = "0.5";
+        year.value = "EAL";
+    } else {
+        year.disabled = false;
+        year.style.opacity = "1";
+    }
+    fetchExistingTopics();
 }
 function updateSort(val) {
     nav.sortBy = val; // Update the global navigation state
@@ -1542,32 +1614,44 @@ function handleKey(e, r, cIdx, i, type) {
     function openNewModal() { document.getElementById('new-modal').style.display='block'; document.getElementById('overlay').style.display='block'; }
     function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); document.getElementById('overlay').style.display='none'; }
     
- function createNewProject() {
-    currentDocId = null;
+function createNewProject() {
+    const topicSelect = document.getElementById("topic-select").value;
+    const newTopicText = document.getElementById("new-topic").value.trim();
     
-    // Set sensible defaults so the editor isn't empty
+    let finalTopic = "";
+    if (topicSelect === "NEW_TOPIC") {
+        finalTopic = newTopicText || "New Topic";
+    } else {
+        finalTopic = topicSelect || "General";
+    }
+
+    currentDocId = null;
     meta = { 
-        lang: "French", 
-        year: "Year 9", 
-        topic: "New Topic"
+        lang: document.getElementById("new-lang").value, 
+        year: document.getElementById("new-year").value, 
+        topic: finalTopic
     };
 
-    // Sync the editor header inputs immediately
     document.getElementById('meta-lang').value = meta.lang;
     document.getElementById('meta-year').value = meta.year;
     document.getElementById('meta-topic').value = meta.topic;
     document.getElementById('builder-title').value = "Untitled";
 
-    // Initialize a fresh 2x3 grid
     grid = [[c(), c(), c()], [c(), c(), c()]];
     history = [JSON.stringify(grid)];
     historyStep = 0;
 
-    // Switch view
     showPage('editor-page');
     closeModals();
     render(false);
     updateMeta(); 
+}
+
+// Ensure topics load when modal opens
+function openNewModal() {
+    document.getElementById('new-modal').style.display='block';
+    document.getElementById('overlay').style.display='block';
+    fetchExistingTopics(); // Initial load
 }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
     window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
