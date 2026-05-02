@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedcs builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -706,7 +706,8 @@ let currentDocId = null;
 let nav = {
     lang: null,
     year: null,
-    topic: null
+    topic: null,
+    sortBy: 'updated'
 };
 
 let grid = [[c(), c(), c()], [c(), c(), c()]];
@@ -889,84 +890,135 @@ function selectYear(year) {
     nav.topic = null;
     renderLibrary();
 }
-async function renderTopicsInline() {
-    let query = db.collection("builders")
-            .where("lang", "==", nav.lang);
+/* --- IMPROVED TOPIC & PROJECT RENDERING --- */
 
+async function renderTopicsInline() {
+    const topicArea = document.getElementById("topic-area");
+    if (!topicArea) return;
+
+    let query = db.collection("builders").where("lang", "==", nav.lang);
     if (nav.lang !== "EAL" && nav.year) {
         query = query.where("year", "==", nav.year);
     }
 
-    const snap = await query.get();
+    try {
+        const snap = await query.get();
+        const topicList = [...new Set(
+            snap.docs.map(d => d.data().topic).filter(Boolean)
+        )].sort();
 
-    const topicList = [...new Set(
-        snap.docs.map(d => d.data().topic).filter(Boolean)
-    )];
+        let html = `
+            <h3 style="margin-top:20px;">Topics</h3>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
+        `;
 
-    const html = `
-        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
-            ${topicList.length ? topicList.map(t => `
-                <button onclick="selectTopic('${t}')"
-                    style="padding:10px 15px;
-                    ${nav.topic === t ? 'background:#4caf50;color:white;border:none;' : ''}">
-                    ${t}
-                </button>
-            `).join("") : "<p>No topics yet</p>"}
-        </div>
+        if (topicList.length > 0) {
+            topicList.forEach(t => {
+                const isActive = (nav.topic === t);
+                html += `
+                    <button onclick="selectTopic('${t.replace(/'/g, "\\'")}')"
+                        style="padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:600; transition:all 0.2s;
+                        ${isActive 
+                            ? 'background:#4caf50; color:white; border:none; box-shadow:0 4px 6px rgba(76,175,80,0.3);' 
+                            : 'background:white; border:1px solid #e2e8f0; color:#475569;'}">
+                        ${t}
+                    </button>`;
+            });
+        } else {
+            html += `<p style="color:#64748b;">No topics found.</p>`;
+        }
 
-        ${nav.topic ? `<div id="projects-area"></div>` : ""}
-    `;
+        // ADDING THE SORTING DROPDOWN BELOW THE TOPIC BUTTONS
+        html += `</div>
+            <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 15px; gap: 10px; border-top: 1px solid #eee; pt: 15px;">
+                <label style="font-size: 14px; color: #64748b; font-weight: 600;">Sort by:</label>
+                <select onchange="updateSort(this.value)" 
+                    style="padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0; background: white; color: #475569; font-weight: 500; cursor: pointer; outline: none;">
+                    <option value="updated" ${nav.sortBy === 'updated' ? 'selected' : ''}>Recently Edited</option>
+                    <option value="created" ${nav.sortBy === 'created' ? 'selected' : ''}>Date Created</option>
+                    <option value="title" ${nav.sortBy === 'title' ? 'selected' : ''}>Name (A-Z)</option>
+                </select>
+            </div>
+            <div id="projects-area"></div>`;
+        
+        topicArea.innerHTML = html;
 
-    document.getElementById("topic-area").innerHTML = html;
+        if (nav.topic) renderProjectsInline();
 
-    if (nav.topic) renderProjectsInline();
+    } catch (error) {
+        console.error("Error:", error);
+    }
 }
- function selectTopic(topic) {
+function updateSort(val) {
+    nav.sortBy = val;
+    renderProjectsInline();
+}
+function selectTopic(topic) {
+    console.log("Topic selected:", topic); // Debugging line
     nav.topic = topic;
-    renderTopicsInline();
+    renderTopicsInline(); // This will highlight the button AND call renderProjectsInline
 }
+
 async function renderProjectsInline() {
-    if (!nav.lang || !nav.topic) {
-        document.getElementById("projects-area").innerHTML = "";
-        return;
+    const projectsArea = document.getElementById("projects-area");
+    if (!projectsArea || !nav.topic) return;
+
+    try {
+        let query = db.collection("builders")
+            .where("lang", "==", nav.lang)
+            .where("topic", "==", nav.topic);
+
+        if (nav.lang !== "EAL" && nav.year) {
+            query = query.where("year", "==", nav.year);
+        }
+
+        const snap = await query.get();
+
+        // SORTING LOGIC
+        const docs = snap.docs.sort((a, b) => {
+            const dataA = a.data();
+            const dataB = b.data();
+
+            if (nav.sortBy === 'title') {
+                // Alphabetical sorting
+                return (dataA.title || "").localeCompare(dataB.title || "");
+            } else if (nav.sortBy === 'created') {
+                // Creation date (Oldest first)
+                return (dataA.created || 0) - (dataB.created || 0);
+            } else {
+                // Last Edit (Newest first) - default
+                return (dataB.updated || 0) - (dataA.updated || 0);
+            }
+        });
+
+        // ... rest of your existing code to build the grid (html += ...)
+        let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px;">`;
+        
+        docs.forEach(doc => {
+            const p = doc.data();
+            html += `
+                <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer; width:300px; box-sizing:border-box;">
+                    <div class="project-left" style="flex:1; overflow:hidden;">
+                        <span style="color: var(--accent); font-weight: bold; font-size: 1.1em; white-space:nowrap; text-overflow:ellipsis; display:block; overflow:hidden;">
+                            ${p.title || "Untitled Builder"}
+                        </span>
+                    </div>
+                    <div class="project-actions" onclick="event.stopPropagation();" style="display:flex; gap:10px; margin-left:10px;">
+                        <span class="icon-btn" title="Duplicate" onclick="duplicateSB('${doc.id}', event)">📋</span>
+                        <span class="icon-btn delete-btn" title="Delete" onclick="deleteProject('${doc.id}', event)">🗑️</span>
+                    </div>
+                </div>`;
+        });
+        html += `</div>`;
+
+        if (docs.length === 0) {
+            html = `<p style="padding:20px; color:#64748b;">No sentence builders found.</p>`;
+        }
+        projectsArea.innerHTML = html;
+
+    } catch (error) {
+        console.error("Error fetching projects:", error);
     }
-
-    let query = db.collection("builders")
-        .where("lang", "==", nav.lang)
-        .where("topic", "==", nav.topic);
-
-    if (nav.lang !== "EAL") {
-        query = query.where("year", "==", nav.year);
-    }
-
-    const snap = await query.get();
-    let html = `<div class="project-grid">`; 
-
-    snap.forEach(doc => {
-        const p = doc.data();
-        html += `
-            <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer;">
-                <div class="project-left">
-                    <span style="color: var(--accent); font-weight: bold; font-size: 1.1em;">
-                        ${p.title}
-                    </span>
-                </div>
-                <div class="project-actions" onclick="event.stopPropagation();">
-                    <span class="icon-btn duplicate-btn" title="Duplicate" 
-                          onclick="duplicateSB('${doc.id}', event)">📋</span>
-                    <span class="icon-btn delete-btn" title="Delete" 
-                          onclick="deleteProject('${doc.id}', event)">🗑️</span>
-                </div>
-            </div>`;
-    });
-
-    html += `</div>`;
-    
-    if (snap.empty) {
-        html = `<p style="padding:20px; color:#64748b;">No sentence builders found here yet.</p>`;
-    }
-
-    document.getElementById("projects-area").innerHTML = html;
 }
     async function confirmDelete(id) {
     const ok = confirm("Delete this builder permanently? This cannot be undone.");
