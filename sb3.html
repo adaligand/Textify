@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarc cccbuilder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -890,91 +890,83 @@ function selectYear(year) {
     renderLibrary();
 }
 async function renderTopicsInline() {
-    // 1. Simple query (no orderBy) to avoid index errors
-    let query = db.collection("builders").where("lang", "==", nav.lang);
+    let query = db.collection("builders")
+            .where("lang", "==", nav.lang);
+
     if (nav.lang !== "EAL" && nav.year) {
         query = query.where("year", "==", nav.year);
     }
 
     const snap = await query.get();
-    
-    // 2. Extract topics and sort them alphabetically
+
     const topicList = [...new Set(
         snap.docs.map(d => d.data().topic).filter(Boolean)
-    )].sort();
+    )];
 
-    // 3. Build HTML
     const html = `
-        <h3 style="margin-top:20px;">Topics</h3>
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
             ${topicList.length ? topicList.map(t => `
                 <button onclick="selectTopic('${t}')"
-                    style="padding:10px 15px; border-radius:8px; cursor:pointer; transition: 0.2s;
-                    ${nav.topic === t 
-                        ? 'background:#4caf50; color:white; border:none; box-shadow: 0 2px 4px rgba(0,0,0,0.1);' 
-                        : 'background:white; border:1px solid #e2e8f0; color: #475569;'}">
+                    style="padding:10px 15px;
+                    ${nav.topic === t ? 'background:#4caf50;color:white;border:none;' : ''}">
                     ${t}
                 </button>
-            `).join("") : "<p style='color:#64748b;'>No topics found for this selection.</p>"}
+            `).join("") : "<p>No topics yet</p>"}
         </div>
-        <div id="projects-area"></div>
+
+        ${nav.topic ? `<div id="projects-area"></div>` : ""}
     `;
 
     document.getElementById("topic-area").innerHTML = html;
 
-    // 4. If a topic is selected, render the projects immediately
-    if (nav.topic) {
-        renderProjectsInline();
-    }
+    if (nav.topic) renderProjectsInline();
 }
-
+ function selectTopic(topic) {
+    nav.topic = topic;
+    renderTopicsInline();
+}
 async function renderProjectsInline() {
-    const projectsArea = document.getElementById("projects-area");
-    if (!nav.lang || !nav.topic || !projectsArea) return;
+    if (!nav.lang || !nav.topic) {
+        document.getElementById("projects-area").innerHTML = "";
+        return;
+    }
 
-    // 1. Fetch projects for this specific topic
     let query = db.collection("builders")
         .where("lang", "==", nav.lang)
         .where("topic", "==", nav.topic);
 
-    if (nav.lang !== "EAL" && nav.year) {
+    if (nav.lang !== "EAL") {
         query = query.where("year", "==", nav.year);
     }
 
     const snap = await query.get();
-    
-    // 2. SORT MANUALLY in JS (Oldest to Newest)
-    // This puts duplicates (higher 'updated' value) to the right/end
-    const sortedDocs = snap.docs.sort((a, b) => {
-        const timeA = a.data().updated || 0;
-        const timeB = b.data().updated || 0;
-        return timeA - timeB; 
-    });
-
-    // 3. Build the Grid
     let html = `<div class="project-grid">`; 
-    sortedDocs.forEach(doc => {
+
+    snap.forEach(doc => {
         const p = doc.data();
         html += `
             <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer;">
                 <div class="project-left">
                     <span style="color: var(--accent); font-weight: bold; font-size: 1.1em;">
-                        ${p.title || "Untitled"}
+                        ${p.title}
                     </span>
                 </div>
                 <div class="project-actions" onclick="event.stopPropagation();">
-                    <span class="icon-btn" title="Duplicate" onclick="duplicateSB('${doc.id}', event)">📋</span>
-                    <span class="icon-btn delete-btn" title="Delete" onclick="deleteProject('${doc.id}', event)">🗑️</span>
+                    <span class="icon-btn duplicate-btn" title="Duplicate" 
+                          onclick="duplicateSB('${doc.id}', event)">📋</span>
+                    <span class="icon-btn delete-btn" title="Delete" 
+                          onclick="deleteProject('${doc.id}', event)">🗑️</span>
                 </div>
             </div>`;
     });
+
     html += `</div>`;
     
     if (snap.empty) {
-        html = `<p style="padding:20px; color:#64748b;">No sentence builders found in this topic.</p>`;
+        html = `<p style="padding:20px; color:#64748b;">No sentence builders found here yet.</p>`;
     }
 
-    projectsArea.innerHTML = html;
+    document.getElementById("projects-area").innerHTML = html;
 }
     async function confirmDelete(id) {
     const ok = confirm("Delete this builder permanently? This cannot be undone.");
