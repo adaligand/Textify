@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedars bccccuilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1015,11 +1015,9 @@ function addNewTopicPrompt() {
     `;
 }
 async function updateMeta() {
-    // 1. Capture new values from the UI
     meta.lang = document.getElementById("meta-lang").value;
     meta.year = document.getElementById("meta-year").value;
-    
-    // 2. Handle the EAL Logic (Auto-disable Year)
+
     const yearSelect = document.getElementById("meta-year");
     if (meta.lang === "EAL") {
         yearSelect.value = "EAL";
@@ -1029,7 +1027,6 @@ async function updateMeta() {
         yearSelect.disabled = false;
     }
 
-    // 3. Fetch the topics that match the new Language/Year
     try {
         let query = db.collection("builders").where("lang", "==", meta.lang);
         if (meta.lang !== "EAL") {
@@ -1037,22 +1034,24 @@ async function updateMeta() {
         }
 
         const snap = await query.get();
-        // Create a unique list of topics found in the database
-        window.allAvailableTopics = [...new Set(snap.docs.map(d => d.data().topic).filter(Boolean))].sort();
+        const fetchedTopics = [...new Set(
+            snap.docs.map(d => d.data().topic).filter(Boolean)
+        )];
 
-        // 4. Update the Topic Dropdown HTML
+        // ✅ preserve current topic
+        if (meta.topic && !fetchedTopics.includes(meta.topic)) {
+            fetchedTopics.push(meta.topic);
+        }
+
+        window.allAvailableTopics = fetchedTopics.sort();
+
         const container = document.getElementById('meta-topic-container');
         if (container) {
             container.innerHTML = renderTopicDropdown();
         }
-        
-        // 5. Final sync of the topic variable
-        const topicDropdown = document.getElementById("meta-topic");
-        if (topicDropdown) {
-            meta.topic = topicDropdown.value;
-        }
+
     } catch (error) {
-        console.error("Error updating topics in editor:", error);
+        console.error("Error updating topics:", error);
     }
 }
 
@@ -1260,31 +1259,7 @@ async function saveToCloud(isAutosave = false) {
         }
     }
 }
-async function loadProject(id) {
-    const doc = await db.collection("builders").doc(id).get();
-    const d = doc.data();
 
-    currentDocId = id;
-    grid = JSON.parse(d.grid);
-
-    meta = {
-        lang: d.lang,
-        year: d.year,
-        topic: d.topic
-    };
-
-    // Sync UI elements
-    document.getElementById('meta-lang').value = d.lang;
-    document.getElementById('meta-year').value = d.year;
-    document.getElementById('meta-topic').value = d.topic;
-    document.getElementById('builder-title').value = d.title;
-
-    history = [JSON.stringify(grid)];
-    historyStep = 0;
-
-    showPage("editor-page");
-    render(false);
-}
 async function deleteProject(id) {
     const ok = confirm("Delete this builder permanently? This cannot be undone.");
     if (!ok) return;
@@ -1638,47 +1613,47 @@ function handleKey(e, r, cIdx, i, type) {
     function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); document.getElementById('overlay').style.display='none'; }
     
 async function createNewProject() {
-    // 1. Get the data from the modal or navigation state
-    const modalLang = document.getElementById('new-lang') ? document.getElementById('new-lang').value : (nav.lang || "French");
-    const modalYear = document.getElementById('new-year') ? document.getElementById('new-year').value : (nav.year || "Year 9");
+    const modalLang = document.getElementById('new-lang')?.value || nav.lang || "French";
+    const modalYear = document.getElementById('new-year')?.value || nav.year || "Year 9";
     const modalTopic = document.getElementById('new-topic')?.value || nav.topic || "New Topic";
 
-    // 2. Setup local meta immediately so the editor knows its context
     meta = { 
         lang: modalLang, 
         year: modalLang === "EAL" ? "EAL" : modalYear, 
         topic: modalTopic
     };
 
-    // 3. FORCE the new topic into our local list so the dropdown shows it immediately
+    // Ensure topic exists locally
     if (!window.allAvailableTopics) window.allAvailableTopics = [];
     if (!window.allAvailableTopics.includes(meta.topic)) {
         window.allAvailableTopics.push(meta.topic);
         window.allAvailableTopics.sort();
     }
 
-    // 4. Reset Grid & State
+    // Reset state
     currentDocId = null;
     grid = [[c(), c(), c()], [c(), c(), c()]];
     history = [JSON.stringify(grid)];
     historyStep = 0;
 
-    // 5. Sync the static UI elements (inputs at top of editor)
+    // Sync UI
     document.getElementById('meta-lang').value = meta.lang;
     document.getElementById('meta-year').value = meta.year;
     document.getElementById('builder-title').value = "Untitled";
 
-    // 6. SHOW THE PAGE (so the container exists in the DOM)
     showPage('editor-page');
     closeModals();
+
+    // ✅ CRITICAL: render dropdown BEFORE save
+    const container = document.getElementById('meta-topic-container');
+    if (container) {
+        container.innerHTML = renderTopicDropdown();
+    }
+
     render(false);
 
-    // 7. SAVE TO CLOUD IMMEDIATELY
-    // This ensures the topic exists in the database before updateMeta tries to fetch it
-    await saveToCloud(true); 
-
-    // 8. Now refresh the dropdown to ensure it's synced with the database list
-    await updateMeta(); 
+    // Save AFTER UI ready
+    await saveToCloud(true);
 }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
     window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
