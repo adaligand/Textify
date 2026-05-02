@@ -1369,7 +1369,13 @@ async function duplicateSB(id, e) {
 document.addEventListener('copy', (e) => {
     const active = document.activeElement;
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
-        // Updated to handle the "-t" or "-tr" suffix
+        
+        // 1. If the user has highlighted a specific word/phrase, let the browser copy normally
+        if (active.selectionStart !== active.selectionEnd) {
+            return; // Exit and allow default browser copy
+        }
+
+        // 2. If NO text is highlighted, copy the WHOLE cell logic
         const posParts = active.dataset.pos.split('-');
         const r = parseInt(posParts[0]);
         const cIdx = parseInt(posParts[1]);
@@ -1388,56 +1394,41 @@ document.addEventListener('copy', (e) => {
 document.addEventListener('paste', (e) => {
     const active = document.activeElement;
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
-        e.preventDefault();
-        
-        // Data format: row-col-itemIndex-type (e.g. "0-0-1-tr")
-        const posParts = active.dataset.pos.split('-');
-        const r = parseInt(posParts[0]);
-        const cIdx = parseInt(posParts[1]);
-        const itemIdx = parseInt(posParts[2]);
-        const type = posParts[3]; // 't' or 'tr'
         
         const pastedData = e.clipboardData.getData('text/plain').replace(/\r/g, '');
         const lines = pastedData.split('\n').filter(l => l.trim() !== "");
 
-        if (lines.length === 1) {
-            // SCENARIO 1: Paste into the specific box (Target or Translation)
-            const content = lines[0].split('|');
-            if (content.length > 1) {
-                // If user pastes "A|B" into a box, fill both parts of this row
-                grid[r][cIdx].items[itemIdx].t = content[0].trim();
-                grid[r][cIdx].items[itemIdx].tr = content[1].trim();
-            } else {
-                // Just paste into the specific field focused
-                grid[r][cIdx].items[itemIdx][type] = lines[0];
-            }
-        } else {
-            // SCENARIO 2: Multi-line paste (Create new rows)
-            const newItems = lines.map(line => {
-                const parts = line.split('|');
-                return parts.length > 1 
-                    ? { t: parts[0].trim(), tr: parts[1].trim() }
-                    : (type === 'tr' ? { t: "", tr: line.trim() } : { t: line.trim(), tr: "" });
-            });
-            
-            // Insert after the current item index
-            grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
-        }
+        // 1. If the pasted data contains the pipe symbol (|) or multiple lines, 
+        // it's a "Cell Paste" or "Multi-row Paste"
+        if (pastedData.includes('|') || lines.length > 1) {
+            e.preventDefault();
+            const posParts = active.dataset.pos.split('-');
+            const r = parseInt(posParts[0]);
+            const cIdx = parseInt(posParts[1]);
+            const itemIdx = parseInt(posParts[2]);
+            const type = posParts[3];
 
-        render();
-        saveToCloud(true);
-        
-        // Optional: Re-focus the element after render
-        setTimeout(() => {
-            const selector = `input[data-pos="${r}-${cIdx}-${itemIdx}-${type}"]`;
-            const el = document.querySelector(selector);
-            if (el) {
-                el.focus();
-                // Move cursor to end
-                const len = el.value.length;
-                el.setSelectionRange(len, len);
+            if (lines.length === 1) {
+                const content = lines[0].split('|');
+                grid[r][cIdx].items[itemIdx].t = content[0].trim();
+                grid[r][cIdx].items[itemIdx].tr = content[1] ? content[1].trim() : "";
+            } else {
+                const newItems = lines.map(line => {
+                    const parts = line.split('|');
+                    return parts.length > 1 
+                        ? { t: parts[0].trim(), tr: parts[1].trim() }
+                        : (type === 'tr' ? { t: "", tr: line.trim() } : { t: line.trim(), tr: "" });
+                });
+                grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
             }
-        }, 0);
+            render();
+            saveToCloud(true);
+        } 
+        // 2. Otherwise, if it's just a single word (no pipe), let the browser 
+        // paste it normally into the specific input box.
+        else {
+            // Do nothing, let default paste happen
+        }
     }
 });
     /* =========================
