@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarcccs builder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1420,6 +1420,43 @@ document.addEventListener('paste', (e) => {
         }
     }
 });
+    /* =========================
+    CUT SYSTEM (CTRL + X)
+========================= */
+document.addEventListener('cut', (e) => {
+    const active = document.activeElement;
+    
+    // Check if we are inside a vocab input
+    if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
+        const cellEl = active.closest('.cell');
+        
+        // Only trigger "Whole Cell Cut" if the cell has the visual-selected class (from Ctrl+A)
+        if (cellEl && cellEl.classList.contains('visual-selected')) {
+            const posParts = active.dataset.pos.split('-');
+            const r = parseInt(posParts[0]);
+            const cIdx = parseInt(posParts[1]);
+            
+            // 1. Copy the data to clipboard first
+            const cellData = grid[r][cIdx].items;
+            const textToCopy = cellData.map(item => `${item.t}|${item.tr}`).join('\n');
+            e.clipboardData.setData('text/plain', textToCopy);
+            e.preventDefault(); // Stop the default browser cut
+
+            // 2. Empty the cell in the grid state
+            grid[r][cIdx].items = [{t: "", tr: ""}];
+            
+            // 3. UI Cleanup
+            cellEl.classList.remove('visual-selected');
+            render(); // Refresh grid to show empty cell
+            
+            // 4. Refocus the now-empty first input
+            setTimeout(() => {
+                const firstInput = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
+                if(firstInput) firstInput.focus();
+            }, 10);
+        }
+    }
+});
 function updateVal(r, cIdx, i, f, v) { 
     grid[r][cIdx].items[i][f] = v; 
     clearTimeout(typingTimer); 
@@ -1438,6 +1475,9 @@ function toggleAllActivities(master) {
         document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
     }
 function handleKey(e, r, cIdx, i, type) {
+    const cellEl = e.target.closest('.cell');
+    const isSelected = cellEl && cellEl.classList.contains('visual-selected');
+
     // 1. ENTER: New line, jump to Target (left)
     if (e.key === 'Enter') {
         e.preventDefault(); 
@@ -1447,9 +1487,23 @@ function handleKey(e, r, cIdx, i, type) {
             const nextInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}-t"]`);
             if (nextInput) nextInput.focus();
         }, 10);
+        return;
     }
     
-    // 2. BACKSPACE: Delete line, stay on same side
+    // 2. BACKSPACE / DELETE while Cell is Selected (Ctrl+A mode)
+    if ((e.key === 'Backspace' || e.key === 'Delete') && isSelected) {
+        e.preventDefault();
+        grid[r][cIdx].items = [{t: "", tr: ""}]; // Reset to one empty line
+        cellEl.classList.remove('visual-selected');
+        render();
+        setTimeout(() => {
+            const firstInput = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
+            if (firstInput) firstInput.focus();
+        }, 10);
+        return;
+    }
+
+    // 3. STANDARD BACKSPACE: Delete line if empty
     if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
         e.preventDefault(); 
         grid[r][cIdx].items.splice(i, 1); 
@@ -1458,17 +1512,19 @@ function handleKey(e, r, cIdx, i, type) {
             const prevInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}-${type}"]`);
             if (prevInput) prevInput.focus();
         }, 10);
+        return;
     }
 
-    // 3. CTRL+A: Select the whole cell visually
+    // 4. CTRL+A: Select the whole cell visually
     if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
         e.preventDefault();
-        const cellEl = e.target.closest('.cell');
-        
         if (cellEl) {
             cellEl.classList.add('visual-selected');
 
-            const removeHighlight = () => {
+            const removeHighlight = (ev) => {
+                // Don't remove if they are pressing the Cut (X), Copy (C), or A keys
+                if (ev.ctrlKey || ev.metaKey) return; 
+                
                 cellEl.classList.remove('visual-selected');
                 window.removeEventListener('mousedown', removeHighlight);
                 window.removeEventListener('keydown', removeHighlight);
@@ -1476,14 +1532,11 @@ function handleKey(e, r, cIdx, i, type) {
             
             setTimeout(() => {
                 window.addEventListener('mousedown', removeHighlight);
-                window.addEventListener('keydown', (ev) => {
-                    // Remove highlight if any key OTHER than Ctrl/Cmd is pressed
-                    if (!ev.ctrlKey && !ev.metaKey) removeHighlight();
-                });
+                window.addEventListener('keydown', removeHighlight);
             }, 10);
         }
     }
-} // This single closing brace ends the whole handleKey function
+}
     // --- BUILDER ACTIONS ---
     function openNewModal() { document.getElementById('new-modal').style.display='block'; document.getElementById('overlay').style.display='block'; }
     function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); document.getElementById('overlay').style.display='none'; }
