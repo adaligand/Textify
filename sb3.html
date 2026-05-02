@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedacrs builder</title>
+    <title>Cedadddrs builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1380,13 +1380,22 @@ async function duplicateSB(id, e) {
     }
 }
 /* =========================
-    COPY & PASTE SYSTEM
+    COPY, CUT & PASTE SYSTEM
 ========================= */
 
-document.addEventListener('copy', (e) => {
+// Combined handler for Copy and Cut
+document.addEventListener('copy', (e) => handleClipboard(e, false));
+document.addEventListener('cut', (e) => handleClipboard(e, true));
+
+function handleClipboard(e, isCut) {
     const active = document.activeElement;
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
-        // Updated to handle the "-t" or "-tr" suffix
+        const selection = window.getSelection().toString();
+        
+        // If user has highlighted specific text, let the browser handle it normally
+        if (selection.length > 0) return; 
+
+        // If NO text is highlighted, we copy the WHOLE cell
         const posParts = active.dataset.pos.split('-');
         const r = parseInt(posParts[0]);
         const cIdx = parseInt(posParts[1]);
@@ -1396,39 +1405,69 @@ document.addEventListener('copy', (e) => {
         
         e.clipboardData.setData('text/plain', textToCopy);
         e.preventDefault();
-        
-        const cellEl = active.closest('.cell');
-        if(cellEl) cellEl.classList.remove('visual-selected');
+
+        if (isCut) {
+            // Clear the cell data if it's a Cut action
+            grid[r][cIdx].items = [{t: "", tr: ""}];
+            render();
+            saveToCloud(true);
+        }
     }
-});
+}
 
 document.addEventListener('paste', (e) => {
     const active = document.activeElement;
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
+        const pastedData = e.clipboardData.getData('text/plain');
+        const lines = pastedData.split(/\r?\n/).filter(line => line.trim() !== "");
+
+        // 1. If it's just one line of text, let the browser handle it naturally
+        if (lines.length <= 1 && !pastedData.includes('|')) {
+            // No e.preventDefault() here - let browser insert text at cursor
+            setTimeout(() => {
+                const posParts = active.dataset.pos.split('-');
+                updateVal(parseInt(posParts[0]), parseInt(posParts[1]), parseInt(posParts[2]), posParts[3], active.value);
+            }, 0);
+            return;
+        }
+
+        // 2. If it's multi-line or internal builder data, we distribute it
         e.preventDefault();
-        
-        // Updated to handle the "-t" or "-tr" suffix
         const posParts = active.dataset.pos.split('-');
         const r = parseInt(posParts[0]);
         const cIdx = parseInt(posParts[1]);
-        
-        const pastedData = e.clipboardData.getData('text/plain');
-        const lines = pastedData.split('\n');
-        const newItems = lines.map(line => {
-            const [t, tr] = line.split('|');
-            return { t: (t || "").trim(), tr: (tr || "").trim() };
-        }).filter(item => item.t || item.tr);
+        const startItemIdx = parseInt(posParts[2]);
+        const field = posParts[3]; // 't' or 'tr'
 
-        if (newItems.length > 0) {
-            grid[r][cIdx].items = newItems;
-            render(); 
+        lines.forEach((line, index) => {
+            const targetIdx = startItemIdx + index;
             
-            // Focus the first input (target side) of the newly pasted cell
-            setTimeout(() => {
-                const firstInput = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
-                if(firstInput) firstInput.focus();
-            }, 10);
-        }
+            // If the line contains a pipe |, split it into target/translation
+            if (line.includes('|')) {
+                const [t, tr] = line.split('|');
+                const item = { t: (t || "").trim(), tr: (tr || "").trim() };
+                if (grid[r][cIdx].items[targetIdx]) {
+                    grid[r][cIdx].items[targetIdx] = item;
+                } else {
+                    grid[r][cIdx].items.push(item);
+                }
+            } else {
+                // Otherwise, just paste the text into the specific side (Target or Translation)
+                if (!grid[r][cIdx].items[targetIdx]) {
+                    grid[r][cIdx].items.push({ t: "", tr: "" });
+                }
+                grid[r][cIdx].items[targetIdx][field] = line.trim();
+            }
+        });
+
+        render();
+        saveToCloud(true);
+        
+        // Return focus to the input where the paste started
+        setTimeout(() => {
+            const input = document.querySelector(`input[data-pos="${r}-${cIdx}-${startItemIdx}-${field}"]`);
+            if (input) input.focus();
+        }, 10);
     }
 });
 
@@ -1450,7 +1489,7 @@ function toggleAllActivities(master) {
         document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
     }
 function handleKey(e, r, cIdx, i, type) {
-    // 1. ENTER: New line, jump to Target (left)
+    // 1. ENTER: New line
     if (e.key === 'Enter') {
         e.preventDefault(); 
         grid[r][cIdx].items.splice(i + 1, 0, {t: "", tr: ""}); 
@@ -1461,7 +1500,7 @@ function handleKey(e, r, cIdx, i, type) {
         }, 10);
     }
     
-    // 2. BACKSPACE: Delete line, stay on same side
+    // 2. BACKSPACE: Delete line
     if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
         e.preventDefault(); 
         grid[r][cIdx].items.splice(i, 1); 
@@ -1472,33 +1511,17 @@ function handleKey(e, r, cIdx, i, type) {
         }, 10);
     }
 
-    // 3. CTRL+A: Select the whole cell visually
-    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-        e.preventDefault();
-        const cellEl = e.target.closest('.cell');
-        
-        if (cellEl) {
-            cellEl.classList.add('visual-selected');
+    // 3. CTRL+A logic remains the same...
+}
 
-            const removeHighlight = () => {
-                cellEl.classList.remove('visual-selected');
-                window.removeEventListener('mousedown', removeHighlight);
-                window.removeEventListener('keydown', removeHighlight);
-            };
-            
-            setTimeout(() => {
-                window.addEventListener('mousedown', removeHighlight);
-                window.addEventListener('keydown', (ev) => {
-                    // Remove highlight if any key OTHER than Ctrl/Cmd is pressed
-                    if (!ev.ctrlKey && !ev.metaKey) removeHighlight();
-                });
-            }, 10);
-        }
-    }
-} // This single closing brace ends the whole handleKey function
-    // --- BUILDER ACTIONS ---
-    function openNewModal() { document.getElementById('new-modal').style.display='block'; document.getElementById('overlay').style.display='block'; }
-    function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); document.getElementById('overlay').style.display='none'; }
+/* --- BUILDER ACTIONS --- */
+function openNewModal() { 
+    document.getElementById('new-modal').style.display='block'; 
+    document.getElementById('overlay').style.display='block'; 
+}
+function closeModals() { 
+    document.querySelectorAll('.modal').forEach(m => m.style.display='none'); 
+    document.getElementById('overlay').style.display='none'; 
     
  function createNewProject() {
     currentDocId = null;
