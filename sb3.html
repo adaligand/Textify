@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarsxx builder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -933,15 +933,13 @@ async function renderTopicsInline() {
         html += `
                 </div>
 
-<div style="display: flex; align-items: center; gap: 8px; white-space: nowrap; background: #f8fafc; padding: 8px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-            <label style="font-size: 13px; color: #64748b; font-weight: 600;">Sort:</label>
-            <select onchange="updateSort(this.value)" 
-                style="border: none; background: transparent; color: #475569; font-size: 13px; font-weight: 600; cursor: pointer; outline: none;">
-                <option value="updated" ${nav.sortBy === 'updated' ? 'selected' : ''}>Last Edit</option>
-                <option value="title" ${nav.sortBy === 'title' ? 'selected' : ''}>Name A-Z</option>
-                <option value="oldest" ${nav.sortBy === 'oldest' ? 'selected' : ''}>Oldest Created</option>
-                <option value="newest" ${nav.sortBy === 'newest' ? 'selected' : ''}>Newest Created</option>
-            </select>
+                <div style="display: flex; align-items: center; gap: 8px; white-space: nowrap; background: #f8fafc; padding: 8px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                    <label style="font-size: 13px; color: #64748b; font-weight: 600;">Sort:</label>
+                    <select onchange="updateSort(this.value)" 
+                        style="border: none; background: transparent; color: #475569; font-size: 13px; font-weight: 600; cursor: pointer; outline: none;">
+                        <option value="updated" ${nav.sortBy === 'updated' ? 'selected' : ''}>Latest Edit</option>
+                       <option value="title" ${nav.sortBy === 'title' ? 'selected' : ''}>Name A-Z</option>
+                    </select>
                 </div>
             </div>
             <div id="projects-area"></div>`;
@@ -979,56 +977,47 @@ async function renderProjectsInline() {
 
         const snap = await query.get();
 
+        // SORTING LOGIC
         const docs = snap.docs.sort((a, b) => {
-    const dataA = a.data();
-    const dataB = b.data();
+            const dataA = a.data();
+            const dataB = b.data();
 
-    // 1. Determine the "Birthday" (Created Date)
-    // If 'created' doesn't exist, we use 'updated' as a backup.
-    // This handles all your old files that were made before we added 'created'.
-    const timeA = dataA.created || dataA.updated || 0;
-    const timeB = dataB.created || dataB.updated || 0;
+            if (nav.sortBy === 'title') {
+                // Alphabetical sorting
+                return (dataA.title || "").localeCompare(dataB.title || "");
+                       } else {
+                // Last Edit (Newest first) - default
+                return (dataB.updated || 0) - (dataA.updated || 0);
+            }
+        });
 
-    switch (nav.sortBy) {
-        case 'title':
-            return (dataA.title || "").localeCompare(dataB.title || "");
-        
-        case 'oldest':
-            // ASCENDING: Smallest number (oldest date) first
-            // Result: 1.1 -> 1.2 -> 2 -> 3
-            return timeA - timeB;
-        
-        case 'newest':
-            // DESCENDING: Largest number (newest date) first
-            // Result: 3 -> 2 -> 1.2 -> 1.1
-            return timeB - timeA;
-        
-        case 'updated':
-        default:
-            // ALWAYS DESCENDING: Most recently edited at the top
-            return (dataB.updated || 0) - (dataA.updated || 0);
-    }
-});
-
-        // ... Render your HTML grid here as before ...
+        // ... rest of your existing code to build the grid (html += ...)
         let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px;">`;
+        
         docs.forEach(doc => {
             const p = doc.data();
             html += `
-                <div class="project-card" onclick="loadProject('${doc.id}')">
-                    <div class="project-left">
-                        <span class="project-title">${p.title || "Untitled"}</span>
+                <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer; width:300px; box-sizing:border-box;">
+                    <div class="project-left" style="flex:1; overflow:hidden;">
+                        <span style="color: var(--accent); font-weight: bold; font-size: 1.1em; white-space:nowrap; text-overflow:ellipsis; display:block; overflow:hidden;">
+                            ${p.title || "Untitled Builder"}
+                        </span>
                     </div>
-                    <div class="project-actions" onclick="event.stopPropagation();">
-                        <span class="icon-btn" onclick="duplicateSB('${doc.id}', event)">📋</span>
-                        <span class="icon-btn delete-btn" onclick="deleteProject('${doc.id}', event)">🗑️</span>
+                    <div class="project-actions" onclick="event.stopPropagation();" style="display:flex; gap:10px; margin-left:10px;">
+                        <span class="icon-btn" title="Duplicate" onclick="duplicateSB('${doc.id}', event)">📋</span>
+                        <span class="icon-btn delete-btn" title="Delete" onclick="deleteProject('${doc.id}', event)">🗑️</span>
                     </div>
                 </div>`;
         });
-        projectsArea.innerHTML = html + "</div>";
+        html += `</div>`;
+
+        if (docs.length === 0) {
+            html = `<p style="padding:20px; color:#64748b;">No sentence builders found.</p>`;
+        }
+        projectsArea.innerHTML = html;
 
     } catch (error) {
-        console.error("Fetch error:", error);
+        console.error("Error fetching projects:", error);
     }
 }
     async function confirmDelete(id) {
@@ -1097,39 +1086,84 @@ async function openTopic(topic) {
    CLOUD
 ========================= */
 async function saveToCloud(isAutosave = false) {
-    if (!auth.currentUser || !currentProjectId) return;
+    if (!currentUser) return;
 
-    const manualStatus = document.getElementById('save-status');
-    const autoStatus = document.getElementById('autosave-status');
+    // References to our two distinct status areas
+    const manualStatus = document.getElementById('manual-save-status');
+    const autoStatus = document.getElementById('autosave-indicator');
 
     const data = {
+        uid: currentUser.uid,
+        title: document.getElementById('builder-title').value || "Untitled",
+        lang: document.getElementById('meta-lang').value,
+        year: document.getElementById('meta-year').value,
+        topic: document.getElementById('meta-topic').value,
         grid: JSON.stringify(grid),
-        title: document.getElementById('builder-title').value,
-        updated: Date.now() // This moves it to the top of "Last Edit"
-        // 'created' is NOT here, so it stays original
+        updated: firebase.firestore.FieldValue.serverTimestamp()
     };
 
     try {
-        await db.collection("builders").doc(currentProjectId).update(data);
-        
+        if (currentDocId) {
+            await db.collection("builders").doc(currentDocId).update(data);
+        } else {
+            const doc = await db.collection("builders").add(data);
+            currentDocId = doc.id;
+        }
+
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         if (isAutosave) {
+            // 1. SILENT AUTOSAVE: Update the centered bottom indicator only
             if (autoStatus) autoStatus.innerText = `Autosaved at ${time}`;
         } else {
+            // 2. MANUAL SAVE: Update the top indicator for visual feedback
             if (manualStatus) {
                 manualStatus.innerText = "Saved!";
+                // Visible for 8 seconds
                 setTimeout(() => { manualStatus.innerText = ""; }, 5000);
             }
+            
+            // 3. Update the bottom timestamp too so they match
             if (autoStatus) autoStatus.innerText = `Last manual save at ${time}`;
+            
+            // NOTE: The alert/popup has been removed from here.
         }
+
     } catch (e) {
         console.error("Save error:", e);
-        if (!isAutosave && manualStatus) {
-            manualStatus.innerText = "Error Saving!";
-            manualStatus.style.color = "red";
+        // Only alert if the user actually clicked the button and it failed
+        if (!isAutosave) {
+            if (manualStatus) {
+                manualStatus.innerText = "Error Saving!";
+                manualStatus.style.color = "red";
+            }
         }
     }
+}
+async function loadProject(id) {
+    const doc = await db.collection("builders").doc(id).get();
+    const d = doc.data();
+
+    currentDocId = id;
+    grid = JSON.parse(d.grid);
+
+    meta = {
+        lang: d.lang,
+        year: d.year,
+        topic: d.topic
+    };
+
+    // Sync UI elements
+    document.getElementById('meta-lang').value = d.lang;
+    document.getElementById('meta-year').value = d.year;
+    document.getElementById('meta-topic').value = d.topic;
+    document.getElementById('builder-title').value = d.title;
+
+    history = [JSON.stringify(grid)];
+    historyStep = 0;
+
+    showPage("editor-page");
+    render(false);
 }
 async function deleteProject(id) {
     const ok = confirm("Delete this builder permanently? This cannot be undone.");
@@ -1255,6 +1289,7 @@ async function duplicateSB(id, e) {
     if (e) e.stopPropagation();
     
     try {
+        // Fetch the original document from Firestore
         const doc = await db.collection("builders").doc(id).get();
         if (!doc.exists) return;
         
@@ -1262,17 +1297,15 @@ async function duplicateSB(id, e) {
         const newTitle = prompt("Enter name for the duplicate:", "Copy of " + original.title);
         if (!newTitle) return;
 
-const now = Date.now();
-const duplicateData = {
-    ...original,
-    title: newTitle,
-    created: now, // Critical for 'Newest Created'
-    updated: now  // Critical for 'Last Edit'
-};
+        // Create the duplicate object
+        const duplicateData = {
+            ...original,
+            title: newTitle,
+            updated: firebase.firestore.FieldValue.serverTimestamp()
+        };
 
         await db.collection("builders").add(duplicateData);
-        renderProjectsInline(); 
-        
+        renderProjectsInline(); // Refresh the list
     } catch (err) {
         console.error("Duplication failed:", err);
         alert("Duplication failed: " + err.message);
