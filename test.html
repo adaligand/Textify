@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedarsccc builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1391,23 +1390,86 @@ document.addEventListener('paste', (e) => {
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
         e.preventDefault();
         
-        // Updated to handle the "-t" or "-tr" suffix
+        // Data format: row-col-itemIndex-type (e.g. "0-0-1-tr")
         const posParts = active.dataset.pos.split('-');
         const r = parseInt(posParts[0]);
         const cIdx = parseInt(posParts[1]);
+        const itemIdx = parseInt(posParts[2]);
+        const type = posParts[3]; // 't' or 'tr'
         
-        const pastedData = e.clipboardData.getData('text/plain');
-        const lines = pastedData.split('\n');
-        const newItems = lines.map(line => {
-            const [t, tr] = line.split('|');
-            return { t: (t || "").trim(), tr: (tr || "").trim() };
-        }).filter(item => item.t || item.tr);
+        const pastedData = e.clipboardData.getData('text/plain').replace(/\r/g, '');
+        const lines = pastedData.split('\n').filter(l => l.trim() !== "");
 
-        if (newItems.length > 0) {
-            grid[r][cIdx].items = newItems;
-            render(); 
+        if (lines.length === 1) {
+            // SCENARIO 1: Paste into the specific box (Target or Translation)
+            const content = lines[0].split('|');
+            if (content.length > 1) {
+                // If user pastes "A|B" into a box, fill both parts of this row
+                grid[r][cIdx].items[itemIdx].t = content[0].trim();
+                grid[r][cIdx].items[itemIdx].tr = content[1].trim();
+            } else {
+                // Just paste into the specific field focused
+                grid[r][cIdx].items[itemIdx][type] = lines[0];
+            }
+        } else {
+            // SCENARIO 2: Multi-line paste (Create new rows)
+            const newItems = lines.map(line => {
+                const parts = line.split('|');
+                return parts.length > 1 
+                    ? { t: parts[0].trim(), tr: parts[1].trim() }
+                    : (type === 'tr' ? { t: "", tr: line.trim() } : { t: line.trim(), tr: "" });
+            });
             
-            // Focus the first input (target side) of the newly pasted cell
+            // Insert after the current item index
+            grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
+        }
+
+        render();
+        saveToCloud(true);
+        
+        // Optional: Re-focus the element after render
+        setTimeout(() => {
+            const selector = `input[data-pos="${r}-${cIdx}-${itemIdx}-${type}"]`;
+            const el = document.querySelector(selector);
+            if (el) {
+                el.focus();
+                // Move cursor to end
+                const len = el.value.length;
+                el.setSelectionRange(len, len);
+            }
+        }, 0);
+    }
+});
+    /* =========================
+    CUT SYSTEM (CTRL + X)
+========================= */
+document.addEventListener('cut', (e) => {
+    const active = document.activeElement;
+    
+    // Check if we are inside a vocab input
+    if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
+        const cellEl = active.closest('.cell');
+        
+        // Only trigger "Whole Cell Cut" if the cell has the visual-selected class (from Ctrl+A)
+        if (cellEl && cellEl.classList.contains('visual-selected')) {
+            const posParts = active.dataset.pos.split('-');
+            const r = parseInt(posParts[0]);
+            const cIdx = parseInt(posParts[1]);
+            
+            // 1. Copy the data to clipboard first
+            const cellData = grid[r][cIdx].items;
+            const textToCopy = cellData.map(item => `${item.t}|${item.tr}`).join('\n');
+            e.clipboardData.setData('text/plain', textToCopy);
+            e.preventDefault(); // Stop the default browser cut
+
+            // 2. Empty the cell in the grid state
+            grid[r][cIdx].items = [{t: "", tr: ""}];
+            
+            // 3. UI Cleanup
+            cellEl.classList.remove('visual-selected');
+            render(); // Refresh grid to show empty cell
+            
+            // 4. Refocus the now-empty first input
             setTimeout(() => {
                 const firstInput = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
                 if(firstInput) firstInput.focus();
