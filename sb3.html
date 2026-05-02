@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars bccccuilder</title>
+    <title>Cedarscuilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1014,11 +1014,21 @@ function addNewTopicPrompt() {
         </select>
     `;
 }
-async function updateMeta() {
+/* =========================
+   GLOBAL LISTENER REF
+========================= */
+let topicUnsubscribe = null;
+
+
+/* =========================
+   LIVE updateMeta (REAL-TIME)
+========================= */
+function updateMeta() {
     meta.lang = document.getElementById("meta-lang").value;
     meta.year = document.getElementById("meta-year").value;
 
     const yearSelect = document.getElementById("meta-year");
+
     if (meta.lang === "EAL") {
         yearSelect.value = "EAL";
         yearSelect.disabled = true;
@@ -1027,34 +1037,46 @@ async function updateMeta() {
         yearSelect.disabled = false;
     }
 
-    try {
-        let query = db.collection("builders").where("lang", "==", meta.lang);
-        if (meta.lang !== "EAL") {
-            query = query.where("year", "==", meta.year);
-        }
+    // ✅ 1. CLEAN previous listener
+    if (topicUnsubscribe) {
+        topicUnsubscribe();
+        topicUnsubscribe = null;
+    }
 
-        const snap = await query.get();
-        const fetchedTopics = [...new Set(
+    // ✅ 2. BUILD query
+    let query = db.collection("builders").where("lang", "==", meta.lang);
+    if (meta.lang !== "EAL") {
+        query = query.where("year", "==", meta.year);
+    }
+
+    // ✅ 3. REAL-TIME listener
+    topicUnsubscribe = query.onSnapshot((snap) => {
+        let topics = [...new Set(
             snap.docs.map(d => d.data().topic).filter(Boolean)
         )];
 
         // ✅ preserve current topic
-        if (meta.topic && !fetchedTopics.includes(meta.topic)) {
-            fetchedTopics.push(meta.topic);
+        if (meta.topic && !topics.includes(meta.topic)) {
+            topics.push(meta.topic);
         }
 
-        window.allAvailableTopics = fetchedTopics.sort();
+        window.allAvailableTopics = topics.sort();
 
+        // ✅ 4. re-render dropdown
         const container = document.getElementById('meta-topic-container');
         if (container) {
             container.innerHTML = renderTopicDropdown();
         }
 
-    } catch (error) {
-        console.error("Error updating topics:", error);
-    }
+        // ✅ 5. sync selected value
+        const dropdown = document.getElementById("meta-topic");
+        if (dropdown) {
+            meta.topic = dropdown.value;
+        }
+    }, (err) => {
+        console.error("Realtime topic error:", err);
+    });
 }
-
 // Update your existing loadProject function
 async function loadProject(id) {
     const doc = await db.collection("builders").doc(id).get();
@@ -1082,7 +1104,9 @@ async function loadProject(id) {
     historyStep = 0;
 
     showPage("editor-page");
-    render(false);
+    updateMeta();
+
+render(false);
 }
 function updateSort(val) {
     nav.sortBy = val; // Update the global navigation state
@@ -1636,25 +1660,21 @@ async function createNewProject() {
     history = [JSON.stringify(grid)];
     historyStep = 0;
 
-    // Sync UI
-    document.getElementById('meta-lang').value = meta.lang;
-    document.getElementById('meta-year').value = meta.year;
-    document.getElementById('builder-title').value = "Untitled";
+   // Sync UI
+document.getElementById('meta-lang').value = meta.lang;
+document.getElementById('meta-year').value = meta.year;
+document.getElementById('builder-title').value = "Untitled";
 
-    showPage('editor-page');
-    closeModals();
+showPage('editor-page');
+closeModals();
 
-    // ✅ CRITICAL: render dropdown BEFORE save
-    const container = document.getElementById('meta-topic-container');
-    if (container) {
-        container.innerHTML = renderTopicDropdown();
-    }
+// ✅ ONLY THIS
+updateMeta();
 
-    render(false);
+render(false);
 
-    // Save AFTER UI ready
-    await saveToCloud(true);
-}
+// Save AFTER UI ready
+await saveToCloud(true);
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
     window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
 
