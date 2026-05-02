@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars buxilder</title>
+    <title>Cedarffs buxilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -982,30 +982,34 @@ async function renderProjectsInline() {
 const snap = await query.get();
 
 // NEW SORTING LOGIC
+/* --- Inside renderProjectsInline --- */
+
 const docs = snap.docs.sort((a, b) => {
     const dataA = a.data();
     const dataB = b.data();
 
-    // Ensure we have numbers to compare, default to 0 if missing
-    const timeA = dataA.created || dataA.updated || 0;
-    const timeB = dataB.created || dataB.updated || 0;
+    // Use 0 as a fallback so cards without the field are treated as "The Oldest"
+    const createdA = dataA.created || 0;
+    const createdB = dataB.created || 0;
+    const updatedA = dataA.updated || 0;
+    const updatedB = dataB.updated || 0;
 
     switch (nav.sortBy) {
         case 'title':
             return (dataA.title || "").localeCompare(dataB.title || "");
         
         case 'oldest':
-            // Oldest timestamp first (Ascending)
-            return timeA - timeB;
+            // Smallest number (0 or early date) first
+            return createdA - createdB;
         
         case 'newest':
-            // Newest timestamp first (Descending)
-            return timeB - timeA;
+            // Largest number (most recent date) first
+            return createdB - createdA;
         
         case 'updated':
         default:
-            // Most recently edited first
-            return (dataB.updated || 0) - (dataA.updated || 0);
+            // Largest number (most recent edit) first
+            return updatedB - updatedA;
     }
 });
 
@@ -1304,17 +1308,9 @@ function toggleCellSplit(r, c) {
     render(); // Re-draw the grid to apply the 'split' class
 }
 async function duplicateSB(id, e) {
-  if(e) e.stopPropagation();
-    // ... fetching original code
-    const newData = {
-        ...data,
-        title: data.title + " (Copy)",
-        updated: Date.now(),
-        created: Date.now() // This ensures the copy is recognized as "Newest"
-    };
+    if (e) e.stopPropagation();
     
     try {
-        // Fetch the original document from Firestore
         const doc = await db.collection("builders").doc(id).get();
         if (!doc.exists) return;
         
@@ -1322,15 +1318,18 @@ async function duplicateSB(id, e) {
         const newTitle = prompt("Enter name for the duplicate:", "Copy of " + original.title);
         if (!newTitle) return;
 
-        // Create the duplicate object
+        const now = Date.now(); // Get one consistent timestamp
+
         const duplicateData = {
             ...original,
             title: newTitle,
-            updated: firebase.firestore.FieldValue.serverTimestamp()
+            created: now,  // Set specifically for Newest/Oldest sort
+            updated: now   // Set specifically for Last Edit sort
         };
 
         await db.collection("builders").add(duplicateData);
-        renderProjectsInline(); // Refresh the list
+        renderProjectsInline(); 
+        
     } catch (err) {
         console.error("Duplication failed:", err);
         alert("Duplication failed: " + err.message);
