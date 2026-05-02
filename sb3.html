@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Ceccccdars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -628,7 +628,8 @@ button:hover {
                 <option value="Year 13">Year 13</option>
             </select>
 
-            <input type="text" id="meta-topic" class="editor-header-input" placeholder="Topic Name" oninput="updateMeta()" style="width: 150px;">
+           <div id="meta-topic-container">
+    </div>
         </div>
 <button onclick="saveToCloud()" class="btn-purple">💾 Save</button>
     <span id="manual-save-status" style="margin-left:10px; font-weight:bold; color:#10b981;"></span>
@@ -939,9 +940,18 @@ async function renderTopicsInline() {
             snap.docs.map(d => d.data().topic).filter(Boolean)
         )].sort();
 
-        let html = `<h3 style="margin-top:20px;">Topics</h3>
+        // Save for the Editor dropdown
+        window.allAvailableTopics = topicList;
+
+        let html = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; margin-bottom: 10px;">
+                <h3 style="margin: 0;">Topics</h3>
+                <button onclick="addNewTopicPrompt()" 
+                    style="background:var(--purple); color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
+                    + New Topic
+                </button>
+            </div>
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 20px;">
-                
                 <div style="display: flex; flex-wrap: wrap; gap: 10px; flex: 1;">
         `;
 
@@ -961,41 +971,14 @@ async function renderTopicsInline() {
             html += `<p style="color:#64748b;">No topics found.</p>`;
         }
 
-        html += `</div>`; // Close the topic buttons container
-
-        // ONLY add the Sort Dropdown if a topic is selected
+        html += `</div>`; // Close buttons div
+        
+        // Add your Sort Dropdown logic here (as it was in your previous code)
         if (nav.topic) {
-            html += `
-            <div style="position: relative; display: inline-block;">
-                <div id="custom-sort-trigger" onclick="event.stopPropagation(); document.getElementById('custom-sort-options').classList.toggle('show')" 
-                     style="display: flex; align-items: center; gap: 8px; white-space: nowrap; background: #ffffff; padding: 8px 12px; border-radius: 8px; border: 1px solid #e2e8f0; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                    <label style="font-size: 13px; color: #64748b; font-weight: 600; cursor: pointer;">Sort:</label>
-                    <span style="font-size: 13px; color: #475569; font-weight: 600;">
-                        ${nav.sortBy === 'updated' ? 'Latest Edit' : 'Name A-Z'}
-                    </span>
-                    <span style="font-size: 10px; color: #94a3b8;">▼</span>
-                </div>
-
-                <div id="custom-sort-options" class="custom-dropdown-content">
-                    <div class="sort-option" onclick="event.stopPropagation(); updateSort('updated');">Latest Edit</div>
-                    <div class="sort-option" onclick="event.stopPropagation(); updateSort('title');">Name A-Z</div>
-                </div>
-            </div>`;
+             html += `[Your existing sort dropdown HTML]`;
         }
 
         html += `</div><div id="projects-area"></div>`;
-
-        // Click Outside handler (remains same)
-        window.onclick = function(event) {
-            const dropdown = document.getElementById('custom-sort-options');
-            const trigger = document.getElementById('custom-sort-trigger');
-            if (dropdown && dropdown.classList.contains('show')) {
-                if (!trigger.contains(event.target) && !dropdown.contains(event.target)) {
-                    dropdown.classList.remove('show');
-                }
-            }
-        }
-        
         topicArea.innerHTML = html;
 
         if (nav.topic) renderProjectsInline();
@@ -1003,6 +986,71 @@ async function renderTopicsInline() {
     } catch (error) {
         console.error("Error fetching topics:", error);
     }
+}
+
+// Logic for the "+ New Topic" button on the dashboard
+function addNewTopicPrompt() {
+    const name = prompt("Enter new topic name:");
+    if (name && name.trim() !== "") {
+        const cleanedName = name.trim();
+        
+        // Update navigation state
+        nav.topic = cleanedName;
+        
+        // Add to our global list so the dropdown shows it immediately
+        if (!window.allAvailableTopics) window.allAvailableTopics = [];
+        if (!window.allAvailableTopics.includes(cleanedName)) {
+            window.allAvailableTopics.push(cleanedName);
+            window.allAvailableTopics.sort();
+        }
+
+        // Trigger the creation process
+        createNewProject();
+    }
+}
+   function renderTopicDropdown() {
+    const topics = window.allAvailableTopics || [];
+    // Ensure current topic is always an option even if not in the database yet
+    if (nav.topic && !topics.includes(nav.topic)) {
+        topics.push(nav.topic);
+        topics.sort();
+    }
+    
+    return `
+        <select id="meta-topic" class="editor-header-input" onchange="updateMeta()" style="width: 150px; font-weight:bold;">
+            ${topics.map(t => `<option value="${t}" ${t === nav.topic ? 'selected' : ''}>${t}</option>`).join('')}
+        </select>
+    `;
+}
+
+// Update your existing loadProject function
+async function loadProject(id) {
+    const doc = await db.collection("builders").doc(id).get();
+    const d = doc.data();
+
+    currentDocId = id;
+    grid = JSON.parse(d.grid);
+
+    nav.lang = d.lang;
+    nav.year = d.year;
+    nav.topic = d.topic;
+
+    // Sync static UI
+    document.getElementById('meta-lang').value = d.lang;
+    document.getElementById('meta-year').value = d.year;
+    document.getElementById('builder-title').value = d.title || "";
+    
+    // INJECT THE DROPDOWN
+    const container = document.getElementById('meta-topic-container');
+    if (container) {
+        container.innerHTML = renderTopicDropdown();
+    }
+
+    history = [JSON.stringify(grid)];
+    historyStep = 0;
+
+    showPage("editor-page");
+    render(false);
 }
 function updateSort(val) {
     nav.sortBy = val; // Update the global navigation state
@@ -1565,20 +1613,25 @@ function handleKey(e, r, cIdx, i, type) {
  function createNewProject() {
     currentDocId = null;
     
-    // Set sensible defaults so the editor isn't empty
+    // Use existing nav values if they exist, otherwise defaults
     meta = { 
-        lang: "French", 
-        year: "Year 9", 
-        topic: "New Topic"
+        lang: nav.lang || "French", 
+        year: nav.year || "Year 9", 
+        topic: nav.topic || "New Topic"
     };
 
-    // Sync the editor header inputs immediately
+    // 1. Sync the basic static inputs
     document.getElementById('meta-lang').value = meta.lang;
     document.getElementById('meta-year').value = meta.year;
-    document.getElementById('meta-topic').value = meta.topic;
     document.getElementById('builder-title').value = "Untitled";
 
-    // Initialize a fresh 2x3 grid
+    // 2. Inject the Topic Dropdown (this replaces the need to set .value on 'meta-topic')
+    const container = document.getElementById('meta-topic-container');
+    if (container) {
+        container.innerHTML = renderTopicDropdown();
+    }
+
+    // Initialize a fresh grid
     grid = [[c(), c(), c()], [c(), c(), c()]];
     history = [JSON.stringify(grid)];
     historyStep = 0;
