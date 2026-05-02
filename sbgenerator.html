@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarscc buidr</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1687,28 +1687,33 @@ async function exportPDF() {
     const title = document.getElementById('builder-title').value || "Sentence Builder";
     const { jsPDF } = window.jspdf;
 
-    // --- OPTION A: EAL (Image-based / Original version) ---
+    // --- OPTION A: EAL (Image-based / Screenshot version) ---
     if (meta.lang === "EAL") {
-        const edits = document.querySelectorAll('.no-export, .action-btn');
+        const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
         edits.forEach(el => el.style.visibility = 'hidden');
 
         try {
-            const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
+            const canvas = await html2canvas(document.getElementById('grid-container'), { 
+                scale: 3, 
+                useCORS: true 
+            });
             edits.forEach(el => el.style.visibility = 'visible');
 
             const pdf = new jsPDF('l', 'mm', 'a4');
             pdf.setFont("helvetica", "bold");
             pdf.text(title, 14, 15);
-            pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
+            
+            const imgData = canvas.toDataURL('image/png');
+            pdf.addImage(imgData, 'PNG', 10, 20, 275, 0);
             pdf.save(`${title}.pdf`);
         } catch (err) {
             console.error("EAL PDF Export failed:", err);
             edits.forEach(el => el.style.visibility = 'visible');
         }
-        return; // Exit function here
+        return; 
     }
 
-    // --- OPTION B: MFL (Vector-based / Searchable version) ---
+    // --- OPTION B: MFL (Vector-based / Searchable & Editable Text) ---
     const doc = new jsPDF('l', 'mm', 'a4');
     const margin = 10;
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -1726,36 +1731,39 @@ async function exportPDF() {
     let currentY = margin + 15;
 
     grid.forEach((row) => {
-        let maxItems = 1;
+        let maxItemsInRow = 1;
         row.forEach(cell => {
-            if (cell.items.length > maxItems) maxItems = cell.items.length;
+            if (cell.items.length > maxItemsInRow) maxItemsInRow = cell.items.length;
         });
-        const rowHeight = Math.max(20, maxItems * 7);
+        const rowHeight = Math.max(20, maxItemsInRow * 7.5);
 
         row.forEach((cell, colIndex) => {
             const x = margin + (colIndex * cellWidth);
+            
             doc.setDrawColor(148, 163, 184); 
             doc.setLineWidth(0.2);
             doc.rect(x, currentY, cellWidth, rowHeight);
 
-            let textY = currentY + 6;
+            let textY = currentY + 7;
             cell.items.forEach((item) => {
                 const targetText = item.t || "";
-                const translationText = item.tr ? ` [${item.tr}]` : "";
+                // CHANGED: Using ( ) instead of [ ]
+                const translationText = item.tr ? ` (${item.tr})` : "";
 
-                if (targetText) {
+                if (targetText || translationText) {
                     doc.setFont("helvetica", "bold");
                     doc.setFontSize(10);
                     doc.setTextColor(0, 0, 0);
-                    doc.text(targetText, x + 3, textY);
+                    doc.text(targetText, x + 4, textY);
+                    
                     const tWidth = doc.getTextWidth(targetText);
 
-                    if (translationText) {
+                    if (item.tr) {
                         doc.setFont("helvetica", "italic");
                         doc.setTextColor(41, 128, 185); 
-                        doc.text(translationText, x + 3 + tWidth, textY);
+                        doc.text(translationText, x + 4 + tWidth, textY);
                     }
-                    textY += 6;
+                    textY += 6.5;
                 }
             });
         });
