@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedars buxilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -933,14 +933,15 @@ async function renderTopicsInline() {
         html += `
                 </div>
 
-                <div style="display: flex; align-items: center; gap: 8px; white-space: nowrap; background: #f8fafc; padding: 8px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                    <label style="font-size: 13px; color: #64748b; font-weight: 600;">Sort:</label>
-                    <select onchange="updateSort(this.value)" 
-                        style="border: none; background: transparent; color: #475569; font-size: 13px; font-weight: 600; cursor: pointer; outline: none;">
-                        <option value="updated" ${nav.sortBy === 'updated' ? 'selected' : ''}>Latest Edit</option>
-                        <option value="created" ${nav.sortBy === 'created' ? 'selected' : ''}>Created Date</option>
-                        <option value="title" ${nav.sortBy === 'title' ? 'selected' : ''}>Name A-Z</option>
-                    </select>
+<div style="display: flex; align-items: center; gap: 8px; white-space: nowrap; background: #f8fafc; padding: 8px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+            <label style="font-size: 13px; color: #64748b; font-weight: 600;">Sort:</label>
+            <select onchange="updateSort(this.value)" 
+                style="border: none; background: transparent; color: #475569; font-size: 13px; font-weight: 600; cursor: pointer; outline: none;">
+                <option value="updated" ${nav.sortBy === 'updated' ? 'selected' : ''}>Last Edit</option>
+                <option value="title" ${nav.sortBy === 'title' ? 'selected' : ''}>Name A-Z</option>
+                <option value="oldest" ${nav.sortBy === 'oldest' ? 'selected' : ''}>Oldest Created</option>
+                <option value="newest" ${nav.sortBy === 'newest' ? 'selected' : ''}>Newest Created</option>
+            </select>
                 </div>
             </div>
             <div id="projects-area"></div>`;
@@ -976,24 +977,37 @@ async function renderProjectsInline() {
             query = query.where("year", "==", nav.year);
         }
 
-        const snap = await query.get();
+       /* --- Inside renderProjectsInline --- */
 
-        // SORTING LOGIC
-        const docs = snap.docs.sort((a, b) => {
-            const dataA = a.data();
-            const dataB = b.data();
+const snap = await query.get();
 
-            if (nav.sortBy === 'title') {
-                // Alphabetical sorting
-                return (dataA.title || "").localeCompare(dataB.title || "");
-            } else if (nav.sortBy === 'created') {
-                // Creation date (Oldest first)
-                return (dataA.created || 0) - (dataB.created || 0);
-            } else {
-                // Last Edit (Newest first) - default
-                return (dataB.updated || 0) - (dataA.updated || 0);
-            }
-        });
+// NEW SORTING LOGIC
+const docs = snap.docs.sort((a, b) => {
+    const dataA = a.data();
+    const dataB = b.data();
+
+    // Ensure we have numbers to compare, default to 0 if missing
+    const timeA = dataA.created || dataA.updated || 0;
+    const timeB = dataB.created || dataB.updated || 0;
+
+    switch (nav.sortBy) {
+        case 'title':
+            return (dataA.title || "").localeCompare(dataB.title || "");
+        
+        case 'oldest':
+            // Oldest timestamp first (Ascending)
+            return timeA - timeB;
+        
+        case 'newest':
+            // Newest timestamp first (Descending)
+            return timeB - timeA;
+        
+        case 'updated':
+        default:
+            // Most recently edited first
+            return (dataB.updated || 0) - (dataA.updated || 0);
+    }
+});
 
         // ... rest of your existing code to build the grid (html += ...)
         let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px;">`;
@@ -1290,7 +1304,14 @@ function toggleCellSplit(r, c) {
     render(); // Re-draw the grid to apply the 'split' class
 }
 async function duplicateSB(id, e) {
-    if (e) e.stopPropagation();
+  if(e) e.stopPropagation();
+    // ... fetching original code
+    const newData = {
+        ...data,
+        title: data.title + " (Copy)",
+        updated: Date.now(),
+        created: Date.now() // This ensures the copy is recognized as "Newest"
+    };
     
     try {
         // Fetch the original document from Firestore
