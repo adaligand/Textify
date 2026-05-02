@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars buiddlder</title>
+    <title>Cedars cccbuiddlder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1363,19 +1363,19 @@ async function duplicateSB(id, e) {
     }
 }
 /* =========================
-    COPY & PASTE SYSTEM
+    REFINED COPY & PASTE SYSTEM
 ========================= */
 
 document.addEventListener('copy', (e) => {
     const active = document.activeElement;
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
         
-        // 1. If the user has highlighted a specific word/phrase, let the browser copy normally
+        // 1. If user has highlighted specific text, let the browser copy just that word/phrase
         if (active.selectionStart !== active.selectionEnd) {
-            return; // Exit and allow default browser copy
+            return; 
         }
 
-        // 2. If NO text is highlighted, copy the WHOLE cell logic
+        // 2. Otherwise, perform the "Whole Cell" copy logic
         const posParts = active.dataset.pos.split('-');
         const r = parseInt(posParts[0]);
         const cIdx = parseInt(posParts[1]);
@@ -1391,6 +1391,39 @@ document.addEventListener('copy', (e) => {
     }
 });
 
+document.addEventListener('cut', (e) => {
+    const active = document.activeElement;
+    if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
+        
+        // 1. If user has highlighted specific text within the box, let browser "Cut" normally
+        if (active.selectionStart !== active.selectionEnd) {
+            return;
+        }
+
+        // 2. Otherwise, check for "Whole Cell Selection" (triggered by Ctrl+A)
+        const cellEl = active.closest('.cell');
+        if (cellEl && cellEl.classList.contains('visual-selected')) {
+            const posParts = active.dataset.pos.split('-');
+            const r = parseInt(posParts[0]);
+            const cIdx = parseInt(posParts[1]);
+            
+            const cellData = grid[r][cIdx].items;
+            const textToCopy = cellData.map(item => `${item.t}|${item.tr}`).join('\n');
+            e.clipboardData.setData('text/plain', textToCopy);
+            e.preventDefault();
+
+            grid[r][cIdx].items = [{t: "", tr: ""}];
+            cellEl.classList.remove('visual-selected');
+            render();
+            
+            setTimeout(() => {
+                const first = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
+                if(first) first.focus();
+            }, 10);
+        }
+    }
+});
+
 document.addEventListener('paste', (e) => {
     const active = document.activeElement;
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
@@ -1398,8 +1431,7 @@ document.addEventListener('paste', (e) => {
         const pastedData = e.clipboardData.getData('text/plain').replace(/\r/g, '');
         const lines = pastedData.split('\n').filter(l => l.trim() !== "");
 
-        // 1. If the pasted data contains the pipe symbol (|) or multiple lines, 
-        // it's a "Cell Paste" or "Multi-row Paste"
+        // If it looks like a "Cell" (contains | or multiple lines), use custom logic
         if (pastedData.includes('|') || lines.length > 1) {
             e.preventDefault();
             const posParts = active.dataset.pos.split('-');
@@ -1411,12 +1443,12 @@ document.addEventListener('paste', (e) => {
             if (lines.length === 1) {
                 const content = lines[0].split('|');
                 grid[r][cIdx].items[itemIdx].t = content[0].trim();
-                grid[r][cIdx].items[itemIdx].tr = content[1] ? content[1].trim() : "";
+                grid[r][cIdx].items[itemIdx].tr = (content[1] || "").trim();
             } else {
                 const newItems = lines.map(line => {
-                    const parts = line.split('|');
-                    return parts.length > 1 
-                        ? { t: parts[0].trim(), tr: parts[1].trim() }
+                    const pts = line.split('|');
+                    return pts.length > 1 
+                        ? { t: pts[0].trim(), tr: pts[1].trim() }
                         : (type === 'tr' ? { t: "", tr: line.trim() } : { t: line.trim(), tr: "" });
                 });
                 grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
@@ -1424,11 +1456,7 @@ document.addEventListener('paste', (e) => {
             render();
             saveToCloud(true);
         } 
-        // 2. Otherwise, if it's just a single word (no pipe), let the browser 
-        // paste it normally into the specific input box.
-        else {
-            // Do nothing, let default paste happen
-        }
+        // Else, it's just a normal word paste—let browser handle it
     }
 });
     /* =========================
