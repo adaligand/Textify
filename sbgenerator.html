@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedars buiddlder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1363,13 +1363,19 @@ async function duplicateSB(id, e) {
     }
 }
 /* =========================
-    COPY & PASTE SYSTEM
+    REFINED COPY & PASTE SYSTEM
 ========================= */
 
 document.addEventListener('copy', (e) => {
     const active = document.activeElement;
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
-        // Updated to handle the "-t" or "-tr" suffix
+        
+        // 1. If user has highlighted specific text, let the browser copy just that word/phrase
+        if (active.selectionStart !== active.selectionEnd) {
+            return; 
+        }
+
+        // 2. Otherwise, perform the "Whole Cell" copy logic
         const posParts = active.dataset.pos.split('-');
         const r = parseInt(posParts[0]);
         const cIdx = parseInt(posParts[1]);
@@ -1385,59 +1391,92 @@ document.addEventListener('copy', (e) => {
     }
 });
 
+document.addEventListener('cut', (e) => {
+    const active = document.activeElement;
+    if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
+        
+        // 1. If user has highlighted specific text within the box, let browser "Cut" normally
+        if (active.selectionStart !== active.selectionEnd) {
+            return;
+        }
+
+        // 2. Otherwise, check for "Whole Cell Selection" (triggered by Ctrl+A)
+        const cellEl = active.closest('.cell');
+        if (cellEl && cellEl.classList.contains('visual-selected')) {
+            const posParts = active.dataset.pos.split('-');
+            const r = parseInt(posParts[0]);
+            const cIdx = parseInt(posParts[1]);
+            
+            const cellData = grid[r][cIdx].items;
+            const textToCopy = cellData.map(item => `${item.t}|${item.tr}`).join('\n');
+            e.clipboardData.setData('text/plain', textToCopy);
+            e.preventDefault();
+
+            grid[r][cIdx].items = [{t: "", tr: ""}];
+            cellEl.classList.remove('visual-selected');
+            render();
+            
+            setTimeout(() => {
+                const first = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
+                if(first) first.focus();
+            }, 10);
+        }
+    }
+});
+
 document.addEventListener('paste', (e) => {
     const active = document.activeElement;
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
-        e.preventDefault();
-        
-        // Data format: row-col-itemIndex-type (e.g. "0-0-1-tr")
-        const posParts = active.dataset.pos.split('-');
-        const r = parseInt(posParts[0]);
-        const cIdx = parseInt(posParts[1]);
-        const itemIdx = parseInt(posParts[2]);
-        const type = posParts[3]; // 't' or 'tr'
         
         const pastedData = e.clipboardData.getData('text/plain').replace(/\r/g, '');
         const lines = pastedData.split('\n').filter(l => l.trim() !== "");
 
-        if (lines.length === 1) {
-            // SCENARIO 1: Paste into the specific box (Target or Translation)
-            const content = lines[0].split('|');
-            if (content.length > 1) {
-                // If user pastes "A|B" into a box, fill both parts of this row
-                grid[r][cIdx].items[itemIdx].t = content[0].trim();
-                grid[r][cIdx].items[itemIdx].tr = content[1].trim();
-            } else {
-                // Just paste into the specific field focused
-                grid[r][cIdx].items[itemIdx][type] = lines[0];
-            }
-        } else {
-            // SCENARIO 2: Multi-line paste (Create new rows)
+        // Determine if this is a "Cell-level" paste (contains | or multiple lines)
+        if (pastedData.includes('|') || lines.length > 1) {
+            e.preventDefault();
+            
+            const posParts = active.dataset.pos.split('-');
+            const r = parseInt(posParts[0]);
+            const cIdx = parseInt(posParts[1]);
+            const itemIdx = parseInt(posParts[2]);
+            const type = posParts[3];
+
+            const cellEl = active.closest('.cell');
+            const isFullCellSelected = cellEl && cellEl.classList.contains('visual-selected');
+
+            // Map the pasted lines into item objects {t, tr}
             const newItems = lines.map(line => {
-                const parts = line.split('|');
-                return parts.length > 1 
-                    ? { t: parts[0].trim(), tr: parts[1].trim() }
+                const pts = line.split('|');
+                return pts.length > 1 
+                    ? { t: pts[0].trim(), tr: pts[1].trim() }
                     : (type === 'tr' ? { t: "", tr: line.trim() } : { t: line.trim(), tr: "" });
             });
-            
-            // Insert after the current item index
-            grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
-        }
 
-        render();
-        saveToCloud(true);
-        
-        // Optional: Re-focus the element after render
-        setTimeout(() => {
-            const selector = `input[data-pos="${r}-${cIdx}-${itemIdx}-${type}"]`;
-            const el = document.querySelector(selector);
-            if (el) {
-                el.focus();
-                // Move cursor to end
-                const len = el.value.length;
-                el.setSelectionRange(len, len);
+            if (isFullCellSelected) {
+                // SCENARIO A: Full Cell selected - OVERWRITE everything
+                grid[r][cIdx].items = newItems;
+                cellEl.classList.remove('visual-selected');
+            } else {
+                // SCENARIO B: Specific cursor position - APPEND/INSERT logic
+                if (lines.length === 1 && !pastedData.includes('|')) {
+                    // It's just a single word being pasted into a multi-line context
+                    grid[r][cIdx].items[itemIdx][type] = lines[0];
+                } else {
+                    // Multi-line paste starting at the current line
+                    grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
+                }
             }
-        }, 0);
+
+            render();
+            saveToCloud(true);
+
+            // Maintain focus in the cell
+            setTimeout(() => {
+                const first = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
+                if(first) first.focus();
+            }, 10);
+        } 
+        // Else: Normal browser paste handles single-word-to-single-box
     }
 });
     /* =========================
@@ -1602,17 +1641,87 @@ function handleKey(e, r, cIdx, i, type) {
         render();
     }
 
-    async function exportPDF() {
-        const title = document.getElementById('builder-title').value;
+async function exportPDF() {
+    const title = document.getElementById('builder-title').value || "Sentence Builder";
+    const { jsPDF } = window.jspdf;
+
+    // --- OPTION A: EAL (Image-based / Original version) ---
+    if (meta.lang === "EAL") {
         const edits = document.querySelectorAll('.no-export, .action-btn');
         edits.forEach(el => el.style.visibility = 'hidden');
-        const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
-        edits.forEach(el => el.style.visibility = 'visible');
-        const pdf = new jspdf.jsPDF('l', 'mm', 'a4');
-        pdf.text(title, 14, 15);
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
-        pdf.save(`${title}.pdf`);
+
+        try {
+            const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
+            edits.forEach(el => el.style.visibility = 'visible');
+
+            const pdf = new jsPDF('l', 'mm', 'a4');
+            pdf.setFont("helvetica", "bold");
+            pdf.text(title, 14, 15);
+            pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
+            pdf.save(`${title}.pdf`);
+        } catch (err) {
+            console.error("EAL PDF Export failed:", err);
+            edits.forEach(el => el.style.visibility = 'visible');
+        }
+        return; // Exit function here
     }
+
+    // --- OPTION B: MFL (Vector-based / Searchable version) ---
+    const doc = new jsPDF('l', 'mm', 'a4');
+    const margin = 10;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const availableWidth = pageWidth - (margin * 2);
+    
+    if (!grid || grid.length === 0) return;
+
+    const colCount = grid[0].length;
+    const cellWidth = availableWidth / colCount;
+    
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text(title, margin, margin + 5);
+    
+    let currentY = margin + 15;
+
+    grid.forEach((row) => {
+        let maxItems = 1;
+        row.forEach(cell => {
+            if (cell.items.length > maxItems) maxItems = cell.items.length;
+        });
+        const rowHeight = Math.max(20, maxItems * 7);
+
+        row.forEach((cell, colIndex) => {
+            const x = margin + (colIndex * cellWidth);
+            doc.setDrawColor(148, 163, 184); 
+            doc.setLineWidth(0.2);
+            doc.rect(x, currentY, cellWidth, rowHeight);
+
+            let textY = currentY + 6;
+            cell.items.forEach((item) => {
+                const targetText = item.t || "";
+                const translationText = item.tr ? ` [${item.tr}]` : "";
+
+                if (targetText) {
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(10);
+                    doc.setTextColor(0, 0, 0);
+                    doc.text(targetText, x + 3, textY);
+                    const tWidth = doc.getTextWidth(targetText);
+
+                    if (translationText) {
+                        doc.setFont("helvetica", "italic");
+                        doc.setTextColor(41, 128, 185); 
+                        doc.text(translationText, x + 3 + tWidth, textY);
+                    }
+                    textY += 6;
+                }
+            });
+        });
+        currentY += rowHeight;
+    });
+
+    doc.save(`${title}.pdf`);
+}
 
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
