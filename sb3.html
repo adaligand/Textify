@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Ceccccdars builder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1008,19 +1008,71 @@ function addNewTopicPrompt() {
         createNewProject();
     }
 }
-   function renderTopicDropdown() {
+  function renderTopicDropdown() {
     const topics = window.allAvailableTopics || [];
-    // Ensure current topic is always an option even if not in the database yet
-    if (nav.topic && !topics.includes(nav.topic)) {
-        topics.push(nav.topic);
+    
+    // Always make sure the current topic is an option, even if it's new
+    if (meta.topic && !topics.includes(meta.topic)) {
+        topics.push(meta.topic);
         topics.sort();
     }
     
     return `
         <select id="meta-topic" class="editor-header-input" onchange="updateMeta()" style="width: 150px; font-weight:bold;">
-            ${topics.map(t => `<option value="${t}" ${t === nav.topic ? 'selected' : ''}>${t}</option>`).join('')}
+            ${topics.map(t => `<option value="${t}" ${t === meta.topic ? 'selected' : ''}>${t}</option>`).join('')}
         </select>
     `;
+}
+   async function updateMeta() {
+    // Store current state to check for changes
+    const oldLang = meta.lang;
+    const oldYear = meta.year;
+
+    // Get new values from UI
+    meta.lang = document.getElementById("meta-lang").value;
+    meta.year = document.getElementById("meta-year").value;
+    
+    // Handle EAL logic
+    const yearSelect = document.getElementById("meta-year");
+    if (meta.lang === "EAL") {
+        yearSelect.value = "EAL";
+        yearSelect.disabled = true;
+        meta.year = "EAL";
+    } else {
+        yearSelect.disabled = false;
+    }
+
+    // NEW: If Lang or Year changed, re-fetch topics from Firestore
+    if (meta.lang !== oldLang || meta.year !== oldYear) {
+        try {
+            let query = db.collection("builders").where("lang", "==", meta.lang);
+            if (meta.lang !== "EAL") {
+                query = query.where("year", "==", meta.year);
+            }
+
+            const snap = await query.get();
+            const topicList = [...new Set(
+                snap.docs.map(d => d.data().topic).filter(Boolean)
+            )].sort();
+
+            // Update the global list used by renderTopicDropdown
+            window.allAvailableTopics = topicList;
+            
+            // Re-render the dropdown with new topics
+            const container = document.getElementById('meta-topic-container');
+            if (container) {
+                container.innerHTML = renderTopicDropdown();
+            }
+        } catch (error) {
+            console.error("Error updating topics:", error);
+        }
+    }
+
+    // Finally, ensure meta.topic is synced with whatever is currently in the dropdown
+    const topicDropdown = document.getElementById("meta-topic");
+    if (topicDropdown) {
+        meta.topic = topicDropdown.value;
+    }
 }
 
 // Update your existing loadProject function
@@ -1610,36 +1662,41 @@ function handleKey(e, r, cIdx, i, type) {
     function openNewModal() { document.getElementById('new-modal').style.display='block'; document.getElementById('overlay').style.display='block'; }
     function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); document.getElementById('overlay').style.display='none'; }
     
- function createNewProject() {
+function createNewProject() {
     currentDocId = null;
     
-    // Use existing nav values if they exist, otherwise defaults
+    // Set meta based on the modal inputs if they exist, else defaults
+    const modalLang = document.getElementById('new-lang') ? document.getElementById('new-lang').value : "French";
+    const modalYear = document.getElementById('new-year') ? document.getElementById('new-year').value : "Year 9";
+    const modalTopic = document.getElementById('new-topic') ? document.getElementById('new-topic').value : "New Topic";
+
     meta = { 
-        lang: nav.lang || "French", 
-        year: nav.year || "Year 9", 
-        topic: nav.topic || "New Topic"
+        lang: modalLang, 
+        year: modalLang === "EAL" ? "EAL" : modalYear, 
+        topic: modalTopic
     };
 
-    // 1. Sync the basic static inputs
+    // Sync static UI
     document.getElementById('meta-lang').value = meta.lang;
     document.getElementById('meta-year').value = meta.year;
     document.getElementById('builder-title').value = "Untitled";
 
-    // 2. Inject the Topic Dropdown (this replaces the need to set .value on 'meta-topic')
+    // Initialize the topic dropdown
     const container = document.getElementById('meta-topic-container');
     if (container) {
         container.innerHTML = renderTopicDropdown();
     }
 
-    // Initialize a fresh grid
+    // Initialize grid
     grid = [[c(), c(), c()], [c(), c(), c()]];
     history = [JSON.stringify(grid)];
     historyStep = 0;
 
-    // Switch view
     showPage('editor-page');
     closeModals();
     render(false);
+    
+    // Trigger updateMeta to fetch other topics for this new selection
     updateMeta(); 
 }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
