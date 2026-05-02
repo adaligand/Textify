@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedarsxx builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -977,18 +977,15 @@ async function renderProjectsInline() {
             query = query.where("year", "==", nav.year);
         }
 
-       /* --- Inside renderProjectsInline --- */
+        const snap = await query.get();
 
-const snap = await query.get();
-
-// NEW SORTING LOGIC
-// Inside renderProjectsInline...
-
-const docs = snap.docs.sort((a, b) => {
+        const docs = snap.docs.sort((a, b) => {
     const dataA = a.data();
     const dataB = b.data();
 
-    // Fallback logic: Use created, if missing use updated, if missing use 0
+    // 1. Determine the "Birthday" (Created Date)
+    // If 'created' doesn't exist, we use 'updated' as a backup.
+    // This handles all your old files that were made before we added 'created'.
     const timeA = dataA.created || dataA.updated || 0;
     const timeB = dataB.created || dataB.updated || 0;
 
@@ -997,47 +994,41 @@ const docs = snap.docs.sort((a, b) => {
             return (dataA.title || "").localeCompare(dataB.title || "");
         
         case 'oldest':
-            // Smallest number first (e.g., 100 - 500 = negative -> 100 stays first)
+            // ASCENDING: Smallest number (oldest date) first
+            // Result: 1.1 -> 1.2 -> 2 -> 3
             return timeA - timeB;
         
         case 'newest':
-            // Largest number first (e.g., 500 - 100 = positive -> 500 moves to front)
+            // DESCENDING: Largest number (newest date) first
+            // Result: 3 -> 2 -> 1.2 -> 1.1
             return timeB - timeA;
         
         case 'updated':
         default:
-            // Most recently edited first
+            // ALWAYS DESCENDING: Most recently edited at the top
             return (dataB.updated || 0) - (dataA.updated || 0);
     }
 });
 
-        // ... rest of your existing code to build the grid (html += ...)
+        // ... Render your HTML grid here as before ...
         let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px;">`;
-        
         docs.forEach(doc => {
             const p = doc.data();
             html += `
-                <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer; width:300px; box-sizing:border-box;">
-                    <div class="project-left" style="flex:1; overflow:hidden;">
-                        <span style="color: var(--accent); font-weight: bold; font-size: 1.1em; white-space:nowrap; text-overflow:ellipsis; display:block; overflow:hidden;">
-                            ${p.title || "Untitled Builder"}
-                        </span>
+                <div class="project-card" onclick="loadProject('${doc.id}')">
+                    <div class="project-left">
+                        <span class="project-title">${p.title || "Untitled"}</span>
                     </div>
-                    <div class="project-actions" onclick="event.stopPropagation();" style="display:flex; gap:10px; margin-left:10px;">
-                        <span class="icon-btn" title="Duplicate" onclick="duplicateSB('${doc.id}', event)">📋</span>
-                        <span class="icon-btn delete-btn" title="Delete" onclick="deleteProject('${doc.id}', event)">🗑️</span>
+                    <div class="project-actions" onclick="event.stopPropagation();">
+                        <span class="icon-btn" onclick="duplicateSB('${doc.id}', event)">📋</span>
+                        <span class="icon-btn delete-btn" onclick="deleteProject('${doc.id}', event)">🗑️</span>
                     </div>
                 </div>`;
         });
-        html += `</div>`;
-
-        if (docs.length === 0) {
-            html = `<p style="padding:20px; color:#64748b;">No sentence builders found.</p>`;
-        }
-        projectsArea.innerHTML = html;
+        projectsArea.innerHTML = html + "</div>";
 
     } catch (error) {
-        console.error("Error fetching projects:", error);
+        console.error("Fetch error:", error);
     }
 }
     async function confirmDelete(id) {
@@ -1106,84 +1097,39 @@ async function openTopic(topic) {
    CLOUD
 ========================= */
 async function saveToCloud(isAutosave = false) {
-    if (!currentUser) return;
+    if (!auth.currentUser || !currentProjectId) return;
 
-    // References to our two distinct status areas
-    const manualStatus = document.getElementById('manual-save-status');
-    const autoStatus = document.getElementById('autosave-indicator');
+    const manualStatus = document.getElementById('save-status');
+    const autoStatus = document.getElementById('autosave-status');
 
     const data = {
-        uid: currentUser.uid,
-        title: document.getElementById('builder-title').value || "Untitled",
-        lang: document.getElementById('meta-lang').value,
-        year: document.getElementById('meta-year').value,
-        topic: document.getElementById('meta-topic').value,
         grid: JSON.stringify(grid),
-        updated: firebase.firestore.FieldValue.serverTimestamp()
+        title: document.getElementById('builder-title').value,
+        updated: Date.now() // This moves it to the top of "Last Edit"
+        // 'created' is NOT here, so it stays original
     };
 
     try {
-        if (currentDocId) {
-            await db.collection("builders").doc(currentDocId).update(data);
-        } else {
-            const doc = await db.collection("builders").add(data);
-            currentDocId = doc.id;
-        }
-
+        await db.collection("builders").doc(currentProjectId).update(data);
+        
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         if (isAutosave) {
-            // 1. SILENT AUTOSAVE: Update the centered bottom indicator only
             if (autoStatus) autoStatus.innerText = `Autosaved at ${time}`;
         } else {
-            // 2. MANUAL SAVE: Update the top indicator for visual feedback
             if (manualStatus) {
                 manualStatus.innerText = "Saved!";
-                // Visible for 8 seconds
                 setTimeout(() => { manualStatus.innerText = ""; }, 5000);
             }
-            
-            // 3. Update the bottom timestamp too so they match
             if (autoStatus) autoStatus.innerText = `Last manual save at ${time}`;
-            
-            // NOTE: The alert/popup has been removed from here.
         }
-
     } catch (e) {
         console.error("Save error:", e);
-        // Only alert if the user actually clicked the button and it failed
-        if (!isAutosave) {
-            if (manualStatus) {
-                manualStatus.innerText = "Error Saving!";
-                manualStatus.style.color = "red";
-            }
+        if (!isAutosave && manualStatus) {
+            manualStatus.innerText = "Error Saving!";
+            manualStatus.style.color = "red";
         }
     }
-}
-async function loadProject(id) {
-    const doc = await db.collection("builders").doc(id).get();
-    const d = doc.data();
-
-    currentDocId = id;
-    grid = JSON.parse(d.grid);
-
-    meta = {
-        lang: d.lang,
-        year: d.year,
-        topic: d.topic
-    };
-
-    // Sync UI elements
-    document.getElementById('meta-lang').value = d.lang;
-    document.getElementById('meta-year').value = d.year;
-    document.getElementById('meta-topic').value = d.topic;
-    document.getElementById('builder-title').value = d.title;
-
-    history = [JSON.stringify(grid)];
-    historyStep = 0;
-
-    showPage("editor-page");
-    render(false);
 }
 async function deleteProject(id) {
     const ok = confirm("Delete this builder permanently? This cannot be undone.");
