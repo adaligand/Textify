@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedccars builder</title>
+    <title>Cedcs builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -707,6 +707,7 @@ let nav = {
     lang: null,
     year: null,
     topic: null
+    sortBy: 'updated'
 };
 
 let grid = [[c(), c(), c()], [c(), c(), c()]];
@@ -895,23 +896,17 @@ async function renderTopicsInline() {
     const topicArea = document.getElementById("topic-area");
     if (!topicArea) return;
 
-    // 1. Fetch ALL builders for the current language only (Simplest query possible)
     let query = db.collection("builders").where("lang", "==", nav.lang);
-    
-    // Only filter by year if it's NOT EAL and a year is actually selected
     if (nav.lang !== "EAL" && nav.year) {
         query = query.where("year", "==", nav.year);
     }
 
     try {
         const snap = await query.get();
-        
-        // 2. Get unique topics and sort them alphabetically
         const topicList = [...new Set(
             snap.docs.map(d => d.data().topic).filter(Boolean)
         )].sort();
 
-        // 3. Build the Topics UI
         let html = `
             <h3 style="margin-top:20px;">Topics</h3>
             <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
@@ -930,21 +925,34 @@ async function renderTopicsInline() {
                     </button>`;
             });
         } else {
-            html += `<p style="color:#64748b;">No topics found for this selection.</p>`;
+            html += `<p style="color:#64748b;">No topics found.</p>`;
         }
 
-        html += `</div><div id="projects-area"></div>`;
+        // ADDING THE SORTING DROPDOWN BELOW THE TOPIC BUTTONS
+        html += `</div>
+            <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 15px; gap: 10px; border-top: 1px solid #eee; pt: 15px;">
+                <label style="font-size: 14px; color: #64748b; font-weight: 600;">Sort by:</label>
+                <select onchange="updateSort(this.value)" 
+                    style="padding: 6px 12px; border-radius: 6px; border: 1px solid #e2e8f0; background: white; color: #475569; font-weight: 500; cursor: pointer; outline: none;">
+                    <option value="updated" ${nav.sortBy === 'updated' ? 'selected' : ''}>Recently Edited</option>
+                    <option value="created" ${nav.sortBy === 'created' ? 'selected' : ''}>Date Created</option>
+                    <option value="title" ${nav.sortBy === 'title' ? 'selected' : ''}>Name (A-Z)</option>
+                </select>
+            </div>
+            <div id="projects-area"></div>`;
+        
         topicArea.innerHTML = html;
 
-        // 4. Auto-load projects if a topic is already selected
         if (nav.topic) renderProjectsInline();
 
     } catch (error) {
-        console.error("Error fetching topics:", error);
-        topicArea.innerHTML = "<p>Error loading topics. Please check console.</p>";
+        console.error("Error:", error);
     }
 }
-
+function updateSort(val) {
+    nav.sortBy = val;
+    renderProjectsInline();
+}
 function selectTopic(topic) {
     console.log("Topic selected:", topic); // Debugging line
     nav.topic = topic;
@@ -954,8 +962,6 @@ function selectTopic(topic) {
 async function renderProjectsInline() {
     const projectsArea = document.getElementById("projects-area");
     if (!projectsArea || !nav.topic) return;
-
-    projectsArea.innerHTML = "<p>Loading sentence builders...</p>";
 
     try {
         let query = db.collection("builders")
@@ -968,16 +974,26 @@ async function renderProjectsInline() {
 
         const snap = await query.get();
 
-        // 5. SORT BY UPDATED (In JavaScript)
-        // This ensures duplicates appear to the right without needing a Firestore Index
+        // SORTING LOGIC
         const docs = snap.docs.sort((a, b) => {
-            const valA = a.data().updated || 0;
-            const valB = b.data().updated || 0;
-            return valA - valB; // Oldest to newest
+            const dataA = a.data();
+            const dataB = b.data();
+
+            if (nav.sortBy === 'title') {
+                // Alphabetical sorting
+                return (dataA.title || "").localeCompare(dataB.title || "");
+            } else if (nav.sortBy === 'created') {
+                // Creation date (Oldest first)
+                return (dataA.created || 0) - (dataB.created || 0);
+            } else {
+                // Last Edit (Newest first) - default
+                return (dataB.updated || 0) - (dataA.updated || 0);
+            }
         });
 
+        // ... rest of your existing code to build the grid (html += ...)
         let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px;">`;
-
+        
         docs.forEach(doc => {
             const p = doc.data();
             html += `
@@ -993,18 +1009,15 @@ async function renderProjectsInline() {
                     </div>
                 </div>`;
         });
-
         html += `</div>`;
 
         if (docs.length === 0) {
-            html = `<p style="padding:20px; color:#64748b;">No sentence builders found in this topic.</p>`;
+            html = `<p style="padding:20px; color:#64748b;">No sentence builders found.</p>`;
         }
-
         projectsArea.innerHTML = html;
 
     } catch (error) {
         console.error("Error fetching projects:", error);
-        projectsArea.innerHTML = "<p>Error loading projects.</p>";
     }
 }
     async function confirmDelete(id) {
