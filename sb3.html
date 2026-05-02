@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedacccrs builder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1637,42 +1637,48 @@ function handleKey(e, r, cIdx, i, type) {
     function openNewModal() { document.getElementById('new-modal').style.display='block'; document.getElementById('overlay').style.display='block'; }
     function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); document.getElementById('overlay').style.display='none'; }
     
-function createNewProject() {
-    currentDocId = null;
-    
-    // Set meta based on the modal inputs if they exist, else defaults
-    const modalLang = document.getElementById('new-lang') ? document.getElementById('new-lang').value : "French";
-    const modalYear = document.getElementById('new-year') ? document.getElementById('new-year').value : "Year 9";
-    const modalTopic = document.getElementById('new-topic') ? document.getElementById('new-topic').value : "New Topic";
+async function createNewProject() {
+    // 1. Get the data from the modal or navigation state
+    const modalLang = document.getElementById('new-lang') ? document.getElementById('new-lang').value : (nav.lang || "French");
+    const modalYear = document.getElementById('new-year') ? document.getElementById('new-year').value : (nav.year || "Year 9");
+    const modalTopic = document.getElementById('new-topic')?.value || nav.topic || "New Topic";
 
+    // 2. Setup local meta immediately so the editor knows its context
     meta = { 
         lang: modalLang, 
         year: modalLang === "EAL" ? "EAL" : modalYear, 
         topic: modalTopic
     };
 
-    // Sync static UI
-    document.getElementById('meta-lang').value = meta.lang;
-    document.getElementById('meta-year').value = meta.year;
-    document.getElementById('builder-title').value = "Untitled";
-
-    // Initialize the topic dropdown
-    const container = document.getElementById('meta-topic-container');
-    if (container) {
-        container.innerHTML = renderTopicDropdown();
+    // 3. FORCE the new topic into our local list so the dropdown shows it immediately
+    if (!window.allAvailableTopics) window.allAvailableTopics = [];
+    if (!window.allAvailableTopics.includes(meta.topic)) {
+        window.allAvailableTopics.push(meta.topic);
+        window.allAvailableTopics.sort();
     }
 
-    // Initialize grid
+    // 4. Reset Grid & State
+    currentDocId = null;
     grid = [[c(), c(), c()], [c(), c(), c()]];
     history = [JSON.stringify(grid)];
     historyStep = 0;
 
+    // 5. Sync the static UI elements (inputs at top of editor)
+    document.getElementById('meta-lang').value = meta.lang;
+    document.getElementById('meta-year').value = meta.year;
+    document.getElementById('builder-title').value = "Untitled";
+
+    // 6. SHOW THE PAGE (so the container exists in the DOM)
     showPage('editor-page');
     closeModals();
     render(false);
-    
-    // Trigger updateMeta to fetch other topics for this new selection
-    updateMeta(); 
+
+    // 7. SAVE TO CLOUD IMMEDIATELY
+    // This ensures the topic exists in the database before updateMeta tries to fetch it
+    await saveToCloud(true); 
+
+    // 8. Now refresh the dropdown to ensure it's synced with the database list
+    await updateMeta(); 
 }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
     window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
