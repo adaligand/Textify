@@ -1391,42 +1391,54 @@ document.addEventListener('paste', (e) => {
     if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
         e.preventDefault();
         
+        // Data format: row-col-itemIndex-type (e.g. "0-0-1-tr")
         const posParts = active.dataset.pos.split('-');
         const r = parseInt(posParts[0]);
         const cIdx = parseInt(posParts[1]);
-        const isTranslationField = active.classList.contains('translation-input');
+        const itemIdx = parseInt(posParts[2]);
+        const type = posParts[3]; // 't' or 'tr'
         
-        const pastedData = e.clipboardData.getData('text/plain');
-        const lines = pastedData.split('\n');
-        
-        const newItems = lines.map(line => {
-            const parts = line.split('|');
-            // If the user copied "Target|Translation"
-            if (parts.length > 1) {
-                return { t: parts[0].trim(), tr: parts[1].trim() };
-            } 
-            // If it's just a single string, put it in the box they are currently in
-            return isTranslationField 
-                ? { t: "", tr: line.trim() } 
-                : { t: line.trim(), tr: "" };
-        }).filter(item => item.t || item.tr);
+        const pastedData = e.clipboardData.getData('text/plain').replace(/\r/g, '');
+        const lines = pastedData.split('\n').filter(l => l.trim() !== "");
 
-        if (newItems.length > 0) {
-            // Spread existing items and add the new ones
-            const existingItems = grid[r][cIdx].items.filter(item => item.t.trim() !== "" || item.tr.trim() !== "");
+        if (lines.length === 1) {
+            // SCENARIO 1: Paste into the specific box (Target or Translation)
+            const content = lines[0].split('|');
+            if (content.length > 1) {
+                // If user pastes "A|B" into a box, fill both parts of this row
+                grid[r][cIdx].items[itemIdx].t = content[0].trim();
+                grid[r][cIdx].items[itemIdx].tr = content[1].trim();
+            } else {
+                // Just paste into the specific field focused
+                grid[r][cIdx].items[itemIdx][type] = lines[0];
+            }
+        } else {
+            // SCENARIO 2: Multi-line paste (Create new rows)
+            const newItems = lines.map(line => {
+                const parts = line.split('|');
+                return parts.length > 1 
+                    ? { t: parts[0].trim(), tr: parts[1].trim() }
+                    : (type === 'tr' ? { t: "", tr: line.trim() } : { t: line.trim(), tr: "" });
+            });
             
-            grid[r][cIdx].items = [...existingItems, ...newItems];
-            
-            render(); 
-            
-            // Focus management: Return to the same type of field (T or TR) in the first new row
-            setTimeout(() => {
-                const newRowIndex = existingItems.length;
-                const fieldType = isTranslationField ? 'tr' : 't';
-                const nextInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${newRowIndex}-${fieldType}"]`);
-                if(nextInput) nextInput.focus();
-            }, 10);
+            // Insert after the current item index
+            grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
         }
+
+        render();
+        saveToCloud(true);
+        
+        // Optional: Re-focus the element after render
+        setTimeout(() => {
+            const selector = `input[data-pos="${r}-${cIdx}-${itemIdx}-${type}"]`;
+            const el = document.querySelector(selector);
+            if (el) {
+                el.focus();
+                // Move cursor to end
+                const len = el.value.length;
+                el.setSelectionRange(len, len);
+            }
+        }, 0);
     }
 });
     /* =========================
