@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title> builder</title>
+    <title> cedbuilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -888,14 +888,14 @@ function renderLibrary() {
 
     if (nav.year) renderTopicsInline();
 }
-  function selectLang(lang) {
+function selectLang(lang) {
     nav.lang = lang;
-    nav.year = null;
     nav.topic = null;
 
-    // 🔥 EAL skips year entirely
     if (nav.lang === "EAL") {
-        nav.year = "EAL";
+        nav.year = "EAL"; // This must match exactly what is saved in the DB
+    } else {
+        nav.year = null;
     }
 
     renderLibrary();
@@ -911,25 +911,28 @@ async function renderTopicsInline() {
     const topicArea = document.getElementById("topic-area");
     if (!topicArea) return;
 
-    // Query only builders that are NOT deleted
+    // Start the query with basic filters
     let query = db.collection("builders")
         .where("lang", "==", nav.lang)
         .where("isDeleted", "==", false);
 
-    if (nav.lang !== "EAL" && nav.year) {
+    // Explicitly handle the year filter
+    // If it's EAL, we look for year == "EAL". Otherwise, we use the selected year.
+    if (nav.lang === "EAL") {
+        query = query.where("year", "==", "EAL");
+    } else if (nav.year) {
         query = query.where("year", "==", nav.year);
     }
 
     try {
         const snap = await query.get();
         
-        // Extract unique topic names from the active builders
+        // Map the results to unique topics
         const topicList = [...new Set(
             snap.docs.map(d => d.data().topic).filter(t => t && t.trim() !== "")
         )].sort();
 
-        // Safety check: If the current selected topic is no longer in the list 
-        // (because its last builder was deleted), reset nav.topic
+        // If the selected topic was deleted and was the last one, reset selection
         if (nav.topic && !topicList.includes(nav.topic)) {
             nav.topic = null;
         }
@@ -937,7 +940,6 @@ async function renderTopicsInline() {
         let html = `
             <div style="display: flex; align-items: center; gap: 15px; margin-top: 20px; margin-bottom: 15px;">
                 <h3 style="margin: 0;">Topics</h3>
-                ${nav.topic ? `` : ''}
             </div>
             <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
         `;
@@ -945,7 +947,6 @@ async function renderTopicsInline() {
         if (topicList.length > 0) {
             topicList.forEach(t => {
                 const isActive = (nav.topic === t);
-                // We escape single quotes in topic names to prevent JS errors in the onclick
                 const escapedTopic = t.replace(/'/g, "\\'");
                 html += `
                     <button onclick="selectTopic('${escapedTopic}')"
@@ -957,17 +958,17 @@ async function renderTopicsInline() {
                     </button>`;
             });
         } else {
-            html += `<p style="color:#64748b;">No active topics found.</p>`;
+            html += `<p style="color:#64748b;">No active topics found for ${nav.lang}.</p>`;
         }
 
         html += `</div><div id="projects-area"></div>`;
         topicArea.innerHTML = html;
 
-        // If a topic is selected, render the projects for it
         if (nav.topic) renderProjectsInline();
 
     } catch (error) {
         console.error("Error fetching topics:", error);
+        // Check the browser console! If you see an "Index needed" error, click the link provided there.
     }
 }
 // Global Click Listener (Move this outside of any function)
