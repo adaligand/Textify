@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Ceddddfars builder</title>
+    <title> builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -911,6 +911,7 @@ async function renderTopicsInline() {
     const topicArea = document.getElementById("topic-area");
     if (!topicArea) return;
 
+    // Query only builders that are NOT deleted
     let query = db.collection("builders")
         .where("lang", "==", nav.lang)
         .where("isDeleted", "==", false);
@@ -921,11 +922,14 @@ async function renderTopicsInline() {
 
     try {
         const snap = await query.get();
+        
+        // Extract unique topic names from the active builders
         const topicList = [...new Set(
-            snap.docs.map(d => d.data().topic).filter(Boolean)
+            snap.docs.map(d => d.data().topic).filter(t => t && t.trim() !== "")
         )].sort();
 
-        // Check if current topic still exists
+        // Safety check: If the current selected topic is no longer in the list 
+        // (because its last builder was deleted), reset nav.topic
         if (nav.topic && !topicList.includes(nav.topic)) {
             nav.topic = null;
         }
@@ -933,31 +937,18 @@ async function renderTopicsInline() {
         let html = `
             <div style="display: flex; align-items: center; gap: 15px; margin-top: 20px; margin-bottom: 15px;">
                 <h3 style="margin: 0;">Topics</h3>
-                ${nav.topic ? `
-                <div style="position: relative; display: inline-block;">
-                    <div id="custom-sort-trigger" onclick="event.stopPropagation(); document.getElementById('custom-sort-options').classList.toggle('show')" 
-                         style="display: flex; align-items: center; gap: 8px; white-space: nowrap; background: #ffffff; padding: 6px 12px; border-radius: 8px; border: 1px solid #e2e8f0; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                        <label style="font-size: 13px; color: #64748b; font-weight: 600; cursor: pointer;">Sort:</label>
-                        <span style="font-size: 13px; color: #475569; font-weight: 600;">
-                            ${nav.sortBy === 'updated' ? 'Latest Edit' : 'Name A-Z'}
-                        </span>
-                        <span style="font-size: 10px; color: #94a3b8;">▼</span>
-                    </div>
-                    <div id="custom-sort-options" class="custom-dropdown-content">
-                        <div class="sort-option" onclick="event.stopPropagation(); updateSort('updated');">Latest Edit</div>
-                        <div class="sort-option" onclick="event.stopPropagation(); updateSort('title');">Name A-Z</div>
-                    </div>
-                </div>` : ''}
+                ${nav.topic ? `` : ''}
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 20px;">
-                <div style="display: flex; flex-wrap: wrap; gap: 10px; flex: 1;">
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
         `;
 
         if (topicList.length > 0) {
             topicList.forEach(t => {
                 const isActive = (nav.topic === t);
+                // We escape single quotes in topic names to prevent JS errors in the onclick
+                const escapedTopic = t.replace(/'/g, "\\'");
                 html += `
-                    <button onclick="selectTopic('${t.replace(/'/g, "\\'")}')"
+                    <button onclick="selectTopic('${escapedTopic}')"
                         style="padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:600; transition:all 0.2s;
                         ${isActive 
                             ? 'background:#4caf50; color:white; border:none; box-shadow:0 4px 6px rgba(76,175,80,0.3);' 
@@ -966,19 +957,19 @@ async function renderTopicsInline() {
                     </button>`;
             });
         } else {
-            html += `<p style="color:#64748b;">No topics found.</p>`;
+            html += `<p style="color:#64748b;">No active topics found.</p>`;
         }
 
-        html += `</div></div><div id="projects-area"></div>`;
-        
+        html += `</div><div id="projects-area"></div>`;
         topicArea.innerHTML = html;
+
+        // If a topic is selected, render the projects for it
         if (nav.topic) renderProjectsInline();
 
     } catch (error) {
         console.error("Error fetching topics:", error);
     }
-} // <--- THIS WAS MISSING IN YOUR CODE
-
+}
 // Global Click Listener (Move this outside of any function)
 window.addEventListener('click', (event) => {
     document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
@@ -1360,7 +1351,8 @@ async function deleteProject(id, event) {
             deletedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        // This is the fix: refresh the TOPICS, not just the projects
+        // After deleting, we refresh the whole topic/project view
+        // This will correctly hide the topic if that was the ONLY builder left
         renderTopicsInline(); 
         
     } catch (e) {
