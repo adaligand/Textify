@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title> cedbuilder</title>
+    <title> cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -846,7 +846,7 @@ function renderLibrary() {
         { name: "EAL", flag: "🇬🇧" }
     ];
 
-    // 1. Render Language Buttons
+    // Render Language Buttons
     langContainer.innerHTML = languages.map(l => `
         <button onclick="selectLang('${l.name}')"
             style="
@@ -854,9 +854,7 @@ function renderLibrary() {
                 border-radius: 8px;
                 transition: all 0.2s ease;
                 display: flex;
-                align-items: center;
-                gap: 8px;
-                cursor: pointer;
+                align-items: center; gap: 8px; cursor: pointer;
                 ${nav.lang === l.name 
                     ? 'background:#8b5cf6; color:white; border:none; box-shadow:0 2px 4px rgba(139, 92, 246, 0.3);' 
                     : 'background:#f8fafc; border:1px solid #e2e8f0; color:#475569;'}
@@ -866,8 +864,7 @@ function renderLibrary() {
         </button>
     `).join("");
 
-    // 2. Render Year Groups and Topics area
-    // REMOVED: <h3>Topics</h3> from this section to prevent duplication
+    // Render logic: EAL skips Year Group selection but still needs the topic-area
     mainContent.innerHTML = `
         ${nav.lang && nav.lang !== "EAL" ? `
             <h3 style="margin-top:0;">Year Group</h3>
@@ -881,12 +878,15 @@ function renderLibrary() {
             </div>
         ` : ""}
 
-        ${nav.year ? `
-            <div id="topic-area" style="min-height: 50px;">Loading...</div>
-        ` : ""}
+        <div id="topic-area" style="min-height: 50px;">
+            ${(nav.lang === "EAL" || nav.year) ? 'Loading topics...' : ''}
+        </div>
     `;
 
-    if (nav.year) renderTopicsInline();
+    // Trigger topic rendering if EAL is active or a specific year is selected
+    if (nav.lang === "EAL" || nav.year) {
+        renderTopicsInline();
+    }
 }
 function selectLang(lang) {
     nav.lang = lang;
@@ -909,15 +909,13 @@ function selectYear(year) {
 /* --- IMPROVED TOPIC & PROJECT RENDERING --- */
 async function renderTopicsInline() {
     const topicArea = document.getElementById("topic-area");
-    if (!topicArea) return;
+    if (!topicArea || !nav.lang) return;
 
-    // Start the query with basic filters
     let query = db.collection("builders")
         .where("lang", "==", nav.lang)
         .where("isDeleted", "==", false);
 
-    // Explicitly handle the year filter
-    // If it's EAL, we look for year == "EAL". Otherwise, we use the selected year.
+    // Explicitly handle the EAL year group mismatch
     if (nav.lang === "EAL") {
         query = query.where("year", "==", "EAL");
     } else if (nav.year) {
@@ -927,12 +925,10 @@ async function renderTopicsInline() {
     try {
         const snap = await query.get();
         
-        // Map the results to unique topics
         const topicList = [...new Set(
             snap.docs.map(d => d.data().topic).filter(t => t && t.trim() !== "")
         )].sort();
 
-        // If the selected topic was deleted and was the last one, reset selection
         if (nav.topic && !topicList.includes(nav.topic)) {
             nav.topic = null;
         }
@@ -968,7 +964,6 @@ async function renderTopicsInline() {
 
     } catch (error) {
         console.error("Error fetching topics:", error);
-        // Check the browser console! If you see an "Index needed" error, click the link provided there.
     }
 }
 // Global Click Listener (Move this outside of any function)
@@ -1252,54 +1247,42 @@ function handleTopicSelect() {
 ========================= */
 async function saveToCloud(isAutosave = false) {
     if (!currentUser) return;
+    
+    // Ensure meta is up to date before saving
+    updateMeta();
 
-    const manualStatus = document.getElementById('manual-save-status');
-    const autoStatus = document.getElementById('autosave-indicator');
-
-    const topicSelect = document.getElementById("meta-topic-select");
-    const topicNew = document.getElementById("meta-topic-new");
-
-    const topicValue = topicSelect.value === "__new__"
-        ? topicNew.value
-        : topicSelect.value;
-
-    const data = {
-    uid: currentUser.uid,
-    title: document.getElementById('builder-title').value || "Untitled",
-    lang: document.getElementById('meta-lang').value,
-    year: document.getElementById('meta-year').value,
-    topic: topicValue,
-    grid: JSON.stringify(grid),
-    isDeleted: false, // Add this line
-    updated: firebase.firestore.FieldValue.serverTimestamp()
-};
+    const docData = {
+        title: document.getElementById("builder-title").value || "Untitled",
+        lang: meta.lang,
+        // CRITICAL: Ensure EAL projects use "EAL" as the year group for the query to work
+        year: (meta.lang === "EAL") ? "EAL" : meta.year,
+        topic: meta.topic,
+        grid: grid,
+        uid: currentUser.uid,
+        updated: Date.now(),
+        isDeleted: false
+    };
 
     try {
         if (currentDocId) {
-            await db.collection("builders").doc(currentDocId).update(data);
+            await db.collection("builders").doc(currentDocId).update(docData);
         } else {
-            const doc = await db.collection("builders").add(data);
-            currentDocId = doc.id;
+            const ref = await db.collection("builders").add(docData);
+            currentDocId = ref.id;
         }
 
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-        if (isAutosave) {
-            if (autoStatus) autoStatus.innerText = `Autosaved at ${time}`;
-        } else {
-            if (manualStatus) {
-                manualStatus.innerText = "Saved!";
-                setTimeout(() => { manualStatus.innerText = ""; }, 5000);
-            }
-            if (autoStatus) autoStatus.innerText = `Last manual save at ${time}`;
+        const statusEl = isAutosave 
+            ? document.getElementById("autosave-indicator") 
+            : document.getElementById("manual-save-status");
+            
+        if (statusEl) {
+            statusEl.innerText = isAutosave 
+                ? `Autosaved at ${new Date().toLocaleTimeString()}` 
+                : "Saved successfully!";
+            if (!isAutosave) setTimeout(() => statusEl.innerText = "", 3000);
         }
-
-    } catch (e) {
-        console.error("Save error:", e);
-        if (!isAutosave && manualStatus) {
-            manualStatus.innerText = "Error Saving!";
-            manualStatus.style.color = "red";
-        }
+    } catch (error) {
+        console.error("Save error:", error);
     }
 }
 async function loadProject(id) {
