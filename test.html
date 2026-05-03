@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedar builder</title>
+    <title>Cedadddr builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -663,10 +663,6 @@ button:hover {
 
 <div id="overlay" class="overlay" onclick="closeModals()"></div>
 
-<div id="new-modal" class="modal" style="width:400px;">
-    <h2 style="margin-top:0;">New Builder</h2>
-    <div style="display: flex; flex-direction: column; gap: 15px;">
-        <div>
             <label>Language</label>
             <select id="new-lang" onchange="handleNewLangChange()" style="width:100%; padding:8px;"><option>French</option><option>German</option><option>Spanish</option><option>EAL</option></select>
         </div>
@@ -1617,122 +1613,67 @@ function handleKey(e, r, cIdx, i, type) {
     }
 } 
 async function createNewProject() {
-    // 1. Reset ID for a fresh project
-    currentDocId = null;
-
-    // 2. Get values from the MODAL
-    const modalLang = document.getElementById('new-lang').value;
-    const modalYear = document.getElementById('new-year').value;
-    const modalTopic = document.getElementById('new-topic').value || "New Topic";
-
-    // 3. Update the global meta state
-    meta = { 
-        lang: modalLang, 
-        year: modalLang === "EAL" ? "EAL" : modalYear, 
-        topic: modalTopic
-    };
-
-    // 4. Update the Editor Header inputs to match the Modal
-    document.getElementById('builder-title').value = "Untitled Builder";
-    document.getElementById('meta-lang').value = meta.lang;
-    document.getElementById('meta-year').value = meta.year;
-
-    // 5. Setup the Grid
-    grid = [[c(), c(), c()], [c(), c(), c()]];
-    history = [JSON.stringify(grid)];
-    historyStep = 0;
-
-    // 6. Transition UI
-    closeModals();
-    showPage('editor-page');
-
-    // 7. Refresh the Topic Dropdown in the editor based on the new Lang/Year
-    await loadTopicsDropdown();
-
-    // 8. Set the Topic dropdown to either the existing topic or "__new__"
-    const select = document.getElementById("meta-topic-select");
-    const input = document.getElementById("meta-topic-new");
-
-    // Check if the topic already exists in the dropdown we just loaded
-    const exists = Array.from(select.options).some(opt => opt.value === modalTopic);
-
-    if (exists) {
-        select.value = modalTopic;
-        input.style.display = "none";
-    } else {
-        select.value = "__new__";
-        input.style.display = "inline-block";
-        input.value = modalTopic;
-    }
-
-    // 9. Initial Save and Render
-    await saveToCloud(true);
-    render(false);
-}
- async function quickCreateFromLibrary() {
-    // 1. Validation
+    // 1. Ensure the user has at least selected a Language in the dashboard filters
     if (!nav.lang) {
         alert("Please select a Language first.");
         return;
     }
 
-    // 2. Prepare data based on CURRENT library filters
+    // 2. Build the data using the filters the teacher is already looking at
     const newData = {
         uid: currentUser.uid,
         title: "Untitled Builder",
         lang: nav.lang,
+        // Use current filter or default to Year 9
         year: nav.year || (nav.lang === "EAL" ? "EAL" : "Year 9"),
-        topic: nav.topic || "", // If no topic selected, starts blank
+        // Use current filter or leave empty for the teacher to type in editor
+        topic: nav.topic || "", 
+        grid: JSON.stringify([[c(), c(), c()], [c(), c(), c()]]), // Fresh 2x3 grid
+        updated: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    try {
+        const docRef = await db.collection("builders").add(newData);
+        // This function automatically transitions to editor and loads the data
+        await loadProject(docRef.id);
+    } catch (e) {
+        console.error("Quick create failed:", e);
+        alert("Error creating new builder.");
+    }
+}
+
+/* --- FUNCTION 2: Used inside the Editor --- */
+async function quickNewBuilder() {
+    // 1. Prevent accidental loss of current work
+    if (!confirm("Start a new builder? Any unsaved changes on this one will be lost.")) return;
+
+    // 2. Prompt for title
+    const newTitle = prompt("Enter a title for the new Builder:", "Untitled Builder");
+    if (!newTitle) return;
+
+    // 3. Prepare data using the same settings (Lang/Year/Topic) as the one currently open
+    const newData = {
+        uid: currentUser.uid,
+        title: newTitle,
+        lang: document.getElementById('meta-lang').value,
+        year: document.getElementById('meta-year').value,
+        topic: meta.topic, // Current global topic state
         grid: JSON.stringify([[c(), c(), c()], [c(), c(), c()]]),
         updated: firebase.firestore.FieldValue.serverTimestamp()
     };
 
     try {
         const docRef = await db.collection("builders").add(newData);
-        
-        // 3. Use your existing loadProject function to jump to the editor
-        // This function already handles loading the topics dropdown and setting the UI
+        // Refresh the editor with the brand new document
         await loadProject(docRef.id);
         
+        const status = document.getElementById('manual-save-status');
+        if (status) {
+            status.innerText = "New Builder Created!";
+            setTimeout(() => status.innerText = "", 3000);
+        }
     } catch (e) {
-        console.error("Quick create failed:", e);
-        alert("Error creating new builder.");
-    }
-}
-    async function quickNewBuilder() {
-    // 1. Alert to prevent accidental data loss
-    if (!confirm("Start a new builder? Any unsaved changes on this one will be lost.")) {
-        return;
-    }
-
-    // 2. Ask for the new title
-    const newTitle = prompt("Enter a title for the new Builder:", "Untitled Builder");
-    if (!newTitle) return;
-
-    // 3. Clear current document ID so Firebase creates a NEW entry
-    currentDocId = null; 
-
-    // 4. Reset the grid to a fresh 2x3 layout
-    grid = [[c(), c(), c()], [c(), c(), c()]]; 
-    history = [JSON.stringify(grid)];
-    historyStep = 0;
-
-    // 5. Update the Title UI
-    document.getElementById('builder-title').value = newTitle;
-    
-    // 6. Save immediately to Firebase
-    // This uses the current meta.lang, meta.year, and meta.topic automatically
-    await saveToCloud(true);
-
-    // 7. Refresh the screen
-    render(false);
-    
-    // 8. Update status message
-    const status = document.getElementById('manual-save-status');
-    if (status) {
-        status.innerText = "New Builder Created!";
-        status.style.color = "#8b5cf6"; // Purple color for 'New'
-        setTimeout(() => status.innerText = "", 3000);
+        console.error("Quick new builder failed:", e);
     }
 }
 function openModal(id) {
