@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title> cedars builder</title>
+    <title> cedarsxxxx builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -888,16 +888,12 @@ function renderLibrary() {
         renderTopicsInline();
     }
 }
+/* --- NAVIGATION SYSTEM --- */
 function selectLang(lang) {
     nav.lang = lang;
     nav.topic = null;
-
-    if (nav.lang === "EAL") {
-        nav.year = "EAL"; // This must match exactly what is saved in the DB
-    } else {
-        nav.year = null;
-    }
-
+    // Set year to "EAL" automatically if language is EAL
+    nav.year = (lang === "EAL") ? "EAL" : null;
     renderLibrary();
 }
 
@@ -906,16 +902,17 @@ function selectYear(year) {
     nav.topic = null;
     renderLibrary();
 }
-/* --- IMPROVED TOPIC & PROJECT RENDERING --- */
+
 async function renderTopicsInline() {
     const topicArea = document.getElementById("topic-area");
     if (!topicArea || !nav.lang) return;
 
+    // Base query: Filter out deleted files and match the language
     let query = db.collection("builders")
         .where("lang", "==", nav.lang)
         .where("isDeleted", "==", false);
 
-    // Explicitly handle the EAL year group mismatch
+    // CRITICAL: Ensure the year filter matches how we saved it
     if (nav.lang === "EAL") {
         query = query.where("year", "==", "EAL");
     } else if (nav.year) {
@@ -925,10 +922,12 @@ async function renderTopicsInline() {
     try {
         const snap = await query.get();
         
+        // Filter unique topics and remove empty strings
         const topicList = [...new Set(
             snap.docs.map(d => d.data().topic).filter(t => t && t.trim() !== "")
         )].sort();
 
+        // Safety: If current topic is gone, reset selection
         if (nav.topic && !topicList.includes(nav.topic)) {
             nav.topic = null;
         }
@@ -943,9 +942,9 @@ async function renderTopicsInline() {
         if (topicList.length > 0) {
             topicList.forEach(t => {
                 const isActive = (nav.topic === t);
-                const escapedTopic = t.replace(/'/g, "\\'");
+                const escaped = t.replace(/'/g, "\\'");
                 html += `
-                    <button onclick="selectTopic('${escapedTopic}')"
+                    <button onclick="selectTopic('${escaped}')"
                         style="padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:600; transition:all 0.2s;
                         ${isActive 
                             ? 'background:#4caf50; color:white; border:none; box-shadow:0 4px 6px rgba(76,175,80,0.3);' 
@@ -963,7 +962,7 @@ async function renderTopicsInline() {
         if (nav.topic) renderProjectsInline();
 
     } catch (error) {
-        console.error("Error fetching topics:", error);
+        console.error("Firestore Error:", error);
     }
 }
 // Global Click Listener (Move this outside of any function)
@@ -1247,42 +1246,60 @@ function handleTopicSelect() {
 ========================= */
 async function saveToCloud(isAutosave = false) {
     if (!currentUser) return;
-    
-    // Ensure meta is up to date before saving
-    updateMeta();
 
-    const docData = {
-        title: document.getElementById("builder-title").value || "Untitled",
-        lang: meta.lang,
-        // CRITICAL: Ensure EAL projects use "EAL" as the year group for the query to work
-        year: (meta.lang === "EAL") ? "EAL" : meta.year,
-        topic: meta.topic,
-        grid: grid,
-        uid: currentUser.uid,
-        updated: Date.now(),
-        isDeleted: false
-    };
+    const manualStatus = document.getElementById('manual-save-status');
+    const autoStatus = document.getElementById('autosave-indicator');
 
     try {
-        if (currentDocId) {
-            await db.collection("builders").doc(currentDocId).update(docData);
-        } else {
-            const ref = await db.collection("builders").add(docData);
-            currentDocId = ref.id;
+        // 1. Manually get values to avoid updateMeta() errors
+        const langVal = document.getElementById('meta-lang').value;
+        const yearVal = (langVal === "EAL") ? "EAL" : document.getElementById('meta-year').value;
+        
+        const topicSelect = document.getElementById("meta-topic-select");
+        const topicNew = document.getElementById("meta-topic-new");
+        const topicValue = (topicSelect.value === "__new__") ? topicNew.value : topicSelect.value;
+
+        if (!topicValue) {
+            if (!isAutosave) alert("Please select or enter a topic before saving.");
+            return;
         }
 
-        const statusEl = isAutosave 
-            ? document.getElementById("autosave-indicator") 
-            : document.getElementById("manual-save-status");
-            
-        if (statusEl) {
-            statusEl.innerText = isAutosave 
-                ? `Autosaved at ${new Date().toLocaleTimeString()}` 
-                : "Saved successfully!";
-            if (!isAutosave) setTimeout(() => statusEl.innerText = "", 3000);
+        const data = {
+            uid: currentUser.uid,
+            title: document.getElementById('builder-title').value || "Untitled",
+            lang: langVal,
+            year: yearVal,
+            topic: topicValue,
+            grid: JSON.stringify(grid),
+            isDeleted: false,
+            updated: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        // 2. Perform Database Operation
+        if (currentDocId) {
+            await db.collection("builders").doc(currentDocId).update(data);
+        } else {
+            const doc = await db.collection("builders").add(data);
+            currentDocId = doc.id;
         }
-    } catch (error) {
-        console.error("Save error:", error);
+
+        // 3. UI Update
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (isAutosave) {
+            if (autoStatus) autoStatus.innerText = `Autosaved at ${time}`;
+        } else {
+            if (manualStatus) {
+                manualStatus.innerText = "Saved!";
+                setTimeout(() => { manualStatus.innerText = ""; }, 5000);
+            }
+        }
+
+    } catch (e) {
+        console.error("Critical Save Error:", e);
+        if (!isAutosave && manualStatus) {
+            manualStatus.innerText = "Error Saving!";
+            manualStatus.style.color = "red";
+        }
     }
 }
 async function loadProject(id) {
