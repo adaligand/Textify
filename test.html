@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title> cedarsxxxx builder</title>
+    <title> cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -907,12 +907,11 @@ async function renderTopicsInline() {
     const topicArea = document.getElementById("topic-area");
     if (!topicArea || !nav.lang) return;
 
-    // Base query: Filter out deleted files and match the language
+    // Filter only active files
     let query = db.collection("builders")
         .where("lang", "==", nav.lang)
         .where("isDeleted", "==", false);
 
-    // CRITICAL: Ensure the year filter matches how we saved it
     if (nav.lang === "EAL") {
         query = query.where("year", "==", "EAL");
     } else if (nav.year) {
@@ -922,14 +921,14 @@ async function renderTopicsInline() {
     try {
         const snap = await query.get();
         
-        // Filter unique topics and remove empty strings
+        // Extract unique topics from active files
         const topicList = [...new Set(
             snap.docs.map(d => d.data().topic).filter(t => t && t.trim() !== "")
         )].sort();
 
-        // Safety: If current topic is gone, reset selection
+        // FIX: If the current selected topic is no longer in the list (last file deleted), reset it
         if (nav.topic && !topicList.includes(nav.topic)) {
-            nav.topic = null;
+            nav.topic = null; 
         }
 
         let html = `
@@ -987,71 +986,41 @@ function selectTopic(topic) {
 }
 
 async function renderProjectsInline() {
-    const projectsArea = document.getElementById("projects-area");
-    if (!projectsArea || !nav.topic) return;
+    const container = document.getElementById("projects-area");
+    if (!container || !nav.topic) return;
+
+    container.innerHTML = `<p style="color:#64748b;">Loading projects...</p>`;
 
     try {
-        let query = db.collection("builders")
+        const snap = await db.collection("builders")
             .where("lang", "==", nav.lang)
-            .where("topic", "==", nav.topic);
+            .where("topic", "==", nav.topic)
+            .where("isDeleted", "==", false) // This hides the files in other languages
+            .get();
 
-        if (nav.lang !== "EAL" && nav.year) {
-            query = query.where("year", "==", nav.year);
+        if (snap.empty) {
+            container.innerHTML = `<p style="color:#64748b;">No active projects in this topic.</p>`;
+            return;
         }
 
-        const snap = await query.get();
-
-        // SORTING LOGIC
-        const docs = snap.docs.sort((a, b) => {
-            const dataA = a.data();
-            const dataB = b.data();
-
-            if (nav.sortBy === 'title') {
-                // Alphabetical sorting
-                return (dataA.title || "").localeCompare(dataB.title || "");
-                       } else {
-                // Last Edit (Newest first) - default
-                return (dataB.updated || 0) - (dataA.updated || 0);
-            }
-        });
-
-        // ... rest of your existing code to build the grid (html += ...)
-        let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px;">`;
-        
-        docs.forEach(doc => {
-            const p = doc.data();
+        let html = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">`;
+        snap.docs.forEach(doc => {
+            const d = doc.data();
             html += `
-                <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer; width:300px; box-sizing:border-box;">
-                    <div class="project-left" style="flex:1; overflow:hidden;">
-                        <span style="color: var(--accent); font-weight: bold; font-size: 1.1em; white-space:nowrap; text-overflow:ellipsis; display:block; overflow:hidden;">
-                            ${p.title || "Untitled Builder"}
-                        </span>
-                    </div>
-                    <div class="project-actions" onclick="event.stopPropagation();" style="display:flex; gap:10px; margin-left:10px;">
-                        <span class="icon-btn" title="Duplicate" onclick="duplicateSB('${doc.id}', event)">📋</span>
-                        <span class="icon-btn delete-btn" title="Delete" onclick="deleteProject('${doc.id}', event)">🗑️</span>
+                <div class="project-card" style="padding:15px; border:1px solid #e2e8f0; border-radius:10px; background:white;">
+                    <h4 style="margin:0 0 10px 0;">${d.title || 'Untitled'}</h4>
+                    <div style="display:flex; gap:10px;">
+                        <button onclick="loadFromCloud('${doc.id}')" style="background:#2196f3; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">Open</button>
+                        <button onclick="deleteProject('${doc.id}')" style="background:#fee2e2; color:#ef4444; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">Delete</button>
                     </div>
                 </div>`;
         });
         html += `</div>`;
-
-        if (docs.length === 0) {
-            html = `<p style="padding:20px; color:#64748b;">No sentence builders found.</p>`;
-        }
-        projectsArea.innerHTML = html;
-
+        container.innerHTML = html;
     } catch (error) {
-        console.error("Error fetching projects:", error);
+        container.innerHTML = `<p style="color:red;">Error loading projects.</p>`;
     }
 }
-    // Update your existing query in renderProjectsInline:
-let query = db.collection("builders")
-    .where("lang", "==", nav.lang)
-    .where("topic", "==", nav.topic)
-    .where("isDeleted", "==", false); // Add this line
-
-// Add this function to view the Bin
-let showingBin = false;
 function toggleBinView() {
     showingBin = !showingBin;
     const binSec = document.getElementById('bin-section');
@@ -1341,23 +1310,20 @@ async function loadProject(id) {
     showPage("editor-page");
     render(false);
 }
-async function deleteProject(id, event) {
-    if (event) event.stopPropagation();
-    const ok = confirm("Move this builder to the bin?");
-    if (!ok) return;
-
+async function deleteProject(id) {
+    if(!confirm("Move this project to the Bin?")) return;
+    
     try {
         await db.collection("builders").doc(id).update({
             isDeleted: true,
-            deletedAt: firebase.firestore.FieldValue.serverTimestamp()
+            deletedAt: firebase.firestore.Timestamp.now()
         });
         
-        // After deleting, we refresh the whole topic/project view
-        // This will correctly hide the topic if that was the ONLY builder left
+        // Re-render the topics. If this was the last file, 
+        // renderTopicsInline will now see 0 files and reset nav.topic
         renderTopicsInline(); 
-        
     } catch (e) {
-        console.error("Error moving to bin:", e);
+        console.error("Delete failed:", e);
     }
 }
  async function restoreProject(id, event) {
