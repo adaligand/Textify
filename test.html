@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Ceffdcccars builder</title>
+    <title>Ceffars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -926,7 +926,17 @@ async function renderTopicsInline() {
         const topicList = [...new Set(
             snap.docs.map(d => d.data().topic).filter(Boolean)
         )].sort();
+// Inside renderTopicsInline() after fetching 'snap'
+const topicList = [...new Set(
+    snap.docs.map(d => d.data().topic).filter(Boolean)
+)].sort();
 
+// ADD THIS CHECK:
+// If the currently selected topic is no longer in the list of active topics, 
+// clear the selection so the user isn't stuck on a ghost topic.
+if (nav.topic && !topicList.includes(nav.topic)) {
+    nav.topic = null;
+}
         // --- RESTRUCTURED HEADER ---
         // We use a flex container to keep Title + Sort on the left, and buttons below
         let html = `
@@ -1364,42 +1374,42 @@ async function deleteProject(id, event) {
             isDeleted: true,
             deletedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
-        // Refresh the UI
-        if (showingBin) renderBin(); else renderLibrary();
+        
+        // This is the fix: refresh the TOPICS, not just the projects
+        renderTopicsInline(); 
+        
     } catch (e) {
         console.error("Error moving to bin:", e);
     }
 }
-   async function restoreProject(id, event) {
+ async function restoreProject(id, event) {
     if (event) event.stopPropagation();
     try {
         await db.collection("builders").doc(id).update({
             isDeleted: false,
             deletedAt: null
         });
-        // If we restored the last item in the bin, go back to library
-        renderBin(); 
-        renderLibrary();
-    } catch (e) { console.error(e); }
+
+        // If in bin view, refresh the bin
+        if (showingBin) renderBin(); 
+        
+        // Crucial: Refresh the library topics so the restored topic reappears
+        renderTopicsInline();
+    } catch (e) { 
+        console.error("Error restoring project:", e); 
+    }
 }
 
 async function permanentlyDelete(id, event) {
     if (event) event.stopPropagation();
-    if (!confirm("Permanently delete?")) return;
-    try {
-        await db.collection("builders").doc(id).delete();
-        renderBin();
-    } catch (e) { console.error(e); }
-}
-
-async function permanentlyDelete(id, event) {
-    if (event) event.stopPropagation();
-    const ok = confirm("This will permanently delete the file. Are you sure?");
+    const ok = confirm("This will permanently delete the file. This cannot be undone. Are you sure?");
     if (!ok) return;
 
     try {
         await db.collection("builders").doc(id).delete();
-        renderLibrary();
+        // Refresh based on where the user is
+        if (showingBin) renderBin();
+        renderTopicsInline(); // Refresh the sidebar topics
     } catch (e) {
         console.error("Error deleting permanently:", e);
     }
