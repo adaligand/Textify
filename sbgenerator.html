@@ -626,8 +626,8 @@ button:hover {
                 <option value="Year 12">Year 12</option>
                 <option value="Year 13">Year 13</option>
             </select>
-
-            <input type="text" id="meta-topic" class="editor-header-input" placeholder="Topic Name" oninput="updateMeta()" style="width: 150px;">
+        <select id="meta-topic-select" class="editor-header-input" onchange="handleTopicSelect()"></select>
+<input type="text" id="meta-topic-new" class="editor-header-input" placeholder="New Topic..." style="display:none;">
         </div>
 <button onclick="saveToCloud()" class="btn-purple">💾 Save</button>
     <span id="manual-save-status" style="margin-left:10px; font-weight:bold; color:#10b981;"></span>
@@ -708,7 +708,6 @@ button:hover {
         <button onclick="closeModals()" style="flex:1;">Cancel</button>
     </div>
 </div>
-
 <script>
 /* =========================
    FIREBASE
@@ -776,6 +775,7 @@ async function login() {
     }
 }
 auth.onAuthStateChanged(async (user) => {
+    initMetaListeners();
     if (user) {
         const email = user.email.toLowerCase();
 
@@ -985,16 +985,20 @@ async function renderTopicsInline() {
 
         html += `</div></div><div id="projects-area"></div>`;
 
-        // Click Outside handler
-        window.onclick = function(event) {
-            const dropdown = document.getElementById('custom-sort-options');
-            const trigger = document.getElementById('custom-sort-trigger');
-            if (dropdown && dropdown.classList.contains('show')) {
-                if (!trigger.contains(event.target) && !dropdown.contains(event.target)) {
-                    dropdown.classList.remove('show');
-                }
-            }
+        window.addEventListener('click', (event) => {
+    // Close color pickers
+    document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
+
+    // Close sort dropdown
+    const dropdown = document.getElementById('custom-sort-options');
+    const trigger = document.getElementById('custom-sort-trigger');
+
+    if (dropdown && dropdown.classList.contains('show')) {
+        if (!trigger.contains(event.target) && !dropdown.contains(event.target)) {
+            dropdown.classList.remove('show');
         }
+    }
+});
         
         topicArea.innerHTML = html;
         if (nav.topic) renderProjectsInline();
@@ -1079,18 +1083,24 @@ async function renderProjectsInline() {
     await db.collection("builders").doc(id).delete();
     renderProjectsInline();
 }
-function updateMeta() {
-    meta.lang = document.getElementById("meta-lang").value;
-    meta.year = document.getElementById("meta-year").value;
-    meta.topic = document.getElementById("meta-topic").value;
-    
-    // Auto-disable Year if EAL is selected in the editor header
-    const yearSelect = document.getElementById("meta-year");
+async function updateMeta() {
+    const langEl = document.getElementById("meta-lang");
+    const yearEl = document.getElementById("meta-year");
+    const topicSelect = document.getElementById("meta-topic-select");
+    const topicNew = document.getElementById("meta-topic-new");
+
+    meta.lang = langEl.value;
+    meta.year = yearEl.value;
+
+    meta.topic = topicSelect.value === "__new__"
+        ? topicNew.value
+        : topicSelect.value;
+
     if (meta.lang === "EAL") {
-        yearSelect.value = "EAL";
-        yearSelect.disabled = true;
+        yearEl.value = "EAL";
+        yearEl.disabled = true;
     } else {
-        yearSelect.disabled = false;
+        yearEl.disabled = false;
     }
 }
 async function openTopic(topic) {
@@ -1133,22 +1143,64 @@ async function openTopic(topic) {
     function renderTopicPage() {
     renderLibrary();
 }
+   async function loadTopicsDropdown() {
+    const lang = document.getElementById("meta-lang").value;
+    const year = document.getElementById("meta-year").value;
+
+    let query = db.collection("builders").where("lang", "==", lang);
+
+    if (lang !== "EAL") {
+        query = query.where("year", "==", year);
+    }
+
+    const snap = await query.get();
+
+    const topics = [...new Set(
+        snap.docs.map(d => d.data().topic).filter(Boolean)
+    )].sort();
+
+    const select = document.getElementById("meta-topic-select");
+
+    select.innerHTML = `
+        ${topics.map(t => `<option value="${t}">${t}</option>`).join("")}
+        <option value="__new__">➕ Create new topic</option>
+    `;
+}
+function handleTopicSelect() {
+    const select = document.getElementById("meta-topic-select");
+    const input = document.getElementById("meta-topic-new");
+
+    if (select.value === "__new__") {
+        input.style.display = "inline-block";
+        input.focus();
+    } else {
+        input.style.display = "none";
+    }
+
+    updateMeta();
+}
 /* =========================
    CLOUD
 ========================= */
 async function saveToCloud(isAutosave = false) {
     if (!currentUser) return;
 
-    // References to our two distinct status areas
     const manualStatus = document.getElementById('manual-save-status');
     const autoStatus = document.getElementById('autosave-indicator');
+
+    const topicSelect = document.getElementById("meta-topic-select");
+    const topicNew = document.getElementById("meta-topic-new");
+
+    const topicValue = topicSelect.value === "__new__"
+        ? topicNew.value
+        : topicSelect.value;
 
     const data = {
         uid: currentUser.uid,
         title: document.getElementById('builder-title').value || "Untitled",
         lang: document.getElementById('meta-lang').value,
         year: document.getElementById('meta-year').value,
-        topic: document.getElementById('meta-topic').value,
+        topic: topicValue,
         grid: JSON.stringify(grid),
         updated: firebase.firestore.FieldValue.serverTimestamp()
     };
@@ -1164,30 +1216,20 @@ async function saveToCloud(isAutosave = false) {
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         if (isAutosave) {
-            // 1. SILENT AUTOSAVE: Update the centered bottom indicator only
             if (autoStatus) autoStatus.innerText = `Autosaved at ${time}`;
         } else {
-            // 2. MANUAL SAVE: Update the top indicator for visual feedback
             if (manualStatus) {
                 manualStatus.innerText = "Saved!";
-                // Visible for 8 seconds
                 setTimeout(() => { manualStatus.innerText = ""; }, 5000);
             }
-            
-            // 3. Update the bottom timestamp too so they match
             if (autoStatus) autoStatus.innerText = `Last manual save at ${time}`;
-            
-            // NOTE: The alert/popup has been removed from here.
         }
 
     } catch (e) {
         console.error("Save error:", e);
-        // Only alert if the user actually clicked the button and it failed
-        if (!isAutosave) {
-            if (manualStatus) {
-                manualStatus.innerText = "Error Saving!";
-                manualStatus.style.color = "red";
-            }
+        if (!isAutosave && manualStatus) {
+            manualStatus.innerText = "Error Saving!";
+            manualStatus.style.color = "red";
         }
     }
 }
@@ -1204,11 +1246,25 @@ async function loadProject(id) {
         topic: d.topic
     };
 
-    // Sync UI elements
     document.getElementById('meta-lang').value = d.lang;
     document.getElementById('meta-year').value = d.year;
-    document.getElementById('meta-topic').value = d.topic;
     document.getElementById('builder-title').value = d.title;
+
+    await loadTopicsDropdown();
+
+    const select = document.getElementById("meta-topic-select");
+    const input = document.getElementById("meta-topic-new");
+
+    if ([...select.options].some(o => o.value === d.topic)) {
+        select.value = d.topic;
+        input.style.display = "none";
+    } else {
+        select.value = "__new__";
+        input.style.display = "inline-block";
+        input.value = d.topic;
+    }
+
+    handleTopicSelect();
 
     history = [JSON.stringify(grid)];
     historyStep = 0;
@@ -1305,10 +1361,7 @@ if (currentMode === 'add-row' && cIdx === 0) {
 if (currentMode === 'del-row' && cIdx === 0) {
     addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
 }
-                if (currentMode === 'add-col' && r === 0) {
-                    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-                    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-                }
+               
                 if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
                 if (currentMode === 'add-row' && cIdx === 0) {
                     addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
@@ -1391,38 +1444,6 @@ document.addEventListener('copy', (e) => {
     }
 });
 
-document.addEventListener('cut', (e) => {
-    const active = document.activeElement;
-    if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
-        
-        // 1. If user has highlighted specific text within the box, let browser "Cut" normally
-        if (active.selectionStart !== active.selectionEnd) {
-            return;
-        }
-
-        // 2. Otherwise, check for "Whole Cell Selection" (triggered by Ctrl+A)
-        const cellEl = active.closest('.cell');
-        if (cellEl && cellEl.classList.contains('visual-selected')) {
-            const posParts = active.dataset.pos.split('-');
-            const r = parseInt(posParts[0]);
-            const cIdx = parseInt(posParts[1]);
-            
-            const cellData = grid[r][cIdx].items;
-            const textToCopy = cellData.map(item => `${item.t}|${item.tr}`).join('\n');
-            e.clipboardData.setData('text/plain', textToCopy);
-            e.preventDefault();
-
-            grid[r][cIdx].items = [{t: "", tr: ""}];
-            cellEl.classList.remove('visual-selected');
-            render();
-            
-            setTimeout(() => {
-                const first = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
-                if(first) first.focus();
-            }, 10);
-        }
-    }
-});
 
 document.addEventListener('paste', (e) => {
     const active = document.activeElement;
@@ -1580,39 +1601,59 @@ function handleKey(e, r, cIdx, i, type) {
             }, 10);
         }
     }
-} // This single closing brace ends the whole handleKey function
+} 
     // --- BUILDER ACTIONS ---
     function openNewModal() { document.getElementById('new-modal').style.display='block'; document.getElementById('overlay').style.display='block'; }
     function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); document.getElementById('overlay').style.display='none'; }
-    
 async function createNewProject() {
-    currentDocId = null; // CRITICAL: Ensures a brand new database entry is made
-    
-    const modalLang = document.getElementById('new-lang').value;
-    const modalYear = document.getElementById('new-year').value;
-    const modalTopic = document.getElementById('new-topic').value || "New Topic";
+    try {
+        console.log("CREATE CLICKED");
 
-    meta = { 
-        lang: modalLang, 
-        year: modalLang === "EAL" ? "EAL" : modalYear, 
-        topic: modalTopic
-    };
+        currentDocId = null;
 
-    // Reset Title and Grid
-    document.getElementById('builder-title').value = "Untitled Builder";
-    grid = [[c(), c(), c()], [c(), c(), c()]]; 
-    history = [JSON.stringify(grid)];
-    historyStep = 0;
+        const modalLang = document.getElementById('new-lang')?.value;
+        const modalYear = document.getElementById('new-year')?.value;
+        const modalTopic = document.getElementById('new-topic')?.value || "New Topic";
 
-    closeModals();
-    showPage('editor-page');
-    
-    // Save immediately so we have a new ID and the topic is registered
-    await saveToCloud(true);
-    
-    // Refresh the topic list in the header
-    await updateMeta();
-    render(false);
+        if (!modalLang || !modalYear) {
+            alert("Missing form values - modal not open");
+            return;
+        }
+
+        meta = { 
+            lang: modalLang, 
+            year: modalLang === "EAL" ? "EAL" : modalYear, 
+            topic: modalTopic
+        };
+
+        document.getElementById('builder-title').value = "Untitled Builder";
+
+        grid = [[c(), c(), c()], [c(), c(), c()]];
+        history = [JSON.stringify(grid)];
+        historyStep = 0;
+
+        closeModals?.(); // safe call
+        showPage('editor-page');
+
+        document.getElementById('meta-lang').value = meta.lang;
+        document.getElementById('meta-year').value = meta.year;
+
+        await loadTopicsDropdown();
+
+        const select = document.getElementById("meta-topic-select");
+        const input = document.getElementById("meta-topic-new");
+
+        select.value = "__new__";
+        input.style.display = "inline-block";
+        input.value = modalTopic;
+
+        await saveToCloud(true);
+        render(false);
+
+    } catch (err) {
+        console.error("CREATE FAILED:", err);
+        alert("Create failed: " + err.message);
+    }
 }
     async function quickNewBuilder() {
     // 1. Alert to prevent accidental data loss
@@ -1655,9 +1696,7 @@ function openModal(id) {
     document.getElementById(id).style.display = 'block';
 }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
-    window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
-
-    function mergeSelected() {
+       function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
         let root = sel[0], items = [];
@@ -1682,7 +1721,22 @@ function openModal(id) {
         }));
         render();
     }
+function initMetaListeners() {
+    const lang = document.getElementById("meta-lang");
+    const year = document.getElementById("meta-year");
 
+    if (!lang || !year) return;
+
+    lang.addEventListener("change", async () => {
+        await loadTopicsDropdown();
+        handleTopicSelect();
+    });
+
+    year.addEventListener("change", async () => {
+        await loadTopicsDropdown();
+        handleTopicSelect();
+    });
+}
 async function exportPDF() {
     const title = document.getElementById('builder-title').value || "Sentence Builder";
     const { jsPDF } = window.jspdf;
@@ -1915,11 +1969,6 @@ function addIcon(p, t, pos, l, a) {
     b.style.cssText = posStyles[pos]; 
     b.onclick = (e) => { e.stopPropagation(); a(); }; 
     p.appendChild(b); 
-}
-
-function toggleMode(m) { 
-    currentMode = (currentMode === m) ? null : m; 
-    render(false); 
 }
 
 /* --- UPDATED ROW/COL MANAGEMENT --- */
