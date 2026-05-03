@@ -1,8 +1,9 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedadddr builder</title>
+    <title>Cedarddds builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -597,7 +598,7 @@ button:hover {
 
             <!-- Right Side: Action Buttons -->
             <div style="display: flex; gap: 12px; min-width: 220px; justify-content: flex-end;">
-              <button onclick="quickCreateFromLibrary()" class="btn-purple">+ Create</button>
+                <button onclick="createNewProject()" class="btn-purple" style="padding: 10px 20px;">+ Create</button>
                 <button onclick="logout()" class="btn-outline" style="padding: 10px 20px;">Sign Out</button>
             </div>
         </div>
@@ -626,8 +627,7 @@ button:hover {
                 <option value="Year 12">Year 12</option>
                 <option value="Year 13">Year 13</option>
             </select>
-
-<select id="meta-topic-select" class="editor-header-input" onchange="handleTopicSelect()"></select>
+        <select id="meta-topic-select" class="editor-header-input" onchange="handleTopicSelect()"></select>
 <input type="text" id="meta-topic-new" class="editor-header-input" placeholder="New Topic..." style="display:none;">
         </div>
 <button onclick="saveToCloud()" class="btn-purple">💾 Save</button>
@@ -663,6 +663,10 @@ button:hover {
 
 <div id="overlay" class="overlay" onclick="closeModals()"></div>
 
+<div id="new-modal" class="modal" style="width:400px;">
+    <h2 style="margin-top:0;">New Builder</h2>
+    <div style="display: flex; flex-direction: column; gap: 15px;">
+        <div>
             <label>Language</label>
             <select id="new-lang" onchange="handleNewLangChange()" style="width:100%; padding:8px;"><option>French</option><option>German</option><option>Spanish</option><option>EAL</option></select>
         </div>
@@ -706,7 +710,6 @@ button:hover {
     </div>
 </div>
 
-<script>
 /* =========================
    FIREBASE
 ========================= */
@@ -1087,33 +1090,18 @@ async function updateMeta() {
     const topicSelect = document.getElementById("meta-topic-select");
     const topicNew = document.getElementById("meta-topic-new");
 
-    // 1. Handle EAL Year Group restriction first
-    if (langEl.value === "EAL") {
-        yearEl.value = "EAL";
-        yearEl.disabled = true;
-    } else {
-        yearEl.disabled = false;
-        // If it was EAL and switched back, default to Year 9
-        if (yearEl.value === "EAL") yearEl.value = "Year 9";
-    }
+    meta.lang = langEl.value;
+    meta.year = yearEl.value;
 
-    // 2. Check if Language or Year changed. If so, reload the Topic list
-    if (meta.lang !== langEl.value || meta.year !== yearEl.value) {
-        meta.lang = langEl.value;
-        meta.year = yearEl.value;
-        await loadTopicsDropdown(); 
-    }
-
-    // 3. Update the global meta object with current values
     meta.topic = topicSelect.value === "__new__"
         ? topicNew.value
         : topicSelect.value;
 
-    // 4. Update display of the "New Topic" input box
-    if (topicSelect.value === "__new__") {
-        topicNew.style.display = "inline-block";
+    if (meta.lang === "EAL") {
+        yearEl.value = "EAL";
+        yearEl.disabled = true;
     } else {
-        topicNew.style.display = "none";
+        yearEl.disabled = false;
     }
 }
 async function openTopic(topic) {
@@ -1156,21 +1144,24 @@ async function openTopic(topic) {
     function renderTopicPage() {
     renderLibrary();
 }
-  async function loadTopicsDropdown() {
+   async function loadTopicsDropdown() {
     const lang = document.getElementById("meta-lang").value;
     const year = document.getElementById("meta-year").value;
 
     let query = db.collection("builders").where("lang", "==", lang);
+
     if (lang !== "EAL") {
         query = query.where("year", "==", year);
     }
 
     const snap = await query.get();
-    const topics = [...new Set(snap.docs.map(d => d.data().topic).filter(Boolean))].sort();
+
+    const topics = [...new Set(
+        snap.docs.map(d => d.data().topic).filter(Boolean)
+    )].sort();
 
     const select = document.getElementById("meta-topic-select");
-    
-    // Fill the dropdown and always keep the "Create new" option at the bottom
+
     select.innerHTML = `
         ${topics.map(t => `<option value="${t}">${t}</option>`).join("")}
         <option value="__new__">➕ Create new topic</option>
@@ -1613,67 +1604,76 @@ function handleKey(e, r, cIdx, i, type) {
     }
 } 
 async function createNewProject() {
-    // 1. Ensure the user has at least selected a Language in the dashboard filters
-    if (!nav.lang) {
-        alert("Please select a Language first.");
+    currentDocId = null;
+
+    const modalLang = document.getElementById('new-lang').value;
+    const modalYear = document.getElementById('new-year').value;
+    const modalTopic = document.getElementById('new-topic').value || "New Topic";
+
+    meta = { 
+        lang: modalLang, 
+        year: modalLang === "EAL" ? "EAL" : modalYear, 
+        topic: modalTopic
+    };
+
+    document.getElementById('builder-title').value = "Untitled Builder";
+
+    grid = [[c(), c(), c()], [c(), c(), c()]];
+    history = [JSON.stringify(grid)];
+    historyStep = 0;
+
+    closeModals();
+    showPage('editor-page');
+
+    document.getElementById('meta-lang').value = meta.lang;
+    document.getElementById('meta-year').value = meta.year;
+
+    await loadTopicsDropdown();
+
+    const select = document.getElementById("meta-topic-select");
+    const input = document.getElementById("meta-topic-new");
+
+    select.value = "__new__";
+    input.style.display = "inline-block";
+    input.value = modalTopic;
+
+    await saveToCloud(true);
+    render(false);
+}
+    async function quickNewBuilder() {
+    // 1. Alert to prevent accidental data loss
+    if (!confirm("Start a new builder? Any unsaved changes on this one will be lost.")) {
         return;
     }
 
-    // 2. Build the data using the filters the teacher is already looking at
-    const newData = {
-        uid: currentUser.uid,
-        title: "Untitled Builder",
-        lang: nav.lang,
-        // Use current filter or default to Year 9
-        year: nav.year || (nav.lang === "EAL" ? "EAL" : "Year 9"),
-        // Use current filter or leave empty for the teacher to type in editor
-        topic: nav.topic || "", 
-        grid: JSON.stringify([[c(), c(), c()], [c(), c(), c()]]), // Fresh 2x3 grid
-        updated: firebase.firestore.FieldValue.serverTimestamp()
-    };
-
-    try {
-        const docRef = await db.collection("builders").add(newData);
-        // This function automatically transitions to editor and loads the data
-        await loadProject(docRef.id);
-    } catch (e) {
-        console.error("Quick create failed:", e);
-        alert("Error creating new builder.");
-    }
-}
-
-/* --- FUNCTION 2: Used inside the Editor --- */
-async function quickNewBuilder() {
-    // 1. Prevent accidental loss of current work
-    if (!confirm("Start a new builder? Any unsaved changes on this one will be lost.")) return;
-
-    // 2. Prompt for title
+    // 2. Ask for the new title
     const newTitle = prompt("Enter a title for the new Builder:", "Untitled Builder");
     if (!newTitle) return;
 
-    // 3. Prepare data using the same settings (Lang/Year/Topic) as the one currently open
-    const newData = {
-        uid: currentUser.uid,
-        title: newTitle,
-        lang: document.getElementById('meta-lang').value,
-        year: document.getElementById('meta-year').value,
-        topic: meta.topic, // Current global topic state
-        grid: JSON.stringify([[c(), c(), c()], [c(), c(), c()]]),
-        updated: firebase.firestore.FieldValue.serverTimestamp()
-    };
+    // 3. Clear current document ID so Firebase creates a NEW entry
+    currentDocId = null; 
 
-    try {
-        const docRef = await db.collection("builders").add(newData);
-        // Refresh the editor with the brand new document
-        await loadProject(docRef.id);
-        
-        const status = document.getElementById('manual-save-status');
-        if (status) {
-            status.innerText = "New Builder Created!";
-            setTimeout(() => status.innerText = "", 3000);
-        }
-    } catch (e) {
-        console.error("Quick new builder failed:", e);
+    // 4. Reset the grid to a fresh 2x3 layout
+    grid = [[c(), c(), c()], [c(), c(), c()]]; 
+    history = [JSON.stringify(grid)];
+    historyStep = 0;
+
+    // 5. Update the Title UI
+    document.getElementById('builder-title').value = newTitle;
+    
+    // 6. Save immediately to Firebase
+    // This uses the current meta.lang, meta.year, and meta.topic automatically
+    await saveToCloud(true);
+
+    // 7. Refresh the screen
+    render(false);
+    
+    // 8. Update status message
+    const status = document.getElementById('manual-save-status');
+    if (status) {
+        status.innerText = "New Builder Created!";
+        status.style.color = "#8b5cf6"; // Purple color for 'New'
+        setTimeout(() => status.innerText = "", 3000);
     }
 }
 function openModal(id) {
