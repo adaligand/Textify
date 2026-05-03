@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Ceffdars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -792,10 +792,14 @@ auth.onAuthStateChanged(async (user) => {
             return;
         }
 
-        currentUser = user;
+  currentUser = user;
         document.getElementById('user-display').innerText = email;
         
-        // Ensure we are showing the library and not the login screen
+        // --- ADD THESE TWO LINES ---
+        cleanupOldDeletedFiles(); // Cleans up > 30 day old files
+        showingBin = false;       // Reset view state
+        // ---------------------------
+
         showPage('library-page');
         renderLibrary();
     } else {
@@ -934,9 +938,10 @@ async function renderTopicsInline() {
     const topicArea = document.getElementById("topic-area");
     if (!topicArea) return;
 
-    let query = db.collection("builders").where("lang", "==", nav.lang);
-    if (nav.lang !== "EAL" && nav.year) {
-        query = query.where("year", "==", nav.year);
+    let query = db.collection("builders")
+    .where("lang", "==", nav.lang)
+    .where("topic", "==", nav.topic)
+    .where("isDeleted", "==", false); // Crucial: hide binned items
     }
 
     try {
@@ -1081,6 +1086,82 @@ async function renderProjectsInline() {
         console.error("Error fetching projects:", error);
     }
 }
+    // Update your existing query in renderProjectsInline:
+let query = db.collection("builders")
+    .where("lang", "==", nav.lang)
+    .where("topic", "==", nav.topic)
+    .where("isDeleted", "==", false); // Add this line
+
+// Add this function to view the Bin
+let showingBin = false;
+function toggleBinView() {
+    showingBin = !showingBin;
+    const binSec = document.getElementById('bin-section');
+    const binBtn = document.getElementById('bin-toggle-btn');
+    
+    if (showingBin) {
+        binSec.style.display = 'block';
+        binBtn.innerText = "📁 Back to Library";
+        renderBin();
+    } else {
+        binSec.style.display = 'none';
+        binBtn.innerText = "🗑️ Bin";
+        renderLibrary();
+    }
+}
+
+async function renderBin() {
+    const binArea = document.getElementById("bin-projects-area");
+    if (!binArea) return;
+
+    const snap = await db.collection("builders")
+        .where("uid", "==", currentUser.uid)
+        .where("isDeleted", "==", true)
+        .get();
+
+    let html = '';
+    snap.forEach(doc => {
+        const p = doc.data();
+        html += `
+            <div class="project-card" style="border-color: var(--red); width:300px;">
+                <div class="project-left">
+                    <span style="font-weight: bold;">${p.title}</span>
+                    <small>Deleted: ${p.deletedAt ? p.deletedAt.toDate().toLocaleDateString() : 'Recently'}</small>
+                </div>
+                <div class="project-actions">
+                    <span title="Restore" onclick="restoreProject('${doc.id}', event)">🔄</span>
+                    <span title="Delete Permanently" onclick="permanentlyDelete('${doc.id}', event)">❌</span>
+                </div>
+            </div>`;
+    });
+    binArea.innerHTML = html || '<p>Bin is empty.</p>';
+}
+    async function cleanupOldDeletedFiles() {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const oldDocs = await db.collection("builders")
+        .where("isDeleted", "==", true)
+        .where("deletedAt", "<=", thirtyDaysAgo)
+        .get();
+
+    const batch = db.batch();
+    oldDocs.forEach(doc => {
+        batch.delete(doc.ref);
+    });
+    
+    await batch.commit();
+    console.log(`Cleaned up ${oldDocs.size} expired files.`);
+}
+
+// Call this inside auth.onAuthStateChanged:
+auth.onAuthStateChanged(async (user) => {
+    if (user) {
+        // ... existing login logic ...
+        cleanupOldDeletedFiles(); 
+        renderLibrary();
+    }
+});
     async function confirmDelete(id) {
     const ok = confirm("Delete this builder permanently? This cannot be undone.");
 
@@ -1202,14 +1283,15 @@ async function saveToCloud(isAutosave = false) {
         : topicSelect.value;
 
     const data = {
-        uid: currentUser.uid,
-        title: document.getElementById('builder-title').value || "Untitled",
-        lang: document.getElementById('meta-lang').value,
-        year: document.getElementById('meta-year').value,
-        topic: topicValue,
-        grid: JSON.stringify(grid),
-        updated: firebase.firestore.FieldValue.serverTimestamp()
-    };
+    uid: currentUser.uid,
+    title: document.getElementById('builder-title').value || "Untitled",
+    lang: document.getElementById('meta-lang').value,
+    year: document.getElementById('meta-year').value,
+    topic: topicValue,
+    grid: JSON.stringify(grid),
+    isDeleted: false, // Add this line
+    updated: firebase.firestore.FieldValue.serverTimestamp()
+};
 
     try {
         if (currentDocId) {
@@ -1278,13 +1360,46 @@ async function loadProject(id) {
     showPage("editor-page");
     render(false);
 }
-async function deleteProject(id) {
-    const ok = confirm("Delete this builder permanently? This cannot be undone.");
+async function deleteProject(id, event) {
+    if (event) event.stopPropagation();
+    const ok = confirm("Move this builder to the bin?");
     if (!ok) return;
 
-    await db.collection("builders").doc(id).delete();
+    try {
+        await db.collection("builders").doc(id).update({
+            isDeleted: true,
+            deletedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        // Refresh the UI
+        if (showingBin) renderBin(); else renderLibrary();
+    } catch (e) {
+        console.error("Error moving to bin:", e);
+    }
+}
+    async function restoreProject(id, event) {
+    if (event) event.stopPropagation();
+    try {
+        await db.collection("builders").doc(id).update({
+            isDeleted: false,
+            deletedAt: null
+        });
+        renderLibrary();
+    } catch (e) {
+        console.error("Error restoring:", e);
+    }
+}
 
-    renderProjectsInline();
+async function permanentlyDelete(id, event) {
+    if (event) event.stopPropagation();
+    const ok = confirm("This will permanently delete the file. Are you sure?");
+    if (!ok) return;
+
+    try {
+        await db.collection("builders").doc(id).delete();
+        renderLibrary();
+    } catch (e) {
+        console.error("Error deleting permanently:", e);
+    }
 }
 
 /* =========================
