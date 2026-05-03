@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Ceffdars builder</title>
+    <title>Ceffdcccars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -780,33 +780,7 @@ async function login() {
         alert(e.message);
     }
 }
-auth.onAuthStateChanged(async (user) => {
-    initMetaListeners();
-    if (user) {
-        const email = user.email.toLowerCase();
 
-        if (!email.endsWith("@cedarsupper.co.uk")) {
-            await auth.signOut();
-            alert("Access Denied: Use school email.");
-            showPage('login-page');
-            return;
-        }
-
-  currentUser = user;
-        document.getElementById('user-display').innerText = email;
-        
-        // --- ADD THESE TWO LINES ---
-        cleanupOldDeletedFiles(); // Cleans up > 30 day old files
-        showingBin = false;       // Reset view state
-        // ---------------------------
-
-        showPage('library-page');
-        renderLibrary();
-    } else {
-        currentUser = null;
-        showPage('login-page');
-    }
-});
 async function logout() {
     await auth.signOut();
     location.reload();
@@ -935,13 +909,16 @@ function selectYear(year) {
 /* --- IMPROVED TOPIC & PROJECT RENDERING --- */
 
 async function renderTopicsInline() {
-    const topicArea = document.getElementById("topic-area");
+   const topicArea = document.getElementById("topic-area");
     if (!topicArea) return;
 
+    // Fixed Query
     let query = db.collection("builders")
-    .where("lang", "==", nav.lang)
-    .where("topic", "==", nav.topic)
-    .where("isDeleted", "==", false); // Crucial: hide binned items
+        .where("lang", "==", nav.lang)
+        .where("isDeleted", "==", false);
+
+    if (nav.lang !== "EAL" && nav.year) {
+        query = query.where("year", "==", nav.year);
     }
 
     try {
@@ -1154,12 +1131,29 @@ async function renderBin() {
     console.log(`Cleaned up ${oldDocs.size} expired files.`);
 }
 
-// Call this inside auth.onAuthStateChanged:
 auth.onAuthStateChanged(async (user) => {
+    initMetaListeners();
     if (user) {
-        // ... existing login logic ...
+        const email = user.email.toLowerCase();
+        if (!email.endsWith("@cedarsupper.co.uk")) {
+            await auth.signOut();
+            alert("Access Denied: Use school email.");
+            showPage('login-page');
+            return;
+        }
+
+        currentUser = user;
+        document.getElementById('user-display').innerText = email;
+        
+        // Essential Bin Setup
+        showingBin = false;
         cleanupOldDeletedFiles(); 
+
+        showPage('library-page');
         renderLibrary();
+    } else {
+        currentUser = null;
+        showPage('login-page');
     }
 });
     async function confirmDelete(id) {
@@ -1376,17 +1370,26 @@ async function deleteProject(id, event) {
         console.error("Error moving to bin:", e);
     }
 }
-    async function restoreProject(id, event) {
+   async function restoreProject(id, event) {
     if (event) event.stopPropagation();
     try {
         await db.collection("builders").doc(id).update({
             isDeleted: false,
             deletedAt: null
         });
+        // If we restored the last item in the bin, go back to library
+        renderBin(); 
         renderLibrary();
-    } catch (e) {
-        console.error("Error restoring:", e);
-    }
+    } catch (e) { console.error(e); }
+}
+
+async function permanentlyDelete(id, event) {
+    if (event) event.stopPropagation();
+    if (!confirm("Permanently delete?")) return;
+    try {
+        await db.collection("builders").doc(id).delete();
+        renderBin();
+    } catch (e) { console.error(e); }
 }
 
 async function permanentlyDelete(id, event) {
