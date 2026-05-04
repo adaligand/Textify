@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars hjdker</title>
+    <title>Cedars hcccccjdker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1986,15 +1986,42 @@ async function handlePDFImport(event) {
             const page = await pdf.getPage(1);
             const textContent = await page.getTextContent();
             
-            const rawItems = textContent.items.map(item => ({
+            let rawItems = textContent.items.map(item => ({
                 str: item.str.trim(),
                 x: item.transform[4],
                 y: item.transform[5],
-                w: item.width
+                fontSize: item.transform[0] // Useful for detecting titles
             })).filter(item => item.str.length > 0);
 
-            // 1. DETERMINE GLOBAL COLUMNS (The vertical "tracks")
-            let xPositions = rawItems.map(i => i.x).sort((a,b) => a - b);
+            // 1. EXTRACT TITLE AND REMOVE BRANDING
+            // Sort by Y descending to find the highest items on the page
+            rawItems.sort((a, b) => b.y - a.y);
+            
+            let suggestedTitle = file.name.replace(".pdf", "");
+            const brandingTerms = ["sentencebuilders", "powered by", "the language gym"];
+            
+            // Look at the top 3 items to find the real title
+            for (let i = 0; i < Math.min(5, rawItems.length); i++) {
+                const text = rawItems[i].str.toLowerCase();
+                const isBranding = brandingTerms.some(term => text.includes(term));
+                
+                // If it's high up and NOT branding, it's likely our Title
+                if (!isBranding && rawItems[i].y > 700) { 
+                    suggestedTitle = rawItems[i].str;
+                    break;
+                }
+            }
+
+            // Filter out everything above the grid (Titles/Branding)
+            // Most grids start below Y = 700
+            const gridItems = rawItems.filter(item => {
+                const text = item.str.toLowerCase();
+                const isBranding = brandingTerms.some(term => text.includes(term));
+                return !isBranding && item.y < 720; 
+            });
+
+            // 2. DETERMINE GLOBAL COLUMNS
+            let xPositions = gridItems.map(i => i.x).sort((a,b) => a - b);
             let columnTracks = [];
             xPositions.forEach(x => {
                 if (!columnTracks.some(track => Math.abs(track - x) < 100)) {
@@ -2003,10 +2030,9 @@ async function handlePDFImport(event) {
             });
             columnTracks.sort((a,b) => a - b);
 
-            // 2. GROUP INTO TALL ROW STRIPES (35px tolerance)
-            // This stops "ma mère" and "(my mother)" from becoming two different rows
+            // 3. GROUP INTO ROWS (35px Stripe)
             let rowsMap = {};
-            rawItems.forEach(item => {
+            gridItems.forEach(item => {
                 let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 35);
                 if (foundY) rowsMap[foundY].push(item);
                 else rowsMap[item.y] = [item];
@@ -2018,62 +2044,44 @@ async function handlePDFImport(event) {
                 const rowItems = rowsMap[y];
                 let buckets = columnTracks.map(() => []);
 
-                // Sort items into the correct column track
                 rowItems.forEach(item => {
                     let colIdx = columnTracks.findIndex(track => Math.abs(track - item.x) < 100);
                     if (colIdx !== -1) buckets[colIdx].push(item);
                 });
 
                 return buckets.map(bucket => {
-                    // Inside the cell, sort strictly top-to-bottom
                     bucket.sort((a, b) => b.y - a.y);
-                    
                     let cellItems = [];
                     let currentT = "";
-                    let currentTr = "";
-
+                    
                     bucket.forEach(item => {
                         let text = item.str;
-                        
                         if (text.startsWith('(') && text.endsWith(')')) {
-                            currentTr = text.replace(/[\(\)]/g, "");
-                            cellItems.push({ t: currentT.trim(), tr: currentTr.trim() });
-                            currentT = ""; currentTr = "";
+                            cellItems.push({ t: currentT.trim(), tr: text.replace(/[\(\)]/g, "").trim() });
+                            currentT = "";
                         } else if (text.includes('(') && text.includes(')')) {
                             const match = text.match(/^(.*)\((.*)\)$/);
                             cellItems.push({ t: match[1].trim(), tr: match[2].trim() });
                         } else {
-                            // If it's just text, add it to the current target word
                             currentT += (currentT ? " " : "") + text;
                         }
                     });
-
-                    // Cleanup orphans
                     if (currentT) cellItems.push({ t: currentT.trim(), tr: "" });
 
                     return {
                         items: cellItems.length ? cellItems : [{ t: "", tr: "" }],
-                        color: "#ffffff",
-                        split: false,
-                        rS: 1, cS: 1, hidden: false, sel: false
+                        color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false
                     };
                 });
             });
 
-            // 3. CLEANING & FILTERING
-            finalGridRows = finalGridRows.filter(r => {
-                const combined = r.map(c => c.items.map(i => i.t).join("")).join("");
-                return combined.length > 3 && 
-                       !combined.toLowerCase().includes("sentencebuilder") &&
-                       !combined.toLowerCase().includes("language gym");
-            });
-
-            const title = prompt("Import Name:", file.name.replace(".pdf", ""));
-            if (!title) return;
+            // Final check for title via Prompt
+            const finalTitle = prompt("Confirm Title:", suggestedTitle);
+            if (!finalTitle) return;
 
             const newDoc = {
                 uid: currentUser.uid,
-                title: title,
+                title: finalTitle,
                 lang: "French",
                 grid: JSON.stringify(finalGridRows),
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
@@ -2081,12 +2089,12 @@ async function handlePDFImport(event) {
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Import Successful! Review the large boxes for any missed splits.");
+            alert("Import Successful!");
             loadProject(docRef.id);
 
         } catch (err) {
             console.error(err);
-            alert("Failed to parse the grid structure.");
+            alert("Import Error.");
         }
     };
     reader.readAsArrayBuffer(file);
