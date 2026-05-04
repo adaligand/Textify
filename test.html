@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedaffffrs builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1958,31 +1958,29 @@ doc.text(title, margin, margin + 5);
 let currentY = margin + 15;
 
 grid.forEach((row) => {
-    // 1. PRE-CALCULATE WRAPPED LINES FOR HEIGHT
+    // 1. PRE-CALCULATE WRAPPED LINES AND ROW HEIGHT
     let preparedRow = row.map(cell => {
-        let itemsData = [];
+        let lines = [];
         cell.items.forEach(item => {
+            const tl = item.t || "";
+            const tr = item.tr ? ` (${item.tr})` : "";
+            
+            // Combine them temporarily to see how they wrap together
             doc.setFont("helvetica", "bold");
             doc.setFontSize(10);
-            const tlLines = doc.splitTextToSize(item.t || "", textWidth);
+            const combinedLines = doc.splitTextToSize(tl + tr, textWidth);
             
-            let trLines = [];
-            if (item.tr) {
-                doc.setFont("helvetica", "italic");
-                trLines = doc.splitTextToSize(`(${item.tr})`, textWidth);
-            }
-            itemsData.push({ tlLines, trLines });
+            lines.push({ tl, tr, wrapped: combinedLines });
         });
-        return itemsData;
+        return lines;
     });
 
-    // Determine row height based on total lines (TL + TR)
     let maxLinesInRow = 0;
-    preparedRow.forEach(cellItems => {
-        let totalLinesInCell = cellItems.reduce((acc, curr) => acc + curr.tlLines.length + curr.trLines.length, 0);
-        if (totalLinesInCell > maxLinesInRow) maxLinesInRow = totalLinesInCell;
+    preparedRow.forEach(cellLines => {
+        let count = cellLines.reduce((acc, curr) => acc + curr.wrapped.length, 0);
+        if (count > maxLinesInRow) maxLinesInRow = count;
     });
-    const rowHeight = Math.max(20, (maxLinesInRow * 5.5) + 8);
+    const rowHeight = Math.max(20, (maxLinesInRow * 6) + 8);
 
     // 2. CHECK FOR PAGE BREAK
     if (currentY + rowHeight > pageHeight - margin) {
@@ -2001,24 +1999,39 @@ grid.forEach((row) => {
         const cellItems = preparedRow[colIndex];
 
         cellItems.forEach(item => {
-            // Render Target Language (Bold Black)
-            doc.setFont("helvetica", "bold");
-            doc.setTextColor(0, 0, 0);
-            item.tlLines.forEach(line => {
-                doc.text(line, x + padding, textY);
-                textY += 5;
-            });
+            const tlText = item.tl;
+            const trText = item.tr;
+            
+            // We use the 'wrapped' lines as a guide for where to break
+            item.wrapped.forEach((lineText, lineIdx) => {
+                let currentX = x + padding;
 
-            // Render Translation (Italic Blue)
-            if (item.trLines.length > 0) {
-                doc.setFont("helvetica", "italic");
-                doc.setTextColor(41, 128, 185); // Your --translation-blue
-                item.trLines.forEach(line => {
-                    doc.text(line, x + padding, textY);
-                    textY += 5;
-                });
-            }
-            textY += 2; // Gap between items
+                // Check if the TL text is part of this line
+                if (tlText && lineText.includes(tlText)) {
+                    doc.setFont("helvetica", "bold");
+                    doc.setTextColor(0, 0, 0);
+                    
+                    // If TL is longer than one line, this logic handles the split
+                    const partTL = lineText.substring(0, tlText.length);
+                    doc.text(partTL, currentX, textY);
+                    currentX += doc.getTextWidth(partTL);
+                    
+                    // Remaining part of the line is Translation
+                    const partTR = lineText.substring(tlText.length);
+                    if (partTR) {
+                        doc.setFont("helvetica", "italic");
+                        doc.setTextColor(41, 128, 185);
+                        doc.text(partTR, currentX, textY);
+                    }
+                } else {
+                    // This line is entirely Translation (it wrapped)
+                    doc.setFont("helvetica", "italic");
+                    doc.setTextColor(41, 128, 185);
+                    doc.text(lineText, currentX, textY);
+                }
+                textY += 5.5;
+            });
+            textY += 1.5; // Small gap between items
         });
     });
 
