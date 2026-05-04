@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedardds builder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1937,7 +1937,7 @@ async function exportPDF() {
         return; 
     }
 
-    // --- OPTION B: MFL (Vector-based / Searchable Text) ---
+// --- OPTION B: MFL (Vector-based / Searchable Text) ---
 const doc = new jsPDF('l', 'mm', 'a4');
 const margin = 10;
 const pageWidth = doc.internal.pageSize.getWidth();
@@ -1948,7 +1948,7 @@ if (!grid || grid.length === 0) return;
 
 const colCount = grid[0].length;
 const cellWidth = availableWidth / colCount;
-const padding = 3; // Padding inside the cell
+const padding = 3; 
 const textWidth = cellWidth - (padding * 2); 
 
 doc.setFont("helvetica", "bold");
@@ -1958,33 +1958,31 @@ doc.text(title, margin, margin + 5);
 let currentY = margin + 15;
 
 grid.forEach((row) => {
-    // 1. PRE-CALCULATE WRAPPED LINES AND ROW HEIGHT
-    // We need to know the height of the row BEFORE drawing it to handle page breaks.
+    // 1. PRE-CALCULATE WRAPPED LINES FOR HEIGHT
     let preparedRow = row.map(cell => {
-        let lines = [];
+        let itemsData = [];
         cell.items.forEach(item => {
-            const targetText = item.t || "";
-            const translationText = item.tr ? ` (${item.tr})` : "";
-            const combinedText = targetText + translationText;
-
-            // Split the combined text into lines that fit the cell
             doc.setFont("helvetica", "bold");
             doc.setFontSize(10);
-            const splitLines = doc.splitTextToSize(combinedText, textWidth);
-            lines.push({ splitLines, hasTranslation: !!item.tr, targetText });
+            const tlLines = doc.splitTextToSize(item.t || "", textWidth);
+            
+            let trLines = [];
+            if (item.tr) {
+                doc.setFont("helvetica", "italic");
+                trLines = doc.splitTextToSize(`(${item.tr})`, textWidth);
+            }
+            itemsData.push({ tlLines, trLines });
         });
-        return lines;
+        return itemsData;
     });
 
-    // Determine the tallest cell in this row
+    // Determine row height based on total lines (TL + TR)
     let maxLinesInRow = 0;
-    preparedRow.forEach(cellLines => {
-        let totalLinesInCell = cellLines.reduce((acc, curr) => acc + curr.splitLines.length, 0);
+    preparedRow.forEach(cellItems => {
+        let totalLinesInCell = cellItems.reduce((acc, curr) => acc + curr.tlLines.length + curr.trLines.length, 0);
         if (totalLinesInCell > maxLinesInRow) maxLinesInRow = totalLinesInCell;
     });
-
-    // Calculate row height (Line height is approx 5mm + some spacing)
-    const rowHeight = Math.max(20, (maxLinesInRow * 5) + 10);
+    const rowHeight = Math.max(20, (maxLinesInRow * 5.5) + 8);
 
     // 2. CHECK FOR PAGE BREAK
     if (currentY + rowHeight > pageHeight - margin) {
@@ -1995,27 +1993,32 @@ grid.forEach((row) => {
     // 3. RENDER THE ROW
     row.forEach((cell, colIndex) => {
         const x = margin + (colIndex * cellWidth);
-        
-        // Draw Cell Border
         doc.setDrawColor(148, 163, 184); 
         doc.setLineWidth(0.2);
         doc.rect(x, currentY, cellWidth, rowHeight);
 
         let textY = currentY + 7;
-        const cellData = preparedRow[colIndex];
+        const cellItems = preparedRow[colIndex];
 
-        cellData.forEach(itemData => {
-            itemData.splitLines.forEach((line) => {
-                // To keep the "Translation Blue" color for the bracketed part, 
-                // we'd need complex line-parsing. For simplicity and reliability, 
-                // we'll print the wrapped line in black.
-                doc.setFont("helvetica", "bold");
-                doc.setFontSize(10);
-                doc.setTextColor(0, 0, 0);
+        cellItems.forEach(item => {
+            // Render Target Language (Bold Black)
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(0, 0, 0);
+            item.tlLines.forEach(line => {
                 doc.text(line, x + padding, textY);
-                textY += 5; // Move to next line
+                textY += 5;
             });
-            textY += 2; // Small gap between different items in the same cell
+
+            // Render Translation (Italic Blue)
+            if (item.trLines.length > 0) {
+                doc.setFont("helvetica", "italic");
+                doc.setTextColor(41, 128, 185); // Your --translation-blue
+                item.trLines.forEach(line => {
+                    doc.text(line, x + padding, textY);
+                    textY += 5;
+                });
+            }
+            textY += 2; // Gap between items
         });
     });
 
