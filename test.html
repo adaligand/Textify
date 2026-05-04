@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars buileker</title>
+    <title>Cedars buiccccccccccccleker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2051,50 +2051,72 @@ function createEmptyCell() {
         sel: false
     };
 }
-    async function extractGridFromPDF(file) {
+async function extractGridFromPDF(file) {
     console.log("🚀 Starting PDF extraction");
 
     const arrayBuffer = await file.arrayBuffer();
-
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    console.log("📄 Pages:", pdf.numPages);
 
-    let allLines = [];
+    let items = [];
 
     for (let p = 1; p <= pdf.numPages; p++) {
         const page = await pdf.getPage(p);
         const content = await page.getTextContent();
 
-        // Convert items → lines
-        let linesMap = {};
-
-        content.items.forEach(item => {
-            const y = Math.round(item.transform[5]); // vertical position
-            if (!linesMap[y]) linesMap[y] = [];
-            linesMap[y].push(item.str);
+        content.items.forEach(it => {
+            items.push({
+                text: it.str.trim(),
+                x: Math.round(it.transform[4]),
+                y: Math.round(it.transform[5])
+            });
         });
-
-        const lines = Object.values(linesMap)
-            .map(line => line.join(" ").trim())
-            .filter(l => l.length > 0);
-
-        allLines.push(...lines);
     }
 
-    console.log("🧾 Extracted lines:", allLines);
+    // --- STEP 1: GROUP ROWS (by Y) ---
+    const rowThreshold = 8;
+    let rows = [];
 
-    // --- SIMPLE GRID LOGIC ---
-    // Assumes 3 columns like your builders
-    const COLS = 3;
-    let grid = [];
+    items.forEach(item => {
+        let row = rows.find(r => Math.abs(r.y - item.y) < rowThreshold);
+        if (!row) {
+            row = { y: item.y, items: [] };
+            rows.push(row);
+        }
+        row.items.push(item);
+    });
 
-    for (let i = 0; i < allLines.length; i += COLS) {
-        const row = [];
+    // sort rows top → bottom
+    rows.sort((a, b) => b.y - a.y);
 
-        for (let j = 0; j < COLS; j++) {
-            const text = allLines[i + j] || "";
+    // --- STEP 2: DETECT COLUMNS (by X clustering) ---
+    let xValues = items.map(i => i.x).sort((a, b) => a - b);
 
-            // Split target + translation if pattern exists
+    const colThreshold = 20;
+    let columns = [];
+
+    xValues.forEach(x => {
+        let col = columns.find(c => Math.abs(c - x) < colThreshold);
+        if (!col) columns.push(x);
+    });
+
+    columns.sort((a, b) => a - b);
+
+    console.log("📊 Detected columns:", columns.length);
+
+    // --- STEP 3: BUILD GRID ---
+    let grid = rows.map(row => {
+        let rowCells = new Array(columns.length).fill(null).map(() => ({
+            vocab: [{ target: "", translation: "" }],
+            color: "#ffffff",
+            isSplit: false
+        }));
+
+        row.items.forEach(item => {
+            let colIndex = columns.findIndex(c => Math.abs(c - item.x) < colThreshold);
+            if (colIndex === -1) return;
+
+            let text = item.text;
+
             let target = text;
             let translation = "";
 
@@ -2104,20 +2126,17 @@ function createEmptyCell() {
                 translation = match[2].trim();
             }
 
-            row.push({
-                vocab: [{
-                    target,
-                    translation
-                }],
-                color: "#ffffff",
-                isSplit: false
-            });
-        }
+            // Append if multiple items land in same cell
+            let existing = rowCells[colIndex].vocab[0];
 
-        grid.push(row);
-    }
+            existing.target += (existing.target ? " " : "") + target;
+            existing.translation += (existing.translation ? " " : "") + translation;
+        });
 
-    console.log("🧩 Parsed grid:", grid);
+        return rowCells;
+    });
+
+    console.log("🧩 Final grid:", grid);
 
     return grid;
 }
