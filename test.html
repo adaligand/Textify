@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars cccbuilder</title>
+    <title>Cedarscbuilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1454,82 +1454,111 @@ function pushHistory() {
     function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
 function render(doSave = true) {
     if (doSave) pushHistory();
+
     const container = document.getElementById('grid-container');
     container.innerHTML = '';
+
     const cols = grid[0].length;
     container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
 
+    // 🔥 SAFETY NORMALISATION (CRITICAL FOR IMPORTED PDFs)
+    grid.forEach(row => {
+        row.forEach(cell => {
+            if (!cell) return;
+
+            // unify all span systems
+            if (cell.cS == null && cell.span != null) cell.cS = cell.span;
+            if (cell.cS == null) cell.cS = 1;
+            if (cell.rS == null) cell.rS = 1;
+            if (cell.hidden == null) cell.hidden = false;
+            if (cell.items == null) cell.items = [{ t: "", tr: "" }];
+        });
+    });
+
     grid.forEach((row, r) => {
         row.forEach((cell, cIdx) => {
-            if (cell.hidden) return;
+            if (!cell || cell.hidden) return;
 
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
-            
-            cellDiv.style.gridRow = `${r + 1} / span ${cell.rS || 1}`;
-            cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
+
+            const colSpan = cell.cS || cell.span || 1;
+            const rowSpan = cell.rS || 1;
+
+            cellDiv.style.gridRow = `${r + 1} / span ${rowSpan}`;
+            cellDiv.style.gridColumn = `${cIdx + 1} / span ${colSpan}`;
             cellDiv.style.backgroundColor = cell.color || "#ffffff";
 
-         // Generate the items HTML
-        const listHTML = cell.items.map((item, i) => `
-            <div class="vocab-item">
-                <input type="text" class="target-input" placeholder="Target" 
-                    data-pos="${r}-${cIdx}-${i}-t"
-                    onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')" 
-                    oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
-                <div class="bracket-wrapper"><span>(</span>
-                <input type="text" class="translation-input" placeholder="Translation" 
-                    data-pos="${r}-${cIdx}-${i}-tr"
-                    onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 'tr')" 
-                    oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
-                <span>)</span></div>
-            </div>
-        `).join('');
+            const listHTML = cell.items.map((item, i) => `
+                <div class="vocab-item">
+                    <input type="text" class="target-input"
+                        data-pos="${r}-${cIdx}-${i}-t"
+                        onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')"
+                        oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)"
+                        value="${item.t || ''}">
 
-        // Apply the 'split' class directly to the vocab-list div
-        cellDiv.innerHTML = `
-            <div class="top-ui no-export">
-                <input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} 
-                    onchange="grid[${r}][${cIdx}].sel=this.checked">
-            </div>
-            <div class="vocab-list ${cell.split ? 'split' : ''}">${listHTML}</div>
-            <div class="bottom-ui no-export">
-                <span class="icon-btn" onclick="toggleCellSplit(${r},${cIdx})">Ξ</span>
-                <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
-                <div class="color-picker" id="cp-${r}-${cIdx}">
-                    ${allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}
+                    <div class="bracket-wrapper">
+                        <span>(</span>
+                        <input type="text" class="translation-input"
+                            data-pos="${r}-${cIdx}-${i}-tr"
+                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 'tr')"
+                            oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)"
+                            value="${item.tr || ''}">
+                        <span>)</span>
+                    </div>
                 </div>
-            </div>
-        `;
-            
-                // --- ADD THIS INSIDE render() grid.forEach loop ---
-if (currentMode === 'add-col' && r === 0) {
-    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-}
-if (currentMode === 'del-col' && r === 0) {
-    addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-}
-if (currentMode === 'add-row' && cIdx === 0) {
-    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-}
-if (currentMode === 'del-row' && cIdx === 0) {
-    addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
-}
-               
-                if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-                if (currentMode === 'add-row' && cIdx === 0) {
-                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-                }
-                if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+            `).join('');
 
-                container.appendChild(cellDiv);
-                cellDiv.querySelectorAll('input').forEach(syncSize);
-            });
+            cellDiv.innerHTML = `
+                <div class="top-ui no-export">
+                    <input type="checkbox" class="cell-checkbox"
+                        ${cell.sel ? 'checked' : ''}
+                        onchange="grid[${r}][${cIdx}].sel=this.checked">
+                </div>
+
+                <div class="vocab-list ${cell.split ? 'split' : ''}">
+                    ${listHTML}
+                </div>
+
+                <div class="bottom-ui no-export">
+                    <span class="icon-btn" onclick="toggleCellSplit(${r},${cIdx})">Ξ</span>
+                    <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
+
+                    <div class="color-picker" id="cp-${r}-${cIdx}">
+                        ${allColors.map(p =>
+                            `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+
+            // --- GRID CONTROLS (UNCHANGED LOGIC) ---
+            if (currentMode === 'add-col' && r === 0) {
+                addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+            }
+
+            if (currentMode === 'del-col' && r === 0) {
+                addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+            }
+
+            if (currentMode === 'add-row' && cIdx === 0) {
+                addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                if (r === grid.length - 1) {
+                    addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+                }
+            }
+
+            if (currentMode === 'del-row' && cIdx === 0) {
+                addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+            }
+
+            container.appendChild(cellDiv);
+
+            cellDiv.querySelectorAll('input').forEach(syncSize);
         });
-    }
+    });
+}
     /* --- FIXES FOR CELL ACTIONS --- */
 
 // 1. Function to update cell color
@@ -1542,13 +1571,25 @@ function setClr(r, c, color) {
 
 // 2. Function to toggle between 1 and 2 columns in a cell
 function toggleCellSplit(r, c) {
-    grid[r][c].split = !grid[r][c].split;
-    
-    // Optional: Log to confirm state change
-    console.log(`Cell [${r},${c}] split state: ${grid[r][c].split}`);
-    
-    render(); 
-    saveToCloud(true); // Ensure the split state is saved to Firestore
+    const cell = grid[r][c];
+
+    // toggle state
+    cell.split = !cell.split;
+
+    // IMPORTANT FIX:
+    // ensure imported or old cells have proper span defaults
+    if (cell.cS == null) cell.cS = 1;
+    if (cell.rS == null) cell.rS = 1;
+
+    if (cell.split) {
+        // split into 2 logical columns
+        cell.cS = 2;
+    } else {
+        cell.cS = 1;
+    }
+
+    render();
+    saveToCloud(true);
 }
 async function duplicateSB(id, e) {
     if (e) e.stopPropagation();
@@ -1992,16 +2033,19 @@ async function handlePDFImport(event) {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async function() {
+
+    reader.onload = async function () {
         try {
             const typedarray = new Uint8Array(this.result);
+
             const pdfjsLib = window['pdfjs-dist/build/pdf'];
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+            pdfjsLib.GlobalWorkerOptions.workerSrc =
+                `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
             const pdf = await pdfjsLib.getDocument(typedarray).promise;
             const page = await pdf.getPage(1);
             const textContent = await page.getTextContent();
-            
+
             let items = textContent.items.map(item => ({
                 str: item.str.trim(),
                 x: item.transform[4],
@@ -2009,72 +2053,78 @@ async function handlePDFImport(event) {
                 fs: item.transform[0]
             })).filter(i => i.str.length > 0);
 
-            const titleItem = [...items].sort((a,b) => b.fs - a.fs || b.y - a.y)[0];
+            const titleItem = [...items].sort((a, b) => b.fs - a.fs || b.y - a.y)[0];
             const suggestedTitle = titleItem ? titleItem.str : file.name.replace(".pdf", "");
 
             const branding = ["sentencebuilders", "powered by", "language gym"];
+
             const gridItems = items.filter(i => {
                 if (i === titleItem) return false;
                 return !branding.some(b => i.str.toLowerCase().includes(b));
             });
 
-            // 1. CLUSTER COLUMNS
+            // ---------- COLUMN CLUSTERING ----------
             let columns = [];
-            gridItems.sort((a,b) => a.x - b.x).forEach(item => {
+            gridItems.sort((a, b) => a.x - b.x).forEach(item => {
                 let cluster = columns.find(c => Math.abs(c.x - item.x) < 35);
                 if (cluster) cluster.items.push(item);
                 else columns.push({ x: item.x, items: [item] });
             });
-            columns.sort((a,b) => a.x - b.x);
 
-            // 🔥 NEW: MERGE TRANSLATION-ONLY COLUMNS
-            // If a column starts with a bracket, it belongs to the previous column
-            let mergedCols = [];
-            columns.forEach((col, i) => {
-                const isTranslationCol = col.items.every(it => it.str.startsWith('(') || it.str.endsWith(')'));
-                if (isTranslationCol && mergedCols.length > 0) {
-                    mergedCols[mergedCols.length - 1].items.push(...col.items);
-                } else {
-                    mergedCols.push(col);
-                }
-            });
+            columns.sort((a, b) => a.x - b.x);
 
-            // 2. CLUSTER ROWS
+            // ---------- ROW CLUSTERING ----------
             let rows = [];
-            gridItems.sort((a,b) => a.y - b.y).forEach(item => {
+            gridItems.sort((a, b) => a.y - b.y).forEach(item => {
                 let cluster = rows.find(r => Math.abs(r.y - item.y) < 25);
                 if (cluster) cluster.items.push(item);
                 else rows.push({ y: item.y, items: [item] });
             });
-            rows.sort((a,b) => b.y - a.y);
 
-            // 3. ASSEMBLE GRID
-            let finalGridRows = rows.map(row => {
-                return mergedCols.map(col => {
-                    let cellItems = row.items.filter(ri => col.items.includes(ri));
-                    cellItems.sort((a, b) => b.y - a.y || a.x - b.x); 
+            rows.sort((a, b) => b.y - a.y);
+
+            // ---------- BUILD GRID ----------
+            let finalGrid = rows.map(row => {
+                return columns.map(col => {
+                    let cellItems = row.items.filter(ri =>
+                        col.items.includes(ri)
+                    );
+
+                    cellItems.sort((a, b) => b.y - a.y || a.x - b.x);
 
                     let vocab = [];
                     let lastT = "";
 
                     cellItems.forEach(item => {
                         let text = item.str;
+
                         if (text.startsWith('(') && text.endsWith(')')) {
-                            vocab.push({ t: lastT.trim(), tr: text.replace(/[()]/g, "").trim() });
+                            vocab.push({
+                                t: lastT.trim(),
+                                tr: text.replace(/[()]/g, "").trim()
+                            });
                             lastT = "";
-                        } else if (text.includes('(') && text.includes(')')) {
-                            const m = text.match(/^(.*)\((.*)\)$/);
-                            if (m) vocab.push({ t: m[1].trim(), tr: m[2].trim() });
                         } else {
                             if (lastT) vocab.push({ t: lastT.trim(), tr: "" });
                             lastT = text;
                         }
                     });
+
                     if (lastT) vocab.push({ t: lastT.trim(), tr: "" });
 
                     return {
                         items: vocab.length ? vocab : [{ t: "", tr: "" }],
-                        color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false
+
+                        // 🔥 CRITICAL FIX: UNIFIED GRID MODEL
+                        color: "#ffffff",
+                        split: false,
+
+                        rS: 1,
+                        cS: 1,     // MUST exist for render()
+                        span: 1,   // backward compatibility
+
+                        hidden: false,
+                        sel: false
                     };
                 });
             });
@@ -2086,14 +2136,17 @@ async function handlePDFImport(event) {
                 uid: currentUser.uid,
                 title: finalTitle,
                 lang: "French",
-                year: "Year 7", topic: "General",
-                grid: JSON.stringify(finalGridRows),
+                year: "Year 7",
+                topic: "General",
+                grid: JSON.stringify(finalGrid),
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
                 isDeleted: false
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Success! Review the column alignment.");
+
+            alert("Import successful!");
+
             loadProject(docRef.id);
 
         } catch (err) {
@@ -2101,6 +2154,7 @@ async function handlePDFImport(event) {
             alert("Import failed.");
         }
     };
+
     reader.readAsArrayBuffer(file);
 }
 function adaptImportedGrid(importedGrid) {
