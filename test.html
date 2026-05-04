@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars hcccccjdker</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1986,54 +1986,46 @@ async function handlePDFImport(event) {
             const page = await pdf.getPage(1);
             const textContent = await page.getTextContent();
             
-            let rawItems = textContent.items.map(item => ({
+            // 1. Map items and find the Title (the largest font size)
+            let items = textContent.items.map(item => ({
                 str: item.str.trim(),
                 x: item.transform[4],
                 y: item.transform[5],
-                fontSize: item.transform[0] // Useful for detecting titles
+                w: item.width,
+                fs: item.transform[0], // Font Size
+                centerX: item.transform[4] + (item.width / 2)
             })).filter(item => item.str.length > 0);
 
-            // 1. EXTRACT TITLE AND REMOVE BRANDING
-            // Sort by Y descending to find the highest items on the page
-            rawItems.sort((a, b) => b.y - a.y);
-            
-            let suggestedTitle = file.name.replace(".pdf", "");
-            const brandingTerms = ["sentencebuilders", "powered by", "the language gym"];
-            
-            // Look at the top 3 items to find the real title
-            for (let i = 0; i < Math.min(5, rawItems.length); i++) {
-                const text = rawItems[i].str.toLowerCase();
-                const isBranding = brandingTerms.some(term => text.includes(term));
-                
-                // If it's high up and NOT branding, it's likely our Title
-                if (!isBranding && rawItems[i].y > 700) { 
-                    suggestedTitle = rawItems[i].str;
-                    break;
-                }
-            }
+            // Find the title candidate (Biggest font size at the top half)
+            const titleCandidate = [...items]
+                .filter(i => i.y > 600)
+                .sort((a, b) => b.fs - a.fs)[0];
 
-            // Filter out everything above the grid (Titles/Branding)
-            // Most grids start below Y = 700
-            const gridItems = rawItems.filter(item => {
-                const text = item.str.toLowerCase();
-                const isBranding = brandingTerms.some(term => text.includes(term));
-                return !isBranding && item.y < 720; 
+            let suggestedTitle = titleCandidate ? titleCandidate.str : file.name.replace(".pdf", "");
+
+            // 2. Filter out branding and the specific Title element
+            const branding = ["sentencebuilders", "powered by", "language gym"];
+            const gridItems = items.filter(item => {
+                const s = item.str.toLowerCase();
+                const isBranding = branding.some(b => s.includes(b));
+                const isTitle = (item === titleCandidate);
+                return !isBranding && !isTitle;
             });
 
-            // 2. DETERMINE GLOBAL COLUMNS
+            // 3. Detect Column Tracks based on item starts
             let xPositions = gridItems.map(i => i.x).sort((a,b) => a - b);
             let columnTracks = [];
             xPositions.forEach(x => {
-                if (!columnTracks.some(track => Math.abs(track - x) < 100)) {
+                if (!columnTracks.some(track => Math.abs(track - x) < 80)) {
                     columnTracks.push(x);
                 }
             });
             columnTracks.sort((a,b) => a - b);
 
-            // 3. GROUP INTO ROWS (35px Stripe)
+            // 4. Group into Rows (30px tolerance)
             let rowsMap = {};
             gridItems.forEach(item => {
-                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 35);
+                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 30);
                 if (foundY) rowsMap[foundY].push(item);
                 else rowsMap[item.y] = [item];
             });
@@ -2045,28 +2037,30 @@ async function handlePDFImport(event) {
                 let buckets = columnTracks.map(() => []);
 
                 rowItems.forEach(item => {
-                    let colIdx = columnTracks.findIndex(track => Math.abs(track - item.x) < 100);
+                    // Use item.x but give preference to the track it's closest to
+                    let colIdx = columnTracks.findIndex(track => Math.abs(track - item.x) < 80);
                     if (colIdx !== -1) buckets[colIdx].push(item);
                 });
 
                 return buckets.map(bucket => {
-                    bucket.sort((a, b) => b.y - a.y);
+                    bucket.sort((a, b) => b.y - a.y || a.x - b.x);
                     let cellItems = [];
-                    let currentT = "";
-                    
+                    let curT = "", curTr = "";
+
                     bucket.forEach(item => {
                         let text = item.str;
                         if (text.startsWith('(') && text.endsWith(')')) {
-                            cellItems.push({ t: currentT.trim(), tr: text.replace(/[\(\)]/g, "").trim() });
-                            currentT = "";
+                            curTr = text.replace(/[\(\)]/g, "");
+                            cellItems.push({ t: curT.trim(), tr: curTr.trim() });
+                            curT = ""; curTr = "";
                         } else if (text.includes('(') && text.includes(')')) {
                             const match = text.match(/^(.*)\((.*)\)$/);
                             cellItems.push({ t: match[1].trim(), tr: match[2].trim() });
                         } else {
-                            currentT += (currentT ? " " : "") + text;
+                            curT += (curT ? " " : "") + text;
                         }
                     });
-                    if (currentT) cellItems.push({ t: currentT.trim(), tr: "" });
+                    if (curT) cellItems.push({ t: curT.trim(), tr: "" });
 
                     return {
                         items: cellItems.length ? cellItems : [{ t: "", tr: "" }],
@@ -2075,8 +2069,8 @@ async function handlePDFImport(event) {
                 });
             });
 
-            // Final check for title via Prompt
-            const finalTitle = prompt("Confirm Title:", suggestedTitle);
+            // 5. Finalize
+            const finalTitle = prompt("Confirm Builder Title:", suggestedTitle);
             if (!finalTitle) return;
 
             const newDoc = {
@@ -2089,12 +2083,12 @@ async function handlePDFImport(event) {
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Import Successful!");
+            alert("Import Successful! Row 1 and Titles handled.");
             loadProject(docRef.id);
 
         } catch (err) {
             console.error(err);
-            alert("Import Error.");
+            alert("Import failed during parsing.");
         }
     };
     reader.readAsArrayBuffer(file);
