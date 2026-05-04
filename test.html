@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars buder</title>
+    <title>Cedars budgkjgjkgjker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1978,85 +1978,78 @@ async function handlePDFImport(event) {
         try {
             const typedarray = new Uint8Array(this.result);
             const pdfjsLib = window['pdfjs-dist/build/pdf'];
-            
-            // Set the worker source for PDF parsing
             pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
             const pdf = await pdfjsLib.getDocument(typedarray).promise;
-            const page = await pdf.getPage(1); // Focus on the first page
+            const page = await pdf.getPage(1);
             const textContent = await page.getTextContent();
             
-            // 1. Extract raw items with coordinates
             const items = textContent.items.map(item => ({
                 str: item.str.trim(),
-                x: item.transform[4],
-                y: item.transform[5],
-                width: item.width
+                x: Math.round(item.transform[4]), // Horizontal
+                y: Math.round(item.transform[5]), // Vertical
+                w: item.width
             })).filter(item => item.str.length > 0);
 
-            // 2. Group into Rows using Vertical Snapping (15px threshold)
+            // 1. GROUP INTO ROWS (Vertical Snapping - 12px)
             let rowsMap = {};
             items.forEach(item => {
-                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 15);
-                if (foundY) {
-                    rowsMap[foundY].push(item);
-                } else {
-                    rowsMap[item.y] = [item];
-                }
+                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 12);
+                if (foundY) rowsMap[foundY].push(item);
+                else rowsMap[item.y] = [item];
             });
 
-            // Sort rows from top to bottom
+            // 2. IDENTIFY COLUMN TRACKS
+            // We look at all items and find common X starting positions
+            let xPositions = items.map(i => i.x).sort((a,b) => a - b);
+            let columnTracks = [];
+            xPositions.forEach(x => {
+                if (!columnTracks.some(track => Math.abs(track - x) < 40)) {
+                    columnTracks.push(x);
+                }
+            });
+            columnTracks.sort((a,b) => a - b);
+
             const sortedY = Object.keys(rowsMap).sort((a, b) => b - a);
             
-            const finalGridRows = sortedY.map(y => {
+            let finalGridRows = sortedY.map(y => {
                 const rowItems = rowsMap[y];
-                rowItems.sort((a, b) => a.x - b.x); // Sort left to right
+                // Create an empty row based on the number of columns we found
+                let rowData = columnTracks.map(() => ({ target: "", translation: "" }));
 
-                // 3. Horizontal Merging: Combine items that are close horizontally (same cell)
-                let mergedCells = [];
                 rowItems.forEach(item => {
-                    let last = mergedCells[mergedCells.length - 1];
-                    // If within 30px, assume it's the same column/cell
-                    if (last && (item.x - (last.x + last.width)) < 30) {
-                        last.str += " " + item.str;
-                        last.width += item.width;
-                    } else {
-                        mergedCells.push({...item});
+                    // Find which column track this item belongs to
+                    let colIdx = columnTracks.findIndex(track => Math.abs(track - item.x) < 40);
+                    if (colIdx !== -1) {
+                        let text = item.str;
+                        // Better Regex: handles "Word (Translation)" and "Word(Translation)"
+                        const match = text.match(/^([^\(]+)(?:\((.*)\))?$/);
+                        if (match) {
+                            rowData[colIdx].target += (rowData[colIdx].target ? " " : "") + match[1].trim();
+                            if (match[2]) {
+                                rowData[colIdx].translation += (rowData[colIdx].translation ? " " : "") + match[2].trim();
+                            }
+                        } else {
+                            rowData[colIdx].target += " " + text;
+                        }
                     }
                 });
 
-                // 4. Map to your App's Object Format
-                return mergedCells.map(cell => {
-                    let target = cell.str;
-                    let translation = "";
-
-                    // Look for Language Gym pattern: "French (English)"
-                    const parts = cell.str.match(/(.*)\((.*)\)/);
-                    if (parts) {
-                        target = parts[1].trim();
-                        translation = parts[2].trim();
-                    }
-
-                    return {
-                        vocab: [{ target: target, translation: translation }],
-                        color: "#ffffff",
-                        isSplit: false
-                    };
-                });
+                return rowData.map(d => ({
+                    vocab: [{ target: d.target.trim(), translation: d.translation.trim() }],
+                    color: "#ffffff",
+                    isSplit: false
+                }));
             });
 
-            // 5. Clean Noise & Normalize (Ensure grid is rectangular)
-            let filteredGrid = finalGridRows.filter(r => r.length > 0 && r[0].vocab[0].target.length > 1);
-            
-            const maxCols = Math.max(...filteredGrid.map(r => r.length));
-            const normalizedGrid = filteredGrid.map(row => {
-                while(row.length < maxCols) {
-                    row.push({ vocab: [{ target: "", translation: "" }], color: "#ffffff", isSplit: false });
-                }
-                return row;
+            // 3. FILTER NOISE (Headers/Empty Rows)
+            finalGridRows = finalGridRows.filter(r => {
+                const firstCellText = r[0].vocab[0].target.toLowerCase();
+                return r.some(c => c.vocab[0].target.length > 0) && 
+                       !firstCellText.includes("sentencebuilder") && 
+                       !firstCellText.includes("powered by");
             });
 
-            // 6. Save to Firestore
             const title = prompt("Name your imported builder:", file.name.replace(".pdf", ""));
             if (!title) return;
 
@@ -2066,7 +2059,7 @@ async function handlePDFImport(event) {
                 lang: "French",
                 year: "Imported",
                 topic: "Imported",
-                grid: JSON.stringify(normalizedGrid), // STRINGIFY to avoid Firestore Nested Array Error
+                grid: JSON.stringify(finalGridRows), // Correctly nested for your loadProject
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
                 isDeleted: false
             };
@@ -2074,13 +2067,12 @@ async function handlePDFImport(event) {
             const docRef = await db.collection("builders").add(newDoc);
             alert("Import Successful!");
             
-            // Refresh library UI and load the project
             if(window.loadLibrary) loadLibrary();
             loadProject(docRef.id);
 
         } catch (err) {
-            console.error("PDF Import Error:", err);
-            alert("Error parsing PDF. Make sure it's a text-based PDF.");
+            console.error("Import Error:", err);
+            alert("Failed to parse PDF correctly.");
         }
     };
     reader.readAsArrayBuffer(file);
