@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars buiccccccccccccleker</title>
+    <title>Cedars buicceker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2052,8 +2052,6 @@ function createEmptyCell() {
     };
 }
 async function extractGridFromPDF(file) {
-    console.log("🚀 Starting PDF extraction");
-
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
@@ -2072,7 +2070,7 @@ async function extractGridFromPDF(file) {
         });
     }
 
-    // --- STEP 1: GROUP ROWS (by Y) ---
+    // --- GROUP ROWS ---
     const rowThreshold = 8;
     let rows = [];
 
@@ -2085,60 +2083,79 @@ async function extractGridFromPDF(file) {
         row.items.push(item);
     });
 
-    // sort rows top → bottom
     rows.sort((a, b) => b.y - a.y);
 
-    // --- STEP 2: DETECT COLUMNS (by X clustering) ---
-    let xValues = items.map(i => i.x).sort((a, b) => a - b);
-
-    const colThreshold = 20;
+    // --- DETECT COLUMNS ---
+    const colThreshold = 25;
     let columns = [];
 
-    xValues.forEach(x => {
-        let col = columns.find(c => Math.abs(c - x) < colThreshold);
-        if (!col) columns.push(x);
+    items.forEach(item => {
+        let col = columns.find(c => Math.abs(c - item.x) < colThreshold);
+        if (!col) columns.push(item.x);
     });
 
     columns.sort((a, b) => a - b);
 
-    console.log("📊 Detected columns:", columns.length);
-
-    // --- STEP 3: BUILD GRID ---
+    // --- BUILD GRID ---
     let grid = rows.map(row => {
-        let rowCells = new Array(columns.length).fill(null).map(() => ({
-            vocab: [{ target: "", translation: "" }],
-            color: "#ffffff",
-            isSplit: false
-        }));
+        let cellBuckets = new Array(columns.length).fill(null).map(() => []);
 
+        // 🔥 GROUP ITEMS INTO CELLS FIRST
         row.items.forEach(item => {
             let colIndex = columns.findIndex(c => Math.abs(c - item.x) < colThreshold);
-            if (colIndex === -1) return;
-
-            let text = item.text;
-
-            let target = text;
-            let translation = "";
-
-            const match = text.match(/^(.*?)\((.*?)\)$/);
-            if (match) {
-                target = match[1].trim();
-                translation = match[2].trim();
+            if (colIndex !== -1) {
+                cellBuckets[colIndex].push(item);
             }
-
-            // Append if multiple items land in same cell
-            let existing = rowCells[colIndex].vocab[0];
-
-            existing.target += (existing.target ? " " : "") + target;
-            existing.translation += (existing.translation ? " " : "") + translation;
         });
 
-        return rowCells;
+        // 🔥 NOW MERGE TEXT PER CELL
+        return cellBuckets.map(bucket => {
+            if (bucket.length === 0) {
+                return emptyCell();
+            }
+
+            // sort left → right (important for correct sentence order)
+            bucket.sort((a, b) => a.x - b.x);
+
+            const fullText = bucket.map(b => b.text).join(" ");
+
+            // 🔥 EXTRACT MULTIPLE (TL + TR) PAIRS
+            let vocab = [];
+            const regex = /([^()]+)\(([^()]+)\)/g;
+
+            let match;
+            while ((match = regex.exec(fullText)) !== null) {
+                vocab.push({
+                    target: match[1].trim(),
+                    translation: match[2].trim()
+                });
+            }
+
+            // fallback if no ( ) pattern
+            if (vocab.length === 0) {
+                vocab.push({
+                    target: fullText.trim(),
+                    translation: ""
+                });
+            }
+
+            return {
+                vocab,
+                color: "#ffffff",
+                isSplit: false
+            };
+        });
     });
 
-    console.log("🧩 Final grid:", grid);
-
     return grid;
+}
+
+function emptyCell() {
+    return {
+        vocab: [{ target: "", translation: "" }],
+        color: "#ffffff",
+        isSplit: false
+    };
 }
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
