@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars buicceker</title>
+    <title>Cedars ccccbuicceker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2064,14 +2064,15 @@ async function extractGridFromPDF(file) {
         content.items.forEach(it => {
             items.push({
                 text: it.str.trim(),
-                x: Math.round(it.transform[4]),
-                y: Math.round(it.transform[5])
+                x: it.transform[4],
+                y: it.transform[5],
+                w: it.width || 0
             });
         });
     }
 
-    // --- GROUP ROWS ---
-    const rowThreshold = 8;
+    // ---------- 1. GROUP ROWS ----------
+    const rowThreshold = 6;
     let rows = [];
 
     items.forEach(item => {
@@ -2085,69 +2086,108 @@ async function extractGridFromPDF(file) {
 
     rows.sort((a, b) => b.y - a.y);
 
-    // --- DETECT COLUMNS ---
-    const colThreshold = 25;
-    let columns = [];
+    // ---------- 2. DETECT TRUE COLUMN BANDS ----------
+    let allX = items.map(i => i.x).sort((a, b) => a - b);
 
-    items.forEach(item => {
-        let col = columns.find(c => Math.abs(c - item.x) < colThreshold);
-        if (!col) columns.push(item.x);
-    });
+    let gaps = [];
+    for (let i = 1; i < allX.length; i++) {
+        const gap = allX[i] - allX[i - 1];
+        if (gap > 25) { // 🔥 key threshold
+            gaps.push((allX[i] + allX[i - 1]) / 2);
+        }
+    }
 
-    columns.sort((a, b) => a - b);
+    let columns = [allX[0], ...gaps];
 
-    // --- BUILD GRID ---
+    console.log("📊 Columns detected:", columns.length);
+
+    // ---------- 3. BUILD GRID WITH COLSPAN ----------
     let grid = rows.map(row => {
-        let cellBuckets = new Array(columns.length).fill(null).map(() => []);
+        let cellBuckets = columns.map(() => []);
 
-        // 🔥 GROUP ITEMS INTO CELLS FIRST
         row.items.forEach(item => {
-            let colIndex = columns.findIndex(c => Math.abs(c - item.x) < colThreshold);
+            let colIndex = columns.findIndex((c, i) => {
+                const next = columns[i + 1] || Infinity;
+                return item.x >= c && item.x < next;
+            });
+
             if (colIndex !== -1) {
                 cellBuckets[colIndex].push(item);
             }
         });
 
-        // 🔥 NOW MERGE TEXT PER CELL
-        return cellBuckets.map(bucket => {
+        // ---------- 4. BUILD CELLS ----------
+        let cells = [];
+
+        for (let i = 0; i < cellBuckets.length; i++) {
+            const bucket = cellBuckets[i];
+
             if (bucket.length === 0) {
-                return emptyCell();
+                cells.push(null); // empty → may be span
+                continue;
             }
 
-            // sort left → right (important for correct sentence order)
+            // sort left→right
             bucket.sort((a, b) => a.x - b.x);
 
             const fullText = bucket.map(b => b.text).join(" ");
 
-            // 🔥 EXTRACT MULTIPLE (TL + TR) PAIRS
-            let vocab = [];
-            const regex = /([^()]+)\(([^()]+)\)/g;
+            const vocab = parseTextToVocab(fullText);
 
-            let match;
-            while ((match = regex.exec(fullText)) !== null) {
-                vocab.push({
-                    target: match[1].trim(),
-                    translation: match[2].trim()
-                });
-            }
-
-            // fallback if no ( ) pattern
-            if (vocab.length === 0) {
-                vocab.push({
-                    target: fullText.trim(),
-                    translation: ""
-                });
-            }
-
-            return {
+            cells.push({
                 vocab,
                 color: "#ffffff",
-                isSplit: false
-            };
-        });
+                isSplit: false,
+                span: 1
+            });
+        }
+
+        // ---------- 5. DETECT COLSPAN ----------
+        for (let i = 0; i < cells.length; i++) {
+            if (!cells[i]) continue;
+
+            let span = 1;
+            let j = i + 1;
+
+            while (j < cells.length && cells[j] === null) {
+                span++;
+                j++;
+            }
+
+            cells[i].span = span;
+            i = j - 1;
+        }
+
+        // remove nulls (merged into spans)
+        return cells.filter(c => c !== null);
     });
 
+    console.log("🧩 Grid with spans:", grid);
+
     return grid;
+}
+
+
+// ---------- TEXT PARSER ----------
+function parseTextToVocab(text) {
+    let vocab = [];
+
+    // match multiple TL (TR)
+    const regex = /([^()]+?)\s*\(([^()]+)\)/g;
+
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        vocab.push({
+            target: match[1].trim(),
+            translation: match[2].trim()
+        });
+    }
+
+    if (vocab.length === 0) {
+        vocab.push({ target: text.trim(), translation: "" });
+    }
+
+    return vocab;
 }
 
 function emptyCell() {
