@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedars budddilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1963,53 +1963,46 @@ async function handlePDFImport(event) {
         try {
             const typedarray = new Uint8Array(this.result);
             const pdfjsLib = window['pdfjs-dist/build/pdf'];
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+            
+            // Critical: Set worker source correctly
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
             const pdf = await pdfjsLib.getDocument(typedarray).promise;
-            let importedGrid = [];
-
-            // Process Page 1 (The main Sentence Builder)
-            const page = await pdf.getPage(1);
+            const page = await pdf.getPage(1); // Process first page
             const textContent = await page.getTextContent();
             
-            // Language Gym PDFs often use specific X-coordinates for columns
-            // We group text items by their vertical position (y) and horizontal position (x)
+            // 1. Extract items with coordinates
             const items = textContent.items.map(item => ({
                 str: item.str.trim(),
                 x: item.transform[4],
-                y: item.transform[5]
+                y: item.transform[5],
+                width: item.width
             })).filter(item => item.str.length > 0);
 
-            // Sort by Y (top to bottom) then X (left to right)
-            items.sort((a, b) => b.y - a.y || a.x - b.x);
-
-            // Grouping lines by Y coordinate with a small threshold
+            // 2. Group into Rows based on Y coordinate (vertical)
+            const rowThreshold = 10; 
             let rows = [];
-            let currentRow = [];
-            let lastY = items[0].y;
+            items.sort((a, b) => b.y - a.y); // Sort top to bottom
 
             items.forEach(item => {
-                if (Math.abs(item.y - lastY) > 10) {
-                    rows.push(currentRow);
-                    currentRow = [];
-                }
-                currentRow.push(item);
-                lastY = item.y;
+                let row = rows.find(r => Math.abs(r[0].y - item.y) < rowThreshold);
+                if (row) { row.push(item); } 
+                else { rows.push([item]); }
             });
-            rows.push(currentRow);
 
-            // Convert detected rows into the App Grid format
-            // We look for patterns like "French (English)"
-            importedGrid = rows.map(row => {
+            // 3. Sort each row by X (left to right) and map to your Grid format
+            const finalGrid = rows.map(row => {
+                row.sort((a, b) => a.x - b.x);
+                
                 return row.map(cell => {
                     let target = cell.str;
                     let translation = "";
-                    
-                    // Regex to catch text inside parentheses
-                    const match = cell.str.match(/(.*)\((.*)\)/);
-                    if (match) {
-                        target = match[1].trim();
-                        translation = match[2].trim();
+
+                    // Pattern: Word (Translation)
+                    const parts = cell.str.match(/(.*)\((.*)\)/);
+                    if (parts) {
+                        target = parts[1].trim();
+                        translation = parts[2].trim();
                     }
 
                     return {
@@ -2020,35 +2013,34 @@ async function handlePDFImport(event) {
                 });
             });
 
-            // Cleanup: Remove header/footer noise (like "Powered by THE LANGUAGE GYM")
-            importedGrid = importedGrid.filter(row => 
-                row.length > 0 && 
-                !row[0].vocab[0].target.includes("SentenceBuilders") &&
-                !row[0].vocab[0].target.includes("Powered by")
-            );
+            // 4. Remove small noise/headers
+            const filteredGrid = finalGrid.filter(r => r.length > 0 && r[0].vocab[0].target.length > 1);
 
-            // Save to Firestore
+            // 5. Save to Firestore
             const title = prompt("Name your imported builder:", file.name.replace(".pdf", ""));
             if (!title) return;
 
             const newDoc = {
                 uid: currentUser.uid,
                 title: title,
-                lang: nav.lang || "French",
-                year: nav.year || "Year 9",
+                lang: "French", // Default or detect from text
+                year: "Imported",
                 topic: "Imported",
-                grid: importedGrid,
+                grid: filteredGrid,
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
                 isDeleted: false
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Import successful!");
-            loadProject(docRef.id); // Automatically open the editor
+            alert("Import Successful!");
+            
+            // Refresh the library and open the new project
+            if(typeof loadLibrary === 'function') loadLibrary();
+            loadProject(docRef.id);
 
         } catch (err) {
-            console.error(err);
-            alert("Error parsing PDF. Make sure it's a text-based PDF.");
+            console.error("PDF Import Error:", err);
+            alert("Error: " + err.message);
         }
     };
     reader.readAsArrayBuffer(file);
