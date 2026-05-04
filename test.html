@@ -1897,18 +1897,39 @@ async function exportPDF() {
         edits.forEach(el => el.style.visibility = 'hidden');
 
         try {
-            const canvas = await html2canvas(document.getElementById('grid-container'), { 
+            const element = document.getElementById('grid-container');
+            const canvas = await html2canvas(element, { 
                 scale: 3, 
                 useCORS: true 
             });
             edits.forEach(el => el.style.visibility = 'visible');
 
             const pdf = new jsPDF('l', 'mm', 'a4');
+            const imgData = canvas.toDataURL('image/png');
+            
+            const imgProps = pdf.getImageProperties(imgData);
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = pdf.internal.pageSize.getHeight();
+            // Calculate height proportional to the A4 width
+            const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            
+            let heightLeft = imgHeight;
+            let position = 0;
+
+            // Add first page with title
             pdf.setFont("helvetica", "bold");
             pdf.text(title, 14, 15);
-            
-            const imgData = canvas.toDataURL('image/png');
-            pdf.addImage(imgData, 'PNG', 10, 20, 275, 0);
+            pdf.addImage(imgData, 'PNG', 0, 20, pdfWidth, imgHeight);
+            heightLeft -= (pdfHeight - 20); // Account for title margin
+
+            // If it's longer than one page, loop and add pages
+            while (heightLeft > 0) {
+                position = heightLeft - imgHeight;
+                pdf.addPage();
+                pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
+                heightLeft -= pdfHeight;
+            }
+
             pdf.save(`${title}.pdf`);
         } catch (err) {
             console.error("EAL PDF Export failed:", err);
@@ -1917,10 +1938,11 @@ async function exportPDF() {
         return; 
     }
 
-    // --- OPTION B: MFL (Vector-based / Searchable & Editable Text) ---
+    // --- OPTION B: MFL (Vector-based / Searchable Text) ---
     const doc = new jsPDF('l', 'mm', 'a4');
     const margin = 10;
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     const availableWidth = pageWidth - (margin * 2);
     
     if (!grid || grid.length === 0) return;
@@ -1935,12 +1957,21 @@ async function exportPDF() {
     let currentY = margin + 15;
 
     grid.forEach((row) => {
+        // 1. Calculate the height this specific row will need
         let maxItemsInRow = 1;
         row.forEach(cell => {
             if (cell.items.length > maxItemsInRow) maxItemsInRow = cell.items.length;
         });
         const rowHeight = Math.max(20, maxItemsInRow * 7.5);
 
+        // 2. CHECK FOR PAGE BREAK: 
+        // If currentY + rowHeight exceeds the page limit (minus a small bottom margin)
+        if (currentY + rowHeight > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin; // Reset Y to top of new page
+        }
+
+        // 3. Render the row
         row.forEach((cell, colIndex) => {
             const x = margin + (colIndex * cellWidth);
             
@@ -1951,7 +1982,6 @@ async function exportPDF() {
             let textY = currentY + 7;
             cell.items.forEach((item) => {
                 const targetText = item.t || "";
-                // CHANGED: Using ( ) instead of [ ]
                 const translationText = item.tr ? ` (${item.tr})` : "";
 
                 if (targetText || translationText) {
