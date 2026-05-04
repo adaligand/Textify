@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars budddddlder</title>
+    <title>Cedars buder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1978,39 +1978,65 @@ async function handlePDFImport(event) {
         try {
             const typedarray = new Uint8Array(this.result);
             const pdfjsLib = window['pdfjs-dist/build/pdf'];
+            
+            // Set the worker source for PDF parsing
             pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
             const pdf = await pdfjsLib.getDocument(typedarray).promise;
-            const page = await pdf.getPage(1);
+            const page = await pdf.getPage(1); // Focus on the first page
             const textContent = await page.getTextContent();
             
+            // 1. Extract raw items with coordinates
             const items = textContent.items.map(item => ({
                 str: item.str.trim(),
                 x: item.transform[4],
-                y: item.transform[5]
+                y: item.transform[5],
+                width: item.width
             })).filter(item => item.str.length > 0);
 
-            // Grouping logic
+            // 2. Group into Rows using Vertical Snapping (15px threshold)
             let rowsMap = {};
             items.forEach(item => {
-                const yKey = Math.round(item.y / 12) * 12; // Adjusted threshold
-                if (!rowsMap[yKey]) rowsMap[yKey] = [];
-                rowsMap[yKey].push(item);
+                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 15);
+                if (foundY) {
+                    rowsMap[foundY].push(item);
+                } else {
+                    rowsMap[item.y] = [item];
+                }
             });
 
+            // Sort rows from top to bottom
             const sortedY = Object.keys(rowsMap).sort((a, b) => b - a);
+            
             const finalGridRows = sortedY.map(y => {
-                const row = rowsMap[y];
-                row.sort((a, b) => a.x - b.x);
-                return row.map(cell => {
+                const rowItems = rowsMap[y];
+                rowItems.sort((a, b) => a.x - b.x); // Sort left to right
+
+                // 3. Horizontal Merging: Combine items that are close horizontally (same cell)
+                let mergedCells = [];
+                rowItems.forEach(item => {
+                    let last = mergedCells[mergedCells.length - 1];
+                    // If within 30px, assume it's the same column/cell
+                    if (last && (item.x - (last.x + last.width)) < 30) {
+                        last.str += " " + item.str;
+                        last.width += item.width;
+                    } else {
+                        mergedCells.push({...item});
+                    }
+                });
+
+                // 4. Map to your App's Object Format
+                return mergedCells.map(cell => {
                     let target = cell.str;
                     let translation = "";
+
+                    // Look for Language Gym pattern: "French (English)"
                     const parts = cell.str.match(/(.*)\((.*)\)/);
                     if (parts) {
                         target = parts[1].trim();
                         translation = parts[2].trim();
                     }
-                    // Return the standard cell object format from your app
+
                     return {
                         vocab: [{ target: target, translation: translation }],
                         color: "#ffffff",
@@ -2019,21 +2045,20 @@ async function handlePDFImport(event) {
                 });
             });
 
-            // Ensure all rows have the same number of columns (padding with empty cells)
-            const maxCols = Math.max(...finalGridRows.map(r => r.length));
-            const normalizedGrid = finalGridRows.map(row => {
+            // 5. Clean Noise & Normalize (Ensure grid is rectangular)
+            let filteredGrid = finalGridRows.filter(r => r.length > 0 && r[0].vocab[0].target.length > 1);
+            
+            const maxCols = Math.max(...filteredGrid.map(r => r.length));
+            const normalizedGrid = filteredGrid.map(row => {
                 while(row.length < maxCols) {
                     row.push({ vocab: [{ target: "", translation: "" }], color: "#ffffff", isSplit: false });
                 }
                 return row;
             });
 
+            // 6. Save to Firestore
             const title = prompt("Name your imported builder:", file.name.replace(".pdf", ""));
             if (!title) return;
-
-            // --- CRITICAL FIX START ---
-            // We stringify the grid to avoid the "Nested Arrays" Firestore error
-            const gridString = JSON.stringify(normalizedGrid);
 
             const newDoc = {
                 uid: currentUser.uid,
@@ -2041,22 +2066,21 @@ async function handlePDFImport(event) {
                 lang: "French",
                 year: "Imported",
                 topic: "Imported",
-                grid: gridString, // This is now a STRING, not an ARRAY
+                grid: JSON.stringify(normalizedGrid), // STRINGIFY to avoid Firestore Nested Array Error
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
                 isDeleted: false
             };
-            // --- CRITICAL FIX END ---
 
             const docRef = await db.collection("builders").add(newDoc);
             alert("Import Successful!");
             
-            // Refresh view
+            // Refresh library UI and load the project
             if(window.loadLibrary) loadLibrary();
             loadProject(docRef.id);
 
         } catch (err) {
             console.error("PDF Import Error:", err);
-            alert("Error parsing PDF: " + err.message);
+            alert("Error parsing PDF. Make sure it's a text-based PDF.");
         }
     };
     reader.readAsArrayBuffer(file);
