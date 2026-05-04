@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars ghjghghjker</title>
+    <title>Cedars hjker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1975,45 +1975,112 @@ async function handlePDFImport(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    console.log("📥 Import started:", file.name);
+    const reader = new FileReader();
+    reader.onload = async function() {
+        try {
+            const typedarray = new Uint8Array(this.result);
+            const pdfjsLib = window['pdfjs-dist/build/pdf'];
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-    try {
-        const parsedGrid = await extractGridFromPDF(file);
+            const pdf = await pdfjsLib.getDocument(typedarray).promise;
+            const page = await pdf.getPage(1);
+            const textContent = await page.getTextContent();
+            
+            const rawItems = textContent.items.map(item => ({
+                str: item.str.trim(),
+                x: item.transform[4],
+                y: item.transform[5],
+                w: item.width
+            })).filter(item => item.str.length > 0);
 
-        console.log("📦 Parsed Grid:", parsedGrid);
+            // 1. Vertical Grouping (Rows)
+            let rowsMap = {};
+            rawItems.forEach(item => {
+                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 18);
+                if (foundY) rowsMap[foundY].push(item);
+                else rowsMap[item.y] = [item];
+            });
 
-        // 🚨 HARD VALIDATION
-        if (!parsedGrid || !Array.isArray(parsedGrid)) {
-            throw new Error("Parsed grid is invalid or empty");
+            // 2. Identify Column Tracks
+            let xPositions = rawItems.map(i => i.x).sort((a,b) => a - b);
+            let columnTracks = [];
+            xPositions.forEach(x => {
+                if (!columnTracks.some(track => Math.abs(track - x) < 45)) {
+                    columnTracks.push(x);
+                }
+            });
+            columnTracks.sort((a,b) => a - b);
+
+            const sortedY = Object.keys(rowsMap).sort((a, b) => b - a);
+            
+            let finalGridRows = sortedY.map(y => {
+                const rowItems = rowsMap[y];
+                let rowData = columnTracks.map(() => ({ t: "", tr: "" }));
+
+                rowItems.forEach(item => {
+                    let colIdx = columnTracks.findIndex(track => Math.abs(track - item.x) < 45);
+                    if (colIdx !== -1) {
+                        let text = item.str;
+                        // Handle (translation) logic
+                        if (text.startsWith('(') && text.endsWith(')')) {
+                            rowData[colIdx].tr += (rowData[colIdx].tr ? " " : "") + text.replace(/[\(\)]/g, "");
+                        } else if (text.includes('(') && text.includes(')')) {
+                            const match = text.match(/^(.*)\((.*)\)$/);
+                            if (match) {
+                                rowData[colIdx].t += (rowData[colIdx].t ? " " : "") + match[1].trim();
+                                rowData[colIdx].tr += (rowData[colIdx].tr ? " " : "") + match[2].trim();
+                            }
+                        } else {
+                            rowData[colIdx].t += (rowData[colIdx].t ? " " : "") + text;
+                        }
+                    }
+                });
+
+                // FORMAT MATCHING YOUR APP ENGINE
+                return rowData.map(d => ({
+                    items: [{ t: d.t.trim(), tr: d.tr.trim() }],
+                    color: "#ffffff",
+                    split: false,
+                    rS: 1,
+                    cS: 1,
+                    hidden: false,
+                    sel: false
+                }));
+            });
+
+            // 3. Filter Branding
+            finalGridRows = finalGridRows.filter(r => {
+                const txt = r.map(c => c.items[0].t).join("").toLowerCase();
+                return txt.length > 2 && !txt.includes("sentencebuilder") && !txt.includes("the language gym");
+            });
+
+            const title = prompt("Name your imported builder:", file.name.replace(".pdf", ""));
+            if (!title) return;
+
+            const newDoc = {
+                uid: currentUser.uid,
+                title: title,
+                lang: "French",
+                year: "Imported",
+                topic: "Imported",
+                grid: JSON.stringify(finalGridRows), 
+                updated: firebase.firestore.FieldValue.serverTimestamp(),
+                isDeleted: false
+            };
+
+            const docRef = await db.collection("builders").add(newDoc);
+            alert("Import Successful!");
+            
+            if(window.loadLibrary) loadLibrary();
+            loadProject(docRef.id);
+
+        } catch (err) {
+            console.error("Import Error:", err);
+            alert("Error parsing PDF.");
         }
-
-        // 🔥 Adapt format
-        grid = adaptImportedGrid(parsedGrid);
-
-        console.log("✅ Adapted Grid:", grid);
-
-        // Reset history
-        history = [JSON.stringify(grid)];
-        historyStep = 0;
-
-        // Force UI switch
-        showPage("editor-page");
-
-        // Force render
-        render(false);
-
-        console.log("🎯 Render complete");
-
-        // OPTIONAL: autosave so it appears in Firestore
-        await saveToCloud(true);
-
-    } catch (err) {
-        console.error("❌ PDF Import failed:", err);
-        alert("Import failed. Check console.");
-    }
+    };
+    reader.readAsArrayBuffer(file);
 }
-    // utils/gridAdapter.js
-
 function adaptImportedGrid(importedGrid) {
     if (!Array.isArray(importedGrid)) {
         console.error("Invalid grid format");
