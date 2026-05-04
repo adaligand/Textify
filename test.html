@@ -1993,27 +1993,20 @@ async function handlePDFImport(event) {
                 fs: item.transform[0]
             })).filter(i => i.str.length > 0);
 
-            // 1. Title Logic: Find largest font above the grid
             const titleItem = [...allText].filter(i => i.y > 650).sort((a,b) => b.fs - a.fs)[0];
             const suggestedTitle = titleItem ? titleItem.str : file.name.replace(".pdf", "");
 
-            // 2. Filter Grid Content (Ignore Branding & Title)
             const gridItems = allText.filter(i => 
-                i !== titleItem && 
-                i.y < 710 && 
-                !i.str.toLowerCase().includes("language gym")
+                i !== titleItem && i.y < 710 && !i.str.toLowerCase().includes("language gym")
             );
 
-            // 3. Detect 5-6 Major Column Tracks (based on typical Sentence Builder layout)
             let xPositions = gridItems.map(i => i.x).sort((a,b) => a - b);
             let columns = [];
             xPositions.forEach(x => {
-                // Large 130px gap ensures "un (a)" and "deux (2)" in the same box stay in one column track
                 if (!columns.some(c => Math.abs(c - x) < 130)) columns.push(x);
             });
             columns.sort((a,b) => a - b);
 
-            // 4. Detect Row "Belts" (40px high to catch multi-line cells)
             let rowsMap = {};
             gridItems.forEach(item => {
                 let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 40);
@@ -2022,11 +2015,9 @@ async function handlePDFImport(event) {
             });
             const sortedY = Object.keys(rowsMap).sort((a, b) => b - a);
 
-            // 5. Build Grid
             let finalGridRows = sortedY.map(y => {
                 let rowItems = rowsMap[y];
                 return columns.map(trackX => {
-                    // Collect all text belonging to this specific column track in this row
                     let cellTextItems = rowItems.filter(item => Math.abs(item.x - trackX) < 130);
                     cellTextItems.sort((a, b) => b.y - a.y || a.x - b.x);
 
@@ -2034,7 +2025,6 @@ async function handlePDFImport(event) {
                     let curT = "";
                     cellTextItems.forEach(item => {
                         let text = item.str;
-                        // Match "Word (Translation)" or "Word" then "(Translation)"
                         if (text.includes('(') && text.includes(')')) {
                             const m = text.match(/^(.*)\((.*)\)$/);
                             if(m) items.push({ t: m[1].trim(), tr: m[2].trim() });
@@ -2046,33 +2036,39 @@ async function handlePDFImport(event) {
                         }
                     });
                     if (curT) items.push({ t: curT.trim(), tr: "" });
-
-                    return {
-                        items: items.length ? items : [{ t: "", tr: "" }],
-                        color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false
-                    };
+                    return { items: items.length ? items : [{ t: "", tr: "" }], color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false };
                 });
             });
 
-            // Clean empty rows
             finalGridRows = finalGridRows.filter(row => row.some(cell => cell.items[0].t !== ""));
 
+            const finalTitle = prompt("Confirm Project Title:", suggestedTitle);
+            if (!finalTitle) return;
+
+            // --- CRITICAL FIX START ---
             const newDoc = {
                 uid: currentUser.uid,
-                title: prompt("Confirm Project Title:", suggestedTitle) || "My Builder",
+                title: finalTitle,
                 lang: "French",
+                year: "Year 7",      // Add default so it shows in lists
+                topic: "General",    // Add default so it shows in lists
                 grid: JSON.stringify(finalGridRows),
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
                 isDeleted: false
             };
 
-            await db.collection("builders").add(newDoc);
-            alert("Import Successful! Check the alignment.");
-            location.reload(); // Refresh to see the new project
+            const docRef = await db.collection("builders").add(newDoc);
+            
+            // Instead of reload, trigger your app's internal load sequence
+            alert("Import Successful! Opening editor...");
+            
+            // This calls your existing function to open the editor for this specific ID
+            loadProject(docRef.id); 
+            // --- CRITICAL FIX END ---
 
         } catch (err) {
             console.error(err);
-            alert("Error: PDF structure too complex.");
+            alert("Import Error.");
         }
     };
     reader.readAsArrayBuffer(file);
