@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedars cccbuilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -589,11 +589,13 @@ button:hover {
                 <p id="user-display" style="margin: 5px 0 0; color: #666; font-size: 14px;"></p>
             </div>
             <div id="language-nav-container" style="display: flex; gap: 10px; flex-grow: 1; justify-content: center;"></div>
-            <div style="display: flex; gap: 10px;">
-                <button onclick="toggleBinView()" class="btn-outline">🗑️ Bin</button>
-                <button onclick="createNewProject()" class="btn-purple">🛠️ Create</button>
-                <button onclick="logout()" class="btn-outline">🔓Sign Out</button>
-            </div>
+           <div style="display: flex; gap: 10px;">
+    <button onclick="toggleBinView()" class="btn-outline">🗑️ Bin</button>
+    <input type="file" id="pdf-import-input" accept="application/pdf" style="display:none;" onchange="handlePDFImport(event)">
+    <button onclick="document.getElementById('pdf-import-input').click()" class="btn-info">📥 Import PDF</button>
+    <button onclick="createNewProject()" class="btn-purple">🛠️ Create</button>
+    <button onclick="logout()" class="btn-outline">🔓Sign Out</button>
+</div>
         </div>
     </div>
     <div id="library-content"></div>
@@ -1952,7 +1954,60 @@ async function exportPDF() {
 
     doc.save(`${title}.pdf`);
 }
+async function handlePDFImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
 
+    const reader = new FileReader();
+    reader.onload = async function() {
+        const typedarray = new Uint8Array(this.result);
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        const pdf = await pdfjsLib.getDocument(typedarray).promise;
+        let fullText = "";
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(" ");
+            fullText += pageText + "\n";
+        }
+
+        // Process text into your grid format
+        // This logic splits by common sentence delimiters
+        const lines = fullText.split(/[.!?\n]/).filter(l => l.trim().length > 3);
+        
+        // Convert lines into your 'c()' cell structure
+        const importedGrid = lines.map(line => [
+            { 
+                vocab: [{ target: line.trim(), translation: "" }], 
+                color: "#ffffff", 
+                isSplit: false 
+            }
+        ]);
+
+        // Prompt for metadata before saving
+        const title = prompt("Enter a title for this imported builder:", file.name.replace(".pdf", ""));
+        if (!title) return;
+
+        const newDoc = {
+            uid: currentUser.uid,
+            title: title,
+            lang: nav.lang || "French",
+            year: nav.year || "Year 9",
+            topic: "Imported",
+            grid: importedGrid,
+            updated: firebase.firestore.FieldValue.serverTimestamp(),
+            isDeleted: false
+        };
+
+        const docRef = await db.collection("builders").add(newDoc);
+        alert("PDF Imported successfully!");
+        loadProject(docRef.id);
+    };
+    reader.readAsArrayBuffer(file);
+}
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
         const sentences = getAssembledSentences();
