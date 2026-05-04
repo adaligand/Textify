@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars budgkjgjkgjker</title>
+    <title>Cedars bgjkgjker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1973,109 +1973,55 @@ async function handlePDFImport(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async function() {
-        try {
-            const typedarray = new Uint8Array(this.result);
-            const pdfjsLib = window['pdfjs-dist/build/pdf'];
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    const parsedGrid = await extractGridFromPDF(file); // your existing logic
 
-            const pdf = await pdfjsLib.getDocument(typedarray).promise;
-            const page = await pdf.getPage(1);
-            const textContent = await page.getTextContent();
-            
-            const items = textContent.items.map(item => ({
-                str: item.str.trim(),
-                x: Math.round(item.transform[4]), // Horizontal
-                y: Math.round(item.transform[5]), // Vertical
-                w: item.width
-            })).filter(item => item.str.length > 0);
+    // 🔥 FIX HERE
+    grid = adaptImportedGrid(parsedGrid);
 
-            // 1. GROUP INTO ROWS (Vertical Snapping - 12px)
-            let rowsMap = {};
-            items.forEach(item => {
-                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 12);
-                if (foundY) rowsMap[foundY].push(item);
-                else rowsMap[item.y] = [item];
-            });
+    history = [JSON.stringify(grid)];
+    historyStep = 0;
 
-            // 2. IDENTIFY COLUMN TRACKS
-            // We look at all items and find common X starting positions
-            let xPositions = items.map(i => i.x).sort((a,b) => a - b);
-            let columnTracks = [];
-            xPositions.forEach(x => {
-                if (!columnTracks.some(track => Math.abs(track - x) < 40)) {
-                    columnTracks.push(x);
-                }
-            });
-            columnTracks.sort((a,b) => a - b);
+    showPage("editor-page");
+    render(false);
+}
+    // utils/gridAdapter.js
 
-            const sortedY = Object.keys(rowsMap).sort((a, b) => b - a);
-            
-            let finalGridRows = sortedY.map(y => {
-                const rowItems = rowsMap[y];
-                // Create an empty row based on the number of columns we found
-                let rowData = columnTracks.map(() => ({ target: "", translation: "" }));
+function adaptImportedGrid(importedGrid) {
+    if (!Array.isArray(importedGrid)) {
+        console.error("Invalid grid format");
+        return [[createEmptyCell(), createEmptyCell(), createEmptyCell()]];
+    }
 
-                rowItems.forEach(item => {
-                    // Find which column track this item belongs to
-                    let colIdx = columnTracks.findIndex(track => Math.abs(track - item.x) < 40);
-                    if (colIdx !== -1) {
-                        let text = item.str;
-                        // Better Regex: handles "Word (Translation)" and "Word(Translation)"
-                        const match = text.match(/^([^\(]+)(?:\((.*)\))?$/);
-                        if (match) {
-                            rowData[colIdx].target += (rowData[colIdx].target ? " " : "") + match[1].trim();
-                            if (match[2]) {
-                                rowData[colIdx].translation += (rowData[colIdx].translation ? " " : "") + match[2].trim();
-                            }
-                        } else {
-                            rowData[colIdx].target += " " + text;
-                        }
-                    }
-                });
+    return importedGrid.map(row => {
+        return row.map(cell => {
+            return {
+                items: (cell.vocab || []).map(v => ({
+                    t: v.target || "",
+                    tr: v.translation || ""
+                })),
+                color: cell.color || "#ffffff",
+                split: cell.isSplit || false,
 
-                return rowData.map(d => ({
-                    vocab: [{ target: d.target.trim(), translation: d.translation.trim() }],
-                    color: "#ffffff",
-                    isSplit: false
-                }));
-            });
-
-            // 3. FILTER NOISE (Headers/Empty Rows)
-            finalGridRows = finalGridRows.filter(r => {
-                const firstCellText = r[0].vocab[0].target.toLowerCase();
-                return r.some(c => c.vocab[0].target.length > 0) && 
-                       !firstCellText.includes("sentencebuilder") && 
-                       !firstCellText.includes("powered by");
-            });
-
-            const title = prompt("Name your imported builder:", file.name.replace(".pdf", ""));
-            if (!title) return;
-
-            const newDoc = {
-                uid: currentUser.uid,
-                title: title,
-                lang: "French",
-                year: "Imported",
-                topic: "Imported",
-                grid: JSON.stringify(finalGridRows), // Correctly nested for your loadProject
-                updated: firebase.firestore.FieldValue.serverTimestamp(),
-                isDeleted: false
+                // REQUIRED by your engine
+                rS: 1,
+                cS: 1,
+                hidden: false,
+                sel: false
             };
+        });
+    });
+}
 
-            const docRef = await db.collection("builders").add(newDoc);
-            alert("Import Successful!");
-            
-            if(window.loadLibrary) loadLibrary();
-            loadProject(docRef.id);
-
-        } catch (err) {
-            console.error("Import Error:", err);
-            alert("Failed to parse PDF correctly.");
-        }
+function createEmptyCell() {
+    return {
+        items: [{ t: "", tr: "" }],
+        color: "#ffffff",
+        split: false,
+        rS: 1,
+        cS: 1,
+        hidden: false,
+        sel: false
     };
-    reader.readAsArrayBuffer(file);
 }
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
