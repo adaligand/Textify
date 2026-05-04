@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars bccccccccccccccccder</title>
+    <title>Cedars bcccder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1986,100 +1986,97 @@ async function handlePDFImport(event) {
             const page = await pdf.getPage(1);
             const textContent = await page.getTextContent();
             
-            // 1. Get all items with font size and coordinates
-            let allItems = textContent.items.map(item => ({
+            // 1. Parse all items and keep their original order
+            let items = textContent.items.map(item => ({
                 str: item.str.trim(),
                 x: item.transform[4],
                 y: item.transform[5],
                 fs: item.transform[0]
             })).filter(i => i.str.length > 0);
 
-            // 2. Identify the Title specifically (Biggest font, top 15% of page)
-            // We only remove THIS specific object, nothing else.
-            const titleCandidate = [...allItems]
-                .filter(i => i.y > 600)
-                .sort((a, b) => b.fs - a.fs)[0];
-            
-            const suggestedTitle = titleCandidate ? titleCandidate.str : file.name.replace(".pdf", "");
+            // 2. Identify the Title (Largest font, highest up)
+            const titleItem = [...items].sort((a,b) => b.fs - a.fs || b.y - a.y)[0];
+            const suggestedTitle = titleItem ? titleItem.str : file.name.replace(".pdf", "");
 
-            // 3. Grid Data: Remove ONLY branding and the Title object
+            // 3. Grid Filtering: Remove ONLY branding and title
             const branding = ["sentencebuilders", "powered by", "language gym"];
-            const gridItems = allItems.filter(item => {
-                if (item === titleCandidate) return false;
-                const s = item.str.toLowerCase();
-                return !branding.some(b => s.includes(b));
+            const gridItems = items.filter(i => {
+                if (i === titleItem) return false;
+                return !branding.some(b => i.str.toLowerCase().includes(b));
             });
 
-            // 4. Create Column Tracks (Reduced to 60px to prevent bleeding)
-            let xPositions = gridItems.map(i => i.x).sort((a,b) => a - b);
+            // 4. Cluster Columns (Grouping items that are horizontally aligned)
             let columns = [];
-            xPositions.forEach(x => {
-                if (!columns.some(c => Math.abs(c - x) < 60)) columns.push(x);
+            gridItems.sort((a,b) => a.x - b.x).forEach(item => {
+                let cluster = columns.find(c => Math.abs(c.x - item.x) < 40);
+                if (cluster) cluster.items.push(item);
+                else columns.push({ x: item.x, items: [item] });
             });
-            columns.sort((a,b) => a - b);
+            columns.sort((a,b) => a.x - b.x);
 
-            // 5. Group into Rows (30px tolerance to catch Row 1)
-            let rowsMap = {};
-            gridItems.forEach(item => {
-                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 30);
-                if (foundY) rowsMap[foundY].push(item);
-                else rowsMap[item.y] = [item];
+            // 5. Cluster Rows (Grouping items that are vertically aligned)
+            let rows = [];
+            gridItems.sort((a,b) => b.y - a.y).forEach(item => {
+                let cluster = rows.find(r => Math.abs(r.y - item.y) < 25);
+                if (cluster) cluster.items.push(item);
+                else rows.push({ y: item.y, items: [item] });
             });
-            const sortedY = Object.keys(rowsMap).sort((a, b) => b - a);
+            rows.sort((a,b) => b.y - a.y);
 
-            // 6. Assemble the Grid
-            let finalGridRows = sortedY.map(y => {
-                let rowItems = rowsMap[y];
-                return columns.map(trackX => {
-                    let cellItemsInTrack = rowItems.filter(item => Math.abs(item.x - trackX) < 60);
-                    // Sort items inside this specific cell top-to-bottom
-                    cellItemsInTrack.sort((a, b) => b.y - a.y);
+            // 6. Map text to the Row/Col Intersection
+            let finalGridRows = rows.map(row => {
+                return columns.map(col => {
+                    // Get items that belong to BOTH this row and this column
+                    let cellItems = row.items.filter(ri => col.items.includes(ri));
+                    cellItems.sort((a, b) => b.y - a.y); // Read top-to-bottom within cell
 
-                    let items = [];
-                    let curT = "";
-                    cellItemsInTrack.forEach(item => {
+                    let vocab = [];
+                    let lastT = "";
+
+                    cellItems.forEach(item => {
                         let text = item.str;
-                        if (text.includes('(') && text.includes(')')) {
+                        // Logic: If it's brackets, it's a translation for the previous text
+                        if (text.startsWith('(') && text.endsWith(')')) {
+                            vocab.push({ t: lastT.trim(), tr: text.replace(/[()]/g, "").trim() });
+                            lastT = "";
+                        } else if (text.includes('(') && text.includes(')')) {
                             const m = text.match(/^(.*)\((.*)\)$/);
-                            if(m) items.push({ t: m[1].trim(), tr: m[2].trim() });
-                        } else if (text.startsWith('(') && text.endsWith(')')) {
-                            items.push({ t: curT.trim(), tr: text.replace(/[()]/g, "").trim() });
-                            curT = "";
+                            if (m) vocab.push({ t: m[1].trim(), tr: m[2].trim() });
                         } else {
-                            curT += (curT ? " " : "") + text;
+                            if (lastT) vocab.push({ t: lastT.trim(), tr: "" });
+                            lastT = text;
                         }
                     });
-                    if (curT) items.push({ t: curT.trim(), tr: "" });
-                    return { items: items.length ? items : [{ t: "", tr: "" }], color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false };
+                    if (lastT) vocab.push({ t: lastT.trim(), tr: "" });
+
+                    return {
+                        items: vocab.length ? vocab : [{ t: "", tr: "" }],
+                        color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false
+                    };
                 });
             });
 
-            // Remove rows that are entirely empty
-            finalGridRows = finalGridRows.filter(row => row.some(cell => cell.items[0].t !== ""));
-
-            const finalTitle = prompt("Confirm Project Title:", suggestedTitle);
+            // 7. Save and Redirect
+            const finalTitle = prompt("Project Title:", suggestedTitle);
             if (!finalTitle) return;
 
             const newDoc = {
                 uid: currentUser.uid,
                 title: finalTitle,
                 lang: "French",
-                year: "Year 7", 
-                topic: "General",
+                year: "Year 7", topic: "General",
                 grid: JSON.stringify(finalGridRows),
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
                 isDeleted: false
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Import Successful! Loading Editor...");
-            
-            // Redirect to editor
+            alert("Success! Review the first row and cell alignments.");
             loadProject(docRef.id);
 
         } catch (err) {
             console.error(err);
-            alert("Import Error.");
+            alert("Parse error. The PDF structure is non-standard.");
         }
     };
     reader.readAsArrayBuffer(file);
