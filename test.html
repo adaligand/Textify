@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars cccbuilder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1960,51 +1960,96 @@ async function handlePDFImport(event) {
 
     const reader = new FileReader();
     reader.onload = async function() {
-        const typedarray = new Uint8Array(this.result);
-        const pdfjsLib = window['pdfjs-dist/build/pdf'];
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+        try {
+            const typedarray = new Uint8Array(this.result);
+            const pdfjsLib = window['pdfjs-dist/build/pdf'];
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 
-        const pdf = await pdfjsLib.getDocument(typedarray).promise;
-        let fullText = "";
+            const pdf = await pdfjsLib.getDocument(typedarray).promise;
+            let importedGrid = [];
 
-        for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
+            // Process Page 1 (The main Sentence Builder)
+            const page = await pdf.getPage(1);
             const textContent = await page.getTextContent();
-            const pageText = textContent.items.map(item => item.str).join(" ");
-            fullText += pageText + "\n";
+            
+            // Language Gym PDFs often use specific X-coordinates for columns
+            // We group text items by their vertical position (y) and horizontal position (x)
+            const items = textContent.items.map(item => ({
+                str: item.str.trim(),
+                x: item.transform[4],
+                y: item.transform[5]
+            })).filter(item => item.str.length > 0);
+
+            // Sort by Y (top to bottom) then X (left to right)
+            items.sort((a, b) => b.y - a.y || a.x - b.x);
+
+            // Grouping lines by Y coordinate with a small threshold
+            let rows = [];
+            let currentRow = [];
+            let lastY = items[0].y;
+
+            items.forEach(item => {
+                if (Math.abs(item.y - lastY) > 10) {
+                    rows.push(currentRow);
+                    currentRow = [];
+                }
+                currentRow.push(item);
+                lastY = item.y;
+            });
+            rows.push(currentRow);
+
+            // Convert detected rows into the App Grid format
+            // We look for patterns like "French (English)"
+            importedGrid = rows.map(row => {
+                return row.map(cell => {
+                    let target = cell.str;
+                    let translation = "";
+                    
+                    // Regex to catch text inside parentheses
+                    const match = cell.str.match(/(.*)\((.*)\)/);
+                    if (match) {
+                        target = match[1].trim();
+                        translation = match[2].trim();
+                    }
+
+                    return {
+                        vocab: [{ target: target, translation: translation }],
+                        color: "#ffffff",
+                        isSplit: false
+                    };
+                });
+            });
+
+            // Cleanup: Remove header/footer noise (like "Powered by THE LANGUAGE GYM")
+            importedGrid = importedGrid.filter(row => 
+                row.length > 0 && 
+                !row[0].vocab[0].target.includes("SentenceBuilders") &&
+                !row[0].vocab[0].target.includes("Powered by")
+            );
+
+            // Save to Firestore
+            const title = prompt("Name your imported builder:", file.name.replace(".pdf", ""));
+            if (!title) return;
+
+            const newDoc = {
+                uid: currentUser.uid,
+                title: title,
+                lang: nav.lang || "French",
+                year: nav.year || "Year 9",
+                topic: "Imported",
+                grid: importedGrid,
+                updated: firebase.firestore.FieldValue.serverTimestamp(),
+                isDeleted: false
+            };
+
+            const docRef = await db.collection("builders").add(newDoc);
+            alert("Import successful!");
+            loadProject(docRef.id); // Automatically open the editor
+
+        } catch (err) {
+            console.error(err);
+            alert("Error parsing PDF. Make sure it's a text-based PDF.");
         }
-
-        // Process text into your grid format
-        // This logic splits by common sentence delimiters
-        const lines = fullText.split(/[.!?\n]/).filter(l => l.trim().length > 3);
-        
-        // Convert lines into your 'c()' cell structure
-        const importedGrid = lines.map(line => [
-            { 
-                vocab: [{ target: line.trim(), translation: "" }], 
-                color: "#ffffff", 
-                isSplit: false 
-            }
-        ]);
-
-        // Prompt for metadata before saving
-        const title = prompt("Enter a title for this imported builder:", file.name.replace(".pdf", ""));
-        if (!title) return;
-
-        const newDoc = {
-            uid: currentUser.uid,
-            title: title,
-            lang: nav.lang || "French",
-            year: nav.year || "Year 9",
-            topic: "Imported",
-            grid: importedGrid,
-            updated: firebase.firestore.FieldValue.serverTimestamp(),
-            isDeleted: false
-        };
-
-        const docRef = await db.collection("builders").add(newDoc);
-        alert("PDF Imported successfully!");
-        loadProject(docRef.id);
     };
     reader.readAsArrayBuffer(file);
 }
