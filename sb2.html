@@ -2,111 +2,694 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentccccence Builder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-
+    
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet">
     <style>
-        :root { --accent: #2196f3; --green: #4caf50; --red: #f44336; --line: #94a3b8; --translation-blue: #2980b9; }
-        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; }
-        
-        #builder-title { font-size: 24px; padding: 10px; width: 100%; max-width: 600px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 20px; outline: none; }
-        .toolbar { background: white; padding: 12px; border-radius: 8px; margin-bottom: 25px; display: flex; gap: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); align-items: center; position: sticky; top: 0; z-index: 1000; flex-wrap: wrap; }
+:root {
+    --accent: #2196f3;
+    --green: #4caf50;
+    --red: #f44336;
+    --line: #94a3b8;
+    --translation-blue: #2980b9;
+    --purple: #8b5cf6;
+}
+/* Custom Dropdown Styling */
+.custom-dropdown-content {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 5px);
+    background-color: white;
+    min-width: 140px;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    z-index: 9999; /* Higher z-index to ensure it stays on top */
+    overflow: hidden;
+}
 
-        .grid-canvas { display: inline-grid; background-color: var(--line); border: 2px solid var(--line); gap: 2px; }
+.custom-dropdown-content.show {
+    display: block;
+}
 
-        .cell { 
-            background: white; 
-            min-width: 320px; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: center; 
-            align-items: flex-start; 
-            padding: 25px; 
-            position: relative; 
-            box-sizing: border-box; 
-            transition: background 0.2s;
-        }
+.sort-option {
+    padding: 10px 15px;
+    font-size: 13px;
+    color: #475569;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
 
-        .cell.is-split { min-width: 600px; } 
+.sort-option:hover {
+    background-color: #f1f5f9;
+    color: #8b5cf6; /* Matches your purple accent */
+}
+/* =========================
+   BASE LAYOUT
+========================= */
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #f8fafc;
+    padding: 20px;
+    margin: 0;
+}
 
-        .top-ui { position: absolute; top: 8px; left: 8px; pointer-events: none; }
-        .cell-checkbox { width: 18px !important; height: 18px !important; cursor: pointer; pointer-events: auto; }
+/* =========================
+   PAGE SYSTEM
+========================= */
+/* Hide everything with the class 'page' by default */
+.page {
+    display: none !important;
+}
 
-        .bottom-ui { position: absolute; bottom: 8px; right: 8px; display: flex; gap: 12px; align-items: center; pointer-events: none; }
-        .bottom-ui * { pointer-events: auto; }
+/* Only show the page if it has the 'active-page' class */
+.active-page {
+    display: block !important;
+}
 
-        .icon-btn { font-size: 18px; cursor: pointer; opacity: 0.3; transition: 0.2s; user-select: none; }
-        .icon-btn:hover { opacity: 1; transform: scale(1.2); }
+/* Special case for login: if it's active, use flex centering */
+#login-page.active-page {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+}
 
-        .vocab-list { width: 100%; display: flex; flex-direction: column; gap: 6px; }
-        .vocab-list.split { display: grid; grid-template-columns: 1fr 1fr; column-gap: 30px; }
+/* =========================
+   LOGIN CARD
+========================= */
+#login-card {
+    text-align: center;
+    background: white;
+    padding: 60px 40px;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    margin: 100px auto;
+    max-width: 500px;
+}
 
-        .vocab-item { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; }
-        
-        .target-input { border: none; background: transparent; outline: none; font-size: 17px; font-weight: 600; font-family: inherit; padding: 0; min-width: 10px; }
-        .bracket-wrapper { display: inline-flex; align-items: baseline; color: var(--translation-blue); font-size: 15px; font-style: italic; }
-        .translation-input { border: none; background: transparent; outline: none; color: inherit; font-size: inherit; font-family: inherit; min-width: 10px; padding: 0; }
+/* =========================
+   LIBRARY UI
+========================= */
+.library-section {
+    margin-bottom: 40px;
+}
 
-        .action-btn { position: absolute; width: 30px; height: 30px; border-radius: 6px; border: 2px solid white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: bold; z-index: 100; box-shadow: 0 2px 6px rgba(0,0,0,0.2); color: white; }
-        .btn-plus { background: var(--green); }
-        .btn-minus { background: var(--red); }
+.year-group {
+    margin-left: 20px;
+    margin-bottom: 25px;
+}
 
-        .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 25px; border-radius: 12px; box-shadow: 0 15px 50px rgba(0,0,0,0.4); display: none; z-index: 2000; width: 650px; max-height: 85vh; overflow-y: auto; }
-        .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; z-index: 1999; }
-        
-        #activity-list { 
-            display: grid; 
-            grid-template-columns: 1fr 1fr; 
-            gap: 10px; 
-            margin-top: 10px;
-        }
-        .activity-row { padding: 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 10px; }
+/* Update the grid to show multiple cards per row */
+/* This container controls the layout of all cards */
+.project-grid {
+    display: grid;
+    /* Sets each column to exactly 300px wide */
+    grid-template-columns: repeat(auto-fill, 300px); 
+    gap: 20px;
+    padding: 20px 0;
+    justify-content: flex-start;
+}
 
-        .preview-sentence { font-size: 16px; line-height: 1.4; margin: 0; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
-        .preview-sentence span.tr-text { color: var(--translation-blue); font-style: italic; margin-left: 8px; }
+.project-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s ease;
+    min-height: 30px;
+    width: 250px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
 
-        .color-picker { position: absolute; bottom: 35px; right: 0; background: white; border: 1px solid #ccc; padding: 8px; display: none; z-index: 110; grid-template-columns: repeat(4, 22px); gap: 6px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-        .swatch { width: 22px; height: 22px; cursor: pointer; border: 1px solid #eee; border-radius: 3px; }
-        .swatch:hover { transform: scale(1.1); }
-        
-        button { padding: 8px 16px; cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 6px; font-weight: 500; transition: 0.2s; }
-        button:hover { background: #f1f5f9; }
-        .btn-purple { background: #8b5cf6; color: white; border: none; }
-        .btn-purple:hover { background: #7c3aed; }
+.project-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    border-color: var(--accent);
+}
+/* Ensure the title doesn't wrap awkwardly */
+.project-left {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.project-topic {
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.project-title {
+    color: #64748b;
+    font-size: 14px;
+}
+
+.project-actions {
+    display: flex;
+    gap: 10px;
+    font-size: 18px;
+}
+.duplicate-btn {
+    color: var(--accent); /* Uses your blue accent color */
+    margin-right: 8px;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+
+.duplicate-btn:hover {
+    transform: scale(1.2);
+}
+.project-actions span {
+    cursor: pointer;
+    opacity: 0.6;
+    transition: 0.2s;
+}
+
+.project-actions span:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
+/* =========================
+   GRID EDITOR
+========================= */
+#builder-title {
+    font-size: 20px;
+    padding: 8px;
+    width: 300px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    outline: none;
+}
+/* Shared input/select styling */
+.editor-header-input {
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1; /* Light slate border */
+    border-radius: 6px;
+    font-size: 14px;
+    color: #1e293b;
+    background-color: white;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.editor-header-input:focus {
+    border-color: #8b5cf6; /* Purple focus */
+}
+
+/* Specific widths for the metadata items */
+#meta-lang, #meta-year {
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 16px;
+    padding-right: 32px;
+    appearance: none; /* Hide default arrow */
+}
+
+#meta-topic {
+    width: 200px;
+}
+
+#meta-year:disabled {
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+.toolbar {
+    background: white;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 25px;
+    display: flex;
+    gap: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    flex-wrap: wrap;
+}
+
+.grid-canvas {
+    display: inline-grid;
+    background-color: var(--line);
+    border: 2px solid var(--line);
+    gap: 2px;
+}
+
+.cell {
+    background: white;
+    min-width: 320px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 25px;
+    position: relative;
+    box-sizing: border-box;
+}
+
+.cell.is-split {
+    min-width: 600px;
+}
+/* The blue highlight for the whole cell */
+.cell.visual-selected {
+    background-color: #b3d7ff !important;
+    outline: 2px solid #007bff !important;
+}
+
+/* Make inputs transparent when selected so the blue shows through */
+.cell.visual-selected input {
+    background-color: transparent !important;
+}
+/* =========================
+   VOCAB UI
+========================= */
+.vocab-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vocab-list.split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 30px;
+}
+
+.vocab-item {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+.target-input {
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 17px;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 0;
+    min-width: 10px;
+}
+
+.translation-input {
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: inherit;
+    font-family: inherit;
+    min-width: 10px;
+    padding: 0;
+    color: inherit;     /* Forces the blue from the wrapper */
+    font-style: inherit; /* Forces the italics from the wrapper */
+}
+
+.bracket-wrapper {
+    display: inline-flex;
+    align-items: baseline;
+    color: var(--translation-blue);
+    font-size: 15px;
+    font-style: italic;
+}
+
+/* =========================
+   BUTTON SYSTEM (CLEAN)
+========================= */
+button {
+    padding: 8px 16px;
+    cursor: pointer;
+    border: 1px solid #cbd5e1;
+    background: white;
+    border-radius: 6px;
+    font-weight: 500;
+    transition: 0.2s ease;
+    font-family: inherit;
+}
+
+button:hover {
+    background: #f1f5f9;
+}
+
+.toolbar button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+/* dividers */
+.toolbar .divider {
+    width: 1px;
+    height: 24px;
+    background: #e2e8f0;
+    margin: 0 5px;
+}
+
+/* =========================
+   BUTTON VARIANTS
+========================= */
+.btn-purple {
+    background: var(--purple);
+    color: white;
+    border: none;
+}
+
+.btn-purple:hover {
+    background: #7c3aed;
+}
+
+.btn-info {
+    background: #0ea5e9;
+    color: white;
+    border: none;
+}
+
+.btn-info:hover {
+    background: #0284c7;
+}
+
+.btn-danger {
+    background: #e11d48;
+    color: white;
+    border: none;
+}
+
+.btn-danger:hover {
+    background: #be123c;
+}
+
+/* =========================
+   ICON BUTTONS
+========================= */
+.icon-btn {
+    font-size: 18px;
+    cursor: pointer;
+    opacity: 0.3;
+    transition: 0.2s;
+    user-select: none;
+}
+
+.icon-btn:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+.language-btn {
+    font-size: 20px;
+    padding: 25px;
+    flex: 1;
+    min-width: 180px;
+}
+/* =========================
+   GRID ACTION BUTTONS
+========================= */
+.action-btn {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    border: 2px solid white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    z-index: 100;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    color: white;
+    transition: 0.2s ease;
+}
+
+.action-btn:hover {
+    transform: scale(1.1);
+}
+
+.btn-plus {
+    background: var(--green);
+}
+
+.btn-minus {
+    background: var(--red);
+}
+
+/* =========================
+   MODALS
+========================= */
+.modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 15px 50px rgba(0,0,0,0.4);
+    display: none;
+    z-index: 2000;
+    width: 650px;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    z-index: 1999;
+}
+
+/* =========================
+   COLOR PICKER
+========================= */
+.color-picker {
+       bottom: 35px;
+    right: 0;
+    background: white;
+    border: 1px solid #ccc;
+    padding: 8px;
+    display: none;
+    position: absolute;
+    z-index: 2000;
+    grid-template-columns: repeat(4, 22px);
+    gap: 6px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.swatch {
+    width: 22px;
+    height: 22px;
+    cursor: pointer;
+    border: 1px solid #eee;
+    border-radius: 3px;
+}
+
+/* =========================
+   PREVIEW
+========================= */
+.preview-sentence {
+    font-size: 16px;
+    line-height: 1.4;
+    margin: 0;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.preview-sentence span.tr-text {
+    color: var(--translation-blue);
+    font-style: italic;
+    margin-left: 8px;
+}
+
+/* =========================
+   ACTIVITY LIST
+========================= */
+#activity-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.activity-row {
+    padding: 8px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* =========================
+   CELL UI OVERLAYS
+========================= */
+.top-ui {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    pointer-events: none;
+}
+
+.cell-checkbox {
+    width: 18px !important;
+    height: 18px !important;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.bottom-ui {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    pointer-events: none;
+}
+
+.bottom-ui * {
+    pointer-events: auto;
+}
     </style>
 </head>
 <body>
 
-<input type="text" id="builder-title" value="Title">
-
-<div class="toolbar">
-    <button onclick="undo()">↩️</button>
-    <button onclick="redo()">↪️</button>
-    <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 5px;"></div>
-   <button onclick="toggleMode('add-row')">+ Row</button>
-<button onclick="toggleMode('del-row')">- Row</button>
-<button onclick="toggleMode('add-col')">+ Col</button>
-<button onclick="toggleMode('del-col')">- Col</button>
-    <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 5px;"></div>
-    <button onclick="mergeSelected()">🔗Merge</button>
-    <button onclick="splitSelected()">✂️Split</button>
-    <button onclick="saveProject()">💾 Save</button>
-    <button onclick="document.getElementById('fileIn').click()">📂Load</button>
-    <button onclick="exportPDF()" style="background:#e11d48; color:white; border:none;">📄PDF</button>
-    <button onclick="openPreview()" style="background:#0ea5e9; color:white; border:none;">👁️Preview</button>
-    <button onclick="openActivityMenu()" class="btn-purple">📜Worksheet</button>
-    <input type="file" id="fileIn" style="display:none" onchange="loadProject(event)">
+<div id="login-page" class="page active-page">
+    <div id="login-card">
+        <h1>Sentence Builder</h1>
+        <p>Teacher Portal - Please sign in with school email.</p>
+        <button onclick="login()" class="btn-purple">Sign in with Google</button>
+    </div>
 </div>
 
-<div id="grid-container" class="grid-canvas"></div>
-<div class="overlay" id="overlay" onclick="closeModals()"></div>
+<div id="library-page" class="page">
+    <div class="dashboard-card" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 25px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 20px;">
+            <div style="min-width: 150px;">
+                <h1 style="margin: 0; font-size: 24px; color: #1a1a1a;">Dashboard</h1>
+                <p id="user-display" style="margin: 5px 0 0; color: #666; font-size: 14px;"></p>
+            </div>
+            <div id="language-nav-container" style="display: flex; gap: 10px; flex-grow: 1; justify-content: center;"></div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="toggleBinView()" class="btn-outline">🗑️ Bin</button>
+                <button onclick="createNewProject()" class="btn-purple">🛠️ Create</button>
+                <button onclick="logout()" class="btn-outline">🔓Sign Out</button>
+            </div>
+        </div>
+    </div>
+    <div id="library-content"></div>
+</div>
+
+<div id="bin-page" class="page" style="display:none; padding:30px; background: #f8fafc; min-height: 100vh;">
+    <div style="max-width: 1200px; margin: 0 auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:30px; border-bottom: 2px solid #ef4444; padding-bottom: 15px;">
+            <div>
+                <h2 style="color: #b91c1c; margin:0;">🗑️ Recycle Bin</h2>
+                <p style="color: #64748b; margin: 5px 0 0; font-size: 14px;">Review and restore deleted projects</p>
+            </div>
+            <button onclick="showPage('library-page')" class="btn-outline">← Back to Library</button>
+        </div>
+        <div id="bin-container"></div>
+    </div>
+</div>
+
+<div id="editor-page" class="page">
+    <div class="editor-top-nav" style="display: flex; align-items: center; gap: 12px; padding: 10px; background: #fff; border-bottom: 1px solid #eee;">
+        <button onclick="showPage('library-page')" class="btn-outline" style="white-space: nowrap;">← Library</button>
+        <input type="text" id="builder-title" class="editor-header-input" placeholder="Untitled" style="flex-grow: 1; min-width: 200px;">
+        
+        <div class="meta-group" style="display: flex; align-items: center; gap: 8px;">
+            <select id="meta-lang" class="editor-header-input" onchange="updateMeta()">
+                <option value="French">French</option>
+                <option value="German">German</option>
+                <option value="Spanish">Spanish</option>
+                <option value="EAL">EAL</option>
+            </select>
+            <select id="meta-year" class="editor-header-input" onchange="updateMeta()">
+                <option value="Year 9">Year 9</option>
+                <option value="GCSE">GCSE</option>
+                <option value="Year 12">Year 12</option>
+                <option value="Year 13">Year 13</option>
+            </select>
+            <select id="meta-topic-select" class="editor-header-input" onchange="handleTopicSelect()"></select>
+            <input type="text" id="meta-topic-new" class="editor-header-input" placeholder="New Topic..." style="display:none;">
+        </div>
+
+        <button onclick="saveToCloud()" class="btn-purple">💾 Save</button>
+        <span id="manual-save-status" style="margin-left:10px; font-weight:bold; color:#10b981;"></span>
+        <button onclick="quickNewBuilder()" class="btn-purple" style="background:#7c3aed; margin-left:5px;">🛠️ Create</button>
+        <button onclick="logout()" class="btn-danger-soft" style="white-space: nowrap;">🔓Sign Out</button>
+    </div>
+
+    <div class="toolbar" style="margin-top: 10px;">
+        <button onclick="undo()" title="Undo">↩️</button>
+        <button onclick="redo()" title="Redo">↪️</button>
+        <button onclick="toggleMode('add-row')">+ Row</button>
+        <button onclick="toggleMode('del-row')">- Row</button>
+        <button onclick="toggleMode('add-col')">+ Col</button>
+        <button onclick="toggleMode('del-col')">- Col</button>
+        <button onclick="mergeSelected()" title="Merge Cells">🔗 Merge</button>
+        <button onclick="splitSelected()" title="Split Cell">✂️ Split</button>
+        <button onclick="exportPDF()" class="btn-danger">📄 PDF</button>
+        <button onclick="openPreview()" class="btn-info">👁️ Preview</button>
+        <button onclick="openActivityMenu()" class="btn-purple">📜 Worksheet</button>
+    </div>
+
+    <div id="grid-container" class="grid-canvas"></div>
+
+    <div style="padding: 10px; text-align: center; border-top: 1px solid #eee; background: #f8fafc;">
+        <small id="autosave-indicator" style="color: #94a3b8; font-style: italic;">
+            Waiting for first save...
+        </small>
+    </div>
+</div> <div id="overlay" class="overlay" onclick="closeModals()"></div>
+
+<div id="new-modal" class="modal" style="width:400px;">
+    <h2 style="margin-top:0;">New Builder</h2>
+    <div style="display: flex; flex-direction: column; gap: 15px;">
+        <div>
+            <label>Language</label>
+            <select id="new-lang" onchange="handleNewLangChange()" style="width:100%; padding:8px;">
+                <option>French</option><option>German</option><option>Spanish</option><option>EAL</option>
+            </select>
+        </div>
+        <div>
+            <label>Year Group</label>
+            <select id="new-year" style="width:100%; padding:8px;">
+                <option>Year 9</option><option>GCSE</option><option>Year 12</option><option>Year 13</option>
+            </select>
+        </div>
+        <div>
+            <label>Topic</label>
+            <input type="text" id="new-topic" placeholder="e.g. Holidays" style="width:100%; padding:8px; box-sizing:border-box;">
+        </div>
+        <button onclick="createNewProject()" class="btn-purple">Create Builder</button>
+    </div>
+</div>
 
 <div id="preview-modal" class="modal">
     <h3 style="margin-top:0;">Sentence List Preview</h3>
     <div id="preview-content" style="background:#fafafa; padding:15px; border-radius:8px; max-height: 60vh; overflow-y: auto;"></div>
-    <button onclick="closeModals()" style="width:100%; margin-top:20px; height: 45px; font-weight: bold;">Close</button>
+    <button onclick="closeModals()" style="width:100%; margin-top:20px; height: 45px; font-weight: bold; border:1px solid #ccc; cursor:pointer;">Close</button>
 </div>
 
 <div id="activity-menu" class="modal">
@@ -132,68 +715,763 @@
 </div>
 
 <script>
-    let grid = [[c(), c(), c()], [c(), c(), c()]];
-    let history = [JSON.stringify(grid)];
-    let historyStep = 0;
-    let currentMode = null;
-    let typingTimer;
+/* =========================
+   FIREBASE
+========================= */
+const firebaseConfig = {
+    apiKey: "AIzaSyCE89XAuk9wzIhp9QEeCKkdVUK867PtK_Q",
+    authDomain: "sentencebuilder-50ef5.firebaseapp.com",
+    projectId: "sentencebuilder-50ef5",
+    storageBucket: "sentencebuilder-50ef5.firebasestorage.app",
+    messagingSenderId: "607531947255",
+    appId: "1:607531947255:web:85162d052bdb53296deff2"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+/* IMPORTANT: set persistence once at startup */
+auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+
+/* =========================
+   STATE
+========================= */
+let currentUser = null;
+let currentDocId = null;
+
+let nav = {
+    lang: null,
+    year: null,
+    topic: null,
+    sortBy: 'updated'
+};
+
+let grid = [[c(), c(), c()], [c(), c(), c()]];
+let history = [JSON.stringify(grid)];
+let historyStep = 0;
+let currentMode = null;
+let typingTimer;
+let meta = { lang: '', year: '', topic: '' };
+
+const allColors = ["#ffffff","#f1f5f9","#fee2e2","#ffedd5","#fef9c3","#dcfce7","#d1fae5","#e0f2fe","#e0e7ff","#ede9fe","#fae8ff","#fce7f3","#ffccd5","#bbf7d0"];
+
+/* =========================
+   AUTH
+========================= */
+async function login() {
+
+    const provider = new firebase.auth.GoogleAuthProvider();
+
+    try {
+        const result = await auth.signInWithPopup(provider);
+        const email = result.user.email.toLowerCase();
+
+        if (!email.endsWith("@cedarsupper.co.uk")) {
+            alert("Access Denied");
+            await auth.signOut();
+            return;
+        }
+
+        currentUser = result.user;
+        document.getElementById('user-display').innerText = email;
+
+    } catch (e) {
+        alert(e.message);
+    }
+}
+
+async function logout() {
+    await auth.signOut();
+    location.reload();
+}
+    function openNewModal() {
+    document.getElementById('new-modal').style.display='block';
+    document.getElementById('overlay').style.display='block';
+
+    // reset dropdown state every time
+    document.getElementById("new-lang").value = "French";
+    document.getElementById("new-year").disabled = false;
+    document.getElementById("new-year").style.opacity = "1";
+    document.getElementById("new-year").style.pointerEvents = "auto";
+}
+function handleNewLangChange() {
+    const lang = document.getElementById("new-lang").value;
+    const year = document.getElementById("new-year");
+
+    if (lang === "EAL") {
+        year.disabled = true;
+        year.style.opacity = "0.5";
+        year.style.pointerEvents = "none";
+    } else {
+        year.disabled = false;
+        year.style.opacity = "1";
+        year.style.pointerEvents = "auto";
+    }
+}
+function showPage(pageId) {
+    // 1. Remove 'active-page' from all pages
+    document.querySelectorAll('.page').forEach(page => {
+        page.classList.remove('active-page');
+    });
+
+    // 2. Add 'active-page' to the target page
+    const active = document.getElementById(pageId);
+    if (active) {
+        active.classList.add('active-page');
+    }
     
-    const allColors = [
-        "#ffffff", "#f1f5f9", "#fee2e2", "#ffedd5", "#fef9c3", "#dcfce7", "#d1fae5", 
-        "#e0f2fe", "#e0e7ff", "#ede9fe", "#fae8ff", "#fce7f3", "#ffccd5", "#bbf7d0"
+    // 3. Clear grid if we leave the editor
+    if (pageId !== 'editor-page') {
+        const gc = document.getElementById('grid-container');
+        if (gc) gc.innerHTML = '';
+        currentDocId = null;
+    }
+}
+/* =========================
+   NAVIGATION SYSTEM
+========================= */
+
+function renderLibrary() {
+    const gridContainer = document.getElementById('grid-container');
+    if (gridContainer) gridContainer.innerHTML = ''; 
+
+    const langContainer = document.getElementById("language-nav-container");
+    const mainContent = document.getElementById("library-content");
+    
+    const languages = [
+        { name: "French", flag: "🇫🇷" },
+        { name: "German", flag: "🇩🇪" },
+        { name: "Spanish", flag: "🇪🇸" },
+        { name: "EAL", flag: "🇬🇧" }
     ];
 
-    function c() { return { items: [{t: "", tr: ""}], color: "#ffffff", rS: 1, cS: 1, hidden: false, sel: false, split: false }; }
+    // Render Language Buttons
+    langContainer.innerHTML = languages.map(l => `
+        <button onclick="selectLang('${l.name}')"
+            style="
+                padding: 8px 15px;
+                border-radius: 8px;
+                transition: all 0.2s ease;
+                display: flex;
+                align-items: center; gap: 8px; cursor: pointer;
+                ${nav.lang === l.name 
+                    ? 'background:#8b5cf6; color:white; border:none; box-shadow:0 2px 4px rgba(139, 92, 246, 0.3);' 
+                    : 'background:#f8fafc; border:1px solid #e2e8f0; color:#475569;'}
+            ">
+            <span style="font-family: 'Noto Color Emoji', sans-serif; font-size: 20px;">${l.flag}</span>
+            <span style="font-weight: 600; font-size: 14px;">${l.name}</span>
+        </button>
+    `).join("");
 
-    function pushHistory() {
-        const state = JSON.stringify(grid);
-        if (state === history[historyStep]) return;
-        history = history.slice(0, historyStep + 1);
-        history.push(state);
-        historyStep++;
+    // Render logic: EAL skips Year Group selection but still needs the topic-area
+    mainContent.innerHTML = `
+        ${nav.lang && nav.lang !== "EAL" ? `
+            <h3 style="margin-top:0;">Year Group</h3>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
+                ${["Year 9","GCSE","Year 12","Year 13"].map(y => `
+                    <button onclick="selectYear('${y}')"
+                        style="padding:10px 15px; border-radius:6px; ${nav.year === y ? 'background:#2196f3;color:white;border:none;' : 'background:white; border:1px solid #e2e8f0;'}">
+                        ${y}
+                    </button>
+                `).join("")}
+            </div>
+        ` : ""}
+
+        <div id="topic-area" style="min-height: 50px;">
+            ${(nav.lang === "EAL" || nav.year) ? 'Loading topics...' : ''}
+        </div>
+    `;
+
+    // Trigger topic rendering if EAL is active or a specific year is selected
+    if (nav.lang === "EAL" || nav.year) {
+        renderTopicsInline();
     }
+}
+/* --- NAVIGATION SYSTEM --- */
+function selectLang(lang) {
+    nav.lang = lang;
+    nav.topic = null;
+    // Set year to "EAL" automatically if language is EAL
+    nav.year = (lang === "EAL") ? "EAL" : null;
+    renderLibrary();
+}
+
+function selectYear(year) {
+    nav.year = year;
+    nav.topic = null;
+    renderLibrary();
+}
+
+async function renderTopicsInline() {
+    const topicArea = document.getElementById("topic-area");
+    if (!topicArea || !nav.lang) return;
+
+    // Filter only active files
+    let query = db.collection("builders")
+        .where("lang", "==", nav.lang)
+        .where("isDeleted", "==", false);
+
+    if (nav.lang === "EAL") {
+        query = query.where("year", "==", "EAL");
+    } else if (nav.year) {
+        query = query.where("year", "==", nav.year);
+    }
+
+    try {
+        const snap = await query.get();
+        
+        // Extract unique topics from active files
+        const topicList = [...new Set(
+            snap.docs.map(d => d.data().topic).filter(t => t && t.trim() !== "")
+        )].sort();
+
+        // FIX: If the current selected topic is no longer in the list (last file deleted), reset it
+        if (nav.topic && !topicList.includes(nav.topic)) {
+            nav.topic = null; 
+        }
+
+        let html = `
+            <div style="display: flex; align-items: center; gap: 15px; margin-top: 20px; margin-bottom: 15px;">
+                <h3 style="margin: 0;">Topics</h3>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
+        `;
+
+        if (topicList.length > 0) {
+            topicList.forEach(t => {
+                const isActive = (nav.topic === t);
+                const escaped = t.replace(/'/g, "\\'");
+                html += `
+                    <button onclick="selectTopic('${escaped}')"
+                        style="padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:600; transition:all 0.2s;
+                        ${isActive 
+                            ? 'background:#4caf50; color:white; border:none; box-shadow:0 4px 6px rgba(76,175,80,0.3);' 
+                            : 'background:white; border:1px solid #e2e8f0; color:#475569;'}">
+                        ${t}
+                    </button>`;
+            });
+        } else {
+            html += `<p style="color:#64748b;">No active topics found for ${nav.lang}.</p>`;
+        }
+
+        html += `</div><div id="projects-area"></div>`;
+        topicArea.innerHTML = html;
+
+        if (nav.topic) renderProjectsInline();
+
+    } catch (error) {
+        console.error("Firestore Error:", error);
+    }
+}
+// Global Click Listener (Move this outside of any function)
+window.addEventListener('click', (event) => {
+    document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
+    const dropdown = document.getElementById('custom-sort-options');
+    const trigger = document.getElementById('custom-sort-trigger');
+    if (dropdown && dropdown.classList.contains('show')) {
+        if (trigger && !trigger.contains(event.target) && !dropdown.contains(event.target)) {
+            dropdown.classList.remove('show');
+        }
+    }
+});
+function updateSort(val) {
+    nav.sortBy = val; // Update the global navigation state
+    renderTopicsInline(); // Refresh the UI to reflect the new sort order
+}
+function selectTopic(topic) {
+    console.log("Topic selected:", topic); // Debugging line
+    nav.topic = topic;
+    renderTopicsInline(); // This will highlight the button AND call renderProjectsInline
+}
+
+async function renderProjectsInline() {
+    const container = document.getElementById("projects-area");
+    if (!container || !nav.topic) return;
+
+    container.innerHTML = `<p style="color:#64748b; padding: 20px;">Loading projects...</p>`;
+
+    try {
+        const snap = await db.collection("builders")
+            .where("lang", "==", nav.lang)
+            .where("topic", "==", nav.topic)
+            .where("isDeleted", "==", false) // Keeps deleted items hidden
+            .get();
+
+        if (snap.empty) {
+            container.innerHTML = `<p style="color:#64748b; padding: 20px;">No active projects in this topic.</p>`;
+            return;
+        }
+
+        // Restored your original grid container style
+        let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px; padding: 10px;">`;
+        
+        snap.docs.forEach(doc => {
+            const p = doc.data();
+            
+            // Restored your exact card HTML structure
+            html += `
+                <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer; width:300px; box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; padding:15px; border:1px solid #e2e8f0; border-radius:10px; background:white;">
+                    <div class="project-left" style="flex:1; overflow:hidden;">
+                        <span style="color: var(--accent); font-weight: bold; font-size: 1.1em; white-space:nowrap; text-overflow:ellipsis; display:block; overflow:hidden;">
+                            ${p.title || "Untitled Builder"}
+                        </span>
+                    </div>
+                    <div class="project-actions" onclick="event.stopPropagation();" style="display:flex; gap:10px; margin-left:10px;">
+                        <span class="icon-btn" title="Duplicate" onclick="duplicateSB('${doc.id}', event)" style="cursor:pointer; font-size:1.2em;">📋</span>
+                        <span class="icon-btn delete-btn" title="Delete" onclick="deleteProject('${doc.id}', event)" style="cursor:pointer; font-size:1.2em;">🗑️</span>
+                    </div>
+                </div>`;
+        });
+        
+        html += `</div>`;
+        container.innerHTML = html;
+
+    } catch (error) {
+        console.error("Error loading projects:", error);
+        container.innerHTML = `<p style="color:red; padding: 20px;">Error loading projects.</p>`;
+    }
+}
+function toggleBinView() {
+    // Switch to the bin page using your existing showPage logic
+    showPage('bin-page');
+    renderBin();
+}
+
+async function renderBin() {
+    const container = document.getElementById("bin-container");
+    if (!container) return;
+
+    container.innerHTML = `<p style="color:#64748b; padding:20px;">Scanning for deleted files...</p>`;
+
+    try {
+        const snap = await db.collection("builders")
+            .where("uid", "==", currentUser.uid)
+            .where("isDeleted", "==", true)
+            .get();
+
+        if (snap.empty) {
+            container.innerHTML = `
+                <div style="text-align:center; padding:50px; background:white; border-radius:15px; border:2px dashed #cbd5e1;">
+                    <p style="color:#64748b; font-size:1.1em;">The bin is empty.</p>
+                </div>`;
+            return;
+        }
+
+        // 1. Group items by Language and then by Year Group
+        const organized = {};
+        snap.forEach(doc => {
+            const data = doc.data();
+            const lang = data.lang || "Other Language";
+            const year = data.year || "No Year Group";
+            
+            if (!organized[lang]) organized[lang] = {};
+            if (!organized[lang][year]) organized[lang][year] = [];
+            
+            organized[lang][year].push({ id: doc.id, ...data });
+        });
+
+        // 2. Build the HTML structure
+        let html = '';
+        // Sort languages alphabetically
+        const sortedLangs = Object.keys(organized).sort();
+
+        for (const lang of sortedLangs) {
+            html += `<h2 style="margin-top:40px; color:#1e293b; border-left:5px solid #ef4444; padding-left:15px; background:#fee2e2; padding-top:10px; padding-bottom:10px; border-radius:0 8px 8px 0;">${lang}</h2>`;
+            
+            // Sort Year Groups (e.g., Year 9, Year 10...)
+            const sortedYears = Object.keys(organized[lang]).sort();
+
+            for (const year of sortedYears) {
+                html += `
+                <div style="margin: 25px 0 10px 15px;">
+                    <h4 style="color:#ef4444; font-size:1em; text-transform:uppercase; margin-bottom:15px; letter-spacing: 1px;">📅 ${year}</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 25px;">
+                `;
+
+                organized[lang][year].forEach(p => {
+                    const date = p.deletedAt ? p.deletedAt.toDate().toLocaleDateString() : 'Recently';
+                    
+                    html += `
+                    <div class="project-card" style="width:300px; box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; padding:15px; border:1px solid #e2e8f0; border-radius:10px; background:white; shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                        <div class="project-left" style="flex:1; overflow:hidden;">
+                            <span style="color: #1e293b; font-weight: bold; font-size: 1.1em; white-space:nowrap; text-overflow:ellipsis; display:block; overflow:hidden;" title="${p.title}">
+                                ${p.title || "Untitled"}
+                            </span>
+                            <small style="color: #b91c1c; font-weight: 600; display:block; margin-top:2px;">Topic: ${p.topic || 'General'}</small>
+                            <small style="color: #94a3b8; font-size: 0.85em;">Deleted: ${date}</small>
+                        </div>
+                        <div class="project-actions" onclick="event.stopPropagation();" style="display:flex; gap:12px; margin-left:10px;">
+                            <span class="icon-btn" title="Restore" onclick="restoreProject('${p.id}', event)" style="cursor:pointer; font-size:1.3em;">🔄</span>
+                            <span class="icon-btn" title="Delete Permanently" onclick="permanentlyDelete('${p.id}', event)" style="cursor:pointer; font-size:1.3em; color:#ef4444;">❌</span>
+                        </div>
+                    </div>`;
+                });
+
+                html += `</div></div>`;
+            }
+        }
+        container.innerHTML = html;
+
+    } catch (e) {
+        console.error("Bin Error:", e);
+        container.innerHTML = `<p style="color:red; padding:20px;">Error loading bin content: ${e.message}</p>`;
+    }
+}
+    async function cleanupOldDeletedFiles() {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const oldDocs = await db.collection("builders")
+        .where("isDeleted", "==", true)
+        .where("deletedAt", "<=", thirtyDaysAgo)
+        .get();
+
+    const batch = db.batch();
+    oldDocs.forEach(doc => {
+        batch.delete(doc.ref);
+    });
+    
+    await batch.commit();
+    console.log(`Cleaned up ${oldDocs.size} expired files.`);
+}
+
+auth.onAuthStateChanged(async (user) => {
+    initMetaListeners();
+    if (user) {
+        const email = user.email.toLowerCase();
+        if (!email.endsWith("@cedarsupper.co.uk")) {
+            await auth.signOut();
+            alert("Access Denied: Use school email.");
+            showPage('login-page');
+            return;
+        }
+
+        currentUser = user;
+        document.getElementById('user-display').innerText = email;
+        
+        // Essential Bin Setup
+        showingBin = false;
+        cleanupOldDeletedFiles(); 
+
+        showPage('library-page');
+        renderLibrary();
+    } else {
+        currentUser = null;
+        showPage('login-page');
+    }
+});
+    async function confirmDelete(id) {
+    const ok = confirm("Delete this builder permanently? This cannot be undone.");
+
+    if (!ok) return;
+
+    await db.collection("builders").doc(id).delete();
+    renderProjectsInline();
+}
+async function updateMeta() {
+    const langEl = document.getElementById("meta-lang");
+    const yearEl = document.getElementById("meta-year");
+    const topicSelect = document.getElementById("meta-topic-select");
+    const topicNew = document.getElementById("meta-topic-new");
+
+    meta.lang = langEl.value;
+    meta.year = yearEl.value;
+
+    meta.topic = topicSelect.value === "__new__"
+        ? topicNew.value
+        : topicSelect.value;
+
+    if (meta.lang === "EAL") {
+        yearEl.value = "EAL";
+        yearEl.disabled = true;
+    } else {
+        yearEl.disabled = false;
+    }
+}
+async function openTopic(topic) {
+    nav.topic = topic;
+
+    let baseQuery = db.collection("builders")
+        .where("uid", "==", currentUser.uid)
+        .where("lang", "==", nav.lang)
+        .where("topic", "==", topic);
+
+    if (nav.lang !== "EAL") {
+        baseQuery = baseQuery.where("year", "==", nav.year);
+    }
+
+    const snap = await baseQuery.get();
+
+    let html = `
+        <button onclick="renderLibrary()">← Back</button>
+        <h2>${nav.lang} / ${nav.year || "All"} / ${topic}</h2>
+        <div class="project-grid">
+    `;
+
+    snap.forEach(doc => {
+        const p = doc.data();
+        html += `
+            <div class="project-card">
+                <h4>${p.topic}</h4>
+                <p>${p.title}</p>
+                <div style="display:flex;gap:10px;margin-top:10px;">
+                    <button onclick="loadProject('${doc.id}')">Edit</button>
+                    <button onclick="deleteProject('${doc.id}')" class="btn-danger">Delete</button>
+                </div>
+            </div>
+        `;
+    });
+
+    html += `</div>`;
+    document.getElementById("library-content").innerHTML = html;
+}
+    function renderTopicPage() {
+    renderLibrary();
+}
+   async function loadTopicsDropdown() {
+    const lang = document.getElementById("meta-lang").value;
+    const year = document.getElementById("meta-year").value;
+
+    let query = db.collection("builders").where("lang", "==", lang);
+
+    if (lang !== "EAL") {
+        query = query.where("year", "==", year);
+    }
+
+    const snap = await query.get();
+
+    const topics = [...new Set(
+        snap.docs.map(d => d.data().topic).filter(Boolean)
+    )].sort();
+
+    const select = document.getElementById("meta-topic-select");
+
+    select.innerHTML = `
+        ${topics.map(t => `<option value="${t}">${t}</option>`).join("")}
+        <option value="__new__">➕ Create new topic</option>
+    `;
+}
+function handleTopicSelect() {
+    const select = document.getElementById("meta-topic-select");
+    const input = document.getElementById("meta-topic-new");
+
+    if (select.value === "__new__") {
+        input.style.display = "inline-block";
+        input.focus();
+    } else {
+        input.style.display = "none";
+    }
+
+    updateMeta();
+}
+/* =========================
+   CLOUD
+========================= */
+async function saveToCloud(isAutosave = false) {
+    if (!currentUser) return;
+
+    const manualStatus = document.getElementById('manual-save-status');
+    const autoStatus = document.getElementById('autosave-indicator');
+
+    try {
+        // 1. Manually get values to avoid updateMeta() errors
+        const langVal = document.getElementById('meta-lang').value;
+        const yearVal = (langVal === "EAL") ? "EAL" : document.getElementById('meta-year').value;
+        
+        const topicSelect = document.getElementById("meta-topic-select");
+        const topicNew = document.getElementById("meta-topic-new");
+        const topicValue = (topicSelect.value === "__new__") ? topicNew.value : topicSelect.value;
+
+        if (!topicValue) {
+            if (!isAutosave) alert("Please select or enter a topic before saving.");
+            return;
+        }
+
+        const data = {
+            uid: currentUser.uid,
+            title: document.getElementById('builder-title').value || "Untitled",
+            lang: langVal,
+            year: yearVal,
+            topic: topicValue,
+            grid: JSON.stringify(grid),
+            isDeleted: false,
+            updated: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        // 2. Perform Database Operation
+        if (currentDocId) {
+            await db.collection("builders").doc(currentDocId).update(data);
+        } else {
+            const doc = await db.collection("builders").add(data);
+            currentDocId = doc.id;
+        }
+
+        // 3. UI Update
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (isAutosave) {
+            if (autoStatus) autoStatus.innerText = `Autosaved at ${time}`;
+        } else {
+            if (manualStatus) {
+                manualStatus.innerText = "Saved!";
+                setTimeout(() => { manualStatus.innerText = ""; }, 5000);
+            }
+        }
+
+    } catch (e) {
+        console.error("Critical Save Error:", e);
+        if (!isAutosave && manualStatus) {
+            manualStatus.innerText = "Error Saving!";
+            manualStatus.style.color = "red";
+        }
+    }
+}
+async function loadProject(id) {
+    const doc = await db.collection("builders").doc(id).get();
+    const d = doc.data();
+
+    currentDocId = id;
+    grid = JSON.parse(d.grid);
+
+    meta = {
+        lang: d.lang,
+        year: d.year,
+        topic: d.topic
+    };
+
+    document.getElementById('meta-lang').value = d.lang;
+    document.getElementById('meta-year').value = d.year;
+    document.getElementById('builder-title').value = d.title;
+
+    await loadTopicsDropdown();
+
+    const select = document.getElementById("meta-topic-select");
+    const input = document.getElementById("meta-topic-new");
+
+    if ([...select.options].some(o => o.value === d.topic)) {
+        select.value = d.topic;
+        input.style.display = "none";
+    } else {
+        select.value = "__new__";
+        input.style.display = "inline-block";
+        input.value = d.topic;
+    }
+
+    handleTopicSelect();
+
+    history = [JSON.stringify(grid)];
+    historyStep = 0;
+
+    showPage("editor-page");
+    render(false);
+}
+async function deleteProject(id) {
+    if(!confirm("Move this project to the Bin?")) return;
+    
+    try {
+        await db.collection("builders").doc(id).update({
+            isDeleted: true,
+            deletedAt: firebase.firestore.Timestamp.now()
+        });
+        
+        // Re-render the topics. If this was the last file, 
+        // renderTopicsInline will now see 0 files and reset nav.topic
+        renderTopicsInline(); 
+    } catch (e) {
+        console.error("Delete failed:", e);
+    }
+}
+async function restoreProject(id, event) {
+    if (event) event.stopPropagation();
+    try {
+        await db.collection("builders").doc(id).update({
+            isDeleted: false,
+            deletedAt: null
+        });
+        alert("Project restored to library!");
+        renderBin(); // Refresh bin view
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function permanentlyDelete(id, event) {
+    if (event) event.stopPropagation();
+    if (!confirm("This will delete the file forever. Are you sure?")) return;
+    
+    try {
+        await db.collection("builders").doc(id).delete();
+        renderBin(); // Refresh bin view
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+/* =========================
+   GRID CORE
+========================= */
+function c() {
+    return { items:[{t:"",tr:""}], color:"#ffffff", rS:1, cS:1, hidden:false, sel:false, split:false };
+}
+
+function pushHistory() {
+    const state = JSON.stringify(grid);
+    if (state === history[historyStep]) return;
+    history = history.slice(0, historyStep + 1);
+    history.push(state);
+    historyStep++;
+}
 
     function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
     function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
+function render(doSave = true) {
+    if (doSave) pushHistory();
+    const container = document.getElementById('grid-container');
+    container.innerHTML = '';
+    const cols = grid[0].length;
+    container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
 
-    function render(doSave = true) {
-        if (doSave) pushHistory();
-        const container = document.getElementById('grid-container');
-        container.innerHTML = '';
-        const cols = grid[0].length;
-        container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
+    grid.forEach((row, r) => {
+        row.forEach((cell, cIdx) => {
+            if (cell.hidden) return;
 
-        grid.forEach((row, r) => {
-            row.forEach((cell, cIdx) => {
-                if (cell.hidden) return;
-                const cellDiv = document.createElement('div');
-                cellDiv.className = `cell ${cell.split ? 'is-split' : ''}`;
-                cellDiv.style.gridColumn = `span ${cell.cS}`;
-                cellDiv.style.gridRow = `span ${cell.rS}`;
-                cellDiv.style.backgroundColor = cell.color;
+            const cellDiv = document.createElement('div');
+            cellDiv.className = 'cell';
+            
+            cellDiv.style.gridRow = `${r + 1} / span ${cell.rS || 1}`;
+            cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
+            cellDiv.style.backgroundColor = cell.color || "#ffffff";
 
-                const listHTML = cell.items.map((item, i) => `
-                    <div class="vocab-item">
-                        <input type="text" class="target-input" placeholder="Target" data-pos="${r}-${cIdx}-${i}"
-                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
-                            oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
-                        <div class="bracket-wrapper"><span>(</span>
-                        <input type="text" class="translation-input" placeholder="Translation" 
-                            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i})" 
-                            oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
-                        <span>)</span></div>
+            const listHTML = cell.items.map((item, i) => `
+                <div class="vocab-item">
+                    <input type="text" class="target-input" placeholder="Target" 
+                        data-pos="${r}-${cIdx}-${i}-t"
+                        onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')" 
+                        oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
+                    <div class="bracket-wrapper"><span>(</span>
+                    <input type="text" class="translation-input" placeholder="Translation" 
+                        data-pos="${r}-${cIdx}-${i}-tr"
+                        onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 'tr')" 
+                        oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
+                    <span>)</span></div>
+                </div>
+            `).join('');
+
+            cellDiv.innerHTML = `
+                <div class="top-ui no-export">
+                    <input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} 
+                        onchange="grid[${r}][${cIdx}].sel=this.checked">
+                </div>
+                <div class="vocab-list ${cell.split ? 'split' : ''}">${listHTML}</div>
+                <div class="bottom-ui no-export">
+                    <span class="icon-btn" onclick="toggleCellSplit(${r},${cIdx})">Ξ</span>
+                    <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
+                    <div class="color-picker" id="cp-${r}-${cIdx}">
+                        ${allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}
                     </div>
-                `).join('');
-
-                cellDiv.innerHTML = `
-                    <div class="top-ui no-export"><input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} onchange="grid[${r}][${cIdx}].sel=this.checked"></div>
-                    <div class="vocab-list ${cell.split ? 'split' : ''}">${listHTML}</div>
-                    <div class="bottom-ui no-export">
-                        <span class="icon-btn" onclick="toggleCellSplit(${r},${cIdx})">Ξ</span>
-                        <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
-                        <div class="color-picker" id="cp-${r}-${cIdx}">${allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}</div>
-                    </div>
-                `;
+                </div>
+            `;
+            
                 // --- ADD THIS INSIDE render() grid.forEach loop ---
 if (currentMode === 'add-col' && r === 0) {
     addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
@@ -209,10 +1487,7 @@ if (currentMode === 'add-row' && cIdx === 0) {
 if (currentMode === 'del-row' && cIdx === 0) {
     addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
 }
-                if (currentMode === 'add-col' && r === 0) {
-                    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-                    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-                }
+               
                 if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
                 if (currentMode === 'add-row' && cIdx === 0) {
                     addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
@@ -225,12 +1500,175 @@ if (currentMode === 'del-row' && cIdx === 0) {
             });
         });
     }
+    /* --- FIXES FOR CELL ACTIONS --- */
 
-    function updateVal(r, cIdx, i, f, v) { 
-        grid[r][cIdx].items[i][f] = v; 
-        clearTimeout(typingTimer); 
-        typingTimer = setTimeout(pushHistory, 1000); 
+// 1. Function to update cell color
+function setClr(r, c, color) {
+    grid[r][c].color = color;
+    // Hide all pickers after selection
+    document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
+    render(); // Re-draw the grid to show the new color
+}
+
+// 2. Function to toggle between 1 and 2 columns in a cell
+function toggleCellSplit(r, c) {
+    grid[r][c].split = !grid[r][c].split;
+    render(); // Re-draw the grid to apply the 'split' class
+}
+async function duplicateSB(id, e) {
+    if (e) e.stopPropagation();
+    
+    try {
+        // Fetch the original document from Firestore
+        const doc = await db.collection("builders").doc(id).get();
+        if (!doc.exists) return;
+        
+        const original = doc.data();
+        const newTitle = prompt("Enter name for the duplicate:", "Copy of " + original.title);
+        if (!newTitle) return;
+
+        // Create the duplicate object
+        const duplicateData = {
+            ...original,
+            title: newTitle,
+            updated: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        await db.collection("builders").add(duplicateData);
+        renderProjectsInline(); // Refresh the list
+    } catch (err) {
+        console.error("Duplication failed:", err);
+        alert("Duplication failed: " + err.message);
     }
+}
+/* =========================
+    REFINED COPY & PASTE SYSTEM
+========================= */
+
+document.addEventListener('copy', (e) => {
+    const active = document.activeElement;
+    if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
+        
+        // 1. If user has highlighted specific text, let the browser copy just that word/phrase
+        if (active.selectionStart !== active.selectionEnd) {
+            return; 
+        }
+
+        // 2. Otherwise, perform the "Whole Cell" copy logic
+        const posParts = active.dataset.pos.split('-');
+        const r = parseInt(posParts[0]);
+        const cIdx = parseInt(posParts[1]);
+        
+        const cellData = grid[r][cIdx].items;
+        const textToCopy = cellData.map(item => `${item.t}|${item.tr}`).join('\n');
+        
+        e.clipboardData.setData('text/plain', textToCopy);
+        e.preventDefault();
+        
+        const cellEl = active.closest('.cell');
+        if(cellEl) cellEl.classList.remove('visual-selected');
+    }
+});
+
+
+document.addEventListener('paste', (e) => {
+    const active = document.activeElement;
+    if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
+        
+        const pastedData = e.clipboardData.getData('text/plain').replace(/\r/g, '');
+        const lines = pastedData.split('\n').filter(l => l.trim() !== "");
+
+        // Determine if this is a "Cell-level" paste (contains | or multiple lines)
+        if (pastedData.includes('|') || lines.length > 1) {
+            e.preventDefault();
+            
+            const posParts = active.dataset.pos.split('-');
+            const r = parseInt(posParts[0]);
+            const cIdx = parseInt(posParts[1]);
+            const itemIdx = parseInt(posParts[2]);
+            const type = posParts[3];
+
+            const cellEl = active.closest('.cell');
+            const isFullCellSelected = cellEl && cellEl.classList.contains('visual-selected');
+
+            // Map the pasted lines into item objects {t, tr}
+            const newItems = lines.map(line => {
+                const pts = line.split('|');
+                return pts.length > 1 
+                    ? { t: pts[0].trim(), tr: pts[1].trim() }
+                    : (type === 'tr' ? { t: "", tr: line.trim() } : { t: line.trim(), tr: "" });
+            });
+
+            if (isFullCellSelected) {
+                // SCENARIO A: Full Cell selected - OVERWRITE everything
+                grid[r][cIdx].items = newItems;
+                cellEl.classList.remove('visual-selected');
+            } else {
+                // SCENARIO B: Specific cursor position - APPEND/INSERT logic
+                if (lines.length === 1 && !pastedData.includes('|')) {
+                    // It's just a single word being pasted into a multi-line context
+                    grid[r][cIdx].items[itemIdx][type] = lines[0];
+                } else {
+                    // Multi-line paste starting at the current line
+                    grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
+                }
+            }
+
+            render();
+            saveToCloud(true);
+
+            // Maintain focus in the cell
+            setTimeout(() => {
+                const first = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
+                if(first) first.focus();
+            }, 10);
+        } 
+        // Else: Normal browser paste handles single-word-to-single-box
+    }
+});
+    /* =========================
+    CUT SYSTEM (CTRL + X)
+========================= */
+document.addEventListener('cut', (e) => {
+    const active = document.activeElement;
+    
+    // Check if we are inside a vocab input
+    if (active.classList.contains('target-input') || active.classList.contains('translation-input')) {
+        const cellEl = active.closest('.cell');
+        
+        // Only trigger "Whole Cell Cut" if the cell has the visual-selected class (from Ctrl+A)
+        if (cellEl && cellEl.classList.contains('visual-selected')) {
+            const posParts = active.dataset.pos.split('-');
+            const r = parseInt(posParts[0]);
+            const cIdx = parseInt(posParts[1]);
+            
+            // 1. Copy the data to clipboard first
+            const cellData = grid[r][cIdx].items;
+            const textToCopy = cellData.map(item => `${item.t}|${item.tr}`).join('\n');
+            e.clipboardData.setData('text/plain', textToCopy);
+            e.preventDefault(); // Stop the default browser cut
+
+            // 2. Empty the cell in the grid state
+            grid[r][cIdx].items = [{t: "", tr: ""}];
+            
+            // 3. UI Cleanup
+            cellEl.classList.remove('visual-selected');
+            render(); // Refresh grid to show empty cell
+            
+            // 4. Refocus the now-empty first input
+            setTimeout(() => {
+                const firstInput = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
+                if(firstInput) firstInput.focus();
+            }, 10);
+        }
+    }
+});
+
+function updateVal(r, cIdx, i, f, v) { 
+    grid[r][cIdx].items[i][f] = v; 
+    clearTimeout(typingTimer); 
+    typingTimer = setTimeout(pushHistory, 1000); 
+}
 
     function syncSize(el) { 
         if (el.value === "") {
@@ -240,258 +1678,151 @@ if (currentMode === 'del-row' && cIdx === 0) {
             el.style.width = (el.scrollWidth + 5) + 'px'; 
         } 
     }
-
-    function handleKey(e, r, cIdx, i) {
-        if (e.key === 'Enter') {
-            e.preventDefault(); 
-            grid[r][cIdx].items.splice(i+1, 0, {t:"", tr:""}); 
-            render();
-            setTimeout(() => {
-                const nextInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}"]`);
-                if(nextInput) nextInput.focus();
-            }, 10);
-        }
-        if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
-            e.preventDefault(); 
-            grid[r][cIdx].items.splice(i, 1); 
-            render();
-            setTimeout(() => {
-                const prevInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}"]`);
-                if(prevInput) prevInput.focus();
-            }, 10);
-        }
-    }
-function toggleMode(m) { 
-    currentMode = (currentMode === m) ? null : m; 
-    render(false); 
-}
-
-function insertRow(i) { 
-    grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); 
-    currentMode = null; 
-    render(); 
-}
-
-function insertCol(i) { 
-    grid.forEach(r => r.splice(i, 0, c())); 
-    currentMode = null; 
-    render(); 
-}
-
-function deleteRow(i) { 
-    if(grid.length > 1) { 
-        grid.splice(i, 1); 
-        currentMode = null; 
-        render(); 
-    } 
-}
-
-function deleteCol(i) { 
-    if(grid[0].length > 1) { 
-        grid.forEach(r => r.splice(i, 1)); 
-        currentMode = null; 
-        render(); 
-    } 
-}
-
-function addIcon(p, t, pos, l, a) { 
-    const b = document.createElement('div'); 
-    b.className = `action-btn ${t}`; 
-    b.innerText = l; 
-    // This mapping ensures the buttons float in the correct gaps
-    const posStyles = {
-        'left': 'left:-15px; top:45%;',
-        'right': 'right:-15px; top:45%;',
-        'top-center': 'top:-15px; left:45%;',
-        'top-edge': 'top:-15px; left:15px;',
-        'bottom-edge': 'bottom:-15px; left:15px;',
-        'left-edge': 'left:-15px; top:15px;'
-    };
-    b.style = posStyles[pos]; 
-    b.onclick = (e) => { e.stopPropagation(); a(); }; 
-    p.appendChild(b); 
-}
-    function openPreview() {
-        const sentences = getAssembledSentences();
-        const content = sentences.map((s, i) => `<div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`).join('');
-        document.getElementById('preview-content').innerHTML = content || "No content yet. Add some vocabulary to the grid!";
-        document.getElementById('preview-modal').style.display = 'block';
-        document.getElementById('overlay').style.display = 'block';
-    }
-
-    function openActivityMenu() {
-        const list = [
-            {id:'study', label:'Sentence Table'}, {id:'match', label:'Match up'},
-            {id:'nospaces', label:'No Spaces'}, {id:'jumbled', label:'Unjumble'}, 
-            {id:'gap-en', label:'Gap Fill (English)'}, {id:'gap-t', label:'Gap Fill (TL)'}, 
-            {id:'vowels', label:'Missing Vowels'}, {id:'cons', label:'Missing Consonants'}, 
-            {id:'faulty', label:'Faulty Translation'}, {id:'trans-en', label:'Translate (English)'}, 
-            {id:'trans-target', label:'Translate (TL)'}
-        ];
-        
-        document.getElementById('activity-list').innerHTML = list.map(a => `
-            <div class="activity-row">
-                <input type="checkbox" value="${a.id}" id="chk-${a.id}"> 
-                <label for="chk-${a.id}" style="cursor:pointer">${a.label}</label>
-            </div>
-        `).join('');
-        
-        document.getElementById('activity-menu').style.display = 'block'; 
-        document.getElementById('overlay').style.display = 'block';
-    }
-
-    function toggleAllActivities(master) {
+function toggleAllActivities(master) {
         document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
     }
-
-    function getSentencesByRow(r) {
-        let pathCells = [];
-        for (let c = 0; c < grid[0].length; c++) {
-            let cell = getCellAt(r, c);
-            if (!cell || cell.hidden || (c > 0 && getCellAt(r, c - 1) === cell)) continue;
-            let items = cell.items.filter(it => it.t.trim() || it.tr.trim());
-            if (items.length > 0) pathCells.push(items.map(it => ({ t: it.t.trim(), tr: it.tr.trim(), col: c })));
-        }
-        return pathCells.length ? cartesian(pathCells).map(combo => ({ t: combo.map(p => p.t).join(' '), tr: combo.map(p => p.tr).join(' '), parts: combo })) : [];
+function handleKey(e, r, cIdx, i, type) {
+    // 1. ENTER: New line, jump to Target (left)
+    if (e.key === 'Enter') {
+        e.preventDefault(); 
+        grid[r][cIdx].items.splice(i + 1, 0, {t: "", tr: ""}); 
+        render();
+        setTimeout(() => {
+            const nextInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${i+1}-t"]`);
+            if (nextInput) nextInput.focus();
+        }, 10);
+    }
+    
+    // 2. BACKSPACE: Delete line, stay on same side
+    if (e.key === 'Backspace' && e.target.value === "" && grid[r][cIdx].items.length > 1) {
+        e.preventDefault(); 
+        grid[r][cIdx].items.splice(i, 1); 
+        render();
+        setTimeout(() => {
+            const prevInput = document.querySelector(`input[data-pos="${r}-${cIdx}-${Math.max(0, i-1)}-${type}"]`);
+            if (prevInput) prevInput.focus();
+        }, 10);
     }
 
-    function getAssembledSentences() {
-        let allCompiled = [];
-        for (let r = 0; r < grid.length; r++) {
-            let rowSents = getSentencesByRow(r);
-            rowSents.forEach(s => allCompiled.push({...s, originRow: r}));
-        }
-        return allCompiled;
-    }
+    // 3. CTRL+A: Select the whole cell visually
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        const cellEl = e.target.closest('.cell');
+        
+        if (cellEl) {
+            cellEl.classList.add('visual-selected');
 
-    function cartesian(args) {
-        return args.reduce((a, b) => {
-            let ret = [];
-            a.forEach(a_item => {
-                b.forEach(b_item => {
-                    ret.push(a_item.concat([b_item]));
-                });
-            });
-            return ret;
-        }, [[]]);
-    }
-
-    function generateWorksheet() {
-        const count = parseInt(document.getElementById('sentence-count').value);
-        const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
-        const selected = activityOrder.filter(id => document.getElementById(`chk-${id}`).checked);
-
-        if (selected.length === 0) return alert("Select at least one activity!");
-
-        let rowBuckets = [];
-        for (let r = 0; r < grid.length; r++) {
-            let rowSents = getSentencesByRow(r); 
-            if (rowSents.length > 0) {
-                rowBuckets.push({ rowIndex: r, sentences: rowSents });
-            }
-        }
-
-        if (rowBuckets.length === 0) return alert("Please fill in some vocab first!");
-
-        function getBalancedSelection(limit, isStudyTable = false) {
-            let selection = [];
-            let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
-            if (!isStudyTable) tempBuckets.forEach(b => b.sentences.sort(() => 0.5 - Math.random()));
-
-            let bucketPointer = 0;
-            while (selection.length < limit) {
-                let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
-                if (activeBuckets.length === 0) break;
-                if (tempBuckets[bucketPointer].sentences.length > 0) {
-                    selection.push({ ...tempBuckets[bucketPointer].sentences.shift(), originRow: tempBuckets[bucketPointer].rowIndex });
-                }
-                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
-            }
-            return selection;
-        }
-
-        let contentHtml = "";
-        const underscoreLine = "__________________________________________________________________";
-
-        selected.forEach(type => {
-            const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
-            // Wrap activity in a container that allows logical page flow
-            let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
+            const removeHighlight = () => {
+                cellEl.classList.remove('visual-selected');
+                window.removeEventListener('mousedown', removeHighlight);
+                window.removeEventListener('keydown', removeHighlight);
+            };
             
-            let isStudy = (type === 'study');
-            let currentSents = getBalancedSelection(isStudy ? count : 10, isStudy);
-            currentSents.sort((a, b) => a.originRow - b.originRow);
-
-            if (type === 'study') {
-                activityHtml += `<table><tr><th>Target Language</th><th>English</th></tr>`;
-                currentSents.forEach(s => activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
-                activityHtml += `</table>`;
-            } else if (type === 'match') {
-                let pool = [...currentSents];
-                let shuf = [...pool].sort(() => 0.5 - Math.random());
-                activityHtml += `<table>`;
-                pool.forEach((s, i) => activityHtml += `<tr><td style="border:none; padding:4pt;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none; padding:4pt;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
-                activityHtml += `</table>`;
-            } else {
-                currentSents.forEach((s, i) => {
-                    let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
-
-                    if (type === 'vowels' || type === 'cons') {
-                        let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
-                        out = s.t.split(' ').map(word => word.replace(pattern, '_').replace(/_(?=_)/g, '_ ')).join('&nbsp;&nbsp;');
-                    }
-                    else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
-                    else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
-                    else if (type === 'gap-t') { let w = s.t.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); }
-                    else if (type === 'gap-en') { let w = s.tr.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; }
-                    else if (type === 'trans-en') { out = s.t; hint = ""; }
-                    else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
-                    else if (type === 'faulty') {
-                        let parts = [...s.parts];
-                        let rowSents = getSentencesByRow(s.originRow);
-                        let faultyTr = null; let swapIdx = -1;
-                        let indices = parts.map((_, idx) => idx).sort(() => 0.5 - Math.random());
-                        for (let idx of indices) {
-                            let alternatives = rowSents.filter(f => f.parts[idx] && f.parts[idx].tr !== parts[idx].tr);
-                            if (alternatives.length > 0) { faultyTr = alternatives[Math.floor(Math.random() * alternatives.length)].parts[idx].tr; swapIdx = idx; break; }
-                        }
-                        let trText = (swapIdx !== -1) ? parts.map((p, i) => i === swapIdx ? faultyTr : p.tr).join(' ') : "...";
-                        activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${trText}</span><br>${underscoreLine}</p>`;
-                        return;
-                    }
-                    activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>${underscoreLine}</p>`;
+            setTimeout(() => {
+                window.addEventListener('mousedown', removeHighlight);
+                window.addEventListener('keydown', (ev) => {
+                    // Remove highlight if any key OTHER than Ctrl/Cmd is pressed
+                    if (!ev.ctrlKey && !ev.metaKey) removeHighlight();
                 });
-            }
-            activityHtml += `</div>`;
-            contentHtml += activityHtml;
-        });
+            }, 10);
+        }
+    }
+} 
+    // --- BUILDER ACTIONS ---
+    function openNewModal() { document.getElementById('new-modal').style.display='block'; document.getElementById('overlay').style.display='block'; }
+    function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display='none'); document.getElementById('overlay').style.display='none'; }
+async function createNewProject() {
+    try {
+        console.log("CREATE CLICKED");
 
-        const header = `
-            <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-            <head><style>
-                @page { size: A4 landscape; margin: 1cm; }
-                body { font-family: Arial, sans-serif; }
-                .blue { color: #2980b9; font-style: italic; }
-                table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; table-layout: auto; }
-                td, th { border: 1px solid black; padding: 2pt 5pt; font-size: 10pt; white-space: nowrap; }
-                td p { margin: 0 !important; line-height: 1.0; }
-                td.blue { white-space: normal; width: 45%; }
-                
-                .activity-container { 
-                    page-break-inside: avoid; /* Prevents splitting a single activity across pages */
-                    margin-bottom: 20pt; 
-                }
-                .activity-item { margin-bottom: 2pt; line-height: 1.8; font-size: 11pt; }
-                h2 { border-bottom: 1px solid #ccc; padding-bottom: 3pt; font-size: 14pt; margin-top: 15pt; margin-bottom: 8pt; }
-            </style></head>
-            <body><div class="Section1">${contentHtml}</div></body></html>`;
+        currentDocId = null;
 
-        saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
-        closeModals();
+        const modalLang = document.getElementById('new-lang')?.value;
+        const modalYear = document.getElementById('new-year')?.value;
+        const modalTopic = document.getElementById('new-topic')?.value || "New Topic";
+
+        if (!modalLang || !modalYear) {
+            alert("Missing form values - modal not open");
+            return;
+        }
+
+        meta = { 
+            lang: modalLang, 
+            year: modalLang === "EAL" ? "EAL" : modalYear, 
+            topic: modalTopic
+        };
+
+        document.getElementById('builder-title').value = "Untitled Builder";
+
+        grid = [[c(), c(), c()], [c(), c(), c()]];
+        history = [JSON.stringify(grid)];
+        historyStep = 0;
+
+        closeModals?.(); // safe call
+        showPage('editor-page');
+
+        document.getElementById('meta-lang').value = meta.lang;
+        document.getElementById('meta-year').value = meta.year;
+
+        await loadTopicsDropdown();
+
+        const select = document.getElementById("meta-topic-select");
+        const input = document.getElementById("meta-topic-new");
+
+        select.value = "__new__";
+        input.style.display = "inline-block";
+        input.value = modalTopic;
+
+        await saveToCloud(true);
+        render(false);
+
+    } catch (err) {
+        console.error("CREATE FAILED:", err);
+        alert("Create failed: " + err.message);
+    }
+}
+    async function quickNewBuilder() {
+    // 1. Alert to prevent accidental data loss
+    if (!confirm("Start a new builder? Any unsaved changes on this one will be lost.")) {
+        return;
     }
 
-    function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
-    function mergeSelected() {
+    // 2. Ask for the new title
+    const newTitle = prompt("Enter a title for the new Builder:", "Untitled Builder");
+    if (!newTitle) return;
+
+    // 3. Clear current document ID so Firebase creates a NEW entry
+    currentDocId = null; 
+
+    // 4. Reset the grid to a fresh 2x3 layout
+    grid = [[c(), c(), c()], [c(), c(), c()]]; 
+    history = [JSON.stringify(grid)];
+    historyStep = 0;
+
+    // 5. Update the Title UI
+    document.getElementById('builder-title').value = newTitle;
+    
+    // 6. Save immediately to Firebase
+    // This uses the current meta.lang, meta.year, and meta.topic automatically
+    await saveToCloud(true);
+
+    // 7. Refresh the screen
+    render(false);
+    
+    // 8. Update status message
+    const status = document.getElementById('manual-save-status');
+    if (status) {
+        status.innerText = "New Builder Created!";
+        status.style.color = "#8b5cf6"; // Purple color for 'New'
+        setTimeout(() => status.innerText = "", 3000);
+    }
+}
+function openModal(id) {
+    document.getElementById('overlay').style.display = 'block';
+    document.getElementById(id).style.display = 'block';
+}
+    function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
+       function mergeSelected() {
         let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
         if(sel.length < 2) return;
         let root = sel[0], items = [];
@@ -516,31 +1847,343 @@ function addIcon(p, t, pos, l, a) {
         }));
         render();
     }
-    async function exportPDF() {
-        const title = document.getElementById('builder-title').value;
-        const edits = document.querySelectorAll('.no-export, .action-btn');
+function initMetaListeners() {
+    const lang = document.getElementById("meta-lang");
+    const year = document.getElementById("meta-year");
+
+    if (!lang || !year) return;
+
+    lang.addEventListener("change", async () => {
+        await loadTopicsDropdown();
+        handleTopicSelect();
+    });
+
+    year.addEventListener("change", async () => {
+        await loadTopicsDropdown();
+        handleTopicSelect();
+    });
+}
+async function exportPDF() {
+    const title = document.getElementById('builder-title').value || "Sentence Builder";
+    const { jsPDF } = window.jspdf;
+
+    // --- OPTION A: EAL (Image-based / Screenshot version) ---
+    if (meta.lang === "EAL") {
+        const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
         edits.forEach(el => el.style.visibility = 'hidden');
-        const canvas = await html2canvas(document.getElementById('grid-container'), { scale: 2 });
-        edits.forEach(el => el.style.visibility = 'visible');
-        const pdf = new jspdf.jsPDF('l', 'mm', 'a4');
-        pdf.text(title, 14, 15);
-        pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 20, 275, 0);
-        pdf.save(`${title}.pdf`);
+
+        try {
+            const element = document.getElementById('grid-container');
+            const canvas = await html2canvas(element, { 
+                scale: 3, 
+                useCORS: true 
+            });
+            edits.forEach(el => el.style.visibility = 'visible');
+
+            const pdf = new jsPDF('l', 'mm', 'a4');
+            const imgData = canvas.toDataURL('image/png');
+            
+            const imgProps = pdf.getImageProperties(imgData);
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = pdf.internal.pageSize.getHeight();
+            // Calculate height proportional to the A4 width
+            const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            
+            let heightLeft = imgHeight;
+            let position = 0;
+
+            // Add first page with title
+            pdf.setFont("helvetica", "bold");
+            pdf.text(title, 14, 15);
+            pdf.addImage(imgData, 'PNG', 0, 20, pdfWidth, imgHeight);
+            heightLeft -= (pdfHeight - 20); // Account for title margin
+
+            // If it's longer than one page, loop and add pages
+            while (heightLeft > 0) {
+                position = heightLeft - imgHeight;
+                pdf.addPage();
+                pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
+                heightLeft -= pdfHeight;
+            }
+
+            pdf.save(`${title}.pdf`);
+        } catch (err) {
+            console.error("EAL PDF Export failed:", err);
+            edits.forEach(el => el.style.visibility = 'visible');
+        }
+        return; 
     }
-    function toggleCellSplit(r, c) { grid[r][c].split = !grid[r][c].split; render(); }
-    function setClr(r, c, clr) { grid[r][c].color = clr; render(); }
-    function toggleMode(m) { currentMode = (currentMode === m) ? null : m; render(false); }
-    function closeModals() { document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); document.getElementById('overlay').style.display = 'none'; }
-    function saveProject() { saveAs(new Blob([JSON.stringify(grid)], {type: "application/json"}), "project.json"); }
-    function loadProject(e) { const fr = new FileReader(); fr.onload = (ev) => { grid = JSON.parse(ev.target.result); history = [JSON.stringify(grid)]; historyStep = 0; render(false); }; fr.readAsText(e.target.files[0]); }
-    function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); }
-    function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); }
-    function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); } }
-    function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); } }
-    function addIcon(p, t, pos, l, a) { const b = document.createElement('div'); b.className = `action-btn ${t}`; b.innerText = l; b.style = { 'left': 'left:-15px; top:45%;', 'right': 'right:-15px; top:45%;', 'top-center': 'top:-15px; left:45%;', 'top-edge': 'top:-15px; left:15px;', 'bottom-edge': 'bottom:-15px; left:15px;', 'left-edge': 'left:-15px; top:15px;' }[pos]; b.onclick = (e) => { e.stopPropagation(); a(); }; p.appendChild(b); }
-    function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
-    window.onclick = () => document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
-    render(false);
+
+    // --- OPTION B: MFL (Vector-based / Searchable Text) ---
+    const doc = new jsPDF('l', 'mm', 'a4');
+    const margin = 10;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const availableWidth = pageWidth - (margin * 2);
+    
+    if (!grid || grid.length === 0) return;
+
+    const colCount = grid[0].length;
+    const cellWidth = availableWidth / colCount;
+    
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text(title, margin, margin + 5);
+    
+    let currentY = margin + 15;
+
+    grid.forEach((row) => {
+        // 1. Calculate the height this specific row will need
+        let maxItemsInRow = 1;
+        row.forEach(cell => {
+            if (cell.items.length > maxItemsInRow) maxItemsInRow = cell.items.length;
+        });
+        const rowHeight = Math.max(20, maxItemsInRow * 7.5);
+
+        // 2. CHECK FOR PAGE BREAK: 
+        // If currentY + rowHeight exceeds the page limit (minus a small bottom margin)
+        if (currentY + rowHeight > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin; // Reset Y to top of new page
+        }
+
+        // 3. Render the row
+        row.forEach((cell, colIndex) => {
+            const x = margin + (colIndex * cellWidth);
+            
+            doc.setDrawColor(148, 163, 184); 
+            doc.setLineWidth(0.2);
+            doc.rect(x, currentY, cellWidth, rowHeight);
+
+            let textY = currentY + 7;
+            cell.items.forEach((item) => {
+                const targetText = item.t || "";
+                const translationText = item.tr ? ` (${item.tr})` : "";
+
+                if (targetText || translationText) {
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(10);
+                    doc.setTextColor(0, 0, 0);
+                    doc.text(targetText, x + 4, textY);
+                    
+                    const tWidth = doc.getTextWidth(targetText);
+
+                    if (item.tr) {
+                        doc.setFont("helvetica", "italic");
+                        doc.setTextColor(41, 128, 185); 
+                        doc.text(translationText, x + 4 + tWidth, textY);
+                    }
+                    textY += 6.5;
+                }
+            });
+        });
+        currentY += rowHeight;
+    });
+
+    doc.save(`${title}.pdf`);
+}
+
+    // --- WORKSHEET & PREVIEW ---
+    function openPreview() {
+        const sentences = getAssembledSentences();
+        const content = sentences.map((s, i) => `<div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`).join('');
+        document.getElementById('preview-content').innerHTML = content || "No content yet.";
+        document.getElementById('preview-modal').style.display = 'block';
+        document.getElementById('overlay').style.display = 'block';
+    }
+
+    function openActivityMenu() {
+        const list = [{id:'study', label:'Sentence Table'}, {id:'match', label:'Match up'}, {id:'nospaces', label:'No Spaces'}, {id:'jumbled', label:'Unjumble'}, {id:'gap-en', label:'Gap Fill (English)'}, {id:'gap-t', label:'Gap Fill (TL)'}, {id:'vowels', label:'Missing Vowels'}, {id:'cons', label:'Missing Consonants'}, {id:'faulty', label:'Faulty Translation'}, {id:'trans-en', label:'Translate (English)'}, {id:'trans-target', label:'Translate (TL)'}];
+        document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}" id="chk-${a.id}"><label for="chk-${a.id}" style="cursor:pointer">${a.label}</label></div>`).join('');
+        document.getElementById('activity-menu').style.display = 'block'; 
+        document.getElementById('overlay').style.display = 'block';
+    }
+
+    function getSentencesByRow(r) {
+        let pathCells = [];
+        for (let cIdx = 0; cIdx < grid[0].length; cIdx++) {
+            let cell = getCellAt(r, cIdx);
+            if (!cell || cell.hidden || (cIdx > 0 && getCellAt(r, cIdx - 1) === cell)) continue;
+            let items = cell.items.filter(it => it.t.trim() || it.tr.trim());
+            if (items.length > 0) pathCells.push(items.map(it => ({ t: it.t.trim(), tr: it.tr.trim(), col: cIdx })));
+        }
+        return pathCells.length ? cartesian(pathCells).map(combo => ({ t: combo.map(p => p.t).join(' '), tr: combo.map(p => p.tr).join(' '), parts: combo })) : [];
+    }
+
+    function getAssembledSentences() {
+        let allCompiled = [];
+        for (let r = 0; r < grid.length; r++) {
+            let rowSents = getSentencesByRow(r);
+            rowSents.forEach(s => allCompiled.push({...s, originRow: r}));
+        }
+        return allCompiled;
+    }
+
+    function cartesian(args) { return args.reduce((a, b) => { let ret = []; a.forEach(a_item => { b.forEach(b_item => { ret.push(a_item.concat([b_item])); }); }); return ret; }, [[]]); }
+    function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
+
+    function generateWorksheet() {
+        const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
+        const selected = activityOrder.filter(id => document.getElementById(`chk-${id}`).checked);
+        if (selected.length === 0) return alert("Select at least one activity!");
+
+        let rowBuckets = [];
+        for (let r = 0; r < grid.length; r++) {
+            let rowSents = getSentencesByRow(r); 
+            if (rowSents.length > 0) rowBuckets.push({ rowIndex: r, sentences: rowSents });
+        }
+
+        const getBalancedSelection = (limit, isStudyTable = false) => {
+            let selection = []; let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
+            if (!isStudyTable) tempBuckets.forEach(b => b.sentences.sort(() => 0.5 - Math.random()));
+            let bucketPointer = 0;
+            while (selection.length < limit) {
+                let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
+                if (activeBuckets.length === 0) break;
+                if (tempBuckets[bucketPointer].sentences.length > 0) selection.push({ ...tempBuckets[bucketPointer].sentences.shift(), originRow: tempBuckets[bucketPointer].rowIndex });
+                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
+            }
+            return selection;
+        };
+
+        let contentHtml = "";
+        selected.forEach(type => {
+            const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
+            let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
+            let isStudy = (type === 'study');
+            let currentSents = getBalancedSelection(isStudy ? 20 : 10, isStudy);
+            currentSents.sort((a, b) => a.originRow - b.originRow);
+
+            if (type === 'study') {
+                activityHtml += `<table><tr><th>Target Language</th><th>English</th></tr>`;
+                currentSents.forEach(s => activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
+                activityHtml += `</table>`;
+            } else if (type === 'match') {
+                let shuf = [...currentSents].sort(() => 0.5 - Math.random());
+                activityHtml += `<table>`;
+                currentSents.forEach((s, i) => activityHtml += `<tr><td style="border:none;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
+                activityHtml += `</table>`;
+            } else {
+                currentSents.forEach((s, i) => {
+                    let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
+                    if (type === 'vowels' || type === 'cons') {
+                        let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
+                        out = s.t.split(' ').map(word => word.replace(pattern, '_').replace(/_(?=_)/g, '_ ')).join('&nbsp;&nbsp;');
+                    }
+                    else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
+                    else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
+                    else if (type === 'gap-t') { let w = s.t.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); }
+                    else if (type === 'gap-en') { let w = s.tr.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; }
+                    else if (type === 'trans-en') { out = s.t; hint = ""; }
+                    else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
+                    else if (type === 'faulty') {
+                        let parts = [...s.parts]; let rowSents = getSentencesByRow(s.originRow);
+                        let faultyTr = null; let swapIdx = -1;
+                        let indices = parts.map((_, idx) => idx).sort(() => 0.5 - Math.random());
+                        for (let idx of indices) {
+                            let alternatives = rowSents.filter(f => f.parts[idx] && f.parts[idx].tr !== parts[idx].tr);
+                            if (alternatives.length > 0) { faultyTr = alternatives[Math.floor(Math.random() * alternatives.length)].parts[idx].tr; swapIdx = idx; break; }
+                        }
+                        let trText = (swapIdx !== -1) ? parts.map((p, i) => i === swapIdx ? faultyTr : p.tr).join(' ') : "...";
+                        activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${trText}</span><br>__________________________________________________________________</p>`;
+                        return;
+                    }
+                    activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>__________________________________________________________________</p>`;
+                });
+            }
+            activityHtml += `</div>`;
+            contentHtml += activityHtml;
+        });
+
+        const header = `<html><head><style>@page { size: A4 landscape; margin: 1cm; } body { font-family: Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; } table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; } td, th { border: 1px solid black; padding: 5pt; font-size: 10pt; } .activity-container { page-break-inside: avoid; margin-bottom: 20pt; } h2 { border-bottom: 1px solid #ccc; font-size: 14pt; }</style></head><body>${contentHtml}</body></html>`;
+        saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
+        closeModals();
+    }
+    function toggleMode(m) { 
+    currentMode = (currentMode === m) ? null : m; 
+    render(false); 
+}
+
+/* --- ROW/COL MANAGEMENT LOGIC --- */
+
+function addIcon(p, t, pos, l, a) { 
+    const b = document.createElement('div'); 
+    b.className = `action-btn ${t}`; 
+    b.innerText = l; 
+    
+    // Exact mapping from your reference code
+   const posStyles = {
+    'left': 'left:-15px; top:50%; transform:translateY(-50%);',
+    'right': 'right:-15px; top:50%; transform:translateY(-50%);',
+    'top-center': 'top:-15px; left:50%; transform:translateX(-50%);',
+    'top-edge': 'top:-15px; left:20px;',
+    'bottom-edge': 'bottom:-15px; left:20px;',
+    'left-edge': 'left:-15px; top:20px;'
+};
+    
+    // CRITICAL: Must use cssText to apply the positioning strings
+    b.style.cssText = posStyles[pos]; 
+    b.onclick = (e) => { e.stopPropagation(); a(); }; 
+    p.appendChild(b); 
+}
+
+/* --- UPDATED ROW/COL MANAGEMENT --- */
+
+function insertRow(i) { 
+    // Create a new row with the same number of columns as the first row
+    const newRow = Array.from({length: grid[0].length}, () => c());
+    grid.splice(i, 0, newRow); 
+    currentMode = null; 
+    render(); 
+    saveToCloud(true);
+}
+
+function insertCol(i) { 
+    grid.forEach(r => r.splice(i, 0, c())); 
+    currentMode = null; 
+    render(); 
+    saveToCloud(true);
+}
+
+function deleteRow(i) { 
+    // Ensure we don't delete the very last row
+    if(grid.length > 1) { 
+        grid.splice(i, 1); 
+        currentMode = null; 
+        render(); 
+        saveToCloud(true);
+    } else {
+        alert("Cannot delete the last row.");
+        currentMode = null;
+        render();
+    }
+}
+
+function deleteCol(i) { 
+    // Ensure we don't delete the very last column
+    if(grid[0].length > 1) { 
+        grid.forEach(r => r.splice(i, 1)); 
+        currentMode = null; 
+        render(); 
+        saveToCloud(true);
+    } else {
+        alert("Cannot delete the last column.");
+        currentMode = null;
+        render();
+    }
+}
+
+    /* =========================
+   AUTOSAVE SYSTEM
+========================= */
+setInterval(() => {
+    const isEditor = document.getElementById('editor-page').classList.contains('active-page');
+    const hasTitle = document.getElementById('builder-title').value.trim() !== "";
+
+    if (currentUser && isEditor && hasTitle) {
+        saveToCloud(true); 
+    }
+}, 60000);
 </script>
 </body>
 </html>
