@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedars bcccuilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1914,75 +1914,109 @@ async function exportPDF() {
         return; 
     }
 
-    // --- OPTION B: MFL (Vector-based / Searchable Text) ---
-    const doc = new jsPDF('l', 'mm', 'a4');
-    const margin = 10;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const availableWidth = pageWidth - (margin * 2);
-    
-    if (!grid || grid.length === 0) return;
+   // --- OPTION B: MFL (Vector-based / Searchable Text) ---
+const doc = new jsPDF('l', 'mm', 'a4');
+const margin = 10;
+const pageWidth = doc.internal.pageSize.getWidth();
+const pageHeight = doc.internal.pageSize.getHeight();
+const availableWidth = pageWidth - (margin * 2);
 
-    const colCount = grid[0].length;
-    const cellWidth = availableWidth / colCount;
-    
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text(title, margin, margin + 5);
-    
-    let currentY = margin + 15;
+if (!grid || grid.length === 0) return;
 
-    grid.forEach((row) => {
-        // 1. Calculate the height this specific row will need
-        let maxItemsInRow = 1;
-        row.forEach(cell => {
-            if (cell.items.length > maxItemsInRow) maxItemsInRow = cell.items.length;
-        });
-        const rowHeight = Math.max(20, maxItemsInRow * 7.5);
+const colCount = grid[0].length;
+const cellWidth = availableWidth / colCount;
+const padding = 3; 
+const textWidth = cellWidth - (padding * 2); 
 
-        // 2. CHECK FOR PAGE BREAK: 
-        // If currentY + rowHeight exceeds the page limit (minus a small bottom margin)
-        if (currentY + rowHeight > pageHeight - margin) {
-            doc.addPage();
-            currentY = margin; // Reset Y to top of new page
-        }
+doc.setFont("helvetica", "bold");
+doc.setFontSize(16);
+doc.text(title, margin, margin + 5);
 
-        // 3. Render the row
-        row.forEach((cell, colIndex) => {
-            const x = margin + (colIndex * cellWidth);
+let currentY = margin + 15;
+
+grid.forEach((row) => {
+    // 1. PRE-CALCULATE WRAPPED LINES AND ROW HEIGHT
+    let preparedRow = row.map(cell => {
+        let lines = [];
+        cell.items.forEach(item => {
+            const tl = item.t || "";
+            const tr = item.tr ? ` (${item.tr})` : "";
             
-            doc.setDrawColor(148, 163, 184); 
-            doc.setLineWidth(0.2);
-            doc.rect(x, currentY, cellWidth, rowHeight);
-
-            let textY = currentY + 7;
-            cell.items.forEach((item) => {
-                const targetText = item.t || "";
-                const translationText = item.tr ? ` (${item.tr})` : "";
-
-                if (targetText || translationText) {
-                    doc.setFont("helvetica", "bold");
-                    doc.setFontSize(10);
-                    doc.setTextColor(0, 0, 0);
-                    doc.text(targetText, x + 4, textY);
-                    
-                    const tWidth = doc.getTextWidth(targetText);
-
-                    if (item.tr) {
-                        doc.setFont("helvetica", "italic");
-                        doc.setTextColor(41, 128, 185); 
-                        doc.text(translationText, x + 4 + tWidth, textY);
-                    }
-                    textY += 6.5;
-                }
-            });
+            // Combine them temporarily to see how they wrap together
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            const combinedLines = doc.splitTextToSize(tl + tr, textWidth);
+            
+            lines.push({ tl, tr, wrapped: combinedLines });
         });
-        currentY += rowHeight;
+        return lines;
     });
 
-    doc.save(`${title}.pdf`);
-}
+    let maxLinesInRow = 0;
+    preparedRow.forEach(cellLines => {
+        let count = cellLines.reduce((acc, curr) => acc + curr.wrapped.length, 0);
+        if (count > maxLinesInRow) maxLinesInRow = count;
+    });
+    const rowHeight = Math.max(20, (maxLinesInRow * 6) + 8);
 
+    // 2. CHECK FOR PAGE BREAK
+    if (currentY + rowHeight > pageHeight - margin) {
+        doc.addPage();
+        currentY = margin;
+    }
+
+    // 3. RENDER THE ROW
+    row.forEach((cell, colIndex) => {
+        const x = margin + (colIndex * cellWidth);
+        doc.setDrawColor(148, 163, 184); 
+        doc.setLineWidth(0.2);
+        doc.rect(x, currentY, cellWidth, rowHeight);
+
+        let textY = currentY + 7;
+        const cellItems = preparedRow[colIndex];
+
+        cellItems.forEach(item => {
+            const tlText = item.tl;
+            const trText = item.tr;
+            
+            // We use the 'wrapped' lines as a guide for where to break
+            item.wrapped.forEach((lineText, lineIdx) => {
+                let currentX = x + padding;
+
+                // Check if the TL text is part of this line
+                if (tlText && lineText.includes(tlText)) {
+                    doc.setFont("helvetica", "bold");
+                    doc.setTextColor(0, 0, 0);
+                    
+                    // If TL is longer than one line, this logic handles the split
+                    const partTL = lineText.substring(0, tlText.length);
+                    doc.text(partTL, currentX, textY);
+                    currentX += doc.getTextWidth(partTL);
+                    
+                    // Remaining part of the line is Translation
+                    const partTR = lineText.substring(tlText.length);
+                    if (partTR) {
+                        doc.setFont("helvetica", "italic");
+                        doc.setTextColor(41, 128, 185);
+                        doc.text(partTR, currentX, textY);
+                    }
+                } else {
+                    // This line is entirely Translation (it wrapped)
+                    doc.setFont("helvetica", "italic");
+                    doc.setTextColor(41, 128, 185);
+                    doc.text(lineText, currentX, textY);
+                }
+                textY += 5.5;
+            });
+            textY += 1.5; // Small gap between items
+        });
+    });
+
+    currentY += rowHeight;
+});
+
+doc.save(`${title}.pdf`);
+}
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
         const sentences = getAssembledSentences();
