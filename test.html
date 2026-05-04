@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars budddilder</title>
+    <title>Cedars budlder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1963,48 +1963,41 @@ async function handlePDFImport(event) {
         try {
             const typedarray = new Uint8Array(this.result);
             const pdfjsLib = window['pdfjs-dist/build/pdf'];
-            
-            // Critical: Set worker source correctly
             pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
             const pdf = await pdfjsLib.getDocument(typedarray).promise;
-            const page = await pdf.getPage(1); // Process first page
+            const page = await pdf.getPage(1);
             const textContent = await page.getTextContent();
             
-            // 1. Extract items with coordinates
             const items = textContent.items.map(item => ({
                 str: item.str.trim(),
                 x: item.transform[4],
-                y: item.transform[5],
-                width: item.width
+                y: item.transform[5]
             })).filter(item => item.str.length > 0);
 
-            // 2. Group into Rows based on Y coordinate (vertical)
-            const rowThreshold = 10; 
-            let rows = [];
-            items.sort((a, b) => b.y - a.y); // Sort top to bottom
-
+            // Group into Rows
+            let rowsMap = {};
             items.forEach(item => {
-                let row = rows.find(r => Math.abs(r[0].y - item.y) < rowThreshold);
-                if (row) { row.push(item); } 
-                else { rows.push([item]); }
+                // Round Y to group items on the same line
+                const yKey = Math.round(item.y / 10) * 10;
+                if (!rowsMap[yKey]) rowsMap[yKey] = [];
+                rowsMap[yKey].push(item);
             });
 
-            // 3. Sort each row by X (left to right) and map to your Grid format
-            const finalGrid = rows.map(row => {
-                row.sort((a, b) => a.x - b.x);
-                
+            // Sort Y descending (top to bottom)
+            const sortedY = Object.keys(rowsMap).sort((a, b) => b - a);
+            
+            const finalGrid = sortedY.map(y => {
+                const row = rowsMap[y];
+                row.sort((a, b) => a.x - b.x); // Sort left to right
                 return row.map(cell => {
                     let target = cell.str;
                     let translation = "";
-
-                    // Pattern: Word (Translation)
                     const parts = cell.str.match(/(.*)\((.*)\)/);
                     if (parts) {
                         target = parts[1].trim();
                         translation = parts[2].trim();
                     }
-
                     return {
                         vocab: [{ target: target, translation: translation }],
                         color: "#ffffff",
@@ -2013,29 +2006,33 @@ async function handlePDFImport(event) {
                 });
             });
 
-            // 4. Remove small noise/headers
-            const filteredGrid = finalGrid.filter(r => r.length > 0 && r[0].vocab[0].target.length > 1);
+            // IMPORTANT: Firestore fix
+            // We must stringify the grid because Firestore doesn't allow nested arrays
+            const gridData = JSON.stringify(finalGrid);
 
-            // 5. Save to Firestore
             const title = prompt("Name your imported builder:", file.name.replace(".pdf", ""));
             if (!title) return;
 
             const newDoc = {
                 uid: currentUser.uid,
                 title: title,
-                lang: "French", // Default or detect from text
+                lang: "French",
                 year: "Imported",
                 topic: "Imported",
-                grid: filteredGrid,
+                // Store as a string if your app uses JSON.parse later, 
+                // OR ensure your app's save logic matches this format.
+                grid: finalGrid, 
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
                 isDeleted: false
             };
 
+            // If your existing code uses JSON.stringify(grid) in saveToCloud:
+            // use: newDoc.grid = JSON.stringify(finalGrid);
+
             const docRef = await db.collection("builders").add(newDoc);
             alert("Import Successful!");
             
-            // Refresh the library and open the new project
-            if(typeof loadLibrary === 'function') loadLibrary();
+            if(window.loadLibrary) loadLibrary();
             loadProject(docRef.id);
 
         } catch (err) {
