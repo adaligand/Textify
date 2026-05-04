@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars hjker</title>
+    <title>Cedars hjsddddddker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1989,23 +1989,23 @@ async function handlePDFImport(event) {
             const rawItems = textContent.items.map(item => ({
                 str: item.str.trim(),
                 x: item.transform[4],
-                y: item.transform[5],
-                w: item.width
+                y: item.transform[5]
             })).filter(item => item.str.length > 0);
 
-            // 1. Vertical Grouping (Rows)
+            // 1. GROUP INTO ROWS (Tolerance for multi-line boxes)
             let rowsMap = {};
             rawItems.forEach(item => {
-                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 18);
+                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 25);
                 if (foundY) rowsMap[foundY].push(item);
                 else rowsMap[item.y] = [item];
             });
 
-            // 2. Identify Column Tracks
+            // 2. DEFINE MAJOR COLUMN ZONES
+            // We use a massive 120px gap to keep "deux trois quatre" together in one zone
             let xPositions = rawItems.map(i => i.x).sort((a,b) => a - b);
             let columnTracks = [];
             xPositions.forEach(x => {
-                if (!columnTracks.some(track => Math.abs(track - x) < 45)) {
+                if (!columnTracks.some(track => Math.abs(track - x) < 120)) {
                     columnTracks.push(x);
                 }
             });
@@ -2015,68 +2015,74 @@ async function handlePDFImport(event) {
             
             let finalGridRows = sortedY.map(y => {
                 const rowItems = rowsMap[y];
-                let rowData = columnTracks.map(() => ({ t: "", tr: "" }));
+                let buckets = columnTracks.map(() => []);
 
                 rowItems.forEach(item => {
-                    let colIdx = columnTracks.findIndex(track => Math.abs(track - item.x) < 45);
-                    if (colIdx !== -1) {
-                        let text = item.str;
-                        // Handle (translation) logic
-                        if (text.startsWith('(') && text.endsWith(')')) {
-                            rowData[colIdx].tr += (rowData[colIdx].tr ? " " : "") + text.replace(/[\(\)]/g, "");
-                        } else if (text.includes('(') && text.includes(')')) {
-                            const match = text.match(/^(.*)\((.*)\)$/);
-                            if (match) {
-                                rowData[colIdx].t += (rowData[colIdx].t ? " " : "") + match[1].trim();
-                                rowData[colIdx].tr += (rowData[colIdx].tr ? " " : "") + match[2].trim();
-                            }
-                        } else {
-                            rowData[colIdx].t += (rowData[colIdx].t ? " " : "") + text;
-                        }
-                    }
+                    let colIdx = columnTracks.findIndex(track => Math.abs(track - item.x) < 120);
+                    if (colIdx !== -1) buckets[colIdx].push(item);
                 });
 
-                // FORMAT MATCHING YOUR APP ENGINE
-                return rowData.map(d => ({
-                    items: [{ t: d.t.trim(), tr: d.tr.trim() }],
-                    color: "#ffffff",
-                    split: false,
-                    rS: 1,
-                    cS: 1,
-                    hidden: false,
-                    sel: false
-                }));
+                return buckets.map(bucket => {
+                    // Sort items within the cell: Top-to-Bottom, then Left-to-Right
+                    bucket.sort((a, b) => b.y - a.y || a.x - b.x);
+                    
+                    let cellItems = [];
+                    let tempT = "";
+                    let tempTr = "";
+
+                    bucket.forEach(item => {
+                        let text = item.str;
+                        // If it's a translation in brackets
+                        if (text.startsWith('(') && text.endsWith(')')) {
+                            tempTr = text.replace(/[\(\)]/g, "");
+                            cellItems.push({ t: tempT.trim(), tr: tempTr.trim() });
+                            tempT = ""; tempTr = "";
+                        } else if (text.includes('(') && text.includes(')')) {
+                            const match = text.match(/^(.*)\((.*)\)$/);
+                            cellItems.push({ t: match[1].trim(), tr: match[2].trim() });
+                        } else {
+                            // Collect text until we hit a bracket
+                            tempT += (tempT ? " " : "") + text;
+                        }
+                    });
+
+                    // Catch leftovers (words without brackets)
+                    if (tempT) cellItems.push({ t: tempT.trim(), tr: "" });
+
+                    return {
+                        items: cellItems.length ? cellItems : [{ t: "", tr: "" }],
+                        color: "#ffffff",
+                        split: false,
+                        rS: 1, cS: 1, hidden: false, sel: false
+                    };
+                });
             });
 
-            // 3. Filter Branding
+            // 3. BRANDING FILTER
             finalGridRows = finalGridRows.filter(r => {
-                const txt = r.map(c => c.items[0].t).join("").toLowerCase();
-                return txt.length > 2 && !txt.includes("sentencebuilder") && !txt.includes("the language gym");
+                const txt = r.map(c => c.items.map(i => i.t).join("")).join("").toLowerCase();
+                return txt.length > 5 && !txt.includes("language gym");
             });
 
-            const title = prompt("Name your imported builder:", file.name.replace(".pdf", ""));
+            const title = prompt("Builder Name:", file.name.replace(".pdf", ""));
             if (!title) return;
 
             const newDoc = {
                 uid: currentUser.uid,
                 title: title,
                 lang: "French",
-                year: "Imported",
-                topic: "Imported",
-                grid: JSON.stringify(finalGridRows), 
+                grid: JSON.stringify(finalGridRows),
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
                 isDeleted: false
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Import Successful!");
-            
-            if(window.loadLibrary) loadLibrary();
+            alert("Import Successful! The grid is now grouped by 'Zones'.");
             loadProject(docRef.id);
 
         } catch (err) {
-            console.error("Import Error:", err);
-            alert("Error parsing PDF.");
+            console.error(err);
+            alert("Import failed.");
         }
     };
     reader.readAsArrayBuffer(file);
