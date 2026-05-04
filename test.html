@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars hjsddddddker</title>
+    <title>Cedars hjdker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1989,27 +1989,28 @@ async function handlePDFImport(event) {
             const rawItems = textContent.items.map(item => ({
                 str: item.str.trim(),
                 x: item.transform[4],
-                y: item.transform[5]
+                y: item.transform[5],
+                w: item.width
             })).filter(item => item.str.length > 0);
 
-            // 1. GROUP INTO ROWS (Tolerance for multi-line boxes)
-            let rowsMap = {};
-            rawItems.forEach(item => {
-                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 25);
-                if (foundY) rowsMap[foundY].push(item);
-                else rowsMap[item.y] = [item];
-            });
-
-            // 2. DEFINE MAJOR COLUMN ZONES
-            // We use a massive 120px gap to keep "deux trois quatre" together in one zone
+            // 1. DETERMINE GLOBAL COLUMNS (The vertical "tracks")
             let xPositions = rawItems.map(i => i.x).sort((a,b) => a - b);
             let columnTracks = [];
             xPositions.forEach(x => {
-                if (!columnTracks.some(track => Math.abs(track - x) < 120)) {
+                if (!columnTracks.some(track => Math.abs(track - x) < 100)) {
                     columnTracks.push(x);
                 }
             });
             columnTracks.sort((a,b) => a - b);
+
+            // 2. GROUP INTO TALL ROW STRIPES (35px tolerance)
+            // This stops "ma mère" and "(my mother)" from becoming two different rows
+            let rowsMap = {};
+            rawItems.forEach(item => {
+                let foundY = Object.keys(rowsMap).find(y => Math.abs(y - item.y) < 35);
+                if (foundY) rowsMap[foundY].push(item);
+                else rowsMap[item.y] = [item];
+            });
 
             const sortedY = Object.keys(rowsMap).sort((a, b) => b - a);
             
@@ -2017,37 +2018,38 @@ async function handlePDFImport(event) {
                 const rowItems = rowsMap[y];
                 let buckets = columnTracks.map(() => []);
 
+                // Sort items into the correct column track
                 rowItems.forEach(item => {
-                    let colIdx = columnTracks.findIndex(track => Math.abs(track - item.x) < 120);
+                    let colIdx = columnTracks.findIndex(track => Math.abs(track - item.x) < 100);
                     if (colIdx !== -1) buckets[colIdx].push(item);
                 });
 
                 return buckets.map(bucket => {
-                    // Sort items within the cell: Top-to-Bottom, then Left-to-Right
-                    bucket.sort((a, b) => b.y - a.y || a.x - b.x);
+                    // Inside the cell, sort strictly top-to-bottom
+                    bucket.sort((a, b) => b.y - a.y);
                     
                     let cellItems = [];
-                    let tempT = "";
-                    let tempTr = "";
+                    let currentT = "";
+                    let currentTr = "";
 
                     bucket.forEach(item => {
                         let text = item.str;
-                        // If it's a translation in brackets
+                        
                         if (text.startsWith('(') && text.endsWith(')')) {
-                            tempTr = text.replace(/[\(\)]/g, "");
-                            cellItems.push({ t: tempT.trim(), tr: tempTr.trim() });
-                            tempT = ""; tempTr = "";
+                            currentTr = text.replace(/[\(\)]/g, "");
+                            cellItems.push({ t: currentT.trim(), tr: currentTr.trim() });
+                            currentT = ""; currentTr = "";
                         } else if (text.includes('(') && text.includes(')')) {
                             const match = text.match(/^(.*)\((.*)\)$/);
                             cellItems.push({ t: match[1].trim(), tr: match[2].trim() });
                         } else {
-                            // Collect text until we hit a bracket
-                            tempT += (tempT ? " " : "") + text;
+                            // If it's just text, add it to the current target word
+                            currentT += (currentT ? " " : "") + text;
                         }
                     });
 
-                    // Catch leftovers (words without brackets)
-                    if (tempT) cellItems.push({ t: tempT.trim(), tr: "" });
+                    // Cleanup orphans
+                    if (currentT) cellItems.push({ t: currentT.trim(), tr: "" });
 
                     return {
                         items: cellItems.length ? cellItems : [{ t: "", tr: "" }],
@@ -2058,13 +2060,15 @@ async function handlePDFImport(event) {
                 });
             });
 
-            // 3. BRANDING FILTER
+            // 3. CLEANING & FILTERING
             finalGridRows = finalGridRows.filter(r => {
-                const txt = r.map(c => c.items.map(i => i.t).join("")).join("").toLowerCase();
-                return txt.length > 5 && !txt.includes("language gym");
+                const combined = r.map(c => c.items.map(i => i.t).join("")).join("");
+                return combined.length > 3 && 
+                       !combined.toLowerCase().includes("sentencebuilder") &&
+                       !combined.toLowerCase().includes("language gym");
             });
 
-            const title = prompt("Builder Name:", file.name.replace(".pdf", ""));
+            const title = prompt("Import Name:", file.name.replace(".pdf", ""));
             if (!title) return;
 
             const newDoc = {
@@ -2077,12 +2081,12 @@ async function handlePDFImport(event) {
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Import Successful! The grid is now grouped by 'Zones'.");
+            alert("Import Successful! Review the large boxes for any missed splits.");
             loadProject(docRef.id);
 
         } catch (err) {
             console.error(err);
-            alert("Import failed.");
+            alert("Failed to parse the grid structure.");
         }
     };
     reader.readAsArrayBuffer(file);
