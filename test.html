@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars bgjkgjker</title>
+    <title>Cedars buileker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -717,6 +717,8 @@ button:hover {
 </div>
 
 <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
 /* =========================
    FIREBASE
 ========================= */
@@ -1973,16 +1975,42 @@ async function handlePDFImport(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    const parsedGrid = await extractGridFromPDF(file); // your existing logic
+    console.log("📥 Import started:", file.name);
 
-    // 🔥 FIX HERE
-    grid = adaptImportedGrid(parsedGrid);
+    try {
+        const parsedGrid = await extractGridFromPDF(file);
 
-    history = [JSON.stringify(grid)];
-    historyStep = 0;
+        console.log("📦 Parsed Grid:", parsedGrid);
 
-    showPage("editor-page");
-    render(false);
+        // 🚨 HARD VALIDATION
+        if (!parsedGrid || !Array.isArray(parsedGrid)) {
+            throw new Error("Parsed grid is invalid or empty");
+        }
+
+        // 🔥 Adapt format
+        grid = adaptImportedGrid(parsedGrid);
+
+        console.log("✅ Adapted Grid:", grid);
+
+        // Reset history
+        history = [JSON.stringify(grid)];
+        historyStep = 0;
+
+        // Force UI switch
+        showPage("editor-page");
+
+        // Force render
+        render(false);
+
+        console.log("🎯 Render complete");
+
+        // OPTIONAL: autosave so it appears in Firestore
+        await saveToCloud(true);
+
+    } catch (err) {
+        console.error("❌ PDF Import failed:", err);
+        alert("Import failed. Check console.");
+    }
 }
     // utils/gridAdapter.js
 
@@ -2022,6 +2050,76 @@ function createEmptyCell() {
         hidden: false,
         sel: false
     };
+}
+    async function extractGridFromPDF(file) {
+    console.log("🚀 Starting PDF extraction");
+
+    const arrayBuffer = await file.arrayBuffer();
+
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    console.log("📄 Pages:", pdf.numPages);
+
+    let allLines = [];
+
+    for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+
+        // Convert items → lines
+        let linesMap = {};
+
+        content.items.forEach(item => {
+            const y = Math.round(item.transform[5]); // vertical position
+            if (!linesMap[y]) linesMap[y] = [];
+            linesMap[y].push(item.str);
+        });
+
+        const lines = Object.values(linesMap)
+            .map(line => line.join(" ").trim())
+            .filter(l => l.length > 0);
+
+        allLines.push(...lines);
+    }
+
+    console.log("🧾 Extracted lines:", allLines);
+
+    // --- SIMPLE GRID LOGIC ---
+    // Assumes 3 columns like your builders
+    const COLS = 3;
+    let grid = [];
+
+    for (let i = 0; i < allLines.length; i += COLS) {
+        const row = [];
+
+        for (let j = 0; j < COLS; j++) {
+            const text = allLines[i + j] || "";
+
+            // Split target + translation if pattern exists
+            let target = text;
+            let translation = "";
+
+            const match = text.match(/^(.*?)\((.*?)\)$/);
+            if (match) {
+                target = match[1].trim();
+                translation = match[2].trim();
+            }
+
+            row.push({
+                vocab: [{
+                    target,
+                    translation
+                }],
+                color: "#ffffff",
+                isSplit: false
+            });
+        }
+
+        grid.push(row);
+    }
+
+    console.log("🧩 Parsed grid:", grid);
+
+    return grid;
 }
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
