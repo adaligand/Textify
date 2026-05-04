@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars budlder</title>
+    <title>Cedars budddddlder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1332,35 +1332,50 @@ async function loadProject(id) {
     const doc = await db.collection("builders").doc(id).get();
     const d = doc.data();
 
+    if (!d) {
+        alert("Document not found!");
+        return;
+    }
+
     currentDocId = id;
-    grid = JSON.parse(d.grid);
+
+    // --- ROBUST GRID LOADING ---
+    // This checks if 'grid' is a string (new import/save method) 
+    // or an object/array (old manual method)
+    if (typeof d.grid === 'string') {
+        grid = JSON.parse(d.grid);
+    } else {
+        grid = d.grid;
+    }
 
     meta = {
-        lang: d.lang,
-        year: d.year,
-        topic: d.topic
+        lang: d.lang || "French",
+        year: d.year || "Year 7",
+        topic: d.topic || "General"
     };
 
-    document.getElementById('meta-lang').value = d.lang;
-    document.getElementById('meta-year').value = d.year;
-    document.getElementById('builder-title').value = d.title;
+    // Update UI fields
+    document.getElementById('meta-lang').value = meta.lang;
+    document.getElementById('meta-year').value = meta.year;
+    document.getElementById('builder-title').value = d.title || "Untitled";
 
     await loadTopicsDropdown();
 
     const select = document.getElementById("meta-topic-select");
     const input = document.getElementById("meta-topic-new");
 
-    if ([...select.options].some(o => o.value === d.topic)) {
-        select.value = d.topic;
+    if (select && [...select.options].some(o => o.value === meta.topic)) {
+        select.value = meta.topic;
         input.style.display = "none";
-    } else {
+    } else if (select) {
         select.value = "__new__";
         input.style.display = "inline-block";
-        input.value = d.topic;
+        input.value = meta.topic;
     }
 
     handleTopicSelect();
 
+    // Set up Undo/Redo history
     history = [JSON.stringify(grid)];
     historyStep = 0;
 
@@ -1975,21 +1990,18 @@ async function handlePDFImport(event) {
                 y: item.transform[5]
             })).filter(item => item.str.length > 0);
 
-            // Group into Rows
+            // Grouping logic
             let rowsMap = {};
             items.forEach(item => {
-                // Round Y to group items on the same line
-                const yKey = Math.round(item.y / 10) * 10;
+                const yKey = Math.round(item.y / 12) * 12; // Adjusted threshold
                 if (!rowsMap[yKey]) rowsMap[yKey] = [];
                 rowsMap[yKey].push(item);
             });
 
-            // Sort Y descending (top to bottom)
             const sortedY = Object.keys(rowsMap).sort((a, b) => b - a);
-            
-            const finalGrid = sortedY.map(y => {
+            const finalGridRows = sortedY.map(y => {
                 const row = rowsMap[y];
-                row.sort((a, b) => a.x - b.x); // Sort left to right
+                row.sort((a, b) => a.x - b.x);
                 return row.map(cell => {
                     let target = cell.str;
                     let translation = "";
@@ -1998,6 +2010,7 @@ async function handlePDFImport(event) {
                         target = parts[1].trim();
                         translation = parts[2].trim();
                     }
+                    // Return the standard cell object format from your app
                     return {
                         vocab: [{ target: target, translation: translation }],
                         color: "#ffffff",
@@ -2006,12 +2019,21 @@ async function handlePDFImport(event) {
                 });
             });
 
-            // IMPORTANT: Firestore fix
-            // We must stringify the grid because Firestore doesn't allow nested arrays
-            const gridData = JSON.stringify(finalGrid);
+            // Ensure all rows have the same number of columns (padding with empty cells)
+            const maxCols = Math.max(...finalGridRows.map(r => r.length));
+            const normalizedGrid = finalGridRows.map(row => {
+                while(row.length < maxCols) {
+                    row.push({ vocab: [{ target: "", translation: "" }], color: "#ffffff", isSplit: false });
+                }
+                return row;
+            });
 
             const title = prompt("Name your imported builder:", file.name.replace(".pdf", ""));
             if (!title) return;
+
+            // --- CRITICAL FIX START ---
+            // We stringify the grid to avoid the "Nested Arrays" Firestore error
+            const gridString = JSON.stringify(normalizedGrid);
 
             const newDoc = {
                 uid: currentUser.uid,
@@ -2019,25 +2041,22 @@ async function handlePDFImport(event) {
                 lang: "French",
                 year: "Imported",
                 topic: "Imported",
-                // Store as a string if your app uses JSON.parse later, 
-                // OR ensure your app's save logic matches this format.
-                grid: finalGrid, 
+                grid: gridString, // This is now a STRING, not an ARRAY
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
                 isDeleted: false
             };
-
-            // If your existing code uses JSON.stringify(grid) in saveToCloud:
-            // use: newDoc.grid = JSON.stringify(finalGrid);
+            // --- CRITICAL FIX END ---
 
             const docRef = await db.collection("builders").add(newDoc);
             alert("Import Successful!");
             
+            // Refresh view
             if(window.loadLibrary) loadLibrary();
             loadProject(docRef.id);
 
         } catch (err) {
             console.error("PDF Import Error:", err);
-            alert("Error: " + err.message);
+            alert("Error parsing PDF: " + err.message);
         }
     };
     reader.readAsArrayBuffer(file);
