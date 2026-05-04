@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars bcccder</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1986,78 +1986,103 @@ async function handlePDFImport(event) {
             const page = await pdf.getPage(1);
             const textContent = await page.getTextContent();
             
-            // 1. Parse all items and keep their original order
-            let items = textContent.items.map(item => ({
+            let allItems = textContent.items.map(item => ({
                 str: item.str.trim(),
                 x: item.transform[4],
                 y: item.transform[5],
                 fs: item.transform[0]
             })).filter(i => i.str.length > 0);
 
-            // 2. Identify the Title (Largest font, highest up)
-            const titleItem = [...items].sort((a,b) => b.fs - a.fs || b.y - a.y)[0];
+            // 1. Precise Title Extraction (Removes only the header)
+            const titleItem = [...allItems].sort((a,b) => b.fs - a.fs || b.y - a.y)[0];
             const suggestedTitle = titleItem ? titleItem.str : file.name.replace(".pdf", "");
 
-            // 3. Grid Filtering: Remove ONLY branding and title
             const branding = ["sentencebuilders", "powered by", "language gym"];
-            const gridItems = items.filter(i => {
+            const gridItems = allItems.filter(i => {
                 if (i === titleItem) return false;
                 return !branding.some(b => i.str.toLowerCase().includes(b));
             });
 
-            // 4. Cluster Columns (Grouping items that are horizontally aligned)
-            let columns = [];
-            gridItems.sort((a,b) => a.x - b.x).forEach(item => {
-                let cluster = columns.find(c => Math.abs(c.x - item.x) < 40);
-                if (cluster) cluster.items.push(item);
-                else columns.push({ x: item.x, items: [item] });
-            });
-            columns.sort((a,b) => a.x - b.x);
-
-            // 5. Cluster Rows (Grouping items that are vertically aligned)
+            // 2. Identify Row "Belts"
             let rows = [];
-            gridItems.sort((a,b) => b.y - a.y).forEach(item => {
-                let cluster = rows.find(r => Math.abs(r.y - item.y) < 25);
-                if (cluster) cluster.items.push(item);
+            gridItems.forEach(item => {
+                let row = rows.find(r => Math.abs(r.y - item.y) < 25);
+                if (row) row.items.push(item);
                 else rows.push({ y: item.y, items: [item] });
             });
-            rows.sort((a,b) => b.y - a.y);
+            rows.sort((a, b) => b.y - a.y);
 
-            // 6. Map text to the Row/Col Intersection
+            // 3. Detect Column "Zones" (Larger tolerance to keep TL and TR together)
+            let columns = [];
+            gridItems.forEach(item => {
+                let col = columns.find(c => Math.abs(c.x - item.x) < 70);
+                if (col) col.items.push(item);
+                else columns.push({ x: item.x, items: [item] });
+            });
+            columns.sort((a, b) => a.x - b.x);
+
+            // 4. Build the Grid with Intra-Cell Line Logic
             let finalGridRows = rows.map(row => {
-                return columns.map(col => {
-                    // Get items that belong to BOTH this row and this column
-                    let cellItems = row.items.filter(ri => col.items.includes(ri));
-                    cellItems.sort((a, b) => b.y - a.y); // Read top-to-bottom within cell
+                let cells = columns.map(col => {
+                    let itemsInCell = row.items.filter(ri => col.items.includes(ri));
+                    itemsInCell.sort((a, b) => b.y - a.y || a.x - b.x);
 
                     let vocab = [];
-                    let lastT = "";
+                    let currentTarget = "";
 
-                    cellItems.forEach(item => {
+                    itemsInCell.forEach(item => {
                         let text = item.str;
-                        // Logic: If it's brackets, it's a translation for the previous text
+                        // If it's a translation in brackets, pair it with the last target word
                         if (text.startsWith('(') && text.endsWith(')')) {
-                            vocab.push({ t: lastT.trim(), tr: text.replace(/[()]/g, "").trim() });
-                            lastT = "";
+                            vocab.push({ t: currentTarget.trim(), tr: text.replace(/[()]/g, "").trim() });
+                            currentTarget = "";
                         } else if (text.includes('(') && text.includes(')')) {
                             const m = text.match(/^(.*)\((.*)\)$/);
                             if (m) vocab.push({ t: m[1].trim(), tr: m[2].trim() });
                         } else {
-                            if (lastT) vocab.push({ t: lastT.trim(), tr: "" });
-                            lastT = text;
+                            // If we already had a target word without a translation, push it now
+                            if (currentTarget) vocab.push({ t: currentTarget.trim(), tr: "" });
+                            currentTarget = text;
                         }
                     });
-                    if (lastT) vocab.push({ t: lastT.trim(), tr: "" });
+                    if (currentTarget) vocab.push({ t: currentTarget.trim(), tr: "" });
 
-                    return {
-                        items: vocab.length ? vocab : [{ t: "", tr: "" }],
-                        color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false
-                    };
+                    return { items: vocab, x: col.x };
                 });
+
+                // --- NEW MERGE LOGIC ---
+                // If a cell has ONLY translations and the cell to its left has ONLY target words, merge them.
+                let mergedRow = [];
+                for (let i = 0; i < cells.length; i++) {
+                    let current = cells[i];
+                    let prev = mergedRow[mergedRow.length - 1];
+
+                    // Criteria: Current cell starts with a '(' or is very close to the previous X
+                    let isPureTranslation = current.items.every(v => v.tr !== "" && v.t === "");
+                    let isVeryClose = prev && Math.abs(current.x - (prev.x + 100)) < 50;
+
+                    if (prev && (isPureTranslation || isVeryClose)) {
+                        // Merge current items into previous cell
+                        current.items.forEach((item, idx) => {
+                            if (prev.items[idx]) {
+                                if (!prev.items[idx].tr) prev.items[idx].tr = item.t || item.tr;
+                            } else {
+                                prev.items.push(item);
+                            }
+                        });
+                    } else {
+                        mergedRow.push(current);
+                    }
+                }
+
+                return mergedRow.map(c => ({
+                    items: c.items.length ? c.items : [{ t: "", tr: "" }],
+                    color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false
+                }));
             });
 
-            // 7. Save and Redirect
-            const finalTitle = prompt("Project Title:", suggestedTitle);
+            // 5. Finalize
+            const finalTitle = prompt("Confirm Title:", suggestedTitle);
             if (!finalTitle) return;
 
             const newDoc = {
@@ -2071,12 +2096,12 @@ async function handlePDFImport(event) {
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Success! Review the first row and cell alignments.");
+            alert("Success! Opening Editor...");
             loadProject(docRef.id);
 
         } catch (err) {
-            console.error(err);
-            alert("Parse error. The PDF structure is non-standard.");
+            console.error("Import failed:", err);
+            alert("This PDF layout requires manual correction.");
         }
     };
     reader.readAsArrayBuffer(file);
