@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars ccccbuicceker</title>
+    <title>Cedars cceker</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2189,7 +2189,101 @@ function parseTextToVocab(text) {
 
     return vocab;
 }
+function groupIntoRows(items) {
+    const ROW_THRESHOLD = 14; // 🔥 increased tolerance
 
+    let rows = [];
+
+    items.forEach(item => {
+        let row = rows.find(r => Math.abs(r.y - item.y) < ROW_THRESHOLD);
+
+        if (!row) {
+            row = { y: item.y, items: [] };
+            rows.push(row);
+        }
+
+        row.items.push(item);
+    });
+
+    rows.sort((a, b) => b.y - a.y);
+
+    return rows;
+}
+    function mergeVerticalCells(rows, columns) {
+    const MERGE_Y_THRESHOLD = 18; // 🔥 key tuning
+
+    let mergedGrid = [];
+
+    for (let r = 0; r < rows.length; r++) {
+        let row = rows[r];
+        let cellBuckets = columns.map(() => []);
+
+        // assign items to columns
+        row.items.forEach(item => {
+            let colIndex = columns.findIndex((c, i) => {
+                const next = columns[i + 1] || Infinity;
+                return item.x >= c && item.x < next;
+            });
+
+            if (colIndex !== -1) {
+                cellBuckets[colIndex].push(item);
+            }
+        });
+
+        // 🔥 MERGE WITH PREVIOUS ROW if same column + close Y
+        if (mergedGrid.length > 0) {
+            let prevRow = mergedGrid[mergedGrid.length - 1];
+
+            for (let c = 0; c < columns.length; c++) {
+                const current = cellBuckets[c];
+                const previous = prevRow[c];
+
+                if (
+                    current.length &&
+                    previous &&
+                    Math.abs(current[0].y - previous.lastY) < MERGE_Y_THRESHOLD
+                ) {
+                    // merge into previous cell
+                    previous.items.push(...current);
+                    previous.lastY = current[0].y;
+                    cellBuckets[c] = null;
+                }
+            }
+        }
+
+        // build row
+        let newRow = cellBuckets.map(bucket => {
+            if (!bucket) return null;
+            if (bucket.length === 0) return null;
+
+            bucket.sort((a, b) => a.x - b.x);
+
+            return {
+                items: bucket,
+                lastY: bucket[0].y
+            };
+        });
+
+        mergedGrid.push(newRow);
+    }
+
+    return mergedGrid;
+}
+    function buildFinalCells(mergedGrid) {
+    return mergedGrid.map(row =>
+        row.map(cell => {
+            if (!cell) return emptyCell();
+
+            const text = cell.items.map(i => i.text).join(" ");
+
+            return {
+                vocab: parseTextToVocab(text),
+                color: "#ffffff",
+                isSplit: false
+            };
+        })
+    );
+}
 function emptyCell() {
     return {
         vocab: [{ target: "", translation: "" }],
