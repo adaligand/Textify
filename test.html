@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars xxr Test</title>
+    <title>Cedars  Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1925,27 +1925,105 @@ function initMetaListeners() {
         handleTopicSelect();
     });
 }
-/* This is the function your button calls */
+/* Corrected Export Controller */
 async function Export() {
-    // 1. Get the language directly from the dropdown
     const langSelect = document.getElementById('meta-lang');
     const selectedLanguage = langSelect ? langSelect.value : "French";
 
-    console.log("Exporting project as:", selectedLanguage);
-
-    // 2. Decide export type
     if (selectedLanguage === "EAL") {
-        // High-quality Image PDF for EAL
         await exportPDF();
     } else {
-        // Excel file for French, German, Spanish
         try {
             await exportToExcel();
         } catch (err) {
-            console.error("Excel Export Error Details:", err);
-            // This is the alert you were seeing - we added the error to console for debugging
-            alert("Export failed. Please ensure all cells have content and try again.");
+            console.error("Excel Error:", err);
+            alert("Excel export failed. Please check the console for details.");
         }
+    }
+}
+
+/* Corrected Excel Function: Handles empty cells and spans */
+async function exportToExcel() {
+    const title = document.getElementById('builder-title').value || "Sentence Builder";
+    const wb = XLSX.utils.book_new();
+    const ws_data = [];
+
+    grid.forEach((row) => {
+        const rowData = [];
+        row.forEach((cell) => {
+            // SAFE CHECK: If vocab exists, map it. Otherwise, use empty string.
+            let cellText = "";
+            if (cell.vocab && Array.isArray(cell.vocab)) {
+                cellText = cell.vocab.map(v => v.tr ? `${v.t} (${v.tr})` : v.t).join("\n");
+            }
+            
+            rowData.push(cellText);
+            
+            // Handle horizontal merges (colSpan)
+            if (cell.colSpan > 1) {
+                for (let i = 1; i < cell.colSpan; i++) rowData.push(""); 
+            }
+        });
+        ws_data.push(rowData);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
+
+    // Map the merges correctly
+    const merges = [];
+    grid.forEach((row, rIdx) => {
+        let cIdx = 0;
+        row.forEach((cell) => {
+            if (cell.colSpan > 1 || (cell.rowSpan && cell.rowSpan > 1)) {
+                merges.push({
+                    s: { r: rIdx, c: cIdx },
+                    e: { r: rIdx + (cell.rowSpan - 1 || 0), c: cIdx + (cell.colSpan - 1 || 0) }
+                });
+            }
+            cIdx += cell.colSpan || 1;
+        });
+    });
+    ws['!merges'] = merges;
+    ws['!cols'] = grid[0] ? grid[0].map(() => ({ wch: 25 })) : [];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Sentence Builder");
+    XLSX.writeFile(wb, `${title}.xlsx`);
+}
+
+/* Professional PDF Function: Restores 10mm Margins */
+async function exportPDF() {
+    const title = document.getElementById('builder-title').value || "Sentence Builder";
+    const { jsPDF } = window.jspdf;
+
+    const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
+    edits.forEach(el => el.style.visibility = 'hidden');
+
+    try {
+        const element = document.getElementById('grid-container');
+        const canvas = await html2canvas(element, { scale: 3, useCORS: true });
+        edits.forEach(el => el.style.visibility = 'visible');
+
+        const pdf = new jsPDF('l', 'mm', 'a4');
+        const imgData = canvas.toDataURL('image/png');
+        
+        // Setup Margins
+        const margin = 10; 
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const usableWidth = pdfWidth - (margin * 2); 
+        
+        const imgProps = pdf.getImageProperties(imgData);
+        const imgHeight = (imgProps.height * usableWidth) / imgProps.width;
+
+        // Add Title and Image with spacing
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(16);
+        pdf.text(title, margin, 15);
+        pdf.addImage(imgData, 'PNG', margin, 22, usableWidth, imgHeight);
+
+        pdf.save(`${title}.pdf`);
+    } catch (err) {
+        console.error("PDF Export failed:", err);
+        edits.forEach(el => el.style.visibility = 'visible');
     }
 }
 
@@ -1996,52 +2074,7 @@ async function exportPDF() {
         edits.forEach(el => el.style.visibility = 'visible');
     }
 }
- async function exportToExcel() {
-    const title = document.getElementById('builder-title').value || "Sentence Builder";
-    const wb = XLSX.utils.book_new();
-    const ws_data = [];
 
-    // 1. Process rows and cells from your 'grid' array
-    grid.forEach((row) => {
-        const rowData = [];
-        row.forEach((cell) => {
-            // Combine vocabulary items: "Target (Translation)"
-            const cellText = cell.vocab.map(v => v.tr ? `${v.t} (${v.tr})` : v.t).join("\n");
-            rowData.push(cellText);
-            
-            // Fill empty strings for horizontal merges (colSpan)
-            if (cell.colSpan > 1) {
-                for (let i = 1; i < cell.colSpan; i++) rowData.push(""); 
-            }
-        });
-        ws_data.push(rowData);
-    });
-
-    const ws = XLSX.utils.aoa_to_sheet(ws_data);
-
-    // 2. Map the grid merges to Excel merges
-    const merges = [];
-    grid.forEach((row, rIdx) => {
-        let cIdx = 0;
-        row.forEach((cell) => {
-            if (cell.colSpan > 1 || (cell.rowSpan && cell.rowSpan > 1)) {
-                merges.push({
-                    s: { r: rIdx, c: cIdx },
-                    e: { r: rIdx + (cell.rowSpan - 1 || 0), c: cIdx + (cell.colSpan - 1 || 0) }
-                });
-            }
-            cIdx += cell.colSpan || 1;
-        });
-    });
-    ws['!merges'] = merges;
-
-    // 3. Simple styling for column width
-    const colWidths = grid[0] ? grid[0].map(() => ({ wch: 25 })) : [];
-    ws['!cols'] = colWidths;
-
-    XLSX.utils.book_append_sheet(wb, ws, "Sentence Builder");
-    XLSX.writeFile(wb, `${title}.xlsx`);
-}
 async function handlePDFImport(event) {
     const file = event.target.files[0];
     if (!file) return;
