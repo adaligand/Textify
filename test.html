@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars  Test</title>
+    <title>Cedarsxxxx Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1941,20 +1941,33 @@ async function Export() {
         }
     }
 }
-
-/* Corrected Excel Function: Handles empty cells and spans */
 async function exportToExcel() {
     const title = document.getElementById('builder-title').value || "Sentence Builder";
+    
+    // Check if the grid actually exists
+    if (typeof grid === 'undefined' || !grid || grid.length === 0) {
+        alert("No data found to export.");
+        return;
+    }
+
     const wb = XLSX.utils.book_new();
     const ws_data = [];
 
+    // 1. Process rows
     grid.forEach((row) => {
         const rowData = [];
         row.forEach((cell) => {
-            // SAFE CHECK: If vocab exists, map it. Otherwise, use empty string.
             let cellText = "";
-            if (cell.vocab && Array.isArray(cell.vocab)) {
-                cellText = cell.vocab.map(v => v.tr ? `${v.t} (${v.tr})` : v.t).join("\n");
+            
+            // Your code uses cell.items (not vocab) based on the file provided
+            const items = cell.items || cell.vocab || [];
+            
+            if (Array.isArray(items) && items.length > 0) {
+                cellText = items.map(v => {
+                    const target = v.t || "";
+                    const trans = v.tr ? ` (${v.tr})` : "";
+                    return target + trans;
+                }).join("\n");
             }
             
             rowData.push(cellText);
@@ -1969,27 +1982,34 @@ async function exportToExcel() {
 
     const ws = XLSX.utils.aoa_to_sheet(ws_data);
 
-    // Map the merges correctly
+    // 2. Apply Merges
     const merges = [];
     grid.forEach((row, rIdx) => {
         let cIdx = 0;
         row.forEach((cell) => {
-            if (cell.colSpan > 1 || (cell.rowSpan && cell.rowSpan > 1)) {
+            // Check for both colSpan and rowSpan
+            const hasColSpan = cell.colSpan && cell.colSpan > 1;
+            const hasRowSpan = cell.rowSpan && cell.rowSpan > 1;
+
+            if (hasColSpan || hasRowSpan) {
                 merges.push({
                     s: { r: rIdx, c: cIdx },
                     e: { r: rIdx + (cell.rowSpan - 1 || 0), c: cIdx + (cell.colSpan - 1 || 0) }
                 });
             }
-            cIdx += cell.colSpan || 1;
+            cIdx += (cell.colSpan || 1);
         });
     });
     ws['!merges'] = merges;
-    ws['!cols'] = grid[0] ? grid[0].map(() => ({ wch: 25 })) : [];
 
+    // 3. Set Column Widths (Standard sizing)
+    const colCount = ws_data[0] ? ws_data[0].length : 5;
+    ws['!cols'] = Array(colCount).fill({ wch: 25 });
+
+    // 4. Generate and Save
     XLSX.utils.book_append_sheet(wb, ws, "Sentence Builder");
     XLSX.writeFile(wb, `${title}.xlsx`);
 }
-
 /* Professional PDF Function: Restores 10mm Margins */
 async function exportPDF() {
     const title = document.getElementById('builder-title').value || "Sentence Builder";
