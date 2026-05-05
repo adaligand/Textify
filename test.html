@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder Test</title>
+    <title>Cedars cbuilder Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1985,21 +1985,25 @@ if (!grid || grid.length === 0) return;
 
 const colCount = grid[0].length;
 const cellWidth = availableWidth / colCount;
-const padding = 3; 
+const padding = 2; 
 
 doc.setFont("helvetica", "bold");
 doc.setFontSize(16);
 doc.text(title, margin, margin + 5);
 
+// FIX: Définir la police de base pour les calculs de hauteur
+doc.setFont("helvetica", "normal");
+doc.setFontSize(11); 
+
 let currentY = margin + 15;
 
 // 1. CALCULER LES HAUTEURS DE CHAQUE LIGNE
-// On doit d'abord savoir la hauteur de chaque ligne individuelle
 const rowHeights = grid.map(row => {
-    let maxHeight = 20; // Hauteur minimale
+    let maxHeight = 18; 
     row.forEach(cell => {
         if (cell.hidden) return;
         const cS = cell.cS || 1;
+        // Si split, on a moitié moins de largeur pour le texte
         const splitFactor = cell.split ? 2 : 1;
         const availableTextWidth = (cellWidth * cS / splitFactor) - (padding * 2);
         
@@ -2009,7 +2013,7 @@ const rowHeights = grid.map(row => {
             const wrapped = doc.splitTextToSize(fullText, availableTextWidth);
             cellLines += wrapped.length;
         });
-        const calculatedHeight = (cellLines * 6) + 8;
+        const calculatedHeight = (cellLines * 5) + 7;
         if (calculatedHeight > maxHeight) maxHeight = calculatedHeight;
     });
     return maxHeight;
@@ -2019,19 +2023,17 @@ const rowHeights = grid.map(row => {
 grid.forEach((row, rowIndex) => {
     const rowHeight = rowHeights[rowIndex];
 
-    // Saut de page si nécessaire
     if (currentY + rowHeight > pageHeight - margin) {
         doc.addPage();
         currentY = margin;
     }
 
     row.forEach((cell, colIndex) => {
-        if (cell.hidden) return; // Ignorer si fusionné (horizontal ou vertical)
+        if (cell.hidden) return; 
 
         const cS = cell.cS || 1;
         const rS = cell.rS || 1;
         
-        // Calcul de la hauteur réelle si fusion verticale (somme des hauteurs des lignes)
         let actualRowHeight = 0;
         for(let i = 0; i < rS; i++) {
             actualRowHeight += rowHeights[rowIndex + i] || 0;
@@ -2040,14 +2042,16 @@ grid.forEach((row, rowIndex) => {
         const x = margin + (colIndex * cellWidth);
         const dynamicCellWidth = cellWidth * cS;
 
-        // Dessiner le rectangle de la cellule
+        // DESSIN DU RECTANGLE UNIQUE (L'enveloppe de la cellule)
         doc.setDrawColor(148, 163, 184);
-        doc.setLineWidth(0.2);
+        doc.setLineWidth(0.15);
         doc.rect(x, currentY, dynamicCellWidth, actualRowHeight);
 
-        // --- GESTION DU TEXTE (SPLIT OU NORMAL) ---
+        // FONCTION DE DESSIN DU TEXTE
         const drawItems = (items, startX, width) => {
-            let textY = currentY + 7;
+            let textY = currentY + 6;
+            doc.setFontSize(11); // TAILLE DE POLICE FIXÉE ICI
+            
             items.forEach(item => {
                 const fullText = (item.t || "") + (item.tr ? ` (${item.tr})` : "");
                 const wrappedLines = doc.splitTextToSize(fullText, width - (padding * 2));
@@ -2067,24 +2071,24 @@ grid.forEach((row, rowIndex) => {
                     } else {
                         doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).text(lineText, curX, textY);
                     }
-                    textY += 5.5;
+                    textY += 5;
                 });
-                textY += 1.5;
+                textY += 1;
             });
         };
 
         if (cell.split) {
-            // Dessiner ligne de séparation interne
+            // LIGNE DE SÉPARATION (Pointillée ou fine pour montrer le split interne)
+            doc.setDrawColor(200, 200, 200);
             doc.line(x + (dynamicCellWidth/2), currentY, x + (dynamicCellWidth/2), currentY + actualRowHeight);
             
-            // Moitié gauche
             const halfWidth = dynamicCellWidth / 2;
             const midIndex = Math.ceil(cell.items.length / 2);
+            // Moitié gauche
             drawItems(cell.items.slice(0, midIndex), x, halfWidth);
             // Moitié droite
             drawItems(cell.items.slice(midIndex), x + halfWidth, halfWidth);
         } else {
-            // Cellule normale
             drawItems(cell.items, x, dynamicCellWidth);
         }
     });
