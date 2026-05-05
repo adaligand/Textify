@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder Test</title>
+    <title>Cedars builfder Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1924,207 +1924,175 @@ function initMetaListeners() {
     });
 }
 async function exportPDF() {
-    const title = document.getElementById('builder-title').value || "Sentence Builder";
+    console.log("Démarrage de l'export PDF...");
+    const titleInput = document.getElementById('builder-title');
+    const title = (titleInput && titleInput.value) ? titleInput.value : "Sentence Builder";
+    
+    // Vérification de la présence de jsPDF
+    if (!window.jspdf) {
+        console.error("jsPDF n'est pas chargé.");
+        return;
+    }
     const { jsPDF } = window.jspdf;
 
-    // --- OPTION A: EAL (Image-based / Screenshot version) ---
-    if (meta.lang === "EAL") {
-        const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
-        edits.forEach(el => el.style.visibility = 'hidden');
-
-        try {
-            const element = document.getElementById('grid-container');
-            const canvas = await html2canvas(element, { 
-                scale: 3, 
-                useCORS: true 
-            });
-            edits.forEach(el => el.style.visibility = 'visible');
-
-            const pdf = new jsPDF('l', 'mm', 'a4');
-            const imgData = canvas.toDataURL('image/png');
-            
-            const imgProps = pdf.getImageProperties(imgData);
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            // Calculate height proportional to the A4 width
-            const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-            
-            let heightLeft = imgHeight;
-            let position = 0;
-
-            // Add first page with title
-            pdf.setFont("helvetica", "bold");
-            pdf.text(title, 14, 15);
-            pdf.addImage(imgData, 'PNG', 0, 20, pdfWidth, imgHeight);
-            heightLeft -= (pdfHeight - 20); // Account for title margin
-
-            // If it's longer than one page, loop and add pages
-            while (heightLeft > 0) {
-                position = heightLeft - imgHeight;
-                pdf.addPage();
-                pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
-                heightLeft -= pdfHeight;
-            }
-
-            pdf.save(`${title}.pdf`);
-        } catch (err) {
-            console.error("EAL PDF Export failed:", err);
-            edits.forEach(el => el.style.visibility = 'visible');
-        }
+    // --- OPTION A: EAL ---
+    // Note: Assurez-vous que la variable 'meta' est bien globale ou accessible ici
+    if (typeof meta !== 'undefined' && meta.lang === "EAL") {
+        // ... (Votre code Option A est correct, gardez-le tel quel)
         return; 
     }
 
-// --- OPTION B: MFL (Vector-based / Searchable Text) ---
-const doc = new jsPDF('l', 'mm', 'a4');
-const margin = 10;
-const pageWidth = doc.internal.pageSize.getWidth();
-const pageHeight = doc.internal.pageSize.getHeight();
-const availableWidth = pageWidth - (margin * 2);
-
-if (!grid || grid.length === 0) return;
-
-// --- A. CALCUL DES LARGEURS DE COLONNES INTELLIGENTES ---
-const colCount = grid[0].length;
-let colWeights = new Array(colCount).fill(0);
-
-grid.forEach(row => {
-    row.forEach((cell, i) => {
-        if (cell.hidden) return;
-        // On évalue la longueur du texte pour donner un "poids" à la colonne
-        let longestText = 0;
-        cell.items.forEach(item => {
-            const len = (item.t || "").length + ((item.tr || "").length * 0.8);
-            if (len > longestText) longestText = len;
-        });
-        // Si la cellule est fusionnée horizontalement, on divise le poids
-        const weight = longestText / (cell.cS || 1);
-        if (weight > colWeights[i]) colWeights[i] = weight;
-    });
-});
-
-// Normalisation : On s'assure qu'aucune colonne n'est "invisible" (poids min)
-const totalWeight = colWeights.reduce((a, b) => a + Math.max(b, 5), 0);
-const colWidths = colWeights.map(w => (Math.max(w, 5) / totalWeight) * availableWidth);
-
-const padding = 2;
-doc.setFont("helvetica", "bold");
-doc.setFontSize(16);
-doc.text(title, margin, margin + 5);
-
-let currentY = margin + 15;
-
-// --- B. CALCUL DES HAUTEURS DE LIGNES ---
-const rowHeights = grid.map(row => {
-    let maxHeight = 15; 
-    row.forEach((cell, i) => {
-        if (cell.hidden) return;
-        const cS = cell.cS || 1;
-        // Calcul de la largeur réelle de cette cellule (somme des colonnes couvertes)
-        let actualCellWidth = 0;
-        for(let n=0; n<cS; n++) actualCellWidth += colWidths[i+n];
-        
-        const splitFactor = cell.split ? 2 : 1;
-        const textAreaWidth = (actualCellWidth / splitFactor) - (padding * 2);
-        
-        let lines = 0;
-        cell.items.forEach(item => {
-            doc.setFontSize(10);
-            const wrapped = doc.splitTextToSize((item.t || "") + (item.tr ? ` (${item.tr})` : ""), textAreaWidth);
-            lines += wrapped.length;
-        });
-        const h = (lines * 4.5) + 6;
-        if (h > maxHeight) maxHeight = h;
-    });
-    return maxHeight;
-});
-
-// --- C. RENDU DE LA GRILLE ---
-grid.forEach((row, rowIndex) => {
-    // PROTECTION SAUT DE PAGE : On vérifie si la ligne (ou le groupe fusionné) tient
-    let blockHeight = rowHeights[rowIndex];
-    
-    // Si une cellule de cette ligne commence une fusion verticale (rS > 1)
-    // On s'assure que tout le bloc fusionné tient sur la page
-    row.forEach(cell => {
-        if (cell.rS > 1) {
-            let combinedH = 0;
-            for (let k = 0; k < cell.rS; k++) combinedH += (rowHeights[rowIndex + k] || 0);
-            if (combinedH > blockHeight) blockHeight = combinedH;
-        }
-    });
-
-    if (currentY + blockHeight > pageHeight - margin) {
-        doc.addPage();
-        currentY = margin + 10;
+    // --- OPTION B: MFL ---
+    console.log("Calcul des dimensions MFL...");
+    // Vérification de la grille
+    if (typeof grid === 'undefined' || !grid || grid.length === 0) {
+        console.warn("La grille est vide ou non définie.");
+        return;
     }
 
-    let xPos = margin;
-    row.forEach((cell, colIndex) => {
-        const cW = colWidths[colIndex];
-        if (cell.hidden) {
-            xPos += cW;
-            return;
-        }
+    const doc = new jsPDF('l', 'mm', 'a4');
+    const margin = 10;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const availableWidth = pageWidth - (margin * 2);
 
-        const cS = cell.cS || 1;
-        const rS = cell.rS || 1;
-        
-        let actualWidth = 0;
-        for(let n=0; n<cS; n++) actualWidth += colWidths[colIndex + n];
-        
-        let actualHeight = 0;
-        for(let n=0; n<rS; n++) actualHeight += rowHeights[rowIndex + n];
+    // --- A. CALCUL DES LARGEURS DE COLONNES INTELLIGENTES ---
+    const colCount = grid[0].length;
+    let colWeights = new Array(colCount).fill(0);
 
-        // Dessin Rectangle
-        doc.setDrawColor(148, 163, 184);
-        doc.setLineWidth(0.15);
-        doc.rect(xPos, currentY, actualWidth, actualHeight);
-
-        // Fonction de dessin interne
-        const drawContent = (items, startX, width) => {
-            let ty = currentY + 5;
-            items.forEach(item => {
-                doc.setFontSize(10);
-                const full = (item.t || "") + (item.tr ? ` (${item.tr})` : "");
-                const lines = doc.splitTextToSize(full, width - (padding * 2));
-                let tlRem = (item.t || "").length;
-
-                lines.forEach(line => {
-                    let cx = startX + padding;
-                    if (tlRem > 0) {
-                        const tlL = line.substring(0, tlRem);
-                        doc.setFont("helvetica", "normal").setFontSize(10).setTextColor(0).text(tlL, cx, ty);
-                        cx += doc.getTextWidth(tlL);
-                        const trL = line.substring(tlRem);
-                        if (trL) doc.setFont("helvetica", "italic").setFontSize(9).setTextColor(41, 128, 185).text(trL, cx, ty);
-                        tlRem -= tlL.length;
-                    } else {
-                        doc.setFont("helvetica", "italic").setFontSize(9).setTextColor(41, 128, 185).text(line, cx, ty);
-                    }
-                    ty += 4.5;
-                });
-                ty += 1;
+    grid.forEach(row => {
+        row.forEach((cell, i) => {
+            if (!cell || cell.hidden) return;
+            let longestText = 0;
+            (cell.items || []).forEach(item => {
+                const len = (item.t || "").length + ((item.tr || "").length * 0.8);
+                if (len > longestText) longestText = len;
             });
-        };
-
-        if (cell.split) {
-            doc.setDrawColor(220);
-            doc.line(xPos + (actualWidth/2), currentY, xPos + (actualWidth/2), currentY + actualHeight);
-            const mid = Math.ceil(cell.items.length / 2);
-            drawContent(cell.items.slice(0, mid), xPos, actualWidth/2);
-            drawContent(cell.items.slice(mid), xPos + (actualWidth/2), actualWidth/2);
-        } else {
-            drawContent(cell.items, xPos, actualWidth);
-        }
-
-        xPos += cW; // On avance toujours de la largeur de base de la colonne
+            const weight = longestText / (cell.cS || 1);
+            if (weight > colWeights[i]) colWeights[i] = weight;
+        });
     });
 
-    currentY += rowHeights[rowIndex];
-});
+    const totalWeight = colWeights.reduce((a, b) => a + Math.max(b, 5), 0);
+    const colWidths = colWeights.map(w => (Math.max(w, 5) / totalWeight) * availableWidth);
 
-doc.save(`${title}.pdf`);
-     }
+    const padding = 2;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text(title, margin, margin + 5);
+
+    let currentY = margin + 15;
+
+    // --- B. CALCUL DES HAUTEURS DE LIGNES ---
+    const rowHeights = grid.map(row => {
+        let maxHeight = 15; 
+        row.forEach((cell, i) => {
+            if (!cell || cell.hidden) return;
+            const cS = cell.cS || 1;
+            let actualCellWidth = 0;
+            for(let n=0; n<cS; n++) actualCellWidth += colWidths[i+n];
+            
+            const splitFactor = cell.split ? 2 : 1;
+            const textAreaWidth = (actualCellWidth / splitFactor) - (padding * 2);
+            
+            let lines = 0;
+            (cell.items || []).forEach(item => {
+                doc.setFontSize(10);
+                const text = (item.t || "") + (item.tr ? ` (${item.tr})` : "");
+                const wrapped = doc.splitTextToSize(text, textAreaWidth);
+                lines += wrapped.length;
+            });
+            const h = (lines * 4.5) + 6;
+            if (h > maxHeight) maxHeight = h;
+        });
+        return maxHeight;
+    });
+
+    // --- C. RENDU DE LA GRILLE ---
+    grid.forEach((row, rowIndex) => {
+        let blockHeight = rowHeights[rowIndex];
+        
+        row.forEach(cell => {
+            if (cell && cell.rS > 1) {
+                let combinedH = 0;
+                for (let k = 0; k < cell.rS; k++) combinedH += (rowHeights[rowIndex + k] || 0);
+                if (combinedH > blockHeight) blockHeight = combinedH;
+            }
+        });
+
+        if (currentY + blockHeight > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin + 10;
+        }
+
+        let xPos = margin;
+        row.forEach((cell, colIndex) => {
+            const cW = colWidths[colIndex];
+            
+            // CORRECTION CRITIQUE : Si la cellule est masquée, on avance xPos mais on ne dessine rien
+            if (!cell || cell.hidden) {
+                xPos += cW;
+                return;
+            }
+
+            const cS = cell.cS || 1;
+            const rS = cell.rS || 1;
+            
+            let actualWidth = 0;
+            for(let n=0; n<cS; n++) actualWidth += colWidths[colIndex + n];
+            
+            let actualHeight = 0;
+            for(let n=0; n<rS; n++) actualHeight += rowHeights[rowIndex + n];
+
+            doc.setDrawColor(148, 163, 184);
+            doc.setLineWidth(0.15);
+            doc.rect(xPos, currentY, actualWidth, actualHeight);
+
+            const drawContent = (items, startX, width) => {
+                let ty = currentY + 5;
+                items.forEach(item => {
+                    doc.setFontSize(10);
+                    const full = (item.t || "") + (item.tr ? ` (${item.tr})` : "");
+                    const lines = doc.splitTextToSize(full, width - (padding * 2));
+                    let tlRem = (item.t || "").length;
+
+                    lines.forEach(line => {
+                        let cx = startX + padding;
+                        if (tlRem > 0) {
+                            const tlL = line.substring(0, tlRem);
+                            doc.setFont("helvetica", "normal").setFontSize(10).setTextColor(0).text(tlL, cx, ty);
+                            cx += doc.getTextWidth(tlL);
+                            const trL = line.substring(tlRem);
+                            if (trL) doc.setFont("helvetica", "italic").setFontSize(9).setTextColor(41, 128, 185).text(trL, cx, ty);
+                            tlRem -= tlL.length;
+                        } else {
+                            doc.setFont("helvetica", "italic").setFontSize(9).setTextColor(41, 128, 185).text(line, cx, ty);
+                        }
+                        ty += 4.5;
+                    });
+                    ty += 1;
+                });
+            };
+
+            if (cell.split) {
+                doc.setDrawColor(220);
+                doc.line(xPos + (actualWidth/2), currentY, xPos + (actualWidth/2), currentY + actualHeight);
+                const mid = Math.ceil(cell.items.length / 2);
+                drawContent(cell.items.slice(0, mid), xPos, actualWidth/2);
+                drawContent(cell.items.slice(mid), xPos + (actualWidth/2), actualWidth/2);
+            } else {
+                drawContent(cell.items, xPos, actualWidth);
+            }
+
+            xPos += cW; 
+        });
+
+        currentY += rowHeights[rowIndex];
+    });
+
+    console.log("Sauvegarde du PDF...");
+    doc.save(`${title}.pdf`);
+}
 async function handlePDFImport(event) {
     const file = event.target.files[0];
     if (!file) return;
