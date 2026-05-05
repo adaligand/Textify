@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarsxxxx Test</title>
+    <title>CedarsTest</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1943,55 +1943,27 @@ async function Export() {
 }
 async function exportToExcel() {
     const title = document.getElementById('builder-title').value || "Sentence Builder";
-    
-    // Check if the grid actually exists
-    if (typeof grid === 'undefined' || !grid || grid.length === 0) {
-        alert("No data found to export.");
-        return;
-    }
+    if (typeof grid === 'undefined' || !grid || grid.length === 0) return;
 
     const wb = XLSX.utils.book_new();
     const ws_data = [];
+    const merges = [];
+    const rowHeights = [];
 
-    // 1. Process rows
-    grid.forEach((row) => {
+    // 1. Build the data and identify merges
+    grid.forEach((row, rIdx) => {
         const rowData = [];
+        let cIdx = 0;
+        
         row.forEach((cell) => {
-            let cellText = "";
-            
-            // Your code uses cell.items (not vocab) based on the file provided
             const items = cell.items || cell.vocab || [];
-            
-            if (Array.isArray(items) && items.length > 0) {
-                cellText = items.map(v => {
-                    const target = v.t || "";
-                    const trans = v.tr ? ` (${v.tr})` : "";
-                    return target + trans;
-                }).join("\n");
-            }
+            // We create the text. Note: Excel doesn't support partial cell coloring 
+            // easily in standard exports, so we'll apply alignment and wrapping here.
+            const cellText = items.map(v => v.tr ? `${v.t} (${v.tr})` : v.t).join("\n");
             
             rowData.push(cellText);
-            
-            // Handle horizontal merges (colSpan)
-            if (cell.colSpan > 1) {
-                for (let i = 1; i < cell.colSpan; i++) rowData.push(""); 
-            }
-        });
-        ws_data.push(rowData);
-    });
 
-    const ws = XLSX.utils.aoa_to_sheet(ws_data);
-
-    // 2. Apply Merges
-    const merges = [];
-    grid.forEach((row, rIdx) => {
-        let cIdx = 0;
-        row.forEach((cell) => {
-            // Check for both colSpan and rowSpan
-            const hasColSpan = cell.colSpan && cell.colSpan > 1;
-            const hasRowSpan = cell.rowSpan && cell.rowSpan > 1;
-
-            if (hasColSpan || hasRowSpan) {
+            if (cell.colSpan > 1 || cell.rowSpan > 1) {
                 merges.push({
                     s: { r: rIdx, c: cIdx },
                     e: { r: rIdx + (cell.rowSpan - 1 || 0), c: cIdx + (cell.colSpan - 1 || 0) }
@@ -1999,14 +1971,39 @@ async function exportToExcel() {
             }
             cIdx += (cell.colSpan || 1);
         });
+        ws_data.push(rowData);
+        rowHeights.push({ hpt: 40 }); // Sets a default taller row for vertical centering
     });
+
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
+
+    // 2. Apply Merges
     ws['!merges'] = merges;
+    
+    // 3. Apply Styling (Alignment and Wrapping)
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cell_address = XLSX.utils.encode_cell({c: C, r: R});
+            if (!ws[cell_address]) continue;
+            
+            ws[cell_address].s = {
+                alignment: {
+                    vertical: "center",
+                    horizontal: "center",
+                    wrapText: true
+                },
+                font: {
+                    color: { rgb: "000000" } 
+                }
+            };
+        }
+    }
 
-    // 3. Set Column Widths (Standard sizing)
-    const colCount = ws_data[0] ? ws_data[0].length : 5;
-    ws['!cols'] = Array(colCount).fill({ wch: 25 });
+    // 4. Formatting Columns and Rows
+    ws['!cols'] = Array(grid[0].length).fill({ wch: 30 }); // Wide columns
+    ws['!rows'] = rowHeights;
 
-    // 4. Generate and Save
     XLSX.utils.book_append_sheet(wb, ws, "Sentence Builder");
     XLSX.writeFile(wb, `${title}.xlsx`);
 }
