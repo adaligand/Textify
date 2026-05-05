@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder Test</title>
+    <title>Cedars buicclder Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2280,11 +2280,9 @@ async function extractGridFromPDF(file) {
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
     let items = [];
-
     for (let p = 1; p <= pdf.numPages; p++) {
         const page = await pdf.getPage(p);
         const content = await page.getTextContent();
-
         content.items.forEach(it => {
             items.push({
                 text: it.str.trim(),
@@ -2295,10 +2293,9 @@ async function extractGridFromPDF(file) {
         });
     }
 
-    // ---------- 1. GROUP ROWS ----------
-    const rowThreshold = 6;
+    // ---------- 1. GROUPER LES LIGNES (Threshold augmenté pour PDF complexes) ----------
+    const rowThreshold = 10; 
     let rows = [];
-
     items.forEach(item => {
         let row = rows.find(r => Math.abs(r.y - item.y) < rowThreshold);
         if (!row) {
@@ -2307,114 +2304,101 @@ async function extractGridFromPDF(file) {
         }
         row.items.push(item);
     });
-
     rows.sort((a, b) => b.y - a.y);
 
-    // ---------- 2. DETECT TRUE COLUMN BANDS ----------
+    // ---------- 2. DÉTECTER LES COLONNES (Structure fixe) ----------
+    // On cherche les points de départ les plus fréquents pour établir les colonnes de base
     let allX = items.map(i => i.x).sort((a, b) => a - b);
-
-    let gaps = [];
-    for (let i = 1; i < allX.length; i++) {
-        const gap = allX[i] - allX[i - 1];
-        if (gap > 25) { // 🔥 key threshold
-            gaps.push((allX[i] + allX[i - 1]) / 2);
+    let columns = [];
+    if (allX.length > 0) {
+        columns.push(allX[0]);
+        for (let i = 1; i < allX.length; i++) {
+            const gap = allX[i] - allX[i-1];
+            if (gap > 40) { // Seuil pour détecter une nouvelle colonne
+                columns.push(allX[i]);
+            }
         }
     }
 
-    let columns = [allX[0], ...gaps];
+    // ---------- 3. CONSTRUIRE LA GRILLE AVEC FUSION (cS) ----------
+    let finalGrid = rows.map(row => {
+        let lineCells = [];
+        
+        // Initialiser la ligne avec des cellules vides
+        for (let i = 0; i < columns.length; i++) {
+            lineCells.push({
+                items: [{ t: "", tr: "" }],
+                color: "#ffffff",
+                split: false,
+                cS: 1,
+                rS: 1,
+                hidden: false
+            });
+        }
 
-    console.log("📊 Columns detected:", columns.length);
-
-    // ---------- 3. BUILD GRID WITH COLSPAN ----------
-    let grid = rows.map(row => {
-        let cellBuckets = columns.map(() => []);
-
+        // Assigner les items aux colonnes
         row.items.forEach(item => {
             let colIndex = columns.findIndex((c, i) => {
                 const next = columns[i + 1] || Infinity;
-                return item.x >= c && item.x < next;
+                return item.x >= c - 10 && item.x < next - 10;
             });
 
             if (colIndex !== -1) {
-                cellBuckets[colIndex].push(item);
+                // Si la cellule est vide, on initialise
+                if (lineCells[colIndex].items[0].t === "") {
+                    lineCells[colIndex].items = parseTextToVocab(item.text);
+                } else {
+                    // Sinon on ajoute le texte (cas où le PDF coupe un mot)
+                    let currentText = lineCells[colIndex].items.map(v => `${v.target} (${v.translation})`).join(" ");
+                    lineCells[colIndex].items = parseTextToVocab(currentText + " " + item.text);
+                }
+
+                // --- DÉTECTION DE FUSION (COLSPAN) ---
+                // Si la largeur de l'item (w) dépasse la colonne suivante, on fusionne
+                let itemRightEdge = item.x + item.w;
+                let span = 1;
+                for (let j = colIndex + 1; j < columns.length; j++) {
+                    if (itemRightEdge > columns[j] + 15) { // +15 de marge de sécurité
+                        span++;
+                    } else {
+                        break;
+                    }
+                }
+                
+                if (span > 1) {
+                    lineCells[colIndex].cS = span;
+                    // Marquer les cellules suivantes comme cachées (hidden)
+                    for (let k = 1; k < span; k++) {
+                        if (lineCells[colIndex + k]) {
+                            lineCells[colIndex + k].hidden = true;
+                        }
+                    }
+                }
             }
         });
 
-        // ---------- 4. BUILD CELLS ----------
-        let cells = [];
-
-        for (let i = 0; i < cellBuckets.length; i++) {
-            const bucket = cellBuckets[i];
-
-            if (bucket.length === 0) {
-                cells.push(null); // empty → may be span
-                continue;
-            }
-
-            // sort left→right
-            bucket.sort((a, b) => a.x - b.x);
-
-            const fullText = bucket.map(b => b.text).join(" ");
-
-            const vocab = parseTextToVocab(fullText);
-
-            cells.push({
-                vocab,
-                color: "#ffffff",
-                isSplit: false,
-                span: 1
-            });
-        }
-
-        // ---------- 5. DETECT COLSPAN ----------
-        for (let i = 0; i < cells.length; i++) {
-            if (!cells[i]) continue;
-
-            let span = 1;
-            let j = i + 1;
-
-            while (j < cells.length && cells[j] === null) {
-                span++;
-                j++;
-            }
-
-            cells[i].span = span;
-            i = j - 1;
-        }
-
-        // remove nulls (merged into spans)
-        return cells.filter(c => c !== null);
+        return lineCells;
     });
 
-    console.log("🧩 Grid with spans:", grid);
-
-    return grid;
+    return finalGrid;
 }
 
-
-// ---------- TEXT PARSER ----------
+// ---------- PARSER (Utilise target/translation pour compatibilité interne) ----------
 function parseTextToVocab(text) {
     let vocab = [];
-
-    // Regex amélioré pour capturer : Mot + Espace optionnel + ( + Traduction + )
-    // Il gère les sauts de ligne internes et les espaces multiples
+    // Nettoyage des espaces multiples fréquents dans les PDF
+    text = text.replace(/\s+/g, ' ');
+    
     const regex = /([^()]+?)\s*\(\s*([^()]+)\s*\)/g;
-
     let match;
-    let lastIndex = 0;
-
     while ((match = regex.exec(text)) !== null) {
         vocab.push({
             target: match[1].trim(),
             translation: match[2].trim()
         });
-        lastIndex = regex.lastIndex;
     }
 
-    // Si aucun match (ou s'il reste du texte après le dernier match)
     if (vocab.length === 0) {
-        // Sécurité : si le texte contient une parenthèse mais n'a pas matché, 
-        // on tente un split manuel simple
         if (text.includes('(')) {
             let parts = text.split('(');
             vocab.push({
@@ -2425,9 +2409,11 @@ function parseTextToVocab(text) {
             vocab.push({ target: text.trim(), translation: "" });
         }
     }
-
-    return vocab;
+    // Mapper vers t/tr utilisé par votre moteur
+    return vocab.map(v => ({ t: v.target, tr: v.translation }));
 }
+
+
 function groupIntoRows(items) {
     const ROW_THRESHOLD = 14; // 🔥 increased tolerance
 
