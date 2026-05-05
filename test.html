@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars buixlder </title>
+    <title>Cedars buixxxlder </title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -933,24 +933,10 @@ async function renderTopicsInline() {
             nav.topic = null; 
         }
 
-        // Changement ici : justify-content: flex-start et gap pour coller les éléments
         let html = `
-            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 15px; margin-top: 20px; margin-bottom: 15px;">
+            <div style="margin-top: 20px; margin-bottom: 15px;">
                 <h3 style="margin: 0;">Topics</h3>
-                
-                <div style="position: relative;">
-                    <button id="custom-sort-trigger" 
-                            onclick="document.getElementById('custom-sort-options').classList.toggle('show')" 
-                            style="padding: 4px 8px; font-size: 16px; border-radius: 6px; cursor: pointer; background: white; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 5px;">
-                        <span style="font-size: 14px; color: #64748b;">Sort</span> ⚙️
-                    </button>
-                    <div id="custom-sort-options" class="custom-dropdown-content" style="left: 0; right: auto;">
-                        <div class="sort-option" onclick="updateSort('title')">Sort by Name</div>
-                        <div class="sort-option" onclick="updateSort('updated')">Sort by Last Edit</div>
-                    </div>
-                </div>
             </div>
-            
             <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
         `;
 
@@ -968,7 +954,7 @@ async function renderTopicsInline() {
                     </button>`;
             });
         } else {
-            html += `<p style="color:#64748b;">No active topics found for ${nav.lang}.</p>`;
+            html += `<p style="color:#64748b;">No active topics found.</p>`;
         }
 
         html += `</div><div id="projects-area"></div>`;
@@ -1011,7 +997,7 @@ async function renderProjectsInline() {
         const snap = await db.collection("builders")
             .where("lang", "==", nav.lang)
             .where("topic", "==", nav.topic)
-            .where("isDeleted", "==", false) 
+            .where("isDeleted", "==", false)
             .get();
 
         if (snap.empty) {
@@ -1019,37 +1005,60 @@ async function renderProjectsInline() {
             return;
         }
 
-        let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px; padding: 10px;">`;
+        // --- LOGIQUE DE TRI ---
+        let docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        if (nav.sortBy === 'title') {
+            // Tri alphabétique A-Z
+            docs.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+        } else {
+            // Tri par date (Plus récent en premier)
+            docs.sort((a, b) => {
+                const valA = a.updated?.toMillis ? a.updated.toMillis() : (a.updated || 0);
+                const valB = b.updated?.toMillis ? b.updated.toMillis() : (b.updated || 0);
+                return valB - valA;
+            });
+        }
+
+        // --- EN-TÊTE AVEC BOUTON DE TRI ---
+        let html = `
+            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 15px; margin: 20px 0 15px 10px;">
+                <h4 style="margin: 0; color: #475569;">Sentence Builders</h4>
+                <div style="position: relative;">
+                    <button id="custom-sort-trigger" 
+                            onclick="document.getElementById('custom-sort-options').classList.toggle('show')" 
+                            style="padding: 4px 8px; font-size: 14px; border-radius: 6px; cursor: pointer; background: white; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 5px;">
+                        <span style="color: #64748b;">Sort</span> ⚙️
+                    </button>
+                    <div id="custom-sort-options" class="custom-dropdown-content" style="left: 0; top: 100%;">
+                        <div class="sort-option" onclick="updateSort('title')">Sort by Name (A-Z)</div>
+                        <div class="sort-option" onclick="updateSort('updated')">Sort by Last Edit</div>
+                    </div>
+                </div>
+            </div>
+            <div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px; padding: 10px;">
+        `;
         
-        snap.docs.forEach(doc => {
-            const p = doc.data();
-            
-            // --- CONVERSION DU TIMESTAMP "updated" ---
+        docs.forEach(p => {
             let displayDate = "New";
-            
             if (p.updated) {
-                // Si c'est un Timestamp Firestore, on utilise .toDate()
-                // Sinon (fallback), on crée une date à partir de la valeur
-                const dateObj = (typeof p.updated.toDate === 'function') 
-                                ? p.updated.toDate() 
-                                : new Date(p.updated);
-                
+                const dateObj = (p.updated.toDate) ? p.updated.toDate() : new Date(p.updated);
                 displayDate = dateObj.toLocaleDateString('en-GB'); 
             }
 
             html += `
-                <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer; width:300px; box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; padding:15px; border:1px solid #e2e8f0; border-radius:10px; background:white;">
+                <div class="project-card" onclick="loadProject('${p.id}')" style="cursor:pointer; width:300px; box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; padding:15px; border:1px solid #e2e8f0; border-radius:10px; background:white;">
                     <div class="project-left" style="flex:1; overflow:hidden;">
                         <span style="color: var(--accent); font-weight: bold; font-size: 1.1em; white-space:nowrap; text-overflow:ellipsis; display:block; overflow:hidden;">
-                            ${p.title || "Untitled Builder"}
+                            ${p.title || "Untitled"}
                         </span>
                         <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
                             Last edited: ${displayDate}
                         </div>
                     </div>
                     <div class="project-actions" onclick="event.stopPropagation();" style="display:flex; gap:10px; margin-left:10px;">
-                        <span class="icon-btn" title="Duplicate" onclick="duplicateSB('${doc.id}', event)" style="cursor:pointer; font-size:1.2em;">📋</span>
-                        <span class="icon-btn delete-btn" title="Delete" onclick="deleteProject('${doc.id}', event)" style="cursor:pointer; font-size:1.2em;">🗑️</span>
+                        <span class="icon-btn" title="Duplicate" onclick="duplicateSB('${p.id}', event)" style="cursor:pointer; font-size:1.2em;">📋</span>
+                        <span class="icon-btn delete-btn" title="Delete" onclick="deleteProject('${p.id}', event)" style="cursor:pointer; font-size:1.2em;">🗑️</span>
                     </div>
                 </div>`;
         });
@@ -1059,7 +1068,6 @@ async function renderProjectsInline() {
 
     } catch (error) {
         console.error("Error loading projects:", error);
-        container.innerHTML = `<p style="color:red; padding: 20px;">Error loading projects.</p>`;
     }
 }
 function toggleBinView() {
