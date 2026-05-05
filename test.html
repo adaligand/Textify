@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars cbuilder Test</title>
+    <title>Cedars uilder Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1993,7 +1993,7 @@ doc.text(title, margin, margin + 5);
 
 // FIX: Définir la police de base pour les calculs de hauteur
 doc.setFont("helvetica", "normal");
-doc.setFontSize(11); 
+doc.setFontSize(10); 
 
 let currentY = margin + 15;
 
@@ -2003,17 +2003,19 @@ const rowHeights = grid.map(row => {
     row.forEach(cell => {
         if (cell.hidden) return;
         const cS = cell.cS || 1;
-        // Si split, on a moitié moins de largeur pour le texte
         const splitFactor = cell.split ? 2 : 1;
         const availableTextWidth = (cellWidth * cS / splitFactor) - (padding * 2);
         
         let cellLines = 0;
         cell.items.forEach(item => {
             const fullText = (item.t || "") + (item.tr ? ` (${item.tr})` : "");
+            // On calcule le wrapping basé sur la taille la plus grande (10)
+            doc.setFontSize(10);
             const wrapped = doc.splitTextToSize(fullText, availableTextWidth);
             cellLines += wrapped.length;
         });
-        const calculatedHeight = (cellLines * 5) + 7;
+        // Hauteur ajustée pour police 10/9
+        const calculatedHeight = (cellLines * 4.5) + 7; 
         if (calculatedHeight > maxHeight) maxHeight = calculatedHeight;
     });
     return maxHeight;
@@ -2048,34 +2050,54 @@ grid.forEach((row, rowIndex) => {
         doc.rect(x, currentY, dynamicCellWidth, actualRowHeight);
 
         // FONCTION DE DESSIN DU TEXTE
-        const drawItems = (items, startX, width) => {
-            let textY = currentY + 6;
-            doc.setFontSize(11); // TAILLE DE POLICE FIXÉE ICI
-            
-            items.forEach(item => {
-                const fullText = (item.t || "") + (item.tr ? ` (${item.tr})` : "");
-                const wrappedLines = doc.splitTextToSize(fullText, width - (padding * 2));
+      const drawItems = (items, startX, width) => {
+    let textY = currentY + 6;
+    
+    items.forEach(item => {
+        const tlText = item.t || "";
+        const trText = item.tr ? ` (${item.tr})` : "";
+        const fullText = tlText + trText;
+        
+        // On utilise la taille 10 pour définir le wrapping global
+        doc.setFontSize(10);
+        const wrappedLines = doc.splitTextToSize(fullText, width - (padding * 2));
+        
+        let tlCharsLeft = tlText.length;
+
+        wrappedLines.forEach(lineText => {
+            let curX = startX + padding;
+
+            if (tlCharsLeft > 0) {
+                // --- PARTIE TL (Taille 10) ---
+                const tlInLine = lineText.substring(0, tlCharsLeft);
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(10); // Taille 10 pour TL
+                doc.setTextColor(0, 0, 0);
+                doc.text(tlInLine, curX, textY);
                 
-                let tlCharsLeft = (item.t || "").length;
-                wrappedLines.forEach(lineText => {
-                    let curX = startX + padding;
-                    if (tlCharsLeft > 0) {
-                        const tlInLine = lineText.substring(0, tlCharsLeft);
-                        doc.setFont("helvetica", "normal").setTextColor(0,0,0).text(tlInLine, curX, textY);
-                        curX += doc.getTextWidth(tlInLine);
-                        const trInLine = lineText.substring(tlCharsLeft);
-                        if (trInLine) {
-                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).text(trInLine, curX, textY);
-                        }
-                        tlCharsLeft -= tlInLine.length;
-                    } else {
-                        doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).text(lineText, curX, textY);
-                    }
-                    textY += 5;
-                });
-                textY += 1;
-            });
-        };
+                curX += doc.getTextWidth(tlInLine);
+                
+                // --- PARTIE TR sur la même ligne (Taille 9) ---
+                const trInLine = lineText.substring(tlCharsLeft);
+                if (trInLine) {
+                    doc.setFont("helvetica", "italic");
+                    doc.setFontSize(9); // Taille 9 pour TR
+                    doc.setTextColor(41, 128, 185);
+                    doc.text(trInLine, curX, textY);
+                }
+                tlCharsLeft -= tlInLine.length;
+            } else {
+                // --- LIGNE DE TR PURE (Taille 9) ---
+                doc.setFont("helvetica", "italic");
+                doc.setFontSize(9); // Taille 9 pour TR
+                doc.setTextColor(41, 128, 185);
+                doc.text(lineText, curX, textY);
+            }
+            textY += 4.5; // Espacement vertical réduit car police plus petite
+        });
+        textY += 1.5; 
+    });
+};
 
         if (cell.split) {
             // LIGNE DE SÉPARATION (Pointillée ou fine pour montrer le split interne)
