@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedcfffrs builder</title>
+    <title>Cedcrs builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1970,36 +1970,37 @@ let currentY = margin + 15;
 
 grid.forEach((row) => {
     // 1. PRE-CALCULATE WRAPPED LINES AND ROW HEIGHT
-    let preparedRow = row.map(cell => {
-        let lines = [];
+   let preparedRow = row.map(cell => {
+        let items = [];
         cell.items.forEach(item => {
             const tl = item.t || "";
             const tr = item.tr ? ` (${item.tr})` : "";
             
-            // Combine them temporarily to see how they wrap together
-            doc.setFont("helvetica");
+            doc.setFont("helvetica", "normal");
             doc.setFontSize(10);
-            const combinedLines = doc.splitTextToSize(tl + tr, textWidth);
             
-            lines.push({ tl, tr, wrapped: combinedLines });
+            // On calcule le wrapping sur le texte complet
+            const fullText = tl + tr;
+            const wrappedLines = doc.splitTextToSize(fullText, textWidth);
+            
+            items.push({ tl, tr, wrappedLines });
         });
-        return lines;
+        return items;
     });
 
     let maxLinesInRow = 0;
-    preparedRow.forEach(cellLines => {
-        let count = cellLines.reduce((acc, curr) => acc + curr.wrapped.length, 0);
+    preparedRow.forEach(cellItems => {
+        let count = cellItems.reduce((acc, curr) => acc + curr.wrappedLines.length, 0);
         if (count > maxLinesInRow) maxLinesInRow = count;
     });
     const rowHeight = Math.max(20, (maxLinesInRow * 6) + 8);
 
-    // 2. CHECK FOR PAGE BREAK
     if (currentY + rowHeight > pageHeight - margin) {
         doc.addPage();
         currentY = margin;
     }
 
-    // 3. RENDER THE ROW
+    // 2. RENDU DE LA LIGNE
     row.forEach((cell, colIndex) => {
         const x = margin + (colIndex * cellWidth);
         doc.setDrawColor(148, 163, 184); 
@@ -2008,44 +2009,44 @@ grid.forEach((row) => {
 
         let textY = currentY + 7;
         const cellItems = preparedRow[colIndex];
-
+        
+        // Variable pour savoir combien de caractères de TL on a déjà "consommé"
         cellItems.forEach(item => {
-            const tlText = item.tl;
-            const trText = item.tr;
-            
-            // We use the 'wrapped' lines as a guide for where to break
-            item.wrapped.forEach((lineText, lineIdx) => {
+            let tlCharsLeft = item.tl.length;
+
+            item.wrappedLines.forEach((lineText) => {
                 let currentX = x + padding;
 
-                // Check if the TL text is part of this line
-                if (tlText && lineText.includes(tlText)) {
+                if (tlCharsLeft > 0) {
+                    // Il reste du texte Target (TL) à écrire sur cette ligne
+                    const tlInLine = lineText.substring(0, tlCharsLeft);
+                    
                     doc.setFont("helvetica", "normal");
                     doc.setTextColor(0, 0, 0);
+                    doc.text(tlInLine, currentX, textY);
                     
-                    // If TL is longer than one line, this logic handles the split
-                    const partTL = lineText.substring(0, tlText.length);
-                    doc.text(partTL, currentX, textY);
-                    currentX += doc.getTextWidth(partTL);
+                    currentX += doc.getTextWidth(tlInLine);
                     
-                    // Remaining part of the line is Translation
-                    const partTR = lineText.substring(tlText.length);
-                    if (partTR) {
+                    // On vérifie s'il y a une traduction (TR) sur la même ligne
+                    const trInLine = lineText.substring(tlCharsLeft);
+                    if (trInLine) {
                         doc.setFont("helvetica", "italic");
                         doc.setTextColor(41, 128, 185);
-                        doc.text(partTR, currentX, textY);
+                        doc.text(trInLine, currentX, textY);
                     }
+                    
+                    tlCharsLeft -= tlInLine.length;
                 } else {
-                    // This line is entirely Translation (it wrapped)
+                    // Cette ligne est purement de la traduction
                     doc.setFont("helvetica", "italic");
                     doc.setTextColor(41, 128, 185);
                     doc.text(lineText, currentX, textY);
                 }
                 textY += 5.5;
             });
-            textY += 1.5; // Small gap between items
+            textY += 1.5; // Espace entre les items d'une cellule
         });
     });
-
     currentY += rowHeight;
 });
 
