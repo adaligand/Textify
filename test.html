@@ -1,12 +1,13 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars bcccuilder</title>
+    <title>Cedars builder Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -251,23 +252,28 @@ body {
     background-color: var(--line);
     border: 2px solid var(--line);
     gap: 2px;
+    grid-template-columns: repeat(var(--cols), auto); /* This is the key change */
 }
 
+/* Update the Cell to be flexible */
 .cell {
     background: white;
-    min-width: 320px;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: flex-start;
-    padding: 25px;
+    padding: 20px;
     position: relative;
-    box-sizing: border-box;
+    width: 100%; /* Allow it to fill the auto-grid space */
+    min-width: max-content;  /* Mais la force à s'étendre si le texte est long */
+    box-sizing: border-box;  /* Évite les débordements de bordure */
 }
 
+/* When a cell is split into 2 columns, it should still be flexible */
 .cell.is-split {
-    min-width: 600px;
+    min-width: 200px;
 }
+
 /* The blue highlight for the whole cell */
 .cell.visual-selected {
     background-color: #b3d7ff !important;
@@ -290,7 +296,7 @@ body {
 
 .vocab-list.split {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: auto auto; /* Changed from 1fr 1fr to auto */
     column-gap: 30px;
 }
 
@@ -298,30 +304,28 @@ body {
     display: flex;
     align-items: baseline;
     gap: 5px;
-    white-space: nowrap;
+    width: 100%
+    white-space: normal; /* CRITICAL: Changed from nowrap to allow expansion */
 }
-
-.target-input {
+.target-input, .translation-input {
     border: none;
     background: transparent;
     outline: none;
     font-size: 17px;
-    font-weight: 600;
     font-family: inherit;
     padding: 0;
-    min-width: 10px;
+    width: auto;      /* Let JS control the width */
+    min-width: 10px;  /* Keep it clickable when empty */
+    display: inline-block;
+}
+
+.target-input {
+    font-weight: 600;
 }
 
 .translation-input {
-    border: none;
-    background: transparent;
-    outline: none;
-    font-size: inherit;
-    font-family: inherit;
-    min-width: 10px;
-    padding: 0;
-    color: inherit;     /* Forces the blue from the wrapper */
-    font-style: inherit; /* Forces the italics from the wrapper */
+    color: inherit;     
+    font-style: inherit; 
 }
 
 .bracket-wrapper {
@@ -589,11 +593,13 @@ button:hover {
                 <p id="user-display" style="margin: 5px 0 0; color: #666; font-size: 14px;"></p>
             </div>
             <div id="language-nav-container" style="display: flex; gap: 10px; flex-grow: 1; justify-content: center;"></div>
-            <div style="display: flex; gap: 10px;">
-                <button onclick="toggleBinView()" class="btn-outline">🗑️ Bin</button>
-                <button onclick="createNewProject()" class="btn-purple">🛠️ Create</button>
-                <button onclick="logout()" class="btn-outline">🔓Sign Out</button>
-            </div>
+           <div style="display: flex; gap: 10px;">
+    <button onclick="toggleBinView()" class="btn-outline">🗑️ Bin</button>
+    <input type="file" id="pdf-import-input" accept="application/pdf" style="display:none;" onchange="handlePDFImport(event)">
+    <button onclick="document.getElementById('pdf-import-input').click()" class="btn-info">📥 Import PDF</button>
+    <button onclick="createNewProject()" class="btn-purple">🛠️ Create</button>
+    <button onclick="logout()" class="btn-outline">🔓Sign Out</button>
+</div>
         </div>
     </div>
     <div id="library-content"></div>
@@ -715,6 +721,8 @@ button:hover {
 </div>
 
 <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
 /* =========================
    FIREBASE
 ========================= */
@@ -902,12 +910,11 @@ function selectYear(year) {
     nav.topic = null;
     renderLibrary();
 }
-
 async function renderTopicsInline() {
     const topicArea = document.getElementById("topic-area");
     if (!topicArea || !nav.lang) return;
 
-    // Filter only active files
+    // 1. Filtrer les fichiers actifs selon la langue et l'année
     let query = db.collection("builders")
         .where("lang", "==", nav.lang)
         .where("isDeleted", "==", false);
@@ -921,27 +928,29 @@ async function renderTopicsInline() {
     try {
         const snap = await query.get();
         
-        // Extract unique topics from active files
+        // 2. Extraire la liste unique des thèmes (Topics)
         const topicList = [...new Set(
             snap.docs.map(d => d.data().topic).filter(t => t && t.trim() !== "")
         )].sort();
 
-        // FIX: If the current selected topic is no longer in the list (last file deleted), reset it
+        // 3. Sécurité : si le topic sélectionné n'existe plus, on le réinitialise
         if (nav.topic && !topicList.includes(nav.topic)) {
             nav.topic = null; 
         }
 
+        // 4. Construction du HTML
+        // Note : On ajoute un span/div vide à côté du titre pour le bouton de tri
         let html = `
-            <div style="display: flex; align-items: center; gap: 15px; margin-top: 20px; margin-bottom: 15px;">
+            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 15px; margin-top: 20px; margin-bottom: 15px;">
                 <h3 style="margin: 0;">Topics</h3>
-            </div>
+                <div id="sort-button-container"></div> </div>
             <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
         `;
 
         if (topicList.length > 0) {
             topicList.forEach(t => {
                 const isActive = (nav.topic === t);
-                const escaped = t.replace(/'/g, "\\'");
+                const escaped = t.replace(/'/g, "\\'"); // Gérer les apostrophes dans les noms de topics
                 html += `
                     <button onclick="selectTopic('${escaped}')"
                         style="padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:600; transition:all 0.2s;
@@ -958,23 +967,16 @@ async function renderTopicsInline() {
         html += `</div><div id="projects-area"></div>`;
         topicArea.innerHTML = html;
 
-        if (nav.topic) renderProjectsInline();
+        // 5. Si un topic est déjà sélectionné, on affiche les projets (et injecte le bouton de tri)
+        if (nav.topic) {
+            renderProjectsInline();
+        }
 
     } catch (error) {
-        console.error("Firestore Error:", error);
+        console.error("Firestore Error in renderTopicsInline:", error);
+        topicArea.innerHTML = `<p style="color:red;">Error loading topics.</p>`;
     }
 }
-// Global Click Listener (Move this outside of any function)
-window.addEventListener('click', (event) => {
-    document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
-    const dropdown = document.getElementById('custom-sort-options');
-    const trigger = document.getElementById('custom-sort-trigger');
-    if (dropdown && dropdown.classList.contains('show')) {
-        if (trigger && !trigger.contains(event.target) && !dropdown.contains(event.target)) {
-            dropdown.classList.remove('show');
-        }
-    }
-});
 function updateSort(val) {
     nav.sortBy = val; // Update the global navigation state
     renderTopicsInline(); // Refresh the UI to reflect the new sort order
@@ -987,6 +989,8 @@ function selectTopic(topic) {
 
 async function renderProjectsInline() {
     const container = document.getElementById("projects-area");
+    const sortButtonArea = document.getElementById("sort-button-container"); // La zone près de "Topics"
+    
     if (!container || !nav.topic) return;
 
     container.innerHTML = `<p style="color:#64748b; padding: 20px;">Loading projects...</p>`;
@@ -995,31 +999,69 @@ async function renderProjectsInline() {
         const snap = await db.collection("builders")
             .where("lang", "==", nav.lang)
             .where("topic", "==", nav.topic)
-            .where("isDeleted", "==", false) // Keeps deleted items hidden
+            .where("isDeleted", "==", false)
             .get();
+
+        // --- INJECTION DU BOUTON PRÈS DU TITRE TOPICS ---
+        if (sortButtonArea) {
+            sortButtonArea.innerHTML = `
+                <div style="position: relative;">
+                    <button id="custom-sort-trigger" 
+                            onclick="document.getElementById('custom-sort-options').classList.toggle('show')" 
+                            style="padding: 4px 8px; font-size: 14px; border-radius: 6px; cursor: pointer; background: white; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 5px;">
+                        <span style="color: #64748b;">Sort</span> ⚙️
+                    </button>
+                    <div id="custom-sort-options" class="custom-dropdown-content" style="left: 0; top: 110%;">
+                        <div class="sort-option" onclick="updateSort('title')">Name A-Z</div>
+                        <div class="sort-option" onclick="updateSort('updated')">Last Edit</div>
+                    </div>
+                </div>
+            `;
+        }
 
         if (snap.empty) {
             container.innerHTML = `<p style="color:#64748b; padding: 20px;">No active projects in this topic.</p>`;
             return;
         }
 
-        // Restored your original grid container style
+        // --- LOGIQUE DE TRI (A-Z ou Date) ---
+        let docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        if (nav.sortBy === 'title') {
+            // Tri alphabétique A-Z insensible à la casse
+            docs.sort((a, b) => (a.title || "").toLowerCase().localeCompare((b.title || "").toLowerCase()));
+        } else {
+            // Tri par date (Plus récent en premier)
+            docs.sort((a, b) => {
+                const valA = a.updated?.toMillis ? a.updated.toMillis() : (a.updated || 0);
+                const valB = b.updated?.toMillis ? b.updated.toMillis() : (b.updated || 0);
+                return valB - valA;
+            });
+        }
+
+        // --- AFFICHAGE DE LA GRILLE ---
         let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px; padding: 10px;">`;
         
-        snap.docs.forEach(doc => {
-            const p = doc.data();
-            
-            // Restored your exact card HTML structure
+        docs.forEach(p => {
+            let displayDate = "New";
+            if (p.updated) {
+                const dateObj = (p.updated.toDate) ? p.updated.toDate() : new Date(p.updated);
+                displayDate = dateObj.toLocaleDateString('en-GB'); 
+            }
+
             html += `
-                <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer; width:300px; box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; padding:15px; border:1px solid #e2e8f0; border-radius:10px; background:white;">
+                <div class="project-card" onclick="loadProject('${p.id}')" style="cursor:pointer; width:300px; box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; padding:15px; border:1px solid #e2e8f0; border-radius:10px; background:white;">
                     <div class="project-left" style="flex:1; overflow:hidden;">
                         <span style="color: var(--accent); font-weight: bold; font-size: 1.1em; white-space:nowrap; text-overflow:ellipsis; display:block; overflow:hidden;">
-                            ${p.title || "Untitled Builder"}
+                            ${p.title || "Untitled"}
                         </span>
+                        <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
+                            Last edited: ${displayDate}
+                        </div>
                     </div>
                     <div class="project-actions" onclick="event.stopPropagation();" style="display:flex; gap:10px; margin-left:10px;">
-                        <span class="icon-btn" title="Duplicate" onclick="duplicateSB('${doc.id}', event)" style="cursor:pointer; font-size:1.2em;">📋</span>
-                        <span class="icon-btn delete-btn" title="Delete" onclick="deleteProject('${doc.id}', event)" style="cursor:pointer; font-size:1.2em;">🗑️</span>
+                        <span class="icon-btn" title="Duplicate" onclick="duplicateSB('${p.id}', event)" style="cursor:pointer; font-size:1.2em;">📋</span>
+                        <span class="icon-btn delete-btn" title="Delete" onclick="deleteProject('${p.id}', event)" style="cursor:pointer; font-size:1.2em;">🗑️</span>
                     </div>
                 </div>`;
         });
@@ -1029,7 +1071,6 @@ async function renderProjectsInline() {
 
     } catch (error) {
         console.error("Error loading projects:", error);
-        container.innerHTML = `<p style="color:red; padding: 20px;">Error loading projects.</p>`;
     }
 }
 function toggleBinView() {
@@ -1275,7 +1316,6 @@ async function saveToCloud(isAutosave = false) {
     const autoStatus = document.getElementById('autosave-indicator');
 
     try {
-        // 1. Manually get values to avoid updateMeta() errors
         const langVal = document.getElementById('meta-lang').value;
         const yearVal = (langVal === "EAL") ? "EAL" : document.getElementById('meta-year').value;
         
@@ -1296,10 +1336,10 @@ async function saveToCloud(isAutosave = false) {
             topic: topicValue,
             grid: JSON.stringify(grid),
             isDeleted: false,
+            // On utilise uniquement le timestamp serveur officiel
             updated: firebase.firestore.FieldValue.serverTimestamp()
         };
 
-        // 2. Perform Database Operation
         if (currentDocId) {
             await db.collection("builders").doc(currentDocId).update(data);
         } else {
@@ -1307,7 +1347,6 @@ async function saveToCloud(isAutosave = false) {
             currentDocId = doc.id;
         }
 
-        // 3. UI Update
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         if (isAutosave) {
             if (autoStatus) autoStatus.innerText = `Autosaved at ${time}`;
@@ -1317,48 +1356,58 @@ async function saveToCloud(isAutosave = false) {
                 setTimeout(() => { manualStatus.innerText = ""; }, 5000);
             }
         }
-
     } catch (e) {
         console.error("Critical Save Error:", e);
-        if (!isAutosave && manualStatus) {
-            manualStatus.innerText = "Error Saving!";
-            manualStatus.style.color = "red";
-        }
     }
 }
 async function loadProject(id) {
     const doc = await db.collection("builders").doc(id).get();
     const d = doc.data();
 
+    if (!d) {
+        alert("Document not found!");
+        return;
+    }
+
     currentDocId = id;
-    grid = JSON.parse(d.grid);
+
+    // --- ROBUST GRID LOADING ---
+    // This checks if 'grid' is a string (new import/save method) 
+    // or an object/array (old manual method)
+    if (typeof d.grid === 'string') {
+        grid = JSON.parse(d.grid);
+    } else {
+        grid = d.grid;
+    }
 
     meta = {
-        lang: d.lang,
-        year: d.year,
-        topic: d.topic
+        lang: d.lang || "French",
+        year: d.year || "Year 7",
+        topic: d.topic || "General"
     };
 
-    document.getElementById('meta-lang').value = d.lang;
-    document.getElementById('meta-year').value = d.year;
-    document.getElementById('builder-title').value = d.title;
+    // Update UI fields
+    document.getElementById('meta-lang').value = meta.lang;
+    document.getElementById('meta-year').value = meta.year;
+    document.getElementById('builder-title').value = d.title || "Untitled";
 
     await loadTopicsDropdown();
 
     const select = document.getElementById("meta-topic-select");
     const input = document.getElementById("meta-topic-new");
 
-    if ([...select.options].some(o => o.value === d.topic)) {
-        select.value = d.topic;
+    if (select && [...select.options].some(o => o.value === meta.topic)) {
+        select.value = meta.topic;
         input.style.display = "none";
-    } else {
+    } else if (select) {
         select.value = "__new__";
         input.style.display = "inline-block";
-        input.value = d.topic;
+        input.value = meta.topic;
     }
 
     handleTopicSelect();
 
+    // Set up Undo/Redo history
     history = [JSON.stringify(grid)];
     historyStep = 0;
 
@@ -1427,9 +1476,12 @@ function pushHistory() {
 function render(doSave = true) {
     if (doSave) pushHistory();
     const container = document.getElementById('grid-container');
+    if (!container) return;
     container.innerHTML = '';
+
     const cols = grid[0].length;
-    container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
+  
+container.style.gridTemplateColumns = `repeat(${cols}, minmax(min-content, max-content))`;
 
     grid.forEach((row, r) => {
         row.forEach((cell, cIdx) => {
@@ -1438,6 +1490,10 @@ function render(doSave = true) {
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
             
+            if (cell.split) {
+                cellDiv.classList.add('is-split');
+            }
+
             cellDiv.style.gridRow = `${r + 1} / span ${cell.rS || 1}`;
             cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
             cellDiv.style.backgroundColor = cell.color || "#ffffff";
@@ -1447,12 +1503,12 @@ function render(doSave = true) {
                     <input type="text" class="target-input" placeholder="Target" 
                         data-pos="${r}-${cIdx}-${i}-t"
                         onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')" 
-                        oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
+                        oninput="updateVal(${r},${cIdx},${i},'t',this.value); autoSizeInput(this)" value="${item.t}">
                     <div class="bracket-wrapper"><span>(</span>
                     <input type="text" class="translation-input" placeholder="Translation" 
                         data-pos="${r}-${cIdx}-${i}-tr"
                         onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 'tr')" 
-                        oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
+                        oninput="updateVal(${r},${cIdx},${i},'tr',this.value); autoSizeInput(this)" value="${item.tr}">
                     <span>)</span></div>
                 </div>
             `).join('');
@@ -1471,35 +1527,39 @@ function render(doSave = true) {
                     </div>
                 </div>
             `;
-            
-                // --- ADD THIS INSIDE render() grid.forEach loop ---
-if (currentMode === 'add-col' && r === 0) {
-    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-}
-if (currentMode === 'del-col' && r === 0) {
-    addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-}
-if (currentMode === 'add-row' && cIdx === 0) {
-    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-}
-if (currentMode === 'del-row' && cIdx === 0) {
-    addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
-}
-               
-                if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-                if (currentMode === 'add-row' && cIdx === 0) {
-                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-                }
-                if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
 
-                container.appendChild(cellDiv);
-                cellDiv.querySelectorAll('input').forEach(syncSize);
-            });
+            if (currentMode === 'add-col' && r === 0) {
+                addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+            }
+            if (currentMode === 'del-col' && r === 0) {
+                addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+            }
+            if (currentMode === 'add-row' && cIdx === 0) {
+                addIcon(cellDiv, 'top-edge', 'top-edge', '+', () => insertRow(r));
+                if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+            }
+            if (currentMode === 'del-row' && cIdx === 0) {
+                addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+            }
+
+            container.appendChild(cellDiv);
         });
-    }
+    });
+
+    // --- CORRECTION AVEC UN LÉGER DÉLAI ---
+    // Le setTimeout à 0 permet de s'assurer que le navigateur a fini de dessiner
+    // le tableau avant de calculer la largeur des textes.
+    setTimeout(() => {
+        container.querySelectorAll('input[type="text"]').forEach(input => {
+            if (typeof syncSize === 'function') {
+                syncSize(input);
+            } else if (typeof autoSizeInput === 'function') {
+                autoSizeInput(input);
+            }
+        });
+    }, 0);
+}
     /* --- FIXES FOR CELL ACTIONS --- */
 
 // 1. Function to update cell color
@@ -1513,7 +1573,8 @@ function setClr(r, c, color) {
 // 2. Function to toggle between 1 and 2 columns in a cell
 function toggleCellSplit(r, c) {
     grid[r][c].split = !grid[r][c].split;
-    render(); // Re-draw the grid to apply the 'split' class
+    render(); // This will trigger the class change and expand the width
+    saveToCloud(true);
 }
 async function duplicateSB(id, e) {
     if (e) e.stopPropagation();
@@ -1914,7 +1975,7 @@ async function exportPDF() {
         return; 
     }
 
-   // --- OPTION B: MFL (Vector-based / Searchable Text) ---
+// --- OPTION B: MFL (Vector-based / Searchable Text) ---
 const doc = new jsPDF('l', 'mm', 'a4');
 const margin = 10;
 const pageWidth = doc.internal.pageSize.getWidth();
@@ -1936,36 +1997,37 @@ let currentY = margin + 15;
 
 grid.forEach((row) => {
     // 1. PRE-CALCULATE WRAPPED LINES AND ROW HEIGHT
-    let preparedRow = row.map(cell => {
-        let lines = [];
+   let preparedRow = row.map(cell => {
+        let items = [];
         cell.items.forEach(item => {
             const tl = item.t || "";
             const tr = item.tr ? ` (${item.tr})` : "";
             
-            // Combine them temporarily to see how they wrap together
             doc.setFont("helvetica", "normal");
             doc.setFontSize(9);
-            const combinedLines = doc.splitTextToSize(tl + tr, textWidth);
             
-            lines.push({ tl, tr, wrapped: combinedLines });
+            // On calcule le wrapping sur le texte complet
+            const fullText = tl + tr;
+            const wrappedLines = doc.splitTextToSize(fullText, textWidth);
+            
+            items.push({ tl, tr, wrappedLines });
         });
-        return lines;
+        return items;
     });
 
     let maxLinesInRow = 0;
-    preparedRow.forEach(cellLines => {
-        let count = cellLines.reduce((acc, curr) => acc + curr.wrapped.length, 0);
+    preparedRow.forEach(cellItems => {
+        let count = cellItems.reduce((acc, curr) => acc + curr.wrappedLines.length, 0);
         if (count > maxLinesInRow) maxLinesInRow = count;
     });
     const rowHeight = Math.max(20, (maxLinesInRow * 6) + 8);
 
-    // 2. CHECK FOR PAGE BREAK
     if (currentY + rowHeight > pageHeight - margin) {
         doc.addPage();
         currentY = margin;
     }
 
-    // 3. RENDER THE ROW
+    // 2. RENDU DE LA LIGNE
     row.forEach((cell, colIndex) => {
         const x = margin + (colIndex * cellWidth);
         doc.setDrawColor(148, 163, 184); 
@@ -1974,50 +2036,476 @@ grid.forEach((row) => {
 
         let textY = currentY + 7;
         const cellItems = preparedRow[colIndex];
-
+        
+        // Variable pour savoir combien de caractères de TL on a déjà "consommé"
         cellItems.forEach(item => {
-            const tlText = item.tl;
-            const trText = item.tr;
-            
-            // We use the 'wrapped' lines as a guide for where to break
-            item.wrapped.forEach((lineText, lineIdx) => {
+            let tlCharsLeft = item.tl.length;
+
+            item.wrappedLines.forEach((lineText) => {
                 let currentX = x + padding;
 
-                // Check if the TL text is part of this line
-                if (tlText && lineText.includes(tlText)) {
+                if (tlCharsLeft > 0) {
+                    // Il reste du texte Target (TL) à écrire sur cette ligne
+                    const tlInLine = lineText.substring(0, tlCharsLeft);
+                    
                     doc.setFont("helvetica", "normal");
                     doc.setTextColor(0, 0, 0);
+                     doc.setFontSize(9);
+                    doc.text(tlInLine, currentX, textY);
                     
-                    // If TL is longer than one line, this logic handles the split
-                    const partTL = lineText.substring(0, tlText.length);
-                    doc.text(partTL, currentX, textY);
-                    currentX += doc.getTextWidth(partTL);
+                    currentX += doc.getTextWidth(tlInLine);
                     
-                    // Remaining part of the line is Translation
-                    const partTR = lineText.substring(tlText.length);
-                    if (partTR) {
+                    // On vérifie s'il y a une traduction (TR) sur la même ligne
+                    const trInLine = lineText.substring(tlCharsLeft);
+                    if (trInLine) {
                         doc.setFont("helvetica", "italic");
-                        doc.setFontSize(8);
                         doc.setTextColor(41, 128, 185);
-                        doc.text(partTR, currentX, textY);
+                         doc.setFontSize(8);
+                        doc.text(trInLine, currentX, textY);
                     }
+                    
+                    tlCharsLeft -= tlInLine.length;
                 } else {
-                    // This line is entirely Translation (it wrapped)
+                    // Cette ligne est purement de la traduction
                     doc.setFont("helvetica", "italic");
-                    doc.setFontSize(8);
                     doc.setTextColor(41, 128, 185);
+                     doc.setFontSize(8);
                     doc.text(lineText, currentX, textY);
                 }
                 textY += 5.5;
             });
-            textY += 1.5; // Small gap between items
+            textY += 1.5; // Espace entre les items d'une cellule
         });
     });
-
     currentY += rowHeight;
 });
 
 doc.save(`${title}.pdf`);
+     }
+async function handlePDFImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async function() {
+        try {
+            const typedarray = new Uint8Array(this.result);
+            const pdfjsLib = window['pdfjs-dist/build/pdf'];
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+            const pdf = await pdfjsLib.getDocument(typedarray).promise;
+            const page = await pdf.getPage(1);
+            const textContent = await page.getTextContent();
+            
+            let items = textContent.items.map(item => ({
+                str: item.str.trim(),
+                x: item.transform[4],
+                y: item.transform[5],
+                fs: item.transform[0]
+            })).filter(i => i.str.length > 0);
+
+            const titleItem = [...items].sort((a,b) => b.fs - a.fs || b.y - a.y)[0];
+            const suggestedTitle = titleItem ? titleItem.str : file.name.replace(".pdf", "");
+
+            const branding = ["sentencebuilders", "powered by", "language gym"];
+            const gridItems = items.filter(i => {
+                if (i === titleItem) return false;
+                return !branding.some(b => i.str.toLowerCase().includes(b));
+            });
+
+            // 1. CLUSTER COLUMNS
+            let columns = [];
+            gridItems.sort((a,b) => a.x - b.x).forEach(item => {
+                let cluster = columns.find(c => Math.abs(c.x - item.x) < 35);
+                if (cluster) cluster.items.push(item);
+                else columns.push({ x: item.x, items: [item] });
+            });
+            columns.sort((a,b) => a.x - b.x);
+
+            // 🔥 NEW: MERGE TRANSLATION-ONLY COLUMNS
+            // If a column starts with a bracket, it belongs to the previous column
+            let mergedCols = [];
+            columns.forEach((col, i) => {
+                const isTranslationCol = col.items.every(it => it.str.startsWith('(') || it.str.endsWith(')'));
+                if (isTranslationCol && mergedCols.length > 0) {
+                    mergedCols[mergedCols.length - 1].items.push(...col.items);
+                } else {
+                    mergedCols.push(col);
+                }
+            });
+
+            // 2. CLUSTER ROWS
+            let rows = [];
+            gridItems.sort((a,b) => a.y - b.y).forEach(item => {
+                let cluster = rows.find(r => Math.abs(r.y - item.y) < 25);
+                if (cluster) cluster.items.push(item);
+                else rows.push({ y: item.y, items: [item] });
+            });
+            rows.sort((a,b) => b.y - a.y);
+
+            // 3. ASSEMBLE GRID
+            let finalGridRows = rows.map(row => {
+                return mergedCols.map(col => {
+                    let cellItems = row.items.filter(ri => col.items.includes(ri));
+                    cellItems.sort((a, b) => b.y - a.y || a.x - b.x); 
+
+                    let vocab = [];
+                    let lastT = "";
+
+                    cellItems.forEach(item => {
+                        let text = item.str;
+                        if (text.startsWith('(') && text.endsWith(')')) {
+                            vocab.push({ t: lastT.trim(), tr: text.replace(/[()]/g, "").trim() });
+                            lastT = "";
+                        } else if (text.includes('(') && text.includes(')')) {
+                            const m = text.match(/^(.*)\((.*)\)$/);
+                            if (m) vocab.push({ t: m[1].trim(), tr: m[2].trim() });
+                        } else {
+                            if (lastT) vocab.push({ t: lastT.trim(), tr: "" });
+                            lastT = text;
+                        }
+                    });
+                    if (lastT) vocab.push({ t: lastT.trim(), tr: "" });
+
+                    return {
+                        items: vocab.length ? vocab : [{ t: "", tr: "" }],
+                        color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false
+                    };
+                });
+            });
+
+            const finalTitle = prompt("Confirm Project Title:", suggestedTitle);
+            if (!finalTitle) return;
+
+            const newDoc = {
+                uid: currentUser.uid,
+                title: finalTitle,
+                lang: "French",
+                year: "Year 9", topic: "Imported",
+                grid: JSON.stringify(finalGridRows),
+                updated: firebase.firestore.FieldValue.serverTimestamp(),
+                isDeleted: false
+            };
+
+            const docRef = await db.collection("builders").add(newDoc);
+            alert("Success! Review the column alignment.");
+            loadProject(docRef.id);
+
+        } catch (err) {
+            console.error(err);
+            alert("Import failed.");
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+function adaptImportedGrid(importedGrid) {
+    if (!Array.isArray(importedGrid)) {
+        console.error("Invalid grid format");
+        return [[createEmptyCell(), createEmptyCell(), createEmptyCell()]];
+    }
+
+    return importedGrid.map(row => {
+        return row.map(cell => {
+            return {
+                items: (cell.vocab || []).map(v => ({
+                    t: v.target || "",
+                    tr: v.translation || ""
+                })),
+                color: cell.color || "#ffffff",
+                split: cell.isSplit || false,
+
+                // REQUIRED by your engine
+                rS: 1,
+                cS: 1,
+                hidden: false,
+                sel: false
+            };
+        });
+    });
+}
+
+function createEmptyCell() {
+    return {
+        items: [{ t: "", tr: "" }],
+        color: "#ffffff",
+        split: false,
+        rS: 1,
+        cS: 1,
+        hidden: false,
+        sel: false
+    };
+}
+    function buildGlobalColumns(items) {
+    const THRESHOLD = 18;
+
+    let xs = items.map(i => i.x).sort((a, b) => a - b);
+    let clusters = [];
+
+    for (let x of xs) {
+        let cluster = clusters.find(c => Math.abs(c.mean - x) < THRESHOLD);
+
+        if (!cluster) {
+            clusters.push({ values: [x], mean: x });
+        } else {
+            cluster.values.push(x);
+            cluster.mean = cluster.values.reduce((a, b) => a + b, 0) / cluster.values.length;
+        }
+    }
+
+    return clusters
+        .sort((a, b) => a.mean - b.mean)
+        .map(c => c.mean);
+}
+ function getColumnIndex(x, columns) {
+    let best = 0;
+    let min = Infinity;
+
+    for (let i = 0; i < columns.length; i++) {
+        const d = Math.abs(x - columns[i]);
+        if (d < min) {
+            min = d;
+            best = i;
+        }
+    }
+
+    return best;
+}
+async function extractGridFromPDF(file) {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    let items = [];
+
+    for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+
+        content.items.forEach(it => {
+            items.push({
+                text: it.str.trim(),
+                x: it.transform[4],
+                y: it.transform[5],
+                w: it.width || 0
+            });
+        });
+    }
+
+    // ---------- 1. GROUP ROWS ----------
+    const rowThreshold = 6;
+    let rows = [];
+
+    items.forEach(item => {
+        let row = rows.find(r => Math.abs(r.y - item.y) < rowThreshold);
+        if (!row) {
+            row = { y: item.y, items: [] };
+            rows.push(row);
+        }
+        row.items.push(item);
+    });
+
+    rows.sort((a, b) => b.y - a.y);
+
+    // ---------- 2. DETECT TRUE COLUMN BANDS ----------
+    let allX = items.map(i => i.x).sort((a, b) => a - b);
+
+    let gaps = [];
+    for (let i = 1; i < allX.length; i++) {
+        const gap = allX[i] - allX[i - 1];
+        if (gap > 25) { // 🔥 key threshold
+            gaps.push((allX[i] + allX[i - 1]) / 2);
+        }
+    }
+
+    let columns = [allX[0], ...gaps];
+
+    console.log("📊 Columns detected:", columns.length);
+
+    // ---------- 3. BUILD GRID WITH COLSPAN ----------
+    let grid = rows.map(row => {
+        let cellBuckets = columns.map(() => []);
+
+        row.items.forEach(item => {
+            let colIndex = columns.findIndex((c, i) => {
+                const next = columns[i + 1] || Infinity;
+                return item.x >= c && item.x < next;
+            });
+
+            if (colIndex !== -1) {
+                cellBuckets[colIndex].push(item);
+            }
+        });
+
+        // ---------- 4. BUILD CELLS ----------
+        let cells = [];
+
+        for (let i = 0; i < cellBuckets.length; i++) {
+            const bucket = cellBuckets[i];
+
+            if (bucket.length === 0) {
+                cells.push(null); // empty → may be span
+                continue;
+            }
+
+            // sort left→right
+            bucket.sort((a, b) => a.x - b.x);
+
+            const fullText = bucket.map(b => b.text).join(" ");
+
+            const vocab = parseTextToVocab(fullText);
+
+            cells.push({
+                vocab,
+                color: "#ffffff",
+                isSplit: false,
+                span: 1
+            });
+        }
+
+        // ---------- 5. DETECT COLSPAN ----------
+        for (let i = 0; i < cells.length; i++) {
+            if (!cells[i]) continue;
+
+            let span = 1;
+            let j = i + 1;
+
+            while (j < cells.length && cells[j] === null) {
+                span++;
+                j++;
+            }
+
+            cells[i].span = span;
+            i = j - 1;
+        }
+
+        // remove nulls (merged into spans)
+        return cells.filter(c => c !== null);
+    });
+
+    console.log("🧩 Grid with spans:", grid);
+
+    return grid;
+}
+
+
+// ---------- TEXT PARSER ----------
+function parseTextToVocab(text) {
+    let vocab = [];
+
+    // match multiple TL (TR)
+    const regex = /([^()]+?)\s*\(([^()]+)\)/g;
+
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        vocab.push({
+            target: match[1].trim(),
+            translation: match[2].trim()
+        });
+    }
+
+    if (vocab.length === 0) {
+        vocab.push({ target: text.trim(), translation: "" });
+    }
+
+    return vocab;
+}
+function groupIntoRows(items) {
+    const ROW_THRESHOLD = 14; // 🔥 increased tolerance
+
+    let rows = [];
+
+    items.forEach(item => {
+        let row = rows.find(r => Math.abs(r.y - item.y) < ROW_THRESHOLD);
+
+        if (!row) {
+            row = { y: item.y, items: [] };
+            rows.push(row);
+        }
+
+        row.items.push(item);
+    });
+
+    rows.sort((a, b) => b.y - a.y);
+
+    return rows;
+}
+    function mergeVerticalCells(rows, columns) {
+    const MERGE_Y_THRESHOLD = 18; // 🔥 key tuning
+
+    let mergedGrid = [];
+
+    for (let r = 0; r < rows.length; r++) {
+        let row = rows[r];
+        let cellBuckets = columns.map(() => []);
+
+        // assign items to columns
+        row.items.forEach(item => {
+            let colIndex = columns.findIndex((c, i) => {
+                const next = columns[i + 1] || Infinity;
+                return item.x >= c && item.x < next;
+            });
+
+            if (colIndex !== -1) {
+                cellBuckets[colIndex].push(item);
+            }
+        });
+
+        // 🔥 MERGE WITH PREVIOUS ROW if same column + close Y
+        if (mergedGrid.length > 0) {
+            let prevRow = mergedGrid[mergedGrid.length - 1];
+
+            for (let c = 0; c < columns.length; c++) {
+                const current = cellBuckets[c];
+                const previous = prevRow[c];
+
+                if (
+                    current.length &&
+                    previous &&
+                    Math.abs(current[0].y - previous.lastY) < MERGE_Y_THRESHOLD
+                ) {
+                    // merge into previous cell
+                    previous.items.push(...current);
+                    previous.lastY = current[0].y;
+                    cellBuckets[c] = null;
+                }
+            }
+        }
+
+        // build row
+        let newRow = cellBuckets.map(bucket => {
+            if (!bucket) return null;
+            if (bucket.length === 0) return null;
+
+            bucket.sort((a, b) => a.x - b.x);
+
+            return {
+                items: bucket,
+                lastY: bucket[0].y
+            };
+        });
+
+        mergedGrid.push(newRow);
+    }
+
+    return mergedGrid;
+}
+function buildFinalCells(mergedGrid) {
+    return mergedGrid.map(row => row.map(cell => {
+        if (!cell) return emptyCell();
+        const text = cell.items.map(i => i.text).join(" ");
+        return { 
+            vocab: parseTextToVocab(text), 
+            color: "#ffffff", 
+            split: false // Changed from true to false
+        };
+    }));
+}
+
+function emptyCell() {
+    return { 
+        vocab: [{ target: "", translation: "" }], 
+        color: "#ffffff", 
+        split: false // Changed from true to false
+    };
 }
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
@@ -2208,7 +2696,33 @@ function deleteCol(i) {
         render();
     }
 }
+function autoSizeInput(input) {
+    if (!input) return;
 
+    const tempSpan = document.createElement('span');
+    const styles = window.getComputedStyle(input);
+    
+    tempSpan.style.font = styles.font;
+    tempSpan.style.visibility = 'hidden';
+    tempSpan.style.position = 'absolute';
+    tempSpan.style.whiteSpace = 'pre';
+    
+    tempSpan.innerText = input.value || input.placeholder || "";
+    document.body.appendChild(tempSpan);
+    
+    const width = tempSpan.getBoundingClientRect().width;
+    // On garde une marge confortable
+    input.style.width = (width + 15) + 'px';
+    
+    document.body.removeChild(tempSpan);
+
+    // AU LIEU DE width: auto (qui crée l'espace gris)
+    // On utilise minWidth pour pousser la grille sans rétrécir la cellule
+    const cell = input.closest('.cell');
+    if (cell) {
+        cell.style.minWidth = "max-content";
+    }
+}
     /* =========================
    AUTOSAVE SYSTEM
 ========================= */
