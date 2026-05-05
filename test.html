@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarsjj builder Test</title>
+    <title>Cedars builder Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1977,17 +1976,17 @@ async function exportPDF() {
 
 // --- OPTION B: MFL (Vector-based / Searchable Text) ---
 const doc = new jsPDF('l', 'mm', 'a4');
+
 const margin = 10;
 const pageWidth = doc.internal.pageSize.getWidth();
 const pageHeight = doc.internal.pageSize.getHeight();
-const availableWidth = pageWidth - (margin * 2);
+const availableWidth = pageWidth - margin * 2;
 
 if (!grid || grid.length === 0) return;
 
+// ---- STEP 1: normalize layout metadata ----
 const colCount = grid[0].length;
-const cellWidth = availableWidth / colCount;
-const padding = 3; 
-const textWidth = cellWidth - (padding * 2); 
+const baseCellWidth = availableWidth / colCount;
 
 doc.setFont("helvetica", "bold");
 doc.setFontSize(16);
@@ -1995,89 +1994,120 @@ doc.text(title, margin, margin + 5);
 
 let currentY = margin + 15;
 
-grid.forEach((row) => {
-    // 1. PRE-CALCULATE WRAPPED LINES AND ROW HEIGHT
-   let preparedRow = row.map(cell => {
-        let items = [];
-        cell.items.forEach(item => {
+// Track row spans
+const rowSpanMap = new Map();
+
+grid.forEach((row, rowIndex) => {
+    let currentX = margin;
+
+    // compute row height dynamically
+    let rowCells = [];
+
+    row.forEach((cell, colIndex) => {
+
+        // skip cells covered by rowspan
+        if (rowSpanMap.get(`${rowIndex},${colIndex}`)) return;
+
+        const colSpan = cell.colSpan || 1;
+        const rowSpan = cell.rowSpan || 1;
+        const isSplit = cell.mode === "split";
+
+        const cellWidth = baseCellWidth * colSpan;
+
+        // mark rowSpan occupancy
+        for (let r = 1; r < rowSpan; r++) {
+            for (let c = 0; c < colSpan; c++) {
+                rowSpanMap.set(`${rowIndex + r},${colIndex + c}`, true);
+            }
+        }
+
+        // ---- TEXT PREP ----
+        let items = cell.items || [];
+
+        let preparedItems = items.map(item => {
             const tl = item.t || "";
             const tr = item.tr ? ` (${item.tr})` : "";
-            
+
+            const fullText = tl + tr;
+
             doc.setFont("helvetica", "normal");
             doc.setFontSize(9);
-            
-            // On calcule le wrapping sur le texte complet
-            const fullText = tl + tr;
-            const wrappedLines = doc.splitTextToSize(fullText, textWidth);
-            
-            items.push({ tl, tr, wrappedLines });
+
+            return {
+                tl,
+                tr,
+                wrappedLines: doc.splitTextToSize(fullText, cellWidth - 6)
+            };
         });
-        return items;
+
+        const maxLines = preparedItems.reduce(
+            (acc, it) => acc + it.wrappedLines.length,
+            0
+        );
+
+        const rowHeight = Math.max(20, maxLines * 6 + 8);
+
+        rowCells.push({ cell, preparedItems, colSpan, rowSpan, cellWidth, rowHeight, colIndex });
     });
 
-    let maxLinesInRow = 0;
-    preparedRow.forEach(cellItems => {
-        let count = cellItems.reduce((acc, curr) => acc + curr.wrappedLines.length, 0);
-        if (count > maxLinesInRow) maxLinesInRow = count;
-    });
-    const rowHeight = Math.max(20, (maxLinesInRow * 6) + 8);
-
-    if (currentY + rowHeight > pageHeight - margin) {
+    // page break
+    const maxRowHeight = Math.max(...rowCells.map(c => c.rowHeight));
+    if (currentY + maxRowHeight > pageHeight - margin) {
         doc.addPage();
         currentY = margin;
     }
 
-    // 2. RENDU DE LA LIGNE
-    row.forEach((cell, colIndex) => {
-        const x = margin + (colIndex * cellWidth);
-        doc.setDrawColor(148, 163, 184); 
+    // ---- STEP 2: render row ----
+    rowCells.forEach(({ cell, preparedItems, colSpan, cellWidth, rowHeight }) => {
+
+        doc.setDrawColor(148, 163, 184);
         doc.setLineWidth(0.2);
-        doc.rect(x, currentY, cellWidth, rowHeight);
+        doc.rect(currentX, currentY, cellWidth, rowHeight);
 
         let textY = currentY + 7;
-        const cellItems = preparedRow[colIndex];
-        
-        // Variable pour savoir combien de caractères de TL on a déjà "consommé"
-        cellItems.forEach(item => {
+
+        preparedItems.forEach(item => {
             let tlCharsLeft = item.tl.length;
 
-            item.wrappedLines.forEach((lineText) => {
-                let currentX = x + padding;
+            item.wrappedLines.forEach(line => {
+                let x = currentX + 3;
 
                 if (tlCharsLeft > 0) {
-                    // Il reste du texte Target (TL) à écrire sur cette ligne
-                    const tlInLine = lineText.substring(0, tlCharsLeft);
-                    
+                    const tlPart = line.substring(0, tlCharsLeft);
+
                     doc.setFont("helvetica", "normal");
+                    doc.setFontSize(9);
                     doc.setTextColor(0, 0, 0);
-                     doc.setFontSize(9);
-                    doc.text(tlInLine, currentX, textY);
-                    
-                    currentX += doc.getTextWidth(tlInLine);
-                    
-                    // On vérifie s'il y a une traduction (TR) sur la même ligne
-                    const trInLine = lineText.substring(tlCharsLeft);
-                    if (trInLine) {
+                    doc.text(tlPart, x, textY);
+
+                    x += doc.getTextWidth(tlPart);
+
+                    const trPart = line.substring(tlCharsLeft);
+                    if (trPart) {
                         doc.setFont("helvetica", "italic");
+                        doc.setFontSize(8);
                         doc.setTextColor(41, 128, 185);
-                         doc.setFontSize(8);
-                        doc.text(trInLine, currentX, textY);
+                        doc.text(trPart, x, textY);
                     }
-                    
-                    tlCharsLeft -= tlInLine.length;
+
+                    tlCharsLeft -= tlPart.length;
                 } else {
-                    // Cette ligne est purement de la traduction
                     doc.setFont("helvetica", "italic");
+                    doc.setFontSize(8);
                     doc.setTextColor(41, 128, 185);
-                     doc.setFontSize(8);
-                    doc.text(lineText, currentX, textY);
+                    doc.text(line, x, textY);
                 }
+
                 textY += 5.5;
             });
-            textY += 1.5; // Espace entre les items d'une cellule
+
+            textY += 1.5;
         });
+
+        currentX += cellWidth;
     });
-    currentY += rowHeight;
+
+    currentY += Math.max(...rowCells.map(c => c.rowHeight));
 });
 
 doc.save(`${title}.pdf`);
