@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedss builder</title>
+    <title>Cedsscccbuilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1015,9 +1015,18 @@ async function renderProjectsInline() {
         snap.docs.forEach(doc => {
             const p = doc.data();
             
-            // Gestion de la date (Priorité au champ lastUpdated, sinon createdAt)
-            const dateValue = p.lastUpdated || p.createdAt || null;
-            const lastEdited = dateValue ? new Date(dateValue).toLocaleDateString('en-GB') : 'Unknown';
+            // --- CONVERSION DU TIMESTAMP "updated" ---
+            let displayDate = "New";
+            
+            if (p.updated) {
+                // Si c'est un Timestamp Firestore, on utilise .toDate()
+                // Sinon (fallback), on crée une date à partir de la valeur
+                const dateObj = (typeof p.updated.toDate === 'function') 
+                                ? p.updated.toDate() 
+                                : new Date(p.updated);
+                
+                displayDate = dateObj.toLocaleDateString('en-GB'); 
+            }
 
             html += `
                 <div class="project-card" onclick="loadProject('${doc.id}')" style="cursor:pointer; width:300px; box-sizing:border-box; display:flex; align-items:center; justify-content:space-between; padding:15px; border:1px solid #e2e8f0; border-radius:10px; background:white;">
@@ -1026,7 +1035,7 @@ async function renderProjectsInline() {
                             ${p.title || "Untitled Builder"}
                         </span>
                         <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
-                            Last edited: ${lastEdited}
+                            Last edited: ${displayDate}
                         </div>
                     </div>
                     <div class="project-actions" onclick="event.stopPropagation();" style="display:flex; gap:10px; margin-left:10px;">
@@ -1287,7 +1296,6 @@ async function saveToCloud(isAutosave = false) {
     const autoStatus = document.getElementById('autosave-indicator');
 
     try {
-        // 1. Manually get values to avoid updateMeta() errors
         const langVal = document.getElementById('meta-lang').value;
         const yearVal = (langVal === "EAL") ? "EAL" : document.getElementById('meta-year').value;
         
@@ -1308,11 +1316,10 @@ async function saveToCloud(isAutosave = false) {
             topic: topicValue,
             grid: JSON.stringify(grid),
             isDeleted: false,
-            lastUpdated: Date.now(),
+            // On utilise uniquement le timestamp serveur officiel
             updated: firebase.firestore.FieldValue.serverTimestamp()
         };
 
-        // 2. Perform Database Operation
         if (currentDocId) {
             await db.collection("builders").doc(currentDocId).update(data);
         } else {
@@ -1320,7 +1327,6 @@ async function saveToCloud(isAutosave = false) {
             currentDocId = doc.id;
         }
 
-        // 3. UI Update
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         if (isAutosave) {
             if (autoStatus) autoStatus.innerText = `Autosaved at ${time}`;
@@ -1330,14 +1336,10 @@ async function saveToCloud(isAutosave = false) {
                 setTimeout(() => { manualStatus.innerText = ""; }, 5000);
             }
         }
-
     } catch (e) {
         console.error("Critical Save Error:", e);
-        if (!isAutosave && manualStatus) {
-            manualStatus.innerText = "Error Saving!";
-            manualStatus.style.color = "red";
-        }
     }
+}
 }
 async function loadProject(id) {
     const doc = await db.collection("builders").doc(id).get();
