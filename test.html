@@ -1,17 +1,19 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarsexeeeeeee builder Test</title>
+    <title>Cedars bjkbkjuilder Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-<!-- FileSaver (for downloading files) -->
-<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet">
+
     <style>
 :root {
     --accent: #2196f3;
@@ -655,8 +657,7 @@ button:hover {
         <button onclick="toggleMode('del-col')">- Col</button>
         <button onclick="mergeSelected()" title="Merge Cells">🔗 Merge</button>
         <button onclick="splitSelected()" title="Split Cell">✂️ Split</button>
-       <button onclick="exportPDF()">Export PDF</button>
-<button onclick="exportMFLToExcel(grid)">Export Excel</button>
+        <button onclick="Export()" class="btn-danger">📄 Export</button>
         <button onclick="openPreview()" class="btn-info">👁️ Preview</button>
         <button onclick="openActivityMenu()" class="btn-purple">📜 Worksheet</button>
     </div>
@@ -1925,82 +1926,97 @@ function initMetaListeners() {
         handleTopicSelect();
     });
 }
-async function exportPDF() {
-    console.log("PDF export triggered");
+/* This is the function your button calls */
+async function Export() {
+    // Check the language from your meta object or the dropdown
+    // We use the same 'meta.lang' logic from your original code
+    if (meta.lang === "EAL") {
+        await exportPDF();
+    } else {
+        await exportToExcel();
+    }
+}
 
-    const title = document.getElementById('builder-title')?.value || "Sentence Builder";
+/* Updated exportPDF: ONLY handles EAL (The "Perfect" Image Version) */
+async function exportPDF() {
+    const title = document.getElementById('builder-title').value || "Sentence Builder";
     const { jsPDF } = window.jspdf;
 
-    if (!window.html2canvas) {
-        console.error("html2canvas not loaded");
-        return;
+    // Hide UI elements
+    const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
+    edits.forEach(el => el.style.visibility = 'hidden');
+
+    try {
+        const element = document.getElementById('grid-container');
+        const canvas = await html2canvas(element, { 
+            scale: 3, 
+            useCORS: true 
+        });
+        
+        edits.forEach(el => el.style.visibility = 'visible');
+
+        const pdf = new jsPDF('l', 'mm', 'a4');
+        const imgData = canvas.toDataURL('image/png');
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+        pdf.setFont("helvetica", "bold");
+        pdf.text(title, 14, 15);
+        pdf.addImage(imgData, 'PNG', 0, 20, pdfWidth, imgHeight);
+
+        pdf.save(`${title}.pdf`);
+    } catch (err) {
+        console.error("EAL PDF Export failed:", err);
+        edits.forEach(el => el.style.visibility = 'visible');
     }
-
-    if (meta.lang === "EAL") {
-        const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
-        edits.forEach(el => el.style.visibility = 'hidden');
-
-        try {
-            const element = document.getElementById('grid-container');
-
-            const canvas = await html2canvas(element, {
-                scale: 3,
-                useCORS: true
-            });
-
-            edits.forEach(el => el.style.visibility = 'visible');
-
-            const pdf = new jsPDF('l', 'mm', 'a4');
-            const imgData = canvas.toDataURL('image/png');
-
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-
-            const imgProps = pdf.getImageProperties(imgData);
-            const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
-            pdf.setFont("helvetica", "bold");
-            pdf.text(title, 14, 15);
-            pdf.addImage(imgData, 'PNG', 0, 20, pdfWidth, imgHeight);
-
-            pdf.save(`${title}.pdf`);
-
-        } catch (err) {
-            console.error("EAL PDF Export failed:", err);
-            edits.forEach(el => el.style.visibility = 'visible');
-        }
-
-        return;
-    }
-
-    console.warn("Non-EAL export not implemented yet");
 }
-  async function exportMFLToExcel(grid, title = "Sentence Builder") {
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("MFL");
+ async function exportToExcel() {
+    const title = document.getElementById('builder-title').value || "Sentence Builder";
+    const wb = XLSX.utils.book_new();
+    const ws_data = [];
 
-    grid.forEach((row, rowIndex) => {
-        let colIndex = 1;
+    // 1. Process rows and cells from your 'grid' array
+    grid.forEach((row) => {
+        const rowData = [];
+        row.forEach((cell) => {
+            // Combine vocabulary items: "Target (Translation)"
+            const cellText = cell.vocab.map(v => v.tr ? `${v.t} (${v.tr})` : v.t).join("\n");
+            rowData.push(cellText);
+            
+            // Fill empty strings for horizontal merges (colSpan)
+            if (cell.colSpan > 1) {
+                for (let i = 1; i < cell.colSpan; i++) rowData.push(""); 
+            }
+        });
+        ws_data.push(rowData);
+    });
 
-        row.forEach(cell => {
-            const text = (cell.items || [])
-                .map(i => (i.t || "") + (i.tr ? ` (${i.tr})` : ""))
-                .join("\n");
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
 
-            const excelCell = sheet.getRow(rowIndex + 1).getCell(colIndex);
-            excelCell.value = text;
-            excelCell.alignment = { wrapText: true };
-
-            colIndex++;
+    // 2. Map the grid merges to Excel merges
+    const merges = [];
+    grid.forEach((row, rIdx) => {
+        let cIdx = 0;
+        row.forEach((cell) => {
+            if (cell.colSpan > 1 || (cell.rowSpan && cell.rowSpan > 1)) {
+                merges.push({
+                    s: { r: rIdx, c: cIdx },
+                    e: { r: rIdx + (cell.rowSpan - 1 || 0), c: cIdx + (cell.colSpan - 1 || 0) }
+                });
+            }
+            cIdx += cell.colSpan || 1;
         });
     });
+    ws['!merges'] = merges;
 
-    const buffer = await workbook.xlsx.writeBuffer();
+    // 3. Simple styling for column width
+    const colWidths = grid[0] ? grid[0].map(() => ({ wch: 25 })) : [];
+    ws['!cols'] = colWidths;
 
-    const blob = new Blob([buffer], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    });
-
-    saveAs(blob, `${title}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Sentence Builder");
+    XLSX.writeFile(wb, `${title}.xlsx`);
 }
 async function handlePDFImport(event) {
     const file = event.target.files[0];
