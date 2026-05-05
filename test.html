@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars buixxxlder </title>
+    <title>Cedars buixlder </title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -913,6 +913,7 @@ async function renderTopicsInline() {
     const topicArea = document.getElementById("topic-area");
     if (!topicArea || !nav.lang) return;
 
+    // 1. Filtrer les fichiers actifs selon la langue et l'année
     let query = db.collection("builders")
         .where("lang", "==", nav.lang)
         .where("isDeleted", "==", false);
@@ -925,25 +926,30 @@ async function renderTopicsInline() {
 
     try {
         const snap = await query.get();
+        
+        // 2. Extraire la liste unique des thèmes (Topics)
         const topicList = [...new Set(
             snap.docs.map(d => d.data().topic).filter(t => t && t.trim() !== "")
         )].sort();
 
+        // 3. Sécurité : si le topic sélectionné n'existe plus, on le réinitialise
         if (nav.topic && !topicList.includes(nav.topic)) {
             nav.topic = null; 
         }
 
+        // 4. Construction du HTML
+        // Note : On ajoute un span/div vide à côté du titre pour le bouton de tri
         let html = `
-            <div style="margin-top: 20px; margin-bottom: 15px;">
+            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 15px; margin-top: 20px; margin-bottom: 15px;">
                 <h3 style="margin: 0;">Topics</h3>
-            </div>
+                <div id="sort-button-container"></div> </div>
             <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
         `;
 
         if (topicList.length > 0) {
             topicList.forEach(t => {
                 const isActive = (nav.topic === t);
-                const escaped = t.replace(/'/g, "\\'");
+                const escaped = t.replace(/'/g, "\\'"); // Gérer les apostrophes dans les noms de topics
                 html += `
                     <button onclick="selectTopic('${escaped}')"
                         style="padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:600; transition:all 0.2s;
@@ -954,29 +960,22 @@ async function renderTopicsInline() {
                     </button>`;
             });
         } else {
-            html += `<p style="color:#64748b;">No active topics found.</p>`;
+            html += `<p style="color:#64748b;">No active topics found for ${nav.lang}.</p>`;
         }
 
         html += `</div><div id="projects-area"></div>`;
         topicArea.innerHTML = html;
 
-        if (nav.topic) renderProjectsInline();
+        // 5. Si un topic est déjà sélectionné, on affiche les projets (et injecte le bouton de tri)
+        if (nav.topic) {
+            renderProjectsInline();
+        }
 
     } catch (error) {
-        console.error("Firestore Error:", error);
+        console.error("Firestore Error in renderTopicsInline:", error);
+        topicArea.innerHTML = `<p style="color:red;">Error loading topics.</p>`;
     }
 }
-// Global Click Listener (Move this outside of any function)
-window.addEventListener('click', (event) => {
-    document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
-    const dropdown = document.getElementById('custom-sort-options');
-    const trigger = document.getElementById('custom-sort-trigger');
-    if (dropdown && dropdown.classList.contains('show')) {
-        if (trigger && !trigger.contains(event.target) && !dropdown.contains(event.target)) {
-            dropdown.classList.remove('show');
-        }
-    }
-});
 function updateSort(val) {
     nav.sortBy = val; // Update the global navigation state
     renderTopicsInline(); // Refresh the UI to reflect the new sort order
@@ -989,6 +988,8 @@ function selectTopic(topic) {
 
 async function renderProjectsInline() {
     const container = document.getElementById("projects-area");
+    const sortButtonArea = document.getElementById("sort-button-container"); // La zone près de "Topics"
+    
     if (!container || !nav.topic) return;
 
     container.innerHTML = `<p style="color:#64748b; padding: 20px;">Loading projects...</p>`;
@@ -1000,17 +1001,34 @@ async function renderProjectsInline() {
             .where("isDeleted", "==", false)
             .get();
 
+        // --- INJECTION DU BOUTON PRÈS DU TITRE TOPICS ---
+        if (sortButtonArea) {
+            sortButtonArea.innerHTML = `
+                <div style="position: relative;">
+                    <button id="custom-sort-trigger" 
+                            onclick="document.getElementById('custom-sort-options').classList.toggle('show')" 
+                            style="padding: 4px 8px; font-size: 14px; border-radius: 6px; cursor: pointer; background: white; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 5px;">
+                        <span style="color: #64748b;">Sort</span> ⚙️
+                    </button>
+                    <div id="custom-sort-options" class="custom-dropdown-content" style="left: 0; top: 110%;">
+                        <div class="sort-option" onclick="updateSort('title')">Sort by Name (A-Z)</div>
+                        <div class="sort-option" onclick="updateSort('updated')">Sort by Last Edit</div>
+                    </div>
+                </div>
+            `;
+        }
+
         if (snap.empty) {
             container.innerHTML = `<p style="color:#64748b; padding: 20px;">No active projects in this topic.</p>`;
             return;
         }
 
-        // --- LOGIQUE DE TRI ---
+        // --- LOGIQUE DE TRI (A-Z ou Date) ---
         let docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
         if (nav.sortBy === 'title') {
-            // Tri alphabétique A-Z
-            docs.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+            // Tri alphabétique A-Z insensible à la casse
+            docs.sort((a, b) => (a.title || "").toLowerCase().localeCompare((b.title || "").toLowerCase()));
         } else {
             // Tri par date (Plus récent en premier)
             docs.sort((a, b) => {
@@ -1020,24 +1038,8 @@ async function renderProjectsInline() {
             });
         }
 
-        // --- EN-TÊTE AVEC BOUTON DE TRI ---
-        let html = `
-            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 15px; margin: 20px 0 15px 10px;">
-                <h4 style="margin: 0; color: #475569;">Sentence Builders</h4>
-                <div style="position: relative;">
-                    <button id="custom-sort-trigger" 
-                            onclick="document.getElementById('custom-sort-options').classList.toggle('show')" 
-                            style="padding: 4px 8px; font-size: 14px; border-radius: 6px; cursor: pointer; background: white; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 5px;">
-                        <span style="color: #64748b;">Sort</span> ⚙️
-                    </button>
-                    <div id="custom-sort-options" class="custom-dropdown-content" style="left: 0; top: 100%;">
-                        <div class="sort-option" onclick="updateSort('title')">Sort by Name (A-Z)</div>
-                        <div class="sort-option" onclick="updateSort('updated')">Sort by Last Edit</div>
-                    </div>
-                </div>
-            </div>
-            <div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px; padding: 10px;">
-        `;
+        // --- AFFICHAGE DE LA GRILLE ---
+        let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px; padding: 10px;">`;
         
         docs.forEach(p => {
             let displayDate = "New";
