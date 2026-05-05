@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>CedarsTest</title>
+    <title>Cedars   Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -10,7 +10,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet">
 
     <style>
@@ -1945,64 +1945,76 @@ async function exportToExcel() {
     const title = document.getElementById('builder-title').value || "Sentence Builder";
     if (typeof grid === 'undefined' || !grid || grid.length === 0) return;
 
-    const wb = XLSX.utils.book_new();
+    // 1. Create Worksheet Data
     const ws_data = [];
     const merges = [];
-    const rowHeights = [];
 
-    // 1. Build the data and identify merges
     grid.forEach((row, rIdx) => {
         const rowData = [];
         let cIdx = 0;
-        
         row.forEach((cell) => {
             const items = cell.items || cell.vocab || [];
-            // We create the text. Note: Excel doesn't support partial cell coloring 
-            // easily in standard exports, so we'll apply alignment and wrapping here.
+            // Create the cell content
             const cellText = items.map(v => v.tr ? `${v.t} (${v.tr})` : v.t).join("\n");
             
-            rowData.push(cellText);
+            // Push the value into the row array
+            rowData.push({
+                v: cellText,
+                s: {
+                    alignment: { 
+                        vertical: "center", 
+                        horizontal: "center", 
+                        wrapText: true 
+                    },
+                    font: { 
+                        name: "Arial", 
+                        sz: 10,
+                        // Note: Full cell color is supported, partial text color 
+                        // is an Excel limitation for basic JS exports.
+                        // We will set the whole cell to blue if it contains a translation.
+                        color: { rgb: cellText.includes("(") ? "2980B9" : "000000" },
+                        italic: cellText.includes("(")
+                    }
+                }
+            });
 
+            // Handle Merges
             if (cell.colSpan > 1 || cell.rowSpan > 1) {
                 merges.push({
                     s: { r: rIdx, c: cIdx },
                     e: { r: rIdx + (cell.rowSpan - 1 || 0), c: cIdx + (cell.colSpan - 1 || 0) }
                 });
             }
+            
+            // Push empty values for the width of the span so merges align correctly
+            for (let i = 1; i < cell.colSpan; i++) {
+                rowData.push({ v: "", s: {} });
+            }
+            
             cIdx += (cell.colSpan || 1);
         });
         ws_data.push(rowData);
-        rowHeights.push({ hpt: 40 }); // Sets a default taller row for vertical centering
     });
 
+    // 2. Build Workbook
+    const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(ws_data);
 
-    // 2. Apply Merges
+    // Re-apply styles (AOA_to_sheet sometimes strips them)
+    ws_data.forEach((row, rIdx) => {
+        row.forEach((cellObj, cIdx) => {
+            const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: cIdx });
+            if (cellObj.s) ws[cellRef].s = cellObj.s;
+        });
+    });
+
     ws['!merges'] = merges;
     
-    // 3. Apply Styling (Alignment and Wrapping)
-    const range = XLSX.utils.decode_range(ws['!ref']);
-    for (let R = range.s.r; R <= range.e.r; ++R) {
-        for (let C = range.s.c; C <= range.e.c; ++C) {
-            const cell_address = XLSX.utils.encode_cell({c: C, r: R});
-            if (!ws[cell_address]) continue;
-            
-            ws[cell_address].s = {
-                alignment: {
-                    vertical: "center",
-                    horizontal: "center",
-                    wrapText: true
-                },
-                font: {
-                    color: { rgb: "000000" } 
-                }
-            };
-        }
-    }
-
-    // 4. Formatting Columns and Rows
-    ws['!cols'] = Array(grid[0].length).fill({ wch: 30 }); // Wide columns
-    ws['!rows'] = rowHeights;
+    // Set column widths (approx 200 pixels)
+    ws['!cols'] = Array(10).fill({ wch: 35 });
+    
+    // Set row heights (approx 60 pixels)
+    ws['!rows'] = Array(ws_data.length).fill({ hpt: 60 });
 
     XLSX.utils.book_append_sheet(wb, ws, "Sentence Builder");
     XLSX.writeFile(wb, `${title}.xlsx`);
