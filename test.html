@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars buicclder Test</title>
+    <title>Cedars builder Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1986,7 +1986,6 @@ if (!grid || grid.length === 0) return;
 const colCount = grid[0].length;
 const cellWidth = availableWidth / colCount;
 const padding = 3; 
-const textWidth = cellWidth - (padding * 2); 
 
 doc.setFont("helvetica", "bold");
 doc.setFontSize(16);
@@ -1994,97 +1993,105 @@ doc.text(title, margin, margin + 5);
 
 let currentY = margin + 15;
 
-grid.forEach((row) => {
-    // 1. PRE-CALCULATE WRAPPED LINES AND ROW HEIGHT
-   let preparedRow = row.map(cell => {
-        let items = [];
+// 1. CALCULER LES HAUTEURS DE CHAQUE LIGNE
+// On doit d'abord savoir la hauteur de chaque ligne individuelle
+const rowHeights = grid.map(row => {
+    let maxHeight = 20; // Hauteur minimale
+    row.forEach(cell => {
+        if (cell.hidden) return;
+        const cS = cell.cS || 1;
+        const splitFactor = cell.split ? 2 : 1;
+        const availableTextWidth = (cellWidth * cS / splitFactor) - (padding * 2);
+        
+        let cellLines = 0;
         cell.items.forEach(item => {
-            const tl = item.t || "";
-            const tr = item.tr ? ` (${item.tr})` : "";
-            
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(10);
-            
-            // On calcule le wrapping sur le texte complet
-            const fullText = tl + tr;
-            const wrappedLines = doc.splitTextToSize(fullText, textWidth);
-            
-            items.push({ tl, tr, wrappedLines });
+            const fullText = (item.t || "") + (item.tr ? ` (${item.tr})` : "");
+            const wrapped = doc.splitTextToSize(fullText, availableTextWidth);
+            cellLines += wrapped.length;
         });
-        return items;
+        const calculatedHeight = (cellLines * 6) + 8;
+        if (calculatedHeight > maxHeight) maxHeight = calculatedHeight;
     });
+    return maxHeight;
+});
 
-    let maxLinesInRow = 0;
-    preparedRow.forEach(cellItems => {
-        let count = cellItems.reduce((acc, curr) => acc + curr.wrappedLines.length, 0);
-        if (count > maxLinesInRow) maxLinesInRow = count;
-    });
-    const rowHeight = Math.max(20, (maxLinesInRow * 6) + 8);
+// 2. DESSINER LA GRILLE
+grid.forEach((row, rowIndex) => {
+    const rowHeight = rowHeights[rowIndex];
 
+    // Saut de page si nécessaire
     if (currentY + rowHeight > pageHeight - margin) {
         doc.addPage();
         currentY = margin;
     }
 
-   // 2. RENDU DE LA LIGNE
     row.forEach((cell, colIndex) => {
-        // SI LA CELLULE EST CACHÉE (car fusionnée), ON NE DESSINE RIEN
-        if (cell.hidden) return;
+        if (cell.hidden) return; // Ignorer si fusionné (horizontal ou vertical)
 
-        // CALCUL DE LA LARGEUR DYNAMIQUE
-        // Si cS = 2, la largeur sera cellWidth * 2
-        const dynamicCellWidth = cellWidth * (cell.cS || 1);
+        const cS = cell.cS || 1;
+        const rS = cell.rS || 1;
+        
+        // Calcul de la hauteur réelle si fusion verticale (somme des hauteurs des lignes)
+        let actualRowHeight = 0;
+        for(let i = 0; i < rS; i++) {
+            actualRowHeight += rowHeights[rowIndex + i] || 0;
+        }
+
         const x = margin + (colIndex * cellWidth);
-        
-        // Dessiner le rectangle avec la largeur dynamique
-        doc.setDrawColor(148, 163, 184); 
+        const dynamicCellWidth = cellWidth * cS;
+
+        // Dessiner le rectangle de la cellule
+        doc.setDrawColor(148, 163, 184);
         doc.setLineWidth(0.2);
-        doc.rect(x, currentY, dynamicCellWidth, rowHeight);
+        doc.rect(x, currentY, dynamicCellWidth, actualRowHeight);
 
-        let textY = currentY + 7;
-        const cellItems = preparedRow[colIndex];
-        const dynamicTextWidth = dynamicCellWidth - (padding * 2);
-
-        // RE-CALCUL DU WRAPPING SI LA CELLULE EST FUSIONNÉE
-        // (Optionnel mais recommandé pour utiliser tout l'espace de la cellule fusionnée)
-        
-        cellItems.forEach(item => {
-            // On recalcule les lignes pour profiter de la largeur fusionnée
-            const fullText = item.tl + item.tr;
-            const dynamicWrappedLines = doc.splitTextToSize(fullText, dynamicTextWidth);
-            
-            let tlCharsLeft = item.tl.length;
-
-            dynamicWrappedLines.forEach((lineText) => {
-                let currentX = x + padding;
-
-                if (tlCharsLeft > 0) {
-                    const tlInLine = lineText.substring(0, tlCharsLeft);
-                    doc.setFont("helvetica", "normal");
-                    doc.setTextColor(0, 0, 0);
-                    doc.text(tlInLine, currentX, textY);
-                    
-                    currentX += doc.getTextWidth(tlInLine);
-                    
-                    const trInLine = lineText.substring(tlCharsLeft);
-                    if (trInLine) {
-                        doc.setFont("helvetica", "italic");
-                        doc.setTextColor(41, 128, 185);
-                        doc.text(trInLine, currentX, textY);
+        // --- GESTION DU TEXTE (SPLIT OU NORMAL) ---
+        const drawItems = (items, startX, width) => {
+            let textY = currentY + 7;
+            items.forEach(item => {
+                const fullText = (item.t || "") + (item.tr ? ` (${item.tr})` : "");
+                const wrappedLines = doc.splitTextToSize(fullText, width - (padding * 2));
+                
+                let tlCharsLeft = (item.t || "").length;
+                wrappedLines.forEach(lineText => {
+                    let curX = startX + padding;
+                    if (tlCharsLeft > 0) {
+                        const tlInLine = lineText.substring(0, tlCharsLeft);
+                        doc.setFont("helvetica", "normal").setTextColor(0,0,0).text(tlInLine, curX, textY);
+                        curX += doc.getTextWidth(tlInLine);
+                        const trInLine = lineText.substring(tlCharsLeft);
+                        if (trInLine) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).text(trInLine, curX, textY);
+                        }
+                        tlCharsLeft -= tlInLine.length;
+                    } else {
+                        doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).text(lineText, curX, textY);
                     }
-                    tlCharsLeft -= tlInLine.length;
-                } else {
-                    doc.setFont("helvetica", "italic");
-                    doc.setTextColor(41, 128, 185);
-                    doc.text(lineText, currentX, textY);
-                }
-                textY += 5.5;
+                    textY += 5.5;
+                });
+                textY += 1.5;
             });
-            textY += 1.5; 
-        });
+        };
+
+        if (cell.split) {
+            // Dessiner ligne de séparation interne
+            doc.line(x + (dynamicCellWidth/2), currentY, x + (dynamicCellWidth/2), currentY + actualRowHeight);
+            
+            // Moitié gauche
+            const halfWidth = dynamicCellWidth / 2;
+            const midIndex = Math.ceil(cell.items.length / 2);
+            drawItems(cell.items.slice(0, midIndex), x, halfWidth);
+            // Moitié droite
+            drawItems(cell.items.slice(midIndex), x + halfWidth, halfWidth);
+        } else {
+            // Cellule normale
+            drawItems(cell.items, x, dynamicCellWidth);
+        }
     });
+
     currentY += rowHeight;
 });
+
 doc.save(`${title}.pdf`);
      }
 async function handlePDFImport(event) {
