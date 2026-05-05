@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarsexcel builder Test</title>
+    <title>Cedarsexl builder Test</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
@@ -1928,62 +1928,48 @@ async function exportPDF() {
     const title = document.getElementById('builder-title').value || "Sentence Builder";
     const { jsPDF } = window.jspdf;
 
-    // --- OPTION A: EAL (Image-based / Screenshot version) ---
     if (meta.lang === "EAL") {
         const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
         edits.forEach(el => el.style.visibility = 'hidden');
 
         try {
             const element = document.getElementById('grid-container');
-            const canvas = await html2canvas(element, { 
-                scale: 3, 
-                useCORS: true 
+
+            const canvas = await html2canvas(element, {
+                scale: 3,
+                useCORS: true
             });
+
             edits.forEach(el => el.style.visibility = 'visible');
 
             const pdf = new jsPDF('l', 'mm', 'a4');
             const imgData = canvas.toDataURL('image/png');
-            
-            const imgProps = pdf.getImageProperties(imgData);
+
             const pdfWidth = pdf.internal.pageSize.getWidth();
             const pdfHeight = pdf.internal.pageSize.getHeight();
-            // Calculate height proportional to the A4 width
-            const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-            
-            let heightLeft = imgHeight;
-            let position = 0;
 
-            // Add first page with title
+            const imgProps = pdf.getImageProperties(imgData);
+            const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
             pdf.setFont("helvetica", "bold");
             pdf.text(title, 14, 15);
             pdf.addImage(imgData, 'PNG', 0, 20, pdfWidth, imgHeight);
-            heightLeft -= (pdfHeight - 20); // Account for title margin
-
-            // If it's longer than one page, loop and add pages
-            while (heightLeft > 0) {
-                position = heightLeft - imgHeight;
-                pdf.addPage();
-                pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
-                heightLeft -= pdfHeight;
-            }
 
             pdf.save(`${title}.pdf`);
+
         } catch (err) {
             console.error("EAL PDF Export failed:", err);
             edits.forEach(el => el.style.visibility = 'visible');
         }
-        return; 
+
+        return;
     }
 
-// --- OPTION B: MFL (Vector-based / Searchable Text) ---
-import ExcelJS from "exceljs";
-import { saveAs } from "file-saver";
-
-async function exportMFLToExcel(grid, title = "Sentence Builder") {
+    // TODO: your vector PDF logic here (if any)
+}
+    async function exportMFLToExcel(grid, title = "Sentence Builder") {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("MFL");
-
-    let mergeRanges = [];
 
     grid.forEach((row, rowIndex) => {
         let colIndex = 1;
@@ -1993,13 +1979,12 @@ async function exportMFLToExcel(grid, title = "Sentence Builder") {
             const rowSpan = cell.rowSpan || 1;
             const mode = cell.mode || "single";
 
+            // SPLIT MODE (your toggle)
             if (mode === "split") {
-                // split into 2 columns
                 const tl = cell.items?.[0]?.t || "";
                 const tr = cell.items?.[0]?.tr || "";
 
-                const tlCell = sheet.getRow(rowIndex + 1).getCell(colIndex);
-                tlCell.value = tl;
+                sheet.getRow(rowIndex + 1).getCell(colIndex).value = tl;
 
                 const trCell = sheet.getRow(rowIndex + 1).getCell(colIndex + 1);
                 trCell.value = tr;
@@ -2017,38 +2002,32 @@ async function exportMFLToExcel(grid, title = "Sentence Builder") {
             excelCell.value = text;
             excelCell.alignment = { wrapText: true };
 
-            // handle merges
+            // merge fix (basic safe version)
             if (colSpan > 1 || rowSpan > 1) {
-                const start = ExcelJS.utils.encode_cell({ r: rowIndex, c: colIndex - 1 });
-                const end = ExcelJS.utils.encode_cell({
-                    r: rowIndex + rowSpan - 1,
-                    c: colIndex + colSpan - 1
-                });
-
-                mergeRanges.push(`${start}:${end}`);
+                sheet.mergeCells(
+                    rowIndex + 1,
+                    colIndex,
+                    rowIndex + rowSpan,
+                    colIndex + colSpan - 1
+                );
             }
 
             colIndex += colSpan;
         });
     });
 
-    // apply merges
-    mergeRanges.forEach(range => {
-        sheet.mergeCells(range);
-    });
-
-    // auto width (basic)
     sheet.columns.forEach(col => {
         col.width = 20;
     });
 
     const buffer = await workbook.xlsx.writeBuffer();
+
     const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     });
 
     saveAs(blob, `${title}.xlsx`);
-     }
+}
 async function handlePDFImport(event) {
     const file = event.target.files[0];
     if (!file) return;
