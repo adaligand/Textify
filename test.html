@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars cell merging+row height ok</title>
+    <title>Cedars cccell merging+row height ok</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1922,7 +1922,6 @@ async function exportPDF() {
         }
         return; 
     }
-
 // --- OPTION B: MFL (Vector-based / Searchable Text) ---
     const doc = new jsPDF('l', 'mm', 'a4');
     const margin = 15;
@@ -1934,33 +1933,33 @@ async function exportPDF() {
 
     const fontSize = 9;
     const lineSpacing = 3.6; 
-    const itemGap = 1.2;      
-    const cellPaddingV = 3;  
+    const itemGap = 1.5;      
+    const cellPaddingV = 4;  
 
-    // 1. CALCULER LES LARGEURS DE COLONNES (Basé sur le contenu maximum)
+    // 1. CALCUL DES LARGEURS (Poids équilibré pour favoriser les colonnes denses)
     const colCount = grid[0].length;
     let colWeights = new Array(colCount).fill(0);
 
     grid.forEach(row => {
         row.forEach((cell, cIdx) => {
             if (cell.hidden) return;
-            let maxLen = 0;
+            let cellMax = 0;
             cell.items.forEach(it => {
-                let len = (it.t || "").length + ((it.tr || "").length * 0.7);
-                // Si la cellule est "split" (2 colonnes internes), on divise la longueur perçue par 1.8
-                if (cell.isSplit) len = len / 1.8; 
-                if (len > maxLen) maxLen = len;
+                // On donne plus de poids au texte principal (TL) pour la largeur
+                let len = (it.t || "").length + ((it.tr || "").length * 0.4); 
+                if (cell.isSplit) len = len / 1.8;
+                if (len > cellMax) cellMax = len;
             });
-            const w = maxLen / (cell.cS || 1);
+            const w = cellMax / (cell.cS || 1);
             if (w > colWeights[cIdx]) colWeights[cIdx] = w;
         });
     });
 
-    let totalWeight = colWeights.reduce((a, b) => a + Math.max(b, 10), 0);
-    const colWidths = colWeights.map(w => (Math.max(w, 10) / totalWeight) * availableWidth);
+    let totalWeight = colWeights.reduce((a, b) => a + Math.max(b, 12), 0);
+    const colWidths = colWeights.map(w => (Math.max(w, 12) / totalWeight) * availableWidth);
 
-    // 2. CALCULER LES HAUTEURS DE LIGNES (Correctif pour fusions verticales)
-    let rowHeights = new Array(grid.length).fill(8); // Hauteur min 8mm
+    // 2. PRÉ-CALCUL DES HAUTEURS DE LIGNES
+    let rowHeights = new Array(grid.length).fill(10); 
 
     grid.forEach((row, rIdx) => {
         row.forEach((cell, cIdx) => {
@@ -1969,17 +1968,16 @@ async function exportPDF() {
             const rs = cell.rS || 1;
             let cellW = 0; for(let i=0; i<cs; i++) cellW += colWidths[cIdx + i];
             
-            // Calcul du contenu
             let contentH = cellPaddingV;
-            // Si split, on simule deux colonnes internes donc largeur effective / 2
-            const effectiveW = cell.isSplit ? (cellW / 2) - 3 : cellW - 5;
+            const effectiveW = cell.isSplit ? (cellW / 2) - 4 : cellW - 6;
 
             cell.items.forEach(it => {
-                const lines = doc.splitTextToSize((it.t || "") + (it.tr ? ` (${it.tr})` : ""), effectiveW);
-                contentH += (lines.length * lineSpacing) + itemGap;
+                // IMPORTANT: On sépare TL et TR pour le calcul de hauteur pour forcer le wrap
+                const linesTL = doc.splitTextToSize(it.t || "", effectiveW);
+                const linesTR = doc.splitTextToSize(it.tr ? `(${it.tr})` : "", effectiveW);
+                contentH += ((linesTL.length + linesTR.length) * lineSpacing) + itemGap;
             });
 
-            // On répartit cette hauteur sur les 'rs' lignes
             const heightPerLine = contentH / rs;
             for(let i=0; i<rs; i++) {
                 if (heightPerLine > rowHeights[rIdx + i]) rowHeights[rIdx + i] = heightPerLine;
@@ -2006,47 +2004,46 @@ async function exportPDF() {
             let cellW = 0; for(let i=0; i<cs; i++) cellW += colWidths[cIdx + i];
             let cellH = 0; for(let i=0; i<rs; i++) cellH += rowHeights[rIdx + i];
 
+            // Bordure
             doc.setDrawColor(148, 163, 184).setLineWidth(0.15);
             doc.rect(currentX, currentY, cellW, cellH);
 
-            // LOGIQUE DE RENDU DU TEXTE (Gère le split en 2 colonnes)
-            let textY = currentY + 4;
-            const startY = textY;
+            // --- CALCUL DU CENTRAGE VERTICAL ---
+            let totalTextHeight = 0;
+            const effectiveW = cell.isSplit ? (cellW / 2) - 4 : cellW - 6;
             
-            cell.items.forEach((item, itemIdx) => {
-                let itemX = currentX + 2.5;
-                let effectiveW = cellW - 5;
+            cell.items.forEach(it => {
+                const l1 = doc.splitTextToSize(it.t || "", effectiveW).length;
+                const l2 = doc.splitTextToSize(it.tr ? `(${it.tr})` : "", effectiveW).length;
+                totalTextHeight += ((l1 + l2) * lineSpacing) + itemGap;
+            });
+            
+            let textY = currentY + ((cellH - totalTextHeight) / 2) + 3; 
 
-                // SI CELLULE SPLIT : On alterne entre colonne gauche et droite
+            // RENDU DU TEXTE
+            cell.items.forEach((item, itemIdx) => {
+                let itemX = currentX + 3;
+                let drawW = effectiveW;
+
                 if (cell.isSplit) {
-                    effectiveW = (cellW / 2) - 3;
-                    if (itemIdx % 2 !== 0) { // Item impair = colonne droite
+                    if (itemIdx % 2 !== 0) {
                         itemX = currentX + (cellW / 2) + 1;
-                        // On remonte le curseur Y pour l'item de droite s'il est au même niveau
-                        if (itemIdx > 0) textY -= (lastItemLines * lineSpacing) + itemGap;
+                        // On réinitialise Y pour la colonne de droite du split
+                        if (itemIdx > 0) textY = currentY + ((cellH - totalTextHeight) / 2) + 3;
                     }
                 }
 
-                const tl = item.t || "";
-                const tr = item.tr ? ` (${item.tr})` : "";
-                doc.setFontSize(fontSize);
-                const lines = doc.splitTextToSize(tl + tr, effectiveW);
-                var lastItemLines = lines.length;
+                // Texte Principal (TL)
+                doc.setFont("helvetica", "normal").setTextColor(0, 0, 0).setFontSize(fontSize);
+                const linesTL = doc.splitTextToSize(item.t || "", drawW);
+                linesTL.forEach(l => { doc.text(l, itemX, textY); textY += lineSpacing; });
 
-                lines.forEach(line => {
-                    if (tl && line.startsWith(tl)) {
-                        doc.setFont("helvetica", "normal").setTextColor(0,0,0);
-                        doc.text(tl, itemX, textY);
-                        if (line.length > tl.length) {
-                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185);
-                            doc.text(line.substring(tl.length), itemX + doc.getTextWidth(tl), textY);
-                        }
-                    } else {
-                        doc.setFont("helvetica", "italic").setTextColor(41, 128, 185);
-                        doc.text(line, itemX, textY);
-                    }
-                    textY += lineSpacing;
-                });
+                // Traduction (TR) - Toujours en dessous ou à la suite si wrap
+                if (item.tr) {
+                    doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
+                    const linesTR = doc.splitTextToSize(`(${item.tr})`, drawW);
+                    linesTR.forEach(l => { doc.text(l, itemX, textY); textY += lineSpacing; });
+                }
                 textY += itemGap;
             });
             currentX += w;
