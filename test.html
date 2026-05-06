@@ -1868,24 +1868,53 @@ async function exportPDF() {
     const { jsPDF } = window.jspdf;
 
     // --- OPTION A: EAL (Image-based) ---
-    if (meta.lang === "EAL") {
+   if (meta.lang === "EAL") {
         const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
         edits.forEach(el => el.style.visibility = 'hidden');
 
         try {
             const element = document.getElementById('grid-container');
-            const canvas = await html2canvas(element, { scale: 3, useCORS: true });
+            const canvas = await html2canvas(element, { 
+                scale: 3, 
+                useCORS: true 
+            });
             edits.forEach(el => el.style.visibility = 'visible');
 
             const pdf = new jsPDF('l', 'mm', 'a4');
             const imgData = canvas.toDataURL('image/png');
+            
+            // --- CONFIGURATION DES MARGES ---
+            const margin = 10; // Marge de 10mm de chaque côté
             const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = pdf.internal.pageSize.getHeight();
+            
+            // Calcul de la largeur disponible (Largeur totale - 2x la marge)
+            const availableWidth = pdfWidth - (margin * 2);
+            
             const imgProps = pdf.getImageProperties(imgData);
-            const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
+            // On calcule la hauteur proportionnellement à la LARGEUR DISPONIBLE (pas la largeur totale)
+            const imgHeight = (imgProps.height * availableWidth) / imgProps.width;
+            
+            // 1. Ajouter le titre avec la marge
             pdf.setFont("helvetica", "bold");
-            pdf.text(title, 14, 15);
-            pdf.addImage(imgData, 'PNG', 0, 20, pdfWidth, imgHeight);
+            pdf.setFontSize(16);
+            pdf.text(title, margin, margin + 5);
+
+            // 2. Ajouter l'image centrée avec les marges
+            // x = margin, y = 20 (pour laisser de la place au titre)
+            pdf.addImage(imgData, 'PNG', margin, 25, availableWidth, imgHeight);
+
+            // Si le contenu dépasse une page (gestion multi-page simplifiée)
+            let heightLeft = imgHeight - (pdfHeight - 35);
+            let position = -(pdfHeight - 35);
+
+            while (heightLeft > 0) {
+                pdf.addPage();
+                pdf.addImage(imgData, 'PNG', margin, position, availableWidth, imgHeight);
+                heightLeft -= pdfHeight;
+                position -= pdfHeight;
+            }
+
             pdf.save(`${title}.pdf`);
         } catch (err) {
             console.error("EAL PDF Export failed:", err);
