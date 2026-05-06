@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars  eal ok + cell merging ok</title>
+    <title>Cedars cell merging+row height ok</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1932,58 +1932,72 @@ async function exportPDF() {
 
     if (!grid || grid.length === 0) return;
 
-    // 1. CALCULER LA LARGEUR IDÉALE DE CHAQUE COLONNE
-    const colCount = grid[0].length;
-    let colWidths = new Array(colCount).fill(0);
+    // --- CONFIGURATION DU RENDU ---
+    const fontSize = 9;
+    const lineSpacing = 3.8; // Espace entre les lignes de texte
+    const itemGap = 1.5;      // Espace entre les différents items d'une cellule
+    const cellPaddingV = 4;  // Padding vertical minimum (haut + bas)
 
-    // On évalue la largeur nécessaire pour chaque colonne (basée sur le texte)
+    // 1. CALCULER LA LARGEUR PROPORTIONNELLE DES COLONNES
+    const colCount = grid[0].length;
+    let colWeights = new Array(colCount).fill(0);
+
     grid.forEach(row => {
         row.forEach((cell, cIdx) => {
             if (cell.hidden) return;
-            let longestContent = 0;
+            let maxTextLen = 0;
             cell.items.forEach(it => {
-                const textLength = (it.t || "").length + (it.tr || "").length;
-                if (textLength > longestContent) longestContent = textLength;
+                const len = (it.t || "").length + ((it.tr || "").length * 0.8);
+                if (len > maxTextLen) maxTextLen = len;
             });
-            // On stocke un score de longueur (on affinera après)
-            if (longestContent > colWidths[cIdx]) colWidths[cIdx] = longestContent;
+            // On divise par le colSpan pour répartir le poids sur les colonnes fusionnées
+            const weight = maxTextLen / (cell.cS || 1);
+            if (weight > colWeights[cIdx]) colWeights[cIdx] = weight;
         });
     });
 
-    // Normalisation : on s'assure que chaque colonne a au moins un peu d'espace
-    let totalScore = colWidths.reduce((a, b) => a + Math.max(b, 10), 0);
-    colWidths = colWidths.map(w => (Math.max(w, 10) / totalScore) * availableWidth);
+    // Ajustement final des colonnes : on s'assure qu'aucune n'est à zéro
+    let totalWeight = colWeights.reduce((a, b) => a + Math.max(b, 12), 0);
+    const colWidths = colWeights.map(w => (Math.max(w, 12) / totalWeight) * availableWidth);
 
-    // 2. CALCULER LES HAUTEURS DE CHAQUE LIGNE (basé sur les nouvelles largeurs)
+    // 2. CALCULER LES HAUTEURS DE CHAQUE LIGNE (Pre-pass)
     const rowHeights = grid.map(row => {
-        let maxH = 15;
+        let maxH = 10; // Hauteur minimale d'une ligne
         row.forEach((cell, cIdx) => {
             if (cell.hidden) return;
+            
             const cs = cell.cS || 1;
-            // Somme des largeurs des colonnes fusionnées
             let actualCellWidth = 0;
             for(let i=0; i<cs; i++) actualCellWidth += colWidths[cIdx + i];
             
-            let contentH = 8;
+            let contentH = cellPaddingV; 
             cell.items.forEach(it => {
                 const fullText = (it.t || "") + (it.tr ? ` (${it.tr})` : "");
-                const lines = doc.splitTextToSize(fullText, actualCellWidth - 6);
-                contentH += (lines.length * 5) + 2;
+                doc.setFontSize(fontSize);
+                const lines = doc.splitTextToSize(fullText, actualCellWidth - 5);
+                contentH += (lines.length * lineSpacing) + itemGap;
             });
-            const hPerLine = contentH / (cell.rS || 1);
-            if (hPerLine > maxH) maxH = hPerLine;
+
+            // Si rS > 1, on répartit la hauteur nécessaire sur les lignes fusionnées
+            const hNeededPerLine = contentH / (cell.rS || 1);
+            if (hNeededPerLine > maxH) maxH = hNeededPerLine;
         });
         return maxH;
     });
 
-    let currentY = margin + 15;
+    // 3. DESSIN DU TABLEAU
     doc.setFont("helvetica", "bold").setFontSize(16);
     doc.text(title, margin, margin + 5);
+    let currentY = margin + 15;
 
-    // 3. DESSIN DU TABLEAU
     grid.forEach((row, rIdx) => {
         const h = rowHeights[rIdx];
-        if (currentY + h > pageHeight - margin) { doc.addPage(); currentY = margin; }
+
+        // Gestion du saut de page
+        if (currentY + h > pageHeight - margin) {
+            doc.addPage();
+            currentY = margin;
+        }
 
         let currentX = margin;
         row.forEach((cell, cIdx) => {
@@ -1995,46 +2009,48 @@ async function exportPDF() {
 
             const rs = cell.rS || 1;
             const cs = cell.cS || 1;
+            
+            // Calcul des dimensions réelles de la cellule (fusionnée ou non)
             let cellW = 0;
             for(let i=0; i<cs; i++) cellW += colWidths[cIdx + i];
             
             let cellH = 0;
-            for(let i=0; i<rs; i++) cellH += rowHeights[rIdx + i] || h;
+            for(let i=0; i<rs; i++) cellH += (rowHeights[rIdx + i] || h);
 
-            // Rectangle
+            // Dessiner la bordure
             doc.setDrawColor(148, 163, 184).setLineWidth(0.2);
             doc.rect(currentX, currentY, cellW, cellH);
 
-            // Texte
-            let textY = currentY + 7;
+            // Rendu du texte
+            let textY = currentY + 4.5; // Décalage du haut de cellule
             cell.items.forEach(item => {
                 const tl = item.t || "";
                 const tr = item.tr ? ` (${item.tr})` : "";
                 
-                doc.setFontSize(9);
-                // On prépare les lignes en respectant strictement la largeur calculée
-                const lines = doc.splitTextToSize(tl + tr, cellW - 6);
+                doc.setFontSize(fontSize);
+                const lines = doc.splitTextToSize(tl + tr, cellW - 5);
 
                 lines.forEach(line => {
-                    // Pour éviter les erreurs de couleur :
-                    // On dessine le texte par segments si TL est présent
+                    let textX = currentX + 2.5; // Padding gauche
+
+                    // Style intelligent : TL en gras/noir, TR en italique/bleu
                     if (tl && line.startsWith(tl)) {
-                        doc.setFont("helvetica", "normal").setTextColor(0,0,0);
-                        doc.text(tl, currentX + 3, textY);
+                        doc.setFont("helvetica", "normal").setTextColor(0, 0, 0);
+                        doc.text(tl, textX, textY);
                         
                         if (line.length > tl.length) {
                             const rest = line.substring(tl.length);
                             doc.setFont("helvetica", "italic").setTextColor(41, 128, 185);
-                            doc.text(rest, currentX + 3 + doc.getTextWidth(tl), textY);
+                            doc.text(rest, textX + doc.getTextWidth(tl), textY);
                         }
                     } else {
-                        // C'est une ligne de suite (traduction seule)
+                        // Ligne de suite ou traduction seule
                         doc.setFont("helvetica", "italic").setTextColor(41, 128, 185);
-                        doc.text(line, currentX + 3, textY);
+                        doc.text(line, textX, textY);
                     }
-                    textY += 5;
+                    textY += lineSpacing;
                 });
-                textY += 2;
+                textY += itemGap;
             });
             currentX += w;
         });
