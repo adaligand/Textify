@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarsc cccell merging+row height ok</title>
+    <title>Cedarsc cell merging+row height ok</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1899,7 +1899,7 @@ async function exportPDF() {
             return;
         }
 
-        // --- OPTION B: MFL (Vecteur / Texte) ---
+// --- OPTION B: MFL (Vector-based) ---
         if (typeof grid === 'undefined' || !grid || grid.length === 0) {
             alert("Erreur : La grille de données est introuvable.");
             return;
@@ -1936,7 +1936,7 @@ async function exportPDF() {
         let totalWeight = colWeights.reduce((a, b) => a + Math.max(b, 12), 0);
         const colWidths = colWeights.map(w => (Math.max(w, 12) / totalWeight) * availableWidth);
 
-        // 2. PRÉ-CALCUL DES HAUTEURS DE LIGNES (AVEC CENTRAGE)
+        // 2. PRÉ-CALCUL DES HAUTEURS DE LIGNES (Synchronisé avec la logique de wrap)
         let rowHeights = new Array(grid.length).fill(10);
         grid.forEach((row, rIdx) => {
             row.forEach((cell, cIdx) => {
@@ -1948,9 +1948,19 @@ async function exportPDF() {
 
                 let contentH = cellPaddingV;
                 (cell.items || []).forEach(it => {
-                    const l1 = doc.splitTextToSize(it.t || "", effW).length;
-                    const l2 = doc.splitTextToSize(it.tr ? `(${it.tr})` : "", effW).length;
-                    contentH += ((l1 + l2) * lineSpacing) + itemGap;
+                    const tl = it.t || "";
+                    const tr = it.tr ? ` (${it.tr})` : "";
+                    
+                    // On simule la logique de décision : Ligne simple ou double ?
+                    doc.setFontSize(fontSize);
+                    if (doc.getTextWidth(tl + tr) <= effW) {
+                        contentH += lineSpacing;
+                    } else {
+                        const l1 = doc.splitTextToSize(tl, effW).length;
+                        const l2 = doc.splitTextToSize(it.tr ? `(${it.tr})` : "", effW).length;
+                        contentH += (l1 + l2) * lineSpacing;
+                    }
+                    contentH += itemGap;
                 });
                 const hPerLine = contentH / rs;
                 for (let i = 0; i < rs; i++) {
@@ -1986,13 +1996,18 @@ async function exportPDF() {
                 doc.setDrawColor(148, 163, 184).setLineWidth(0.15);
                 doc.rect(currentX, currentY, cellW, cellH);
 
-                // Calcul hauteur texte pour centrage
+                // --- CALCUL HAUTEUR RÉELLE POUR CENTRAGE ---
                 let totalT = 0;
                 const effW = cell.isSplit ? (cellW / 2) - 4 : cellW - 6;
                 (cell.items || []).forEach(it => {
-                    const l1 = doc.splitTextToSize(it.t || "", effW).length;
-                    const l2 = doc.splitTextToSize(it.tr ? `(${it.tr})` : "", effW).length;
-                    totalT += ((l1 + l2) * lineSpacing) + itemGap;
+                    const tl = it.t || "";
+                    const tr = it.tr ? ` (${it.tr})` : "";
+                    if (doc.getTextWidth(tl + tr) <= effW) {
+                        totalT += lineSpacing;
+                    } else {
+                        totalT += (doc.splitTextToSize(tl, effW).length + doc.splitTextToSize(it.tr ? `(${it.tr})` : "", effW).length) * lineSpacing;
+                    }
+                    totalT += itemGap;
                 });
 
                 let startTextY = currentY + ((cellH - totalT) / 2) + 3;
@@ -2005,14 +2020,31 @@ async function exportPDF() {
                         textY = startTextY; 
                     }
 
-                    doc.setFont("helvetica", "normal").setTextColor(0).setFontSize(fontSize);
-                    const linesT = doc.splitTextToSize(item.t || "", effW);
-                    linesT.forEach(l => { doc.text(l, itemX, textY); textY += lineSpacing; });
+                    const tl = item.t || "";
+                    const tr = item.tr ? ` (${item.tr})` : "";
+                    doc.setFontSize(fontSize);
+                    const fullTextWidth = doc.getTextWidth(tl + tr);
 
-                    if (item.tr) {
-                        doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
-                        const linesTR = doc.splitTextToSize(`(${item.tr})`, effW);
-                        linesTR.forEach(l => { doc.text(l, itemX, textY); textY += lineSpacing; });
+                    if (fullTextWidth <= effW) {
+                        // CAS 1 : CÔTE À CÔTE
+                        doc.setFont("helvetica", "normal").setTextColor(0);
+                        doc.text(tl, itemX, textY);
+                        if (item.tr) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize-1);
+                            doc.text(tr, itemX + doc.getTextWidth(tl), textY);
+                        }
+                        textY += lineSpacing;
+                    } else {
+                        // CAS 2 : EMPILÉ (Wrap)
+                        doc.setFont("helvetica", "normal").setTextColor(0);
+                        const linesT = doc.splitTextToSize(tl, effW);
+                        linesT.forEach(l => { doc.text(l, itemX, textY); textY += lineSpacing; });
+
+                        if (item.tr) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize-1);
+                            const linesTR = doc.splitTextToSize(`(${item.tr})`, effW);
+                            linesTR.forEach(l => { doc.text(l, itemX, textY); textY += lineSpacing; });
+                        }
                     }
                     textY += itemGap;
                 });
@@ -2022,13 +2054,7 @@ async function exportPDF() {
         });
 
         doc.save(`${title}.pdf`);
-        console.log("Export terminé avec succès.");
-
-    } catch (err) {
-        console.error("ERREUR CRITIQUE PDF:", err);
-        alert("Une erreur est survenue : " + err.message);
-    }
-}
+        }
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
         const sentences = getAssembledSentences();
