@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars bcuilder</title>
+    <title>Cedars bcccuilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1867,45 +1867,25 @@ async function exportPDF() {
     const title = document.getElementById('builder-title').value || "Sentence Builder";
     const { jsPDF } = window.jspdf;
 
-    // --- OPTION A: EAL (Image-based / Screenshot version) ---
+    // --- OPTION A: EAL (Image-based) ---
     if (meta.lang === "EAL") {
         const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
         edits.forEach(el => el.style.visibility = 'hidden');
 
         try {
             const element = document.getElementById('grid-container');
-            const canvas = await html2canvas(element, { 
-                scale: 3, 
-                useCORS: true 
-            });
+            const canvas = await html2canvas(element, { scale: 3, useCORS: true });
             edits.forEach(el => el.style.visibility = 'visible');
 
             const pdf = new jsPDF('l', 'mm', 'a4');
             const imgData = canvas.toDataURL('image/png');
-            
-            const imgProps = pdf.getImageProperties(imgData);
             const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            // Calculate height proportional to the A4 width
+            const imgProps = pdf.getImageProperties(imgData);
             const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-            
-            let heightLeft = imgHeight;
-            let position = 0;
 
-            // Add first page with title
             pdf.setFont("helvetica", "bold");
             pdf.text(title, 14, 15);
             pdf.addImage(imgData, 'PNG', 0, 20, pdfWidth, imgHeight);
-            heightLeft -= (pdfHeight - 20); // Account for title margin
-
-            // If it's longer than one page, loop and add pages
-            while (heightLeft > 0) {
-                position = heightLeft - imgHeight;
-                pdf.addPage();
-                pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
-                heightLeft -= pdfHeight;
-            }
-
             pdf.save(`${title}.pdf`);
         } catch (err) {
             console.error("EAL PDF Export failed:", err);
@@ -1914,100 +1894,104 @@ async function exportPDF() {
         return; 
     }
 
-// --- OPTION B: MFL (Vector-based / Searchable Text) ---
-const doc = new jsPDF('l', 'mm', 'a4');
-const margin = 10;
-const pageWidth = doc.internal.pageSize.getWidth();
-const pageHeight = doc.internal.pageSize.getHeight();
-const availableWidth = pageWidth - (margin * 2);
+    // --- OPTION B: MFL (Vector-based / Searchable Text) ---
+    const doc = new jsPDF('l', 'mm', 'a4');
+    const margin = 10;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const availableWidth = pageWidth - (margin * 2);
 
-if (!grid || grid.length === 0) return;
+    if (!grid || grid.length === 0) return;
 
-const colCount = grid[0].length;
-const baseCellWidth = availableWidth / colCount;
-const baseRowHeight = 20; // Base height, will grow with content
+    const colCount = grid[0].length;
+    const baseCellWidth = availableWidth / colCount;
+    const baseRowHeight = 20; 
 
-doc.setFont("helvetica", "bold");
-doc.setFontSize(16);
-doc.text(title, margin, margin + 5);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text(title, margin, margin + 5);
 
-let currentY = margin + 15;
+    let currentY = margin + 15;
 
-grid.forEach((row, rowIndex) => {
-    // 1. CALCULATE ROW HEIGHT 
-    // We must find the tallest cell in this row, including merged ones
-    let rowMaxHeight = baseRowHeight;
-    
-    // 2. RENDER THE ROW
-    row.forEach((cell, colIndex) => {
-        // Check if this cell is part of a merge
-        const merge = mergedCells.find(m => m.r === rowIndex && m.c === colIndex);
-        const isHidden = mergedCells.some(m => 
-            rowIndex >= m.r && rowIndex < m.r + m.rs &&
-            colIndex >= m.c && colIndex < m.c + m.cs &&
-            !(rowIndex === m.r && colIndex === m.c)
-        );
-
-        if (isHidden) return; // Skip drawing this cell
-
-        // Calculate dimensions based on spans
-        const cs = merge ? merge.cs : 1;
-        const rs = merge ? merge.rs : 1;
-        const cellWidth = baseCellWidth * cs;
-        const cellHeight = baseRowHeight * rs; 
-        const x = margin + (colIndex * baseCellWidth);
-
-        // Draw Cell Border
-        doc.setDrawColor(148, 163, 184); 
-        doc.setLineWidth(0.2);
-        doc.rect(x, currentY, cellWidth, cellHeight);
-
-        // Render Text Content
-        let textY = currentY + 7;
-        const padding = 3;
-        const internalWidth = cellWidth - (padding * 2);
-
-        cell.items.forEach(item => {
-            const tl = item.t || "";
-            const tr = item.tr ? ` (${item.tr})` : "";
+    grid.forEach((row, rowIndex) => {
+        // Calculer la position X initiale pour la ligne
+        row.forEach((cell, colIndex) => {
             
-            doc.setFontSize(9);
-            const combinedLines = doc.splitTextToSize(tl + tr, internalWidth);
+            // SI LA CELLULE EST CACHÉE (CAR FUSIONNÉE), ON NE DESSINE RIEN
+            if (cell.hidden) return;
 
-            combinedLines.forEach(lineText => {
-                // Simplified text rendering for clarity
-                let currentX = x + padding;
-                if (lineText.includes(tl) && tl !== "") {
-                    doc.setFont("helvetica", "normal");
-                    doc.setTextColor(0, 0, 0);
-                    doc.text(tl, currentX, textY);
+            // Utiliser rS et cS de votre objet cellule
+            const rs = cell.rS || 1;
+            const cs = cell.cS || 1;
+            
+            const cellWidth = baseCellWidth * cs;
+            const cellHeight = baseRowHeight * rs; 
+            const x = margin + (colIndex * baseCellWidth);
+
+            // 1. Dessiner le rectangle (Bordure et Fond)
+            doc.setDrawColor(148, 163, 184); 
+            doc.setLineWidth(0.2);
+            
+            // Appliquer la couleur de fond si elle existe
+            if (cell.bg) {
+                // Convertir hex en RGB simple si besoin, ou utiliser blanc
+                doc.setFillColor(255, 255, 255); 
+            }
+            
+            doc.rect(x, currentY, cellWidth, cellHeight);
+
+            // 2. Rendu du Texte
+            let textY = currentY + 7;
+            const padding = 3;
+            const internalWidth = cellWidth - (padding * 2);
+
+            if (cell.items) {
+                cell.items.forEach(item => {
+                    const tl = item.t || "";
+                    const tr = item.tr ? ` (${item.tr})` : "";
                     
-                    if (item.tr) {
-                        doc.setFont("helvetica", "italic");
-                        doc.setTextColor(41, 128, 185);
-                        doc.text(` (${item.tr})`, currentX + doc.getTextWidth(tl), textY);
-                    }
-                } else {
-                    doc.setFont("helvetica", "italic");
-                    doc.setTextColor(41, 128, 185);
-                    doc.text(lineText, currentX, textY);
-                }
-                textY += 5;
-            });
-            textY += 2; // Gap between items
+                    doc.setFontSize(9);
+                    // On divise le texte pour qu'il tienne dans la largeur de la cellule fusionnée
+                    const combinedLines = doc.splitTextToSize(tl + tr, internalWidth);
+
+                    combinedLines.forEach(lineText => {
+                        let currentX = x + padding;
+                        
+                        // Si la ligne contient le texte principal (TL)
+                        if (tl !== "" && lineText.includes(tl)) {
+                            doc.setFont("helvetica", "normal");
+                            doc.setTextColor(0, 0, 0);
+                            doc.text(tl, currentX, textY);
+                            
+                            if (item.tr) {
+                                doc.setFont("helvetica", "italic");
+                                doc.setTextColor(41, 128, 185);
+                                doc.text(` (${item.tr})`, currentX + doc.getTextWidth(tl), textY);
+                            }
+                        } else {
+                            // Ligne de traduction seule
+                            doc.setFont("helvetica", "italic");
+                            doc.setTextColor(41, 128, 185);
+                            doc.text(lineText, currentX, textY);
+                        }
+                        textY += 5;
+                    });
+                    textY += 2; 
+                });
+            }
         });
+
+        // On avance le Y de la hauteur de base d'une ligne
+        currentY += baseRowHeight;
+
+        // Gestion du saut de page
+        if (currentY > pageHeight - 20) {
+            doc.addPage();
+            currentY = margin + 10;
+        }
     });
 
-    currentY += baseRowHeight;
-
-    // Page break logic
-    if (currentY > pageHeight - 20) {
-        doc.addPage();
-        currentY = margin;
-    }
-});
-
-doc.save(`${title}.pdf`);
+    doc.save(`${title}.pdf`);
 }
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
