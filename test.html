@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars bcccuilder</title>
+    <title>Cedars bcuilder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -1914,7 +1914,7 @@ async function exportPDF() {
         return; 
     }
 
-   // --- OPTION B: MFL (Vector-based / Searchable Text) ---
+// --- OPTION B: MFL (Vector-based / Searchable Text) ---
 const doc = new jsPDF('l', 'mm', 'a4');
 const margin = 10;
 const pageWidth = doc.internal.pageSize.getWidth();
@@ -1924,9 +1924,8 @@ const availableWidth = pageWidth - (margin * 2);
 if (!grid || grid.length === 0) return;
 
 const colCount = grid[0].length;
-const cellWidth = availableWidth / colCount;
-const padding = 3; 
-const textWidth = cellWidth - (padding * 2); 
+const baseCellWidth = availableWidth / colCount;
+const baseRowHeight = 20; // Base height, will grow with content
 
 doc.setFont("helvetica", "bold");
 doc.setFontSize(16);
@@ -1934,87 +1933,78 @@ doc.text(title, margin, margin + 5);
 
 let currentY = margin + 15;
 
-grid.forEach((row) => {
-    // 1. PRE-CALCULATE WRAPPED LINES AND ROW HEIGHT
-    let preparedRow = row.map(cell => {
-        let lines = [];
+grid.forEach((row, rowIndex) => {
+    // 1. CALCULATE ROW HEIGHT 
+    // We must find the tallest cell in this row, including merged ones
+    let rowMaxHeight = baseRowHeight;
+    
+    // 2. RENDER THE ROW
+    row.forEach((cell, colIndex) => {
+        // Check if this cell is part of a merge
+        const merge = mergedCells.find(m => m.r === rowIndex && m.c === colIndex);
+        const isHidden = mergedCells.some(m => 
+            rowIndex >= m.r && rowIndex < m.r + m.rs &&
+            colIndex >= m.c && colIndex < m.c + m.cs &&
+            !(rowIndex === m.r && colIndex === m.c)
+        );
+
+        if (isHidden) return; // Skip drawing this cell
+
+        // Calculate dimensions based on spans
+        const cs = merge ? merge.cs : 1;
+        const rs = merge ? merge.rs : 1;
+        const cellWidth = baseCellWidth * cs;
+        const cellHeight = baseRowHeight * rs; 
+        const x = margin + (colIndex * baseCellWidth);
+
+        // Draw Cell Border
+        doc.setDrawColor(148, 163, 184); 
+        doc.setLineWidth(0.2);
+        doc.rect(x, currentY, cellWidth, cellHeight);
+
+        // Render Text Content
+        let textY = currentY + 7;
+        const padding = 3;
+        const internalWidth = cellWidth - (padding * 2);
+
         cell.items.forEach(item => {
             const tl = item.t || "";
             const tr = item.tr ? ` (${item.tr})` : "";
             
-            // Combine them temporarily to see how they wrap together
-            doc.setFont("helvetica", "normal");
             doc.setFontSize(9);
-            const combinedLines = doc.splitTextToSize(tl + tr, textWidth);
-            
-            lines.push({ tl, tr, wrapped: combinedLines });
-        });
-        return lines;
-    });
+            const combinedLines = doc.splitTextToSize(tl + tr, internalWidth);
 
-    let maxLinesInRow = 0;
-    preparedRow.forEach(cellLines => {
-        let count = cellLines.reduce((acc, curr) => acc + curr.wrapped.length, 0);
-        if (count > maxLinesInRow) maxLinesInRow = count;
-    });
-    const rowHeight = Math.max(20, (maxLinesInRow * 6) + 8);
-
-    // 2. CHECK FOR PAGE BREAK
-    if (currentY + rowHeight > pageHeight - margin) {
-        doc.addPage();
-        currentY = margin;
-    }
-
-    // 3. RENDER THE ROW
-    row.forEach((cell, colIndex) => {
-        const x = margin + (colIndex * cellWidth);
-        doc.setDrawColor(148, 163, 184); 
-        doc.setLineWidth(0.2);
-        doc.rect(x, currentY, cellWidth, rowHeight);
-
-        let textY = currentY + 7;
-        const cellItems = preparedRow[colIndex];
-
-        cellItems.forEach(item => {
-            const tlText = item.tl;
-            const trText = item.tr;
-            
-            // We use the 'wrapped' lines as a guide for where to break
-            item.wrapped.forEach((lineText, lineIdx) => {
+            combinedLines.forEach(lineText => {
+                // Simplified text rendering for clarity
                 let currentX = x + padding;
-
-                // Check if the TL text is part of this line
-                if (tlText && lineText.includes(tlText)) {
+                if (lineText.includes(tl) && tl !== "") {
                     doc.setFont("helvetica", "normal");
                     doc.setTextColor(0, 0, 0);
+                    doc.text(tl, currentX, textY);
                     
-                    // If TL is longer than one line, this logic handles the split
-                    const partTL = lineText.substring(0, tlText.length);
-                    doc.text(partTL, currentX, textY);
-                    currentX += doc.getTextWidth(partTL);
-                    
-                    // Remaining part of the line is Translation
-                    const partTR = lineText.substring(tlText.length);
-                    if (partTR) {
+                    if (item.tr) {
                         doc.setFont("helvetica", "italic");
-                        doc.setFontSize(8);
                         doc.setTextColor(41, 128, 185);
-                        doc.text(partTR, currentX, textY);
+                        doc.text(` (${item.tr})`, currentX + doc.getTextWidth(tl), textY);
                     }
                 } else {
-                    // This line is entirely Translation (it wrapped)
                     doc.setFont("helvetica", "italic");
-                    doc.setFontSize(8);
                     doc.setTextColor(41, 128, 185);
                     doc.text(lineText, currentX, textY);
                 }
-                textY += 5.5;
+                textY += 5;
             });
-            textY += 1.5; // Small gap between items
+            textY += 2; // Gap between items
         });
     });
 
-    currentY += rowHeight;
+    currentY += baseRowHeight;
+
+    // Page break logic
+    if (currentY > pageHeight - 20) {
+        doc.addPage();
+        currentY = margin;
+    }
 });
 
 doc.save(`${title}.pdf`);
