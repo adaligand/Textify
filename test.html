@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars cell merging ok</title>
+    <title>Cedars merging+spacing ok</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1897,7 +1897,7 @@ async function exportPDF() {
             return;
         }
 
-        // --- OPTION B: MFL (Vecteur) ---
+// --- OPTION B: MFL (Vecteur) ---
         if (typeof grid === 'undefined' || !grid || grid.length === 0) {
             alert("Erreur : La grille est introuvable.");
             return;
@@ -1944,18 +1944,15 @@ async function exportPDF() {
                 let cellW = 0; for (let i = 0; i < cs; i++) cellW += colWidths[cIdx + i];
                 const effW = cell.isSplit ? (cellW / 2) - 4 : cellW - 6;
 
-                let contentH = cellPaddingV;
-                (cell.items || []).forEach(it => {
-                    const tl = it.t || "";
-                    const tr = it.tr ? ` (${it.tr})` : "";
+                let contentH_L = cellPaddingV, contentH_R = cellPaddingV;
+                (cell.items || []).forEach((it, idx) => {
+                    const tl = it.t || "", tr = it.tr ? ` (${it.tr})` : "";
                     doc.setFontSize(fontSize);
-                    if (doc.getTextWidth(tl + tr) <= effW) {
-                        contentH += lineSpacing;
-                    } else {
-                        contentH += (doc.splitTextToSize(tl, effW).length + doc.splitTextToSize(it.tr ? `(${it.tr})` : "", effW).length) * lineSpacing;
-                    }
-                    contentH += itemGap;
+                    let h = (doc.getTextWidth(tl + tr) <= effW) ? lineSpacing : (doc.splitTextToSize(tl, effW).length + (it.tr ? doc.splitTextToSize(`(${it.tr})`, effW).length : 0)) * lineSpacing;
+                    h += itemGap;
+                    if (cell.isSplit && idx % 2 !== 0) contentH_R += h; else contentH_L += h;
                 });
+                const contentH = cell.isSplit ? Math.max(contentH_L, contentH_R) : contentH_L;
                 const hPerLine = contentH / rs;
                 for (let i = 0; i < rs; i++) {
                     if (rIdx + i < rowHeights.length && hPerLine > rowHeights[rIdx + i]) rowHeights[rIdx + i] = hPerLine;
@@ -1971,106 +1968,59 @@ async function exportPDF() {
         grid.forEach((row, rIdx) => {
             const h = rowHeights[rIdx];
             if (currentY + h > pageHeight - margin) { doc.addPage(); currentY = margin + 10; }
-
             let currentX = margin;
+
             row.forEach((cell, cIdx) => {
                 const w = colWidths[cIdx];
                 if (cell.hidden) { currentX += w; return; }
-
-                const rs = cell.rS || 1;
-                const cs = cell.cS || 1;
+                const rs = cell.rS || 1, cs = cell.cS || 1;
                 let cellW = 0; for (let i = 0; i < cs; i++) cellW += colWidths[cIdx + i];
                 let cellH = 0; for (let i = 0; i < rs; i++) cellH += (rowHeights[rIdx + i] || h);
 
-                doc.setDrawColor(148, 163, 184).setLineWidth(0.15);
-                doc.rect(currentX, currentY, cellW, cellH);
+                doc.setDrawColor(148, 163, 184).setLineWidth(0.15).rect(currentX, currentY, cellW, cellH);
 
-                let totalT = 0;
                 const effW = cell.isSplit ? (cellW / 2) - 4 : cellW - 6;
-                (cell.items || []).forEach(it => {
-                    const tl = it.t || "", tr = it.tr ? ` (${it.tr})` : "";
-                    if (doc.getTextWidth(tl + tr) <= effW) totalT += lineSpacing;
-                    else totalT += (doc.splitTextToSize(tl, effW).length + doc.splitTextToSize(it.tr ? `(${it.tr})` : "", effW).length) * lineSpacing;
-                    totalT += itemGap;
+                let tL = 0, tR = 0;
+                (cell.items || []).forEach((it, idx) => {
+                    let h = (doc.getTextWidth((it.t||"")+(it.tr?` (${it.tr})`:"")) <= effW) ? lineSpacing : (doc.splitTextToSize(it.t||"", effW).length + (it.tr?doc.splitTextToSize(`(${it.tr})`, effW).length:0)) * lineSpacing;
+                    h += itemGap;
+                    if (cell.isSplit && idx % 2 !== 0) tR += h; else tL += h;
                 });
-
-                let startY = currentY + ((cellH - totalT) / 2) + 3;
-                let textY = startY;
-
-// --- DEBUT DU REMPLACEMENT (PARTIE 3. DESSIN) ---
-                let textY_left = startY;
-                let textY_right = startY;
+                
+                let startY = currentY + ((cellH - Math.max(tL, tR)) / 2) + 3;
+                let yL = startY, yR = startY;
 
                 (cell.items || []).forEach((item, idx) => {
-                    let itemX = currentX + 3;
-                    let currentTextY = textY_left;
+                    let isR = (cell.isSplit && idx % 2 !== 0);
+                    let itemX = isR ? currentX + (cellW / 2) + 1 : currentX + 3;
+                    let curY = isR ? yR : yL;
 
-                    // Gestion du mode Split (2 colonnes dans une cellule)
-                    if (cell.isSplit && idx % 2 !== 0) {
-                        itemX = currentX + (cellW / 2) + 1;
-                        currentTextY = textY_right;
-                    }
-
-                    const tl = item.t || "";
-                    const tr = item.tr ? ` (${item.tr})` : "";
-                    
+                    const tl = item.t || "", tr = item.tr ? ` (${item.tr})` : "";
                     doc.setFontSize(fontSize);
-                    const widthTl = doc.getTextWidth(tl);
-                    const widthTr = item.tr ? doc.getTextWidth(tr) : 0;
+                    const wTl = doc.getTextWidth(tl), wTr = item.tr ? doc.getTextWidth(tr) : 0;
 
-                    // Cas 1: Tout tient sur une seule ligne
-                    if (widthTl + widthTr + 1.5 <= effW) {
-                        doc.setFont("helvetica", "normal").setTextColor(0);
-                        doc.text(tl, itemX, currentTextY);
-                        
-                        if (item.tr) {
-                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
-                            doc.text(tr, itemX + widthTl + 1.5, currentTextY);
-                        }
-                        currentTextY += lineSpacing;
-                    } 
-                    // Cas 2: Ça ne tient pas, on force le retour à la ligne pour la traduction
-                    else {
-                        doc.setFont("helvetica", "normal").setTextColor(0);
-                        const linesTl = doc.splitTextToSize(tl, effW);
-                        linesTl.forEach(l => {
-                            doc.text(l, itemX, currentTextY);
-                            currentTextY += lineSpacing;
-                        });
-
-                        if (item.tr) {
-                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
-                            const linesTr = doc.splitTextToSize(`(${item.tr})`, effW);
-                            linesTr.forEach(l => {
-                                doc.text(l, itemX, currentTextY);
-                                currentTextY += lineSpacing;
-                            });
-                        }
-                    }
-
-                    currentTextY += itemGap;
-
-                    // Mise à jour des trackers verticaux
-                    if (cell.isSplit && idx % 2 !== 0) {
-                        textY_right = currentTextY;
+                    if (wTl + wTr + 1.5 <= effW) {
+                        doc.setFont("helvetica", "normal").setTextColor(0).text(tl, itemX, curY);
+                        if (item.tr) doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize-1).text(tr, itemX + wTl + 1.5, curY);
+                        curY += lineSpacing;
                     } else {
-                        textY_left = currentTextY;
-                        if (!cell.isSplit) textY_right = currentTextY;
+                        doc.setFont("helvetica", "normal").setTextColor(0);
+                        doc.splitTextToSize(tl, effW).forEach(l => { doc.text(l, itemX, curY); curY += lineSpacing; });
+                        if (item.tr) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize-1);
+                            doc.splitTextToSize(`(${item.tr})`, effW).forEach(l => { doc.text(l, itemX, curY); curY += lineSpacing; });
+                        }
                     }
+                    curY += itemGap;
+                    if (isR) yR = curY; else { yL = curY; if(!cell.isSplit) yR = curY; }
                 });
-                // --- FIN DU REMPLACEMENT ---
-
                 currentX += w;
             });
             currentY += h;
         });
         doc.save(`${title}.pdf`);
-
-    } catch (err) {
-        console.error("Erreur export PDF:", err);
-        alert("Erreur: " + err.message);
-    }
 }
+    }
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
         const sentences = getAssembledSentences();
