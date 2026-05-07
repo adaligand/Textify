@@ -1942,567 +1942,569 @@ async function exportPDF() {
             return;
         }
 
-        // --------------------------------------------------
-        // OPTION B: MFL (VECTOR EXPORT)
-        // --------------------------------------------------
+// --------------------------------------------------
+// OPTION B: MFL (VECTOR EXPORT)
+// --------------------------------------------------
 
-        if (
-            typeof grid === 'undefined' ||
-            !grid ||
-            grid.length === 0
-        ) {
-            alert("Erreur : La grille est introuvable.");
+if (
+    typeof grid === 'undefined' ||
+    !grid ||
+    grid.length === 0
+) {
+    alert("Erreur : La grille est introuvable.");
+    return;
+}
+
+const doc = new jsPDF('l', 'mm', 'a4');
+
+const margin = 15;
+
+const pageWidth = doc.internal.pageSize.getWidth();
+const pageHeight = doc.internal.pageSize.getHeight();
+
+const availableWidth = pageWidth - (margin * 2);
+
+const fontSize = 9;
+const lineSpacing = 3.6;
+const itemGap = 1.5;
+const cellPaddingV = 4;
+
+doc.setFont("helvetica", "normal");
+doc.setFontSize(fontSize);
+
+// --------------------------------------------------
+// SMART TEXT WRAP
+// --------------------------------------------------
+
+function splitText(text, width) {
+
+    return doc.splitTextToSize(
+        String(text || "")
+            .replaceAll("-", "- ")
+            .replaceAll("/", "/ "),
+        width,
+        {
+            lineBreak: false
+        }
+    );
+}
+
+// --------------------------------------------------
+// INLINE OR STACK
+// --------------------------------------------------
+
+function shouldStackText(tl, tr, effW) {
+
+    const wTl = doc.getTextWidth(tl || "");
+
+    const wTr = tr
+        ? doc.getTextWidth(` (${tr})`)
+        : 0;
+
+    const inlineThreshold = effW * 0.9;
+
+    return (
+        (wTl + wTr + 1.5 > inlineThreshold) ||
+        (tl || "").length > 24 ||
+        (tr || "").length > 28
+    );
+}
+
+// --------------------------------------------------
+// COLUMN WIDTHS
+// --------------------------------------------------
+
+const colCount = grid[0].length;
+
+let colWeights = new Array(colCount).fill(0);
+
+grid.forEach(row => {
+
+    row.forEach((cell, cIdx) => {
+
+        if (cell.hidden) {
             return;
         }
 
-        const doc = new jsPDF('l', 'mm', 'a4');
+        let cellMax = 0;
 
-        const margin = 15;
+        (cell.items || []).forEach(it => {
 
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const pageHeight = doc.internal.pageSize.getHeight();
+            const tl = it.t || "";
+            const tr = it.tr || "";
 
-        const availableWidth = pageWidth - (margin * 2);
+            let len = tl.length;
 
-        const fontSize = 9;
-        const lineSpacing = 3.6;
-        const itemGap = 1.5;
-        const cellPaddingV = 4;
+            if (tr.length > 18) {
+                len += 3;
+            }
 
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(fontSize);
+            if (cell.split) {
+                len *= 0.72;
+            }
 
-        // --------------------------------------------------
-        // SMART SPLIT
-        // --------------------------------------------------
-
-        function splitText(text, width) {
-
-            return doc.splitTextToSize(
-                String(text || "")
-                    .replaceAll("-", "- ")
-                    .replaceAll("/", "/ "),
-                width,
-                {
-                    lineBreak: false
-                }
-            );
-        }
-
-        // --------------------------------------------------
-        // INLINE / STACK DECISION
-        // --------------------------------------------------
-
-        function shouldStackText(tl, tr, effW) {
-
-            const wTl = doc.getTextWidth(tl || "");
-            const wTr = tr
-                ? doc.getTextWidth(` (${tr})`)
-                : 0;
-
-            const inlineThreshold = effW * 0.9;
-
-            return (
-                (wTl + wTr + 1.5 > inlineThreshold) ||
-                (tl || "").length > 24 ||
-                (tr || "").length > 28
-            );
-        }
-
-        // --------------------------------------------------
-        // COLUMN WIDTH CALCULATION
-        // --------------------------------------------------
-
-        const colCount = grid[0].length;
-
-        let colWeights = new Array(colCount).fill(0);
-
-        grid.forEach(row => {
-
-            row.forEach((cell, cIdx) => {
-
-                if (cell.hidden) {
-                    return;
-                }
-
-                let cellMax = 0;
-
-                (cell.items || []).forEach(it => {
-
-                    const tl = it.t || "";
-                    const tr = it.tr || "";
-
-                    let len = tl.length;
-
-                    if (tr.length > 18) {
-                        len += 3;
-                    }
-
-                    if (cell.split) {
-                        len *= 0.72;
-                    }
-
-                    if (len > cellMax) {
-                        cellMax = len;
-                    }
-                });
-
-                const weight = cellMax / (cell.cS || 1);
-
-                if (weight > colWeights[cIdx]) {
-                    colWeights[cIdx] = weight;
-                }
-            });
+            if (len > cellMax) {
+                cellMax = len;
+            }
         });
 
-        const totalWeight = colWeights.reduce(
-            (a, b) => a + Math.max(b, 12),
-            0
-        );
+        const weight = cellMax / (cell.cS || 1);
 
-        const colWidths = colWeights.map(w =>
-            (Math.max(w, 12) / totalWeight) * availableWidth
-        );
+        if (weight > colWeights[cIdx]) {
+            colWeights[cIdx] = weight;
+        }
+    });
+});
 
-        // --------------------------------------------------
-        // HEIGHT ESTIMATION
-        // --------------------------------------------------
+const totalWeight = colWeights.reduce(
+    (a, b) => a + Math.max(b, 12),
+    0
+);
 
-        let rowHeights = new Array(grid.length).fill(10);
+const colWidths = colWeights.map(w =>
+    (Math.max(w, 12) / totalWeight) * availableWidth
+);
 
-        grid.forEach((row, rIdx) => {
+// --------------------------------------------------
+// ROW HEIGHTS
+// --------------------------------------------------
 
-            row.forEach((cell, cIdx) => {
+let rowHeights = new Array(grid.length).fill(10);
 
-                if (cell.hidden) {
-                    return;
-                }
+grid.forEach((row, rIdx) => {
 
-                const rs = cell.rS || 1;
-                const cs = cell.cS || 1;
+    row.forEach((cell, cIdx) => {
 
-                let cellW = 0;
+        if (cell.hidden) {
+            return;
+        }
 
-                for (let i = 0; i < cs; i++) {
-                    cellW += colWidths[cIdx + i];
-                }
+        const rs = cell.rS || 1;
+        const cs = cell.cS || 1;
 
-                const effW = cell.split
-                    ? (cellW / 2) - 4
-                    : cellW - 6;
+        let cellW = 0;
 
-                let contentH_L = cellPaddingV;
-                let contentH_R = cellPaddingV;
+        for (let i = 0; i < cs; i++) {
+            cellW += colWidths[cIdx + i];
+        }
 
-                (cell.items || []).forEach((it, idx) => {
+        const effW = cell.split
+            ? (cellW / 2) - 4
+            : cellW - 6;
 
-                    const tl = it.t || "";
-                    const tr = it.tr || "";
+        let contentH_L = cellPaddingV;
+        let contentH_R = cellPaddingV;
 
-                    const shouldStack =
-                        shouldStackText(
-                            tl,
-                            tr,
-                            effW
-                        );
+        (cell.items || []).forEach((it, idx) => {
 
-                    let h;
+            const tl = it.t || "";
+            const tr = it.tr || "";
 
-                    if (!shouldStack) {
+            const shouldStack =
+                shouldStackText(
+                    tl,
+                    tr,
+                    effW
+                );
 
-                        h = lineSpacing;
+            let h;
 
-                    } else {
+            if (!shouldStack) {
 
-                        const tlLines =
-                            splitText(
-                                tl,
-                                effW
-                            ).length;
+                h = lineSpacing;
 
-                        const trLines =
-                            tr
-                                ? splitText(
-                                      `(${tr})`,
-                                      effW - 2
-                                  ).length
-                                : 0;
+            } else {
 
-                        h =
-                            (tlLines * lineSpacing) +
-                            (trLines * (lineSpacing - 0.3));
-                    }
+                const tlLines =
+                    splitText(
+                        tl,
+                        effW
+                    ).length;
 
-                    h += itemGap;
+                const trLines =
+                    tr
+                        ? splitText(
+                              `(${tr})`,
+                              effW - 2
+                          ).length
+                        : 0;
 
-                    if (cell.split && idx % 2 !== 0) {
-                        contentH_R += h;
-                    } else {
-                        contentH_L += h;
-                    }
-                });
+                h =
+                    (tlLines * lineSpacing) +
+                    (trLines * (lineSpacing - 0.3));
+            }
 
-                const contentH = cell.split
-                    ? Math.max(contentH_L, contentH_R)
-                    : contentH_L;
+            h += itemGap;
 
-                const hPerLine = contentH / rs;
-
-                for (let i = 0; i < rs; i++) {
-
-                    if (
-                        rIdx + i < rowHeights.length &&
-                        hPerLine > rowHeights[rIdx + i]
-                    ) {
-                        rowHeights[rIdx + i] = hPerLine;
-                    }
-                }
-            });
+            if (cell.split && idx % 2 !== 0) {
+                contentH_R += h;
+            } else {
+                contentH_L += h;
+            }
         });
 
-        // --------------------------------------------------
-        // TITLE
-        // --------------------------------------------------
+        const contentH = cell.split
+            ? Math.max(contentH_L, contentH_R)
+            : contentH_L;
+
+        const hPerLine = contentH / rs;
+
+        for (let i = 0; i < rs; i++) {
+
+            if (
+                rIdx + i < rowHeights.length &&
+                hPerLine > rowHeights[rIdx + i]
+            ) {
+                rowHeights[rIdx + i] = hPerLine;
+            }
+        }
+    });
+});
+
+// --------------------------------------------------
+// TITLE
+// --------------------------------------------------
+
+doc.setFont("helvetica", "bold");
+doc.setFontSize(14);
+
+doc.text(title, margin, margin + 5);
+
+let currentY = margin + 15;
+
+// --------------------------------------------------
+// DRAW GRID
+// --------------------------------------------------
+
+grid.forEach((row, rIdx) => {
+
+    // --------------------------------------------------
+    // TRUE BLOCK HEIGHT
+    // --------------------------------------------------
+
+    let blockHeight = rowHeights[rIdx];
+
+    row.forEach(cell => {
+
+        if (cell.hidden) {
+            return;
+        }
+
+        const rs = cell.rS || 1;
+
+        if (rs > 1) {
+
+            let mergedHeight = 0;
+
+            for (let i = 0; i < rs; i++) {
+                mergedHeight += (
+                    rowHeights[rIdx + i] || 0
+                );
+            }
+
+            blockHeight = Math.max(
+                blockHeight,
+                mergedHeight
+            );
+        }
+    });
+
+    // --------------------------------------------------
+    // PAGE BREAK
+    // --------------------------------------------------
+
+    if (
+        currentY + blockHeight >
+        pageHeight - margin
+    ) {
+
+        doc.addPage();
+
+        currentY = margin + 10;
 
         doc.setFont("helvetica", "bold");
         doc.setFontSize(14);
 
         doc.text(title, margin, margin + 5);
-
-        let currentY = margin + 15;
-
-        // --------------------------------------------------
-        // DRAW GRID
-        // --------------------------------------------------
-
-        grid.forEach((row, rIdx) => {
-
-           // --------------------------------------------------
-// TRUE ROW BLOCK HEIGHT
-// --------------------------------------------------
-
-let blockHeight = rowHeights[rIdx];
-
-// Include rowspan overflow
-row.forEach(cell => {
-
-    if (cell.hidden) {
-        return;
     }
 
-    const rs = cell.rS || 1;
+    let currentX = margin;
 
-    if (rs > 1) {
+    row.forEach((cell, cIdx) => {
 
-        let mergedHeight = 0;
+        const w = colWidths[cIdx];
+
+        if (cell.hidden) {
+            currentX += w;
+            return;
+        }
+
+        const rs = cell.rS || 1;
+        const cs = cell.cS || 1;
+
+        let cellW = 0;
+
+        for (let i = 0; i < cs; i++) {
+            cellW += colWidths[cIdx + i];
+        }
+
+        let cellH = 0;
 
         for (let i = 0; i < rs; i++) {
-            mergedHeight += (
+            cellH += (
                 rowHeights[rIdx + i] || 0
             );
         }
 
-        blockHeight = Math.max(
-            blockHeight,
-            mergedHeight
+        // --------------------------------------------------
+        // BORDER
+        // --------------------------------------------------
+
+        doc.setDrawColor(148, 163, 184);
+        doc.setLineWidth(0.15);
+
+        doc.rect(
+            currentX,
+            currentY,
+            cellW,
+            cellH
         );
-    }
-});
 
-// --------------------------------------------------
-// PAGE BREAK
-// --------------------------------------------------
+        const effW = cell.split
+            ? (cellW / 2) - 4
+            : cellW - 6;
 
-if (
-    currentY + blockHeight >
-    pageHeight - margin
-) {
+        // --------------------------------------------------
+        // CONTENT HEIGHT
+        // --------------------------------------------------
 
-    doc.addPage();
+        let tL = 0;
+        let tR = 0;
 
-    currentY = margin + 10;
+        (cell.items || []).forEach((it, idx) => {
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
+            const tl = it.t || "";
+            const tr = it.tr || "";
 
-    doc.text(title, margin, margin + 5);
-}
-
-            let currentX = margin;
-
-            row.forEach((cell, cIdx) => {
-
-                const w = colWidths[cIdx];
-
-                if (cell.hidden) {
-                    currentX += w;
-                    return;
-                }
-
-                const rs = cell.rS || 1;
-                const cs = cell.cS || 1;
-
-                let cellW = 0;
-
-                for (let i = 0; i < cs; i++) {
-                    cellW += colWidths[cIdx + i];
-                }
-
-                let cellH = 0;
-
-                for (let i = 0; i < rs; i++) {
-                    cellH += (rowHeights[rIdx + i] || h);
-                }
-
-                // --------------------------------------------------
-                // CELL BORDER
-                // --------------------------------------------------
-
-                doc.setDrawColor(148, 163, 184);
-                doc.setLineWidth(0.15);
-
-                doc.rect(
-                    currentX,
-                    currentY,
-                    cellW,
-                    cellH
+            const shouldStack =
+                shouldStackText(
+                    tl,
+                    tr,
+                    effW
                 );
 
-                const effW = cell.split
-                    ? (cellW / 2) - 4
-                    : cellW - 6;
+            let itemH;
+
+            if (!shouldStack) {
+
+                itemH = lineSpacing;
+
+            } else {
+
+                const tlLines =
+                    splitText(
+                        tl,
+                        effW
+                    ).length;
+
+                const trLines =
+                    tr
+                        ? splitText(
+                              `(${tr})`,
+                              effW - 2
+                          ).length
+                        : 0;
+
+                itemH =
+                    (tlLines * lineSpacing) +
+                    (trLines * (lineSpacing - 0.3));
+            }
+
+            itemH += itemGap;
+
+            if (cell.split && idx % 2 !== 0) {
+                tR += itemH;
+            } else {
+                tL += itemH;
+            }
+        });
+
+        const contentHeight =
+            cell.split
+                ? Math.max(tL, tR)
+                : tL;
+
+        let startY =
+            currentY +
+            ((cellH - contentHeight) / 2) +
+            3;
+
+        let yL = startY;
+        let yR = startY;
+
+        // --------------------------------------------------
+        // DRAW ITEMS
+        // --------------------------------------------------
+
+        (cell.items || []).forEach((item, idx) => {
+
+            const isRightCol =
+                cell.split && idx % 2 !== 0;
+
+            const itemX = isRightCol
+                ? currentX + (cellW / 2) + 1
+                : currentX + 3;
+
+            let curY = isRightCol
+                ? yR
+                : yL;
+
+            const tl = item.t || "";
+            const tr = item.tr || "";
+
+            const shouldStack =
+                shouldStackText(
+                    tl,
+                    tr,
+                    effW
+                );
+
+            // --------------------------------------------------
+            // INLINE
+            // --------------------------------------------------
+
+            if (!shouldStack) {
+
+                doc.setFont(
+                    "helvetica",
+                    "normal"
+                );
+
+                doc.setTextColor(0);
+
+                doc.setFontSize(fontSize);
+
+                doc.text(
+                    tl,
+                    itemX,
+                    curY
+                );
+
+                if (tr) {
+
+                    const tlWidth =
+                        doc.getTextWidth(tl);
+
+                    doc.setFont(
+                        "helvetica",
+                        "italic"
+                    );
+
+                    doc.setTextColor(
+                        41,
+                        128,
+                        185
+                    );
+
+                    doc.setFontSize(
+                        fontSize - 1
+                    );
+
+                    doc.text(
+                        ` (${tr})`,
+                        itemX + tlWidth + 1.5,
+                        curY
+                    );
+                }
+
+                curY += lineSpacing;
+
+            } else {
 
                 // --------------------------------------------------
-                // CONTENT HEIGHT
+                // STACKED
                 // --------------------------------------------------
 
-                let tL = 0;
-                let tR = 0;
+                doc.setFont(
+                    "helvetica",
+                    "normal"
+                );
 
-                (cell.items || []).forEach((it, idx) => {
+                doc.setTextColor(0);
 
-                    const tl = it.t || "";
-                    const tr = it.tr || "";
+                doc.setFontSize(fontSize);
 
-                    const shouldStack =
-                        shouldStackText(
-                            tl,
-                            tr,
-                            effW
-                        );
+                splitText(
+                    tl,
+                    effW
+                ).forEach(line => {
 
-                    let itemH;
+                    doc.text(
+                        line.trim(),
+                        itemX,
+                        curY
+                    );
 
-                    if (!shouldStack) {
-
-                        itemH = lineSpacing;
-
-                    } else {
-
-                        const tlLines =
-                            splitText(
-                                tl,
-                                effW
-                            ).length;
-
-                        const trLines =
-                            tr
-                                ? splitText(
-                                      `(${tr})`,
-                                      effW - 2
-                                  ).length
-                                : 0;
-
-                        itemH =
-                            (tlLines * lineSpacing) +
-                            (trLines * (lineSpacing - 0.3));
-                    }
-
-                    itemH += itemGap;
-
-                    if (cell.split && idx % 2 !== 0) {
-                        tR += itemH;
-                    } else {
-                        tL += itemH;
-                    }
+                    curY += lineSpacing;
                 });
 
-                const contentHeight =
-                    cell.split
-                        ? Math.max(tL, tR)
-                        : tL;
+                if (tr) {
 
-                let startY =
-                    currentY +
-                    ((cellH - contentHeight) / 2) +
-                    3;
+                    curY -= 0.4;
 
-                let yL = startY;
-                let yR = startY;
+                    doc.setFont(
+                        "helvetica",
+                        "italic"
+                    );
 
-                // --------------------------------------------------
-                // DRAW ITEMS
-                // --------------------------------------------------
+                    doc.setTextColor(
+                        41,
+                        128,
+                        185
+                    );
 
-                (cell.items || []).forEach((item, idx) => {
+                    doc.setFontSize(
+                        fontSize - 1
+                    );
 
-                    const isRightCol =
-                        cell.split && idx % 2 !== 0;
-
-                    const itemX = isRightCol
-                        ? currentX + (cellW / 2) + 1
-                        : currentX + 3;
-
-                    let curY = isRightCol
-                        ? yR
-                        : yL;
-
-                    const tl = item.t || "";
-                    const tr = item.tr || "";
-
-                    const shouldStack =
-                        shouldStackText(
-                            tl,
-                            tr,
-                            effW
-                        );
-
-                    // --------------------------------------------------
-                    // INLINE
-                    // --------------------------------------------------
-
-                    if (!shouldStack) {
-
-                        doc.setFont(
-                            "helvetica",
-                            "normal"
-                        );
-
-                        doc.setTextColor(0);
-
-                        doc.setFontSize(fontSize);
+                    splitText(
+                        `(${tr})`,
+                        effW - 2
+                    ).forEach(line => {
 
                         doc.text(
-                            tl,
-                            itemX,
+                            line.trim(),
+                            itemX + 2,
                             curY
                         );
 
-                        if (tr) {
+                        curY +=
+                            lineSpacing - 0.4;
+                    });
+                }
+            }
 
-                            const tlWidth =
-                                doc.getTextWidth(tl);
+            curY += itemGap;
 
-                            doc.setFont(
-                                "helvetica",
-                                "italic"
-                            );
+            if (isRightCol) {
 
-                            doc.setTextColor(
-                                41,
-                                128,
-                                185
-                            );
+                yR = curY;
 
-                            doc.setFontSize(
-                                fontSize - 1
-                            );
+            } else {
 
-                            doc.text(
-                                ` (${tr})`,
-                                itemX + tlWidth + 1.5,
-                                curY
-                            );
-                        }
+                yL = curY;
 
-                        curY += lineSpacing;
-
-                    } else {
-
-                        // --------------------------------------------------
-                        // STACKED
-                        // --------------------------------------------------
-
-                        doc.setFont(
-                            "helvetica",
-                            "normal"
-                        );
-
-                        doc.setTextColor(0);
-
-                        doc.setFontSize(fontSize);
-
-                        splitText(
-                            tl,
-                            effW
-                        ).forEach(line => {
-
-                            doc.text(
-                                line.trim(),
-                                itemX,
-                                curY
-                            );
-
-                            curY += lineSpacing;
-                        });
-
-                        if (tr) {
-
-                            curY -= 0.4;
-
-                            doc.setFont(
-                                "helvetica",
-                                "italic"
-                            );
-
-                            doc.setTextColor(
-                                41,
-                                128,
-                                185
-                            );
-
-                            doc.setFontSize(
-                                fontSize - 1
-                            );
-
-                            splitText(
-                                `(${tr})`,
-                                effW - 2
-                            ).forEach(line => {
-
-                                doc.text(
-                                    line.trim(),
-                                    itemX + 2,
-                                    curY
-                                );
-
-                                curY +=
-                                    lineSpacing - 0.4;
-                            });
-                        }
-                    }
-
-                    curY += itemGap;
-
-                    if (isRightCol) {
-
-                        yR = curY;
-
-                    } else {
-
-                        yL = curY;
-
-                        if (!cell.split) {
-                            yR = curY;
-                        }
-                    }
-                });
-
-                currentX += w;
-            });
-
-            currentY += h;
+                if (!cell.split) {
+                    yR = curY;
+                }
+            }
         });
+
+        currentX += w;
+    });
+
+    currentY += rowHeights[rIdx];
+});
 
         doc.save(`${title}.pdf`);
 
