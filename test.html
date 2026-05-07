@@ -1897,7 +1897,7 @@ async function exportPDF() {
             return;
         }
 
-        // --- OPTION B: MFL (Vecteur) ---
+// --- OPTION B: MFL (Vecteur) ---
         if (typeof grid === 'undefined' || !grid || grid.length === 0) {
             alert("Erreur : La grille est introuvable.");
             return;
@@ -1914,7 +1914,7 @@ async function exportPDF() {
         const itemGap = 1.5;
         const cellPaddingV = 4;
 
-        // 1. CALCUL DES LARGEURS
+        // 1. CALCUL DES LARGEURS DE COLONNES
         const colCount = grid[0].length;
         let colWeights = new Array(colCount).fill(0);
         grid.forEach(row => {
@@ -1923,7 +1923,7 @@ async function exportPDF() {
                 let cellMax = 0;
                 (cell.items || []).forEach(it => {
                     let len = (it.t || "").length + ((it.tr || "").length * 0.4);
-                    if (cell.isSplit) len = len / 1.8;
+                    if (cell.split) len = len / 1.8; // On réduit le poids si splité en 2
                     if (len > cellMax) cellMax = len;
                 });
                 const weight = cellMax / (cell.cS || 1);
@@ -1934,7 +1934,7 @@ async function exportPDF() {
         let totalWeight = colWeights.reduce((a, b) => a + Math.max(b, 12), 0);
         const colWidths = colWeights.map(w => (Math.max(w, 12) / totalWeight) * availableWidth);
 
-        // 2. PRÉ-CALCUL DES HAUTEURS
+        // 2. PRÉ-CALCUL DES HAUTEURS DE LIGNES
         let rowHeights = new Array(grid.length).fill(10);
         grid.forEach((row, rIdx) => {
             row.forEach((cell, cIdx) => {
@@ -1942,7 +1942,8 @@ async function exportPDF() {
                 const rs = cell.rS || 1;
                 const cs = cell.cS || 1;
                 let cellW = 0; for (let i = 0; i < cs; i++) cellW += colWidths[cIdx + i];
-                const effW = cell.isSplit ? (cellW / 2) - 4 : cellW - 6;
+                
+                const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
 
                 let contentH_L = cellPaddingV, contentH_R = cellPaddingV;
                 (cell.items || []).forEach((it, idx) => {
@@ -1950,9 +1951,12 @@ async function exportPDF() {
                     doc.setFontSize(fontSize);
                     let h = (doc.getTextWidth(tl + tr) <= effW) ? lineSpacing : (doc.splitTextToSize(tl, effW).length + (it.tr ? doc.splitTextToSize(`(${it.tr})`, effW).length : 0)) * lineSpacing;
                     h += itemGap;
-                    if (cell.isSplit && idx % 2 !== 0) contentH_R += h; else contentH_L += h;
+                    
+                    if (cell.split && idx % 2 !== 0) contentH_R += h; 
+                    else contentH_L += h;
                 });
-                const contentH = cell.isSplit ? Math.max(contentH_L, contentH_R) : contentH_L;
+                
+                const contentH = cell.split ? Math.max(contentH_L, contentH_R) : contentH_L;
                 const hPerLine = contentH / rs;
                 for (let i = 0; i < rs; i++) {
                     if (rIdx + i < rowHeights.length && hPerLine > rowHeights[rIdx + i]) rowHeights[rIdx + i] = hPerLine;
@@ -1960,7 +1964,7 @@ async function exportPDF() {
             });
         });
 
-        // 3. DESSIN
+        // 3. DESSIN DU DOCUMENT
         doc.setFont("helvetica", "bold").setFontSize(14);
         doc.text(title, margin, margin + 5);
         let currentY = margin + 15;
@@ -1977,33 +1981,43 @@ async function exportPDF() {
                 let cellW = 0; for (let i = 0; i < cs; i++) cellW += colWidths[cIdx + i];
                 let cellH = 0; for (let i = 0; i < rs; i++) cellH += (rowHeights[rIdx + i] || h);
 
-                doc.setDrawColor(148, 163, 184).setLineWidth(0.15).rect(currentX, currentY, cellW, cellH);
+                // Dessiner la bordure de la cellule
+                doc.setDrawColor(148, 163, 184).setLineWidth(0.15);
+                doc.rect(currentX, currentY, cellW, cellH);
 
-                const effW = cell.isSplit ? (cellW / 2) - 4 : cellW - 6;
+                const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
+                
+                // Calculer la hauteur totale réelle pour le centrage vertical
                 let tL = 0, tR = 0;
                 (cell.items || []).forEach((it, idx) => {
-                    let h = (doc.getTextWidth((it.t||"")+(it.tr?` (${it.tr})`:"")) <= effW) ? lineSpacing : (doc.splitTextToSize(it.t||"", effW).length + (it.tr?doc.splitTextToSize(`(${it.tr})`, effW).length:0)) * lineSpacing;
-                    h += itemGap;
-                    if (cell.isSplit && idx % 2 !== 0) tR += h; else tL += h;
+                    let itemH = (doc.getTextWidth((it.t||"")+(it.tr?` (${it.tr})`:"")) <= effW) ? lineSpacing : (doc.splitTextToSize(it.t||"", effW).length + (it.tr?doc.splitTextToSize(`(${it.tr})`, effW).length:0)) * lineSpacing;
+                    itemH += itemGap;
+                    if (cell.split && idx % 2 !== 0) tR += itemH; else tL += itemH;
                 });
                 
                 let startY = currentY + ((cellH - Math.max(tL, tR)) / 2) + 3;
                 let yL = startY, yR = startY;
 
+                // Dessiner les items
                 (cell.items || []).forEach((item, idx) => {
-                    let isR = (cell.isSplit && idx % 2 !== 0);
-                    let itemX = isR ? currentX + (cellW / 2) + 1 : currentX + 3;
-                    let curY = isR ? yR : yL;
+                    let isRightCol = (cell.split && idx % 2 !== 0);
+                    let itemX = isRightCol ? currentX + (cellW / 2) + 1 : currentX + 3;
+                    let curY = isRightCol ? yR : yL;
 
                     const tl = item.t || "", tr = item.tr ? ` (${item.tr})` : "";
                     doc.setFontSize(fontSize);
                     const wTl = doc.getTextWidth(tl), wTr = item.tr ? doc.getTextWidth(tr) : 0;
 
                     if (wTl + wTr + 1.5 <= effW) {
+                        // Tout sur une ligne
                         doc.setFont("helvetica", "normal").setTextColor(0).text(tl, itemX, curY);
-                        if (item.tr) doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize-1).text(tr, itemX + wTl + 1.5, curY);
+                        if (item.tr) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize-1);
+                            doc.text(tr, itemX + wTl + 1.5, curY);
+                        }
                         curY += lineSpacing;
                     } else {
+                        // Multi-lignes
                         doc.setFont("helvetica", "normal").setTextColor(0);
                         doc.splitTextToSize(tl, effW).forEach(l => { doc.text(l, itemX, curY); curY += lineSpacing; });
                         if (item.tr) {
@@ -2011,8 +2025,16 @@ async function exportPDF() {
                             doc.splitTextToSize(`(${item.tr})`, effW).forEach(l => { doc.text(l, itemX, curY); curY += lineSpacing; });
                         }
                     }
+                    
                     curY += itemGap;
-                    if (isR) yR = curY; else { yL = curY; if(!cell.isSplit) yR = curY; }
+                    
+                    // Mise à jour des coordonnées pour l'item suivant
+                    if (isRightCol) {
+                        yR = curY;
+                    } else {
+                        yL = curY;
+                        if(!cell.split) yR = curY; // Si pas split, les deux colonnes descendent
+                    }
                 });
                 currentX += w;
             });
