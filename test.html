@@ -1897,137 +1897,123 @@ async function exportPDF() {
             return;
         }
 
-// --- OPTION B: MFL (Vecteur) - VERSION STABLE ---
-if (typeof grid === 'undefined' || !grid || grid.length === 0) {
-    alert("Erreur : La grille est introuvable.");
-    return;
-}
-
-const doc = new jsPDF('l', 'mm', 'a4');
-const margin = 15;
-const pageWidth = doc.internal.pageSize.getWidth();
-const pageHeight = doc.internal.pageSize.getHeight();
-const availableWidth = pageWidth - (margin * 2);
-
-const fontSize = 9;
-const lineSpacing = 3.6;
-const itemGap = 1.5;
-const cellPaddingV = 4;
-
-// 1. CALCUL DES LARGEURS (Inchangé)
-const colCount = grid[0].length;
-let colWeights = new Array(colCount).fill(0);
-grid.forEach(row => {
-    row.forEach((cell, cIdx) => {
-        if (cell.hidden) return;
-        let cellMax = 0;
-        (cell.items || []).forEach(it => {
-            let len = (it.t || "").length + ((it.tr || "").length * 0.4);
-            if (cell.split) len = len / 1.8;
-            if (len > cellMax) cellMax = len;
-        });
-        const weight = cellMax / (cell.cS || 1);
-        if (weight > colWeights[cIdx]) colWeights[cIdx] = weight;
-    });
-});
-let totalWeight = colWeights.reduce((a, b) => a + Math.max(b, 12), 0);
-const colWidths = colWeights.map(w => (Math.max(w, 12) / totalWeight) * availableWidth);
-
-// 2. PRÉ-CALCUL DES HAUTEURS (Ajusté pour être plus précis)
-let rowHeights = new Array(grid.length).fill(10);
-grid.forEach((row, rIdx) => {
-    row.forEach((cell, cIdx) => {
-        if (cell.hidden) return;
-        const rs = cell.rS || 1;
-        const cs = cell.cS || 1;
-        let cellW = 0; for (let i = 0; i < cs; i++) cellW += colWidths[cIdx + i];
-        const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
-
-        let hL = cellPaddingV, hR = cellPaddingV;
-        (cell.items || []).forEach((it, idx) => {
-            doc.setFontSize(fontSize);
-            const txt = (it.t || "") + (it.tr ? ` (${it.tr})` : "");
-            let h = (doc.getTextWidth(txt) <= effW) ? lineSpacing : (doc.splitTextToSize(it.t || "", effW).length + (it.tr ? doc.splitTextToSize(`(${it.tr})`, effW).length : 0)) * lineSpacing;
-            h += itemGap;
-            if (cell.split && idx % 2 !== 0) hR += h; else hL += h;
-        });
-        const contentH = Math.max(hL, hR, 10);
-        const hPerLine = contentH / rs;
-        for (let i = 0; i < rs; i++) {
-            if (rIdx + i < rowHeights.length && hPerLine > rowHeights[rIdx + i]) rowHeights[rIdx + i] = hPerLine;
+// --- OPTION B: MFL (Vecteur) - VERSION HAUTE PRÉCISION ---
+        if (typeof grid === 'undefined' || !grid || grid.length === 0) {
+            alert("Erreur : La grille est introuvable.");
+            return;
         }
-    });
-});
 
-// 3. DESSIN
-doc.setFont("helvetica", "bold").setFontSize(14);
-doc.text(title, margin, margin + 5);
-let currentY = margin + 15;
+        const doc = new jsPDF('l', 'mm', 'a4');
+        const margin = 15;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const availableWidth = pageWidth - (margin * 2);
 
-grid.forEach((row, rIdx) => {
-    const h = rowHeights[rIdx];
-    
-    // Si la ligne entière ne tient pas, on change de page AVANT de la dessiner
-    if (currentY + h > pageHeight - margin) { 
-        doc.addPage(); 
-        currentY = margin + 10; 
-    }
-    
-    let currentX = margin;
-    row.forEach((cell, cIdx) => {
-        const w = colWidths[cIdx];
-        if (cell.hidden) { currentX += w; return; }
-        const rs = cell.rS || 1, cs = cell.cS || 1;
-        let cellW = 0; for (let i = 0; i < cs; i++) cellW += colWidths[cIdx + i];
-        let cellH = 0; for (let i = 0; i < rs; i++) cellH += (rowHeights[rIdx + i] || h);
+        const fontSize = 9;
+        const lineSpacing = 4; // Augmenté pour plus de clarté
+        const itemGap = 1.5;
 
-        // Fond et Bordure
-        doc.setDrawColor(148, 163, 184).setLineWidth(0.15).rect(currentX, currentY, cellW, cellH);
-
-        const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
-        let tL = 0, tR = 0;
-        (cell.items || []).forEach((it, idx) => {
-            const txt = (it.t || "") + (it.tr ? ` (${it.tr})` : "");
-            let itemH = (doc.getTextWidth(txt) <= effW) ? lineSpacing : (doc.splitTextToSize(it.t||"", effW).length + (it.tr?doc.splitTextToSize(`(${it.tr})`, effW).length:0)) * lineSpacing;
-            itemH += itemGap;
-            if (cell.split && idx % 2 !== 0) tR += itemH; else tL += itemH;
+        // 1. CALCUL DES LARGEURS (Basé sur le contenu)
+        const colCount = grid[0].length;
+        let colWeights = new Array(colCount).fill(0);
+        grid.forEach(row => {
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden) return;
+                let cellMax = 0;
+                (cell.items || []).forEach(it => {
+                    let len = (it.t || "").length + ((it.tr || "").length * 0.4);
+                    if (cell.split) len = len / 1.8;
+                    if (len > cellMax) cellMax = len;
+                });
+                const weight = cellMax / (cell.cS || 1);
+                if (weight > colWeights[cIdx]) colWeights[cIdx] = weight;
+            });
         });
-        
-        let startY = currentY + ((cellH - Math.max(tL, tR)) / 2) + 3;
-        let yL = startY, yR = startY;
+        let totalWeight = colWeights.reduce((a, b) => a + Math.max(b, 12), 0);
+        const colWidths = colWeights.map(w => (Math.max(w, 12) / totalWeight) * availableWidth);
 
-        (cell.items || []).forEach((item, idx) => {
-            let isR = (cell.split && idx % 2 !== 0);
-            let itemX = isR ? currentX + (cellW / 2) + 1 : currentX + 3;
-            let curY = isR ? yR : yL;
+        // 2. DESSIN LIGNE PAR LIGNE
+        doc.setFont("helvetica", "bold").setFontSize(14);
+        doc.text(title, margin, margin + 5);
+        let currentY = margin + 15;
 
-            const tl = item.t || "", tr = item.tr ? ` (${item.tr})` : "";
-            doc.setFontSize(fontSize).setTextColor(0);
-            const wTl = doc.getTextWidth(tl);
+        grid.forEach((row, rIdx) => {
+            // Calcul de la hauteur nécessaire pour cette ligne spécifique
+            let maxRowH = 10;
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden) return;
+                let cellW = 0; for (let i = 0; i < (cell.cS || 1); i++) cellW += colWidths[cIdx + i];
+                const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
+                let hL = 5, hR = 5;
+                (cell.items || []).forEach((it, idx) => {
+                    const txt = (it.t || "") + (it.tr ? ` (${it.tr})` : "");
+                    let h = (doc.getTextWidth(txt) <= effW) ? lineSpacing : (doc.splitTextToSize(it.t || "", effW).length + (it.tr ? doc.splitTextToSize(`(${it.tr})`, effW).length : 0)) * lineSpacing;
+                    if (cell.split && idx % 2 !== 0) hR += h + itemGap; else hL += h + itemGap;
+                });
+                const cellNeededH = Math.max(hL, hR);
+                if (cellNeededH / (cell.rS || 1) > maxRowH) maxRowH = cellNeededH / (cell.rS || 1);
+            });
 
-            if (wTl + (item.tr ? doc.getTextWidth(` (${item.tr})`) : 0) + 1.5 <= effW) {
-                doc.setFont("helvetica", "normal").text(tl, itemX, curY);
-                if (item.tr) {
-                    doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
-                    doc.text(` (${item.tr})`, itemX + wTl + 1, curY);
-                }
-                curY += lineSpacing;
-            } else {
-                doc.setFont("helvetica", "normal").setTextColor(0);
-                doc.splitTextToSize(tl, effW).forEach(l => { doc.text(l, itemX, curY); curY += lineSpacing; });
-                if (item.tr) {
-                    doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
-                    doc.splitTextToSize(`(${item.tr})`, effW).forEach(l => { doc.text(l, itemX, curY); curY += lineSpacing; });
-                }
+            // GESTION DU SAUT DE PAGE (Si la ligne dépasse le bas)
+            if (currentY + maxRowH > pageHeight - margin) {
+                doc.addPage();
+                currentY = margin + 5;
             }
-            curY += itemGap;
-            if (isR) yR = curY; else { yL = curY; if(!cell.split) yR = curY; }
+
+            let currentX = margin;
+            row.forEach((cell, cIdx) => {
+                const w = colWidths[cIdx];
+                if (cell.hidden) { currentX += w; return; }
+
+                const cellW = colWidths.slice(cIdx, cIdx + (cell.cS || 1)).reduce((a, b) => a + b, 0);
+                const cellH = maxRowH * (cell.rS || 1);
+
+                // Bordure
+                doc.setDrawColor(180).setLineWidth(0.1).rect(currentX, currentY, cellW, cellH);
+
+                // Contenu
+                const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
+                let yL = currentY + 4, yR = currentY + 4;
+
+                (cell.items || []).forEach((item, idx) => {
+                    let isR = (cell.split && idx % 2 !== 0);
+                    let itemX = isR ? currentX + (cellW / 2) + 1 : currentX + 3;
+                    let curY = isR ? yR : yL;
+
+                    // Si le texte déborde de la cellule, on arrête d'écrire pour cette cellule
+                    if (curY + lineSpacing > currentY + cellH) return;
+
+                    const tl = item.t || "", tr = item.tr ? ` (${item.tr})` : "";
+                    doc.setFontSize(fontSize).setTextColor(0);
+                    
+                    if (doc.getTextWidth(tl + tr) <= effW) {
+                        doc.setFont("helvetica", "normal").text(tl, itemX, curY);
+                        if (item.tr) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
+                            doc.text(tr, itemX + doc.getTextWidth(tl) + 1, curY);
+                        }
+                        curY += lineSpacing + itemGap;
+                    } else {
+                        doc.setFont("helvetica", "normal").splitTextToSize(tl, effW).forEach(l => {
+                            if (curY + lineSpacing < currentY + cellH) { doc.text(l, itemX, curY); curY += lineSpacing; }
+                        });
+                        if (item.tr) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
+                            doc.splitTextToSize(`(${item.tr})`, effW).forEach(l => {
+                                if (curY + lineSpacing < currentY + cellH) { doc.text(l, itemX, curY); curY += lineSpacing; }
+                            });
+                        }
+                        curY += itemGap;
+                    }
+                    if (isR) yR = curY; else { yL = curY; if(!cell.split) yR = curY; }
+                });
+
+                currentX += w;
+            });
+            currentY += maxRowH;
         });
-        currentX += w;
-    });
-    currentY += h;
-});
-doc.save(`${title}.pdf`);
+
+        doc.save(`${title}.pdf`);
 
     } catch (err) {
         console.error("Erreur export PDF:", err);
