@@ -1997,30 +1997,69 @@ async function exportPDF() {
                 let startY = currentY + ((cellH - totalT) / 2) + 3;
                 let textY = startY;
 
+// --- DEBUT DU REMPLACEMENT (PARTIE 3. DESSIN) ---
+                let textY_left = startY;
+                let textY_right = startY;
+
                 (cell.items || []).forEach((item, idx) => {
                     let itemX = currentX + 3;
-                    if (cell.isSplit && idx % 2 !== 0) { itemX = currentX + (cellW / 2) + 1; textY = startY; }
+                    let currentTextY = textY_left;
 
-                    const tl = item.t || "", tr = item.tr ? ` (${item.tr})` : "";
+                    // Gestion du mode Split (2 colonnes dans une cellule)
+                    if (cell.isSplit && idx % 2 !== 0) {
+                        itemX = currentX + (cellW / 2) + 1;
+                        currentTextY = textY_right;
+                    }
+
+                    const tl = item.t || "";
+                    const tr = item.tr ? ` (${item.tr})` : "";
+                    
                     doc.setFontSize(fontSize);
-                    if (doc.getTextWidth(tl + tr) <= effW) {
+                    const widthTl = doc.getTextWidth(tl);
+                    const widthTr = item.tr ? doc.getTextWidth(tr) : 0;
+
+                    // Cas 1: Tout tient sur une seule ligne
+                    if (widthTl + widthTr + 1.5 <= effW) {
                         doc.setFont("helvetica", "normal").setTextColor(0);
-                        doc.text(tl, itemX, textY);
+                        doc.text(tl, itemX, currentTextY);
+                        
                         if (item.tr) {
                             doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
-                            doc.text(tr, itemX + doc.getTextWidth(tl), textY);
+                            doc.text(tr, itemX + widthTl + 1.5, currentTextY);
                         }
-                        textY += lineSpacing;
-                    } else {
+                        currentTextY += lineSpacing;
+                    } 
+                    // Cas 2: Ça ne tient pas, on force le retour à la ligne pour la traduction
+                    else {
                         doc.setFont("helvetica", "normal").setTextColor(0);
-                        doc.splitTextToSize(tl, effW).forEach(l => { doc.text(l, itemX, textY); textY += lineSpacing; });
+                        const linesTl = doc.splitTextToSize(tl, effW);
+                        linesTl.forEach(l => {
+                            doc.text(l, itemX, currentTextY);
+                            currentTextY += lineSpacing;
+                        });
+
                         if (item.tr) {
                             doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
-                            doc.splitTextToSize(`(${item.tr})`, effW).forEach(l => { doc.text(l, itemX, textY); textY += lineSpacing; });
+                            const linesTr = doc.splitTextToSize(`(${item.tr})`, effW);
+                            linesTr.forEach(l => {
+                                doc.text(l, itemX, currentTextY);
+                                currentTextY += lineSpacing;
+                            });
                         }
                     }
-                    textY += itemGap;
+
+                    currentTextY += itemGap;
+
+                    // Mise à jour des trackers verticaux
+                    if (cell.isSplit && idx % 2 !== 0) {
+                        textY_right = currentTextY;
+                    } else {
+                        textY_left = currentTextY;
+                        if (!cell.isSplit) textY_right = currentTextY;
+                    }
                 });
+                // --- FIN DU REMPLACEMENT ---
+
                 currentX += w;
             });
             currentY += h;
