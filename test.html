@@ -1973,6 +1973,43 @@ async function exportPDF() {
         doc.setFontSize(fontSize);
 
         // --------------------------------------------------
+        // SMART SPLIT
+        // --------------------------------------------------
+
+        function splitText(text, width) {
+
+            return doc.splitTextToSize(
+                String(text || "")
+                    .replaceAll("-", "- ")
+                    .replaceAll("/", "/ "),
+                width,
+                {
+                    lineBreak: false
+                }
+            );
+        }
+
+        // --------------------------------------------------
+        // INLINE / STACK DECISION
+        // --------------------------------------------------
+
+        function shouldStackText(tl, tr, effW) {
+
+            const wTl = doc.getTextWidth(tl || "");
+            const wTr = tr
+                ? doc.getTextWidth(` (${tr})`)
+                : 0;
+
+            const inlineThreshold = effW * 0.9;
+
+            return (
+                (wTl + wTr + 1.5 > inlineThreshold) ||
+                (tl || "").length > 24 ||
+                (tr || "").length > 28
+            );
+        }
+
+        // --------------------------------------------------
         // COLUMN WIDTH CALCULATION
         // --------------------------------------------------
 
@@ -1995,15 +2032,12 @@ async function exportPDF() {
                     const tl = it.t || "";
                     const tr = it.tr || "";
 
-                    // Prioritize TL width
                     let len = tl.length;
 
-                    // Translation contributes less
-                    if (tr.length > 12) {
-                        len += 4;
+                    if (tr.length > 18) {
+                        len += 3;
                     }
 
-                    // Split cells need less width
                     if (cell.split) {
                         len *= 0.72;
                     }
@@ -2063,14 +2097,14 @@ async function exportPDF() {
                 (cell.items || []).forEach((it, idx) => {
 
                     const tl = it.t || "";
-                    const tr = it.tr ? ` (${it.tr})` : "";
-
-                    const inlineThreshold = effW * 0.72;
+                    const tr = it.tr || "";
 
                     const shouldStack =
-                        (doc.getTextWidth(tl + tr) > inlineThreshold) ||
-                        tl.length > 16 ||
-                        (it.tr || "").length > 18;
+                        shouldStackText(
+                            tl,
+                            tr,
+                            effW
+                        );
 
                     let h;
 
@@ -2081,12 +2115,15 @@ async function exportPDF() {
                     } else {
 
                         const tlLines =
-                            doc.splitTextToSize(tl, effW).length;
+                            splitText(
+                                tl,
+                                effW
+                            ).length;
 
                         const trLines =
-                            it.tr
-                                ? doc.splitTextToSize(
-                                      `(${it.tr})`,
+                            tr
+                                ? splitText(
+                                      `(${tr})`,
                                       effW - 2
                                   ).length
                                 : 0;
@@ -2124,7 +2161,7 @@ async function exportPDF() {
         });
 
         // --------------------------------------------------
-        // DOCUMENT TITLE
+        // TITLE
         // --------------------------------------------------
 
         doc.setFont("helvetica", "bold");
@@ -2142,7 +2179,6 @@ async function exportPDF() {
 
             const h = rowHeights[rIdx];
 
-            // Prevent bad page breaks
             if (currentY + h > pageHeight - margin) {
 
                 doc.addPage();
@@ -2200,7 +2236,7 @@ async function exportPDF() {
                     : cellW - 6;
 
                 // --------------------------------------------------
-                // CONTENT HEIGHT FOR CENTERING
+                // CONTENT HEIGHT
                 // --------------------------------------------------
 
                 let tL = 0;
@@ -2209,14 +2245,14 @@ async function exportPDF() {
                 (cell.items || []).forEach((it, idx) => {
 
                     const tl = it.t || "";
-                    const tr = it.tr ? ` (${it.tr})` : "";
-
-                    const inlineThreshold = effW * 0.72;
+                    const tr = it.tr || "";
 
                     const shouldStack =
-                        (doc.getTextWidth(tl + tr) > inlineThreshold) ||
-                        tl.length > 16 ||
-                        (it.tr || "").length > 18;
+                        shouldStackText(
+                            tl,
+                            tr,
+                            effW
+                        );
 
                     let itemH;
 
@@ -2227,15 +2263,15 @@ async function exportPDF() {
                     } else {
 
                         const tlLines =
-                            doc.splitTextToSize(
+                            splitText(
                                 tl,
                                 effW
                             ).length;
 
                         const trLines =
-                            it.tr
-                                ? doc.splitTextToSize(
-                                      `(${it.tr})`,
+                            tr
+                                ? splitText(
+                                      `(${tr})`,
                                       effW - 2
                                   ).length
                                 : 0;
@@ -2280,28 +2316,19 @@ async function exportPDF() {
                         ? currentX + (cellW / 2) + 1
                         : currentX + 3;
 
-                    let curY = isRightCol ? yR : yL;
+                    let curY = isRightCol
+                        ? yR
+                        : yL;
 
                     const tl = item.t || "";
-
-                    const tr = item.tr
-                        ? ` (${item.tr})`
-                        : "";
-
-                    doc.setFontSize(fontSize);
-
-                    const wTl = doc.getTextWidth(tl);
-
-                    const wTr = item.tr
-                        ? doc.getTextWidth(tr)
-                        : 0;
-
-                    const inlineThreshold = effW * 0.72;
+                    const tr = item.tr || "";
 
                     const shouldStack =
-                        (wTl + wTr + 1.5 > inlineThreshold) ||
-                        tl.length > 16 ||
-                        (item.tr || "").length > 18;
+                        shouldStackText(
+                            tl,
+                            tr,
+                            effW
+                        );
 
                     // --------------------------------------------------
                     // INLINE
@@ -2324,7 +2351,10 @@ async function exportPDF() {
                             curY
                         );
 
-                        if (item.tr) {
+                        if (tr) {
+
+                            const tlWidth =
+                                doc.getTextWidth(tl);
 
                             doc.setFont(
                                 "helvetica",
@@ -2342,8 +2372,8 @@ async function exportPDF() {
                             );
 
                             doc.text(
-                                tr,
-                                itemX + wTl + 1.5,
+                                ` (${tr})`,
+                                itemX + tlWidth + 1.5,
                                 curY
                             );
                         }
@@ -2365,13 +2395,13 @@ async function exportPDF() {
 
                         doc.setFontSize(fontSize);
 
-                        doc.splitTextToSize(
+                        splitText(
                             tl,
                             effW
                         ).forEach(line => {
 
                             doc.text(
-                                line,
+                                line.trim(),
                                 itemX,
                                 curY
                             );
@@ -2379,9 +2409,9 @@ async function exportPDF() {
                             curY += lineSpacing;
                         });
 
-                        if (item.tr) {
+                        if (tr) {
 
-                            curY -= 0.5;
+                            curY -= 0.4;
 
                             doc.setFont(
                                 "helvetica",
@@ -2398,19 +2428,19 @@ async function exportPDF() {
                                 fontSize - 1
                             );
 
-                            doc.splitTextToSize(
-                                `(${item.tr})`,
+                            splitText(
+                                `(${tr})`,
                                 effW - 2
                             ).forEach(line => {
 
                                 doc.text(
-                                    line,
+                                    line.trim(),
                                     itemX + 2,
                                     curY
                                 );
 
                                 curY +=
-                                    lineSpacing - 0.3;
+                                    lineSpacing - 0.4;
                             });
                         }
                     }
