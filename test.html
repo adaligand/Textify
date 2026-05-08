@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarcnot almost test perfect</title>
+    <title>Cedas bridge not ok</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2144,42 +2144,97 @@ function hexToRgb(hex) {
     // Only return sentences that actually have content
     return currentPaths.filter(p => p.parts.length > 0);
 }
- function getAssembledSentences() {
+function getAssembledSentences() {
     let allSentences = [];
     
+    // We start a path from every cell in the FIRST column that isn't hidden
     for (let r = 0; r < grid.length; r++) {
-        let rowResults = getSentencesByRow(r);
-        allSentences = allSentences.concat(rowResults);
+        const cell = grid[r][0];
+        if (cell && !cell.hidden) {
+            const results = findPaths(r, 0);
+            allSentences = allSentences.concat(results);
+        }
     }
 
-    // Deduplicate: If Row 1 and Row 2 both use the same Bridge, 
-    // they might produce the same sentence. We only show it once.
-    const uniqueSentences = [];
+    // Deduplicate identical sentences
+    const unique = [];
     const seen = new Set();
-    
     allSentences.forEach(s => {
         if (!seen.has(s.t)) {
-            uniqueSentences.push(s);
+            unique.push(s);
             seen.add(s.t);
         }
     });
-
-    return uniqueSentences;
+    return unique;
 }
+    function findPaths(r, c) {
+    const cell = getCellAt(r, c);
+    if (!cell || !cell.items || cell.items.every(it => !it.t)) return [];
 
+    // 1. Get the text items for the current cell
+    let currentCellOptions = cell.items
+        .filter(it => it.t && it.t.trim() !== "")
+        .map(it => ({
+            t: it.t.trim(),
+            tr: (it.tr || "").trim(),
+            parts: [{ t: it.t, tr: it.tr }]
+        }));
+
+    // 2. Find the next column that has content (skipping bridges)
+    let nextCol = c + (cell.cS || 1);
+    let nextCellFound = false;
+    let combinedSubPaths = [];
+
+    // Look ahead through columns to find the next "active" junction
+    while (nextCol < grid[0].length) {
+        // Check ALL rows in this column to see if there's a bridge or content
+        for (let nextRow = 0; nextRow < grid.length; nextRow++) {
+            const nc = getCellAt(nextRow, nextCol);
+            const hasText = nc && nc.items && nc.items.some(it => it.t && it.t.trim() !== "");
+            
+            if (hasText) {
+                // If we found a cell with text, explore it
+                // We only start the recursion from the "root" of a cell (not hidden)
+                if (!grid[nextRow][nextCol].hidden) {
+                    nextCellFound = true;
+                    combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, nextCol));
+                }
+            }
+        }
+        
+        // If we found content in this column, we stop looking further for this branch
+        if (nextCellFound) break;
+        
+        // Otherwise, this whole column was a bridge; move to the next
+        nextCol++;
+    }
+
+    // 3. Combine current cell items with all discovered sub-paths
+    if (combinedSubPaths.length === 0) return currentCellOptions;
+
+    let finalPaths = [];
+    currentCellOptions.forEach(curr => {
+        combinedSubPaths.forEach(sub => {
+            finalPaths.push({
+                t: (curr.t + " " + sub.t).trim(),
+                tr: (curr.tr + " " + sub.tr).trim(),
+                parts: [...curr.parts, ...sub.parts]
+            });
+        });
+    });
+
+    return finalPaths;
+}
     function cartesian(args) { return args.reduce((a, b) => { let ret = []; a.forEach(a_item => { b.forEach(b_item => { ret.push(a_item.concat([b_item])); }); }); return ret; }, [[]]); }
-  function getCellAt(r, c) {
-    // If out of bounds
+function getCellAt(r, c) {
     if (r < 0 || r >= grid.length || c < 0 || c >= grid[0].length) return null;
-    
     let cell = grid[r][c];
     if (!cell.hidden) return cell;
 
-    // If hidden, search backwards/upwards for the root of the merge
     for (let i = r; i >= 0; i--) {
         for (let j = c; j >= 0; j--) {
             let root = grid[i][j];
-            if (!root.hidden && (i + (root.rS || 1) > r) && (j + (root.cS || 1) > c)) {
+            if (root && !root.hidden && (i + (root.rS || 1) > r) && (j + (root.cS || 1) > c)) {
                 return root;
             }
         }
