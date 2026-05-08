@@ -2257,7 +2257,7 @@ function generateWorksheet() {
     const allSentences = getAssembledSentences();
     if (allSentences.length === 0) return alert("No sentences found!");
 
-    // 1. Bucket sentences by their tagged origin row
+    // 1. Group sentences by originRow
     let rowBuckets = {};
     allSentences.forEach(s => {
         const r = s.originRow;
@@ -2273,20 +2273,32 @@ function generateWorksheet() {
     // 2. Balanced Round-Robin Selection
     const getBalancedSelection = (limit, isStudyTable = false) => {
         let selection = [];
-        let tempBuckets = bucketList.map(b => ({ ...b, sentences: [...b.sentences] }));
         
-        if (!isStudyTable) {
-            tempBuckets.forEach(b => b.sentences.sort(() => 0.5 - Math.random()));
-        }
+        // IMPORTANT: We clone and SHUFFLE the sentences inside each bucket here
+        // so that we aren't always picking the first item of the row.
+        let tempBuckets = bucketList.map(b => {
+            let sents = [...b.sentences];
+            // Always shuffle unless it's the study table and you want alphabetical/grid order
+            if (!isStudyTable) {
+                sents.sort(() => 0.5 - Math.random());
+            }
+            return { ...b, sentences: sents };
+        });
 
         let bucketPointer = 0;
         while (selection.length < limit) {
             let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
             if (activeBuckets.length === 0) break;
             
-            if (tempBuckets[bucketPointer].sentences.length > 0) {
-                selection.push(tempBuckets[bucketPointer].sentences.shift());
+            // Move pointer to a bucket that actually has sentences left
+            if (tempBuckets[bucketPointer].sentences.length === 0) {
+                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
+                continue;
             }
+
+            selection.push(tempBuckets[bucketPointer].sentences.shift());
+            
+            // Move to next bucket to ensure diversity across rows
             bucketPointer = (bucketPointer + 1) % tempBuckets.length;
         }
         return selection;
@@ -2300,7 +2312,10 @@ function generateWorksheet() {
         let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
         
         let isStudy = (type === 'study');
+        // Get 20 for study, 10 for others
         let currentSents = getBalancedSelection(isStudy ? 20 : 10, isStudy);
+        
+        // Sort by row for the final output so it looks organized
         currentSents.sort((a, b) => a.originRow - b.originRow);
 
         if (type === 'study') {
@@ -2335,7 +2350,6 @@ function generateWorksheet() {
                 else if (type === 'trans-en') { out = s.t; hint = ""; }
                 else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
                 else if (type === 'faulty') {
-                    // Restored original Faulty logic
                     activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">... [Translate correctly] ...</span><br>__________________________________________________________________</p>`;
                     return;
                 }
@@ -2347,7 +2361,6 @@ function generateWorksheet() {
         contentHtml += activityHtml;
     });
 
-    // 4. SAVE FILE
     const header = `<html><head><style>@page { size: A4 landscape; margin: 1cm; } body { font-family: Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; } table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; } td, th { border: 1px solid black; padding: 5pt; font-size: 10pt; } .activity-container { page-break-inside: avoid; margin-bottom: 20pt; } h2 { border-bottom: 1px solid #ccc; font-size: 14pt; }</style></head><body>${contentHtml}</body></html>`;
     saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
     closeModals();
