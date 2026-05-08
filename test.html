@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars perfect no exclusion</title>
+    <title>Cedars cperfect no exclusion</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -649,6 +649,7 @@ button:hover {
         <button onclick="toggleMode('del-col')">- Col</button>
         <button onclick="mergeSelected()" title="Merge Cells">🔗 Merge</button>
         <button onclick="splitSelected()" title="Split Cell">✂️ Split</button>
+        <button onclick="toggleMode('exclude')" id="btn-exclude" title="Exclude Combinations">🚫 Exclude</button>
         <button onclick="exportPDF()" class="btn-danger">📄 PDF</button>
         <button onclick="openPreview()" class="btn-info">👁️ Preview</button>
         <button onclick="openActivityMenu()" class="btn-purple">📜 Worksheet</button>
@@ -715,6 +716,8 @@ button:hover {
 </div>
 
 <script>
+    let excludedLinks = []; // Stores forbidden cell pairs, e.g., [['cell-0-0', 'cell-0-5']]
+let exclusionSourceId = null; // Tracks the first cell clicked in Exclude Mode
 /* =========================
    FIREBASE
 ========================= */
@@ -1443,12 +1446,33 @@ function render(doSave = true) {
         row.forEach((cell, cIdx) => {
             if (cell.hidden) return;
 
+            const cellId = `cell-${r}-${cIdx}`;
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
+            cellDiv.id = cellId; // Important for exclusion logic
             
             cellDiv.style.gridRow = `${r + 1} / span ${cell.rS || 1}`;
             cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
             cellDiv.style.backgroundColor = cell.color || "#ffffff";
+
+            // --- CLICK HANDLER FOR EXCLUSION MODE ---
+            cellDiv.onclick = (e) => {
+                // Only trigger if clicking the cell itself, not an input
+                if (e.target.tagName === 'INPUT' || currentMode !== 'exclude') return;
+                handleExclusionClick(r, cIdx);
+            };
+
+            // Visual indicator if cell is part of an exclusion
+            const isPartofExclusion = excludedLinks.some(link => link.includes(cellId));
+            if (isPartofExclusion) {
+                cellDiv.style.border = "2px dashed red";
+                // Optional: Add a small delete icon to clear exclusions for this cell
+                const badge = document.createElement('div');
+                badge.innerHTML = "🚫";
+                badge.style = "position:absolute; top:2px; right:2px; cursor:pointer; font-size:12px;";
+                badge.onclick = (e) => { e.stopPropagation(); clearExclusions(cellId); };
+                cellDiv.appendChild(badge);
+            }
 
             const listHTML = cell.items.map((item, i) => `
                 <div class="vocab-item">
@@ -1465,7 +1489,7 @@ function render(doSave = true) {
                 </div>
             `).join('');
 
-            cellDiv.innerHTML = `
+            cellDiv.innerHTML += `
                 <div class="top-ui no-export">
                     <input type="checkbox" class="cell-checkbox" ${cell.sel ? 'checked' : ''} 
                         onchange="grid[${r}][${cIdx}].sel=this.checked">
@@ -1480,34 +1504,23 @@ function render(doSave = true) {
                 </div>
             `;
             
-                // --- ADD THIS INSIDE render() grid.forEach loop ---
-if (currentMode === 'add-col' && r === 0) {
-    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-}
-if (currentMode === 'del-col' && r === 0) {
-    addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-}
-if (currentMode === 'add-row' && cIdx === 0) {
-    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-}
-if (currentMode === 'del-row' && cIdx === 0) {
-    addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
-}
-               
-                if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-                if (currentMode === 'add-row' && cIdx === 0) {
-                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-                }
-                if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+            // --- UI MODE ICONS ---
+            if (currentMode === 'add-col' && r === 0) {
+                addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+            }
+            if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+            if (currentMode === 'add-row' && cIdx === 0) {
+                addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+            }
+            if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
 
-                container.appendChild(cellDiv);
-                cellDiv.querySelectorAll('input').forEach(syncSize);
-            });
+            container.appendChild(cellDiv);
+            cellDiv.querySelectorAll('input').forEach(syncSize);
         });
-    }
+    });
+}
     /* --- FIXES FOR CELL ACTIONS --- */
 
 // 1. Function to update cell color
@@ -2103,37 +2116,116 @@ function hexToRgb(hex) {
         document.getElementById('overlay').style.display = 'block';
     }
 
-/* --- 1. THE STARTING ENGINE --- */
+/* =========================
+   UPDATED STATE & LOGIC
+========================= */
+let excludedLinks = []; // Stores pairs of cell IDs: [['cell-0-0', 'cell-0-5']]
+let exclusionSourceId = null; // Tracks the first cell clicked in Exclude Mode
+
+function getCellId(r, c) {
+    return `cell-${r}-${c}`;
+}
+
 function getAssembledSentences() {
     let allSentences = [];
     
-    // Start a path search for every row that isn't hidden by a merge
+    // 1. Start the recursive pathfinding from every row in the first column
     for (let r = 0; r < grid.length; r++) {
         if (!grid[r][0].hidden) {
-            allSentences = allSentences.concat(findPaths(r, 0));
+            // We pass an empty array [] to start collecting cell IDs
+            allSentences = allSentences.concat(findPaths(r, 0, null, []));
         }
     }
 
-    // Deduplicate and filter empty strings
+    // 2. THE EXCLUSION FILTER
+    // Discard any sentence that contains a forbidden pair of cells
+    const filtered = allSentences.filter(path => {
+        // If path.cellIds doesn't exist (path was empty), skip
+        if (!path.cellIds) return false;
+
+        for (let i = 0; i < path.cellIds.length; i++) {
+            for (let j = i + 1; j < path.cellIds.length; j++) {
+                const idA = path.cellIds[i];
+                const idB = path.cellIds[j];
+                
+                // Check if this specific pair [idA, idB] is in excludedLinks
+                const isForbidden = excludedLinks.some(link => 
+                    (link[0] === idA && link[1] === idB) || 
+                    (link[0] === idB && link[1] === idA)
+                );
+                
+                if (isForbidden) return false; // Reject this whole sentence
+            }
+        }
+        return true; // Keep this sentence
+    });
+
+    // 3. Deduplicate
     const unique = [];
     const seen = new Set();
-    allSentences.forEach(s => {
+    filtered.forEach(s => {
         const text = s.t.trim();
         if (text && !seen.has(text)) {
             unique.push(s);
             seen.add(text);
         }
     });
+    
     return unique;
 }
 
+    function isPathExcluded(path) {
+        // Checks if any combination of cells in this sentence is in the forbidden list
+        for (let i = 0; i < path.length; i++) {
+            for (let j = i + 1; j < path.length; j++) {
+                const idA = path[i].cellId;
+                const idB = path[j].cellId;
+                if (excludedLinks.some(link => 
+                    (link[0] === idA && link[1] === idB) || (link[0] === idB && link[1] === idA)
+                )) return true;
+            }
+        }
+        return false;
+    }
+
+    for (let r = 0; r < grid.length; r++) {
+        findPaths(r, 0, []);
+    }
+    return allPaths;
+}
+// Handles the "Two-Click" selection for exclusion
+function handleExclusionClick(r, c) {
+    const cellId = `cell-${r}-${c}`;
+    
+    if (!exclusionSourceId) {
+        exclusionSourceId = cellId;
+        document.getElementById(cellId).style.outline = "4px solid red";
+    } else {
+        if (exclusionSourceId !== cellId) {
+            excludedLinks.push([exclusionSourceId, cellId]);
+        }
+        exclusionSourceId = null;
+        render(); // Refresh to show the links and clear outlines
+    }
+}
+
+// Clears exclusions for a cell if badge is clicked
+function clearExclusions(cellId) {
+    excludedLinks = excludedLinks.filter(link => !link.includes(cellId));
+    render();
+}
 /* --- 2. THE RECURSIVE PATHFINDER --- */
-function findPaths(r, c, startRow = null) {
+/* --- 2. THE RECURSIVE PATHFINDER (UPDATED FOR EXCLUSIONS) --- */
+function findPaths(r, c, startRow = null, currentCellIds = []) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
     // Use the provided startRow or default to the current row 'r' if it's the start
     const originRow = startRow !== null ? startRow : r;
+
+    // Track this specific cell as part of the current sentence path
+    const cellId = `cell-${r}-${c}`;
+    const newCellIds = [...currentCellIds, cellId];
 
     // 1. Extract words from current cell
     let currentOptions = cell.items
@@ -2141,8 +2233,8 @@ function findPaths(r, c, startRow = null) {
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr.trim(),
-            parts: [{ t: it.t, tr: it.tr }],
-            originRow: originRow // Tag every segment with the starting row
+            originRow: originRow, // Tag every segment with the starting row
+            cellIds: newCellIds   // Pass the list of cells used so far
         }));
 
     // If at the end of the grid, return the words found here
@@ -2164,7 +2256,6 @@ function findPaths(r, c, startRow = null) {
     if (isColumnBridge(nextCol)) {
         // --- BRIDGE FOUND ---
         let targetCol = nextCol + 1;
-        // Skip consecutive bridges
         while (isColumnBridge(targetCol) && targetCol < grid[0].length) {
             targetCol++;
         }
@@ -2173,22 +2264,19 @@ function findPaths(r, c, startRow = null) {
             // JUMP: Explore every row in the column after the bridge
             for (let targetRow = 0; targetRow < grid.length; targetRow++) {
                 if (!grid[targetRow][targetCol].hidden) {
-                    // Pass the originRow through so it's never forgotten
-                    combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, targetCol, originRow));
+                    // Pass originRow AND the accumulated cellIds forward
+                    combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, targetCol, originRow, newCellIds));
                 }
             }
         }
     } else {
         // --- TRACK LOCKED ---
-        // No bridge: Stay in current row 'r'
-        combinedSubPaths = findPaths(r, nextCol, originRow);
+        // No bridge: Stay in current row 'r', pass accumulated cellIds forward
+        combinedSubPaths = findPaths(r, nextCol, originRow, newCellIds);
     }
 
     // 3. ASSEMBLY
-    // If current cell is empty (bridge start), pass through future paths
     if (currentOptions.length === 0) return combinedSubPaths;
-    
-    // If no paths exist ahead, return what we have
     if (combinedSubPaths.length === 0) return currentOptions;
 
     let finalPaths = [];
@@ -2197,37 +2285,15 @@ function findPaths(r, c, startRow = null) {
             finalPaths.push({
                 t: (curr.t + " " + sub.t).trim(),
                 tr: (curr.tr + " " + sub.tr).trim(),
-                parts: [...curr.parts, ...sub.parts],
-                originRow: originRow // Ensure the final sentence carries the tag
+                originRow: originRow,
+                cellIds: sub.cellIds // The sub-path now contains the full chain of cell IDs
             });
         });
     });
 
     return finalPaths;
 }
-/* --- YOUR EXISTING STARTING FUNCTION (KEEP THIS) --- */
-function getAssembledSentences() {
-    let allSentences = [];
-    // Start from every row in the first column
-    for (let r = 0; r < grid.length; r++) {
-        if (!grid[r][0].hidden) {
-            // This starts the 'train' on every row
-            allSentences = allSentences.concat(findPaths(r, 0));
-        }
-    }
 
-    // Deduplicate and filter
-    const unique = [];
-    const seen = new Set();
-    allSentences.forEach(s => {
-        const text = s.t.trim();
-        if (text && !seen.has(text)) {
-            unique.push(s);
-            seen.add(text);
-        }
-    });
-    return unique;
-}
     function cartesian(args) { return args.reduce((a, b) => { let ret = []; a.forEach(a_item => { b.forEach(b_item => { ret.push(a_item.concat([b_item])); }); }); return ret; }, [[]]); }
 function getCellAt(r, c) {
     if (r < 0 || r >= grid.length || c < 0 || c >= grid[0].length) return null;
