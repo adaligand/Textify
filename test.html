@@ -1907,75 +1907,48 @@ function initMetaListeners() {
 }
 async function exportPDF() {
     try {
-        console.log("Démarrage de l'export...");
+        console.log("Démarrage de l'export complet...");
         const title = document.getElementById('builder-title').value || "Sentence Builder";
         const { jsPDF } = window.jspdf;
 
+        // 1. SETTINGS & PAGE SETUP
         let lang = (typeof meta !== 'undefined' && meta.lang) ? meta.lang : "MFL";
-
-        // --- OPTION A: EAL (SCREENSHOT) ---
-        if (lang === "EAL") {
-            const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
-            edits.forEach(el => el.style.visibility = 'hidden');
-            const element = document.getElementById('grid-container');
-            const canvas = await html2canvas(element, { scale: 3, useCORS: true });
-            edits.forEach(el => el.style.visibility = 'visible');
-
-            const pdf = new jsPDF('l', 'mm', 'a4');
-            const imgData = canvas.toDataURL('image/png');
-            const margin = 10;
-            const availableWidth = pdf.internal.pageSize.getWidth() - (margin * 2);
-            const imgProps = pdf.getImageProperties(imgData);
-            const imgHeight = (imgProps.height * availableWidth) / imgProps.width;
-
-            pdf.setFont("helvetica", "bold").setFontSize(16);
-            pdf.text(title, margin, margin + 5);
-            pdf.addImage(imgData, 'PNG', margin, 25, availableWidth, imgHeight);
-            pdf.save(`${title}.pdf`);
-            return;
-        }
-
-        // --- OPTION B: MFL (VECTOR) ---
-        if (typeof grid === 'undefined' || !grid || grid.length === 0) {
-            alert("Erreur : La grille est introuvable.");
-            return;
-        }
-
         const doc = new jsPDF('l', 'mm', 'a4');
         const margin = 15;
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         const availableWidth = pageWidth - (margin * 2);
+        
         const fontSize = 9;
         const lineSpacing = 3.6;
         const itemGap = 1.5;
         const cellPaddingV = 4;
+        const BRIDGE_WEIGHT = 5;
 
         doc.setFont("helvetica", "normal").setFontSize(fontSize);
 
-        function splitText(text, width) {
-            return doc.splitTextToSize(String(text || "").replaceAll("-", "- ").replaceAll("/", "/ "), width, { lineBreak: false });
-        }
-
-        function shouldStackText(tl, tr, effW) {
+        // --- INTERNAL HELPERS ---
+        const splitText = (text, width) => doc.splitTextToSize(String(text || "").replaceAll("-", "- ").replaceAll("/", "/ "), width, { lineBreak: false });
+        
+        const shouldStackText = (tl, tr, effW) => {
             const wTl = doc.getTextWidth(tl || "");
             const wTr = tr ? doc.getTextWidth(` (${tr})`) : 0;
             return (wTl + wTr + 1.5 > effW * 0.9) || (tl || "").length > 24 || (tr || "").length > 28;
-        }
+        };
 
+        // 2. CALCULATE BRIDGES & COLUMN WIDTHS
         const colCount = grid[0].length;
         let isBridge = new Array(colCount).fill(true);
+        let colWeights = new Array(colCount).fill(0);
 
+        // A column is only a bridge if EVERY cell in it is empty OR hidden (part of a merge)
         grid.forEach(row => {
             row.forEach((cell, cIdx) => {
-                if (cell.items && cell.items.some(it => it.t && it.t.trim() !== "")) {
-                    isBridge[cIdx] = false;
-                }
+                const hasText = cell.items && cell.items.some(it => it.t && it.t.trim() !== "");
+                if (hasText && !cell.hidden) isBridge[cIdx] = false;
             });
         });
 
-        // 1. CALCULATE COLUMN WIDTHS (The "Gap" Fix)
-        let colWeights = new Array(colCount).fill(0);
         grid.forEach(row => {
             row.forEach((cell, cIdx) => {
                 if (cell.hidden || isBridge[cIdx]) return;
@@ -1990,21 +1963,19 @@ async function exportPDF() {
             });
         });
 
-        const BRIDGE_WEIGHT = 5; 
+        // CRITICAL FIX: The "Blank Gap" occurs if totalWeight includes hidden columns
         const totalWeight = colWeights.reduce((acc, w, idx) => {
-            // FIX: If a column is fully hidden by a merge, it adds 0 to total weight
-            if (grid.every(r => r[idx].hidden)) return acc; 
+            if (grid.every(r => r[idx].hidden)) return acc; // Completely ignore merged-away columns
             return acc + (isBridge[idx] ? BRIDGE_WEIGHT : Math.max(w, 12));
         }, 0);
 
         const colWidths = colWeights.map((w, idx) => {
-            // FIX: If column is entirely part of a merge "bridge", force width to 0
-            if (grid.every(r => r[idx].hidden)) return 0;
+            if (grid.every(r => r[idx].hidden)) return 0; // Force width to zero for merged gaps
             const weight = isBridge[idx] ? BRIDGE_WEIGHT : Math.max(w, 12);
             return (weight / totalWeight) * availableWidth;
         });
 
-        // 2. ROW HEIGHTS
+        // 3. CALCULATE ROW HEIGHTS (Vertical Merge Fix)
         let rowHeights = new Array(grid.length).fill(10);
         grid.forEach((row, rIdx) => {
             row.forEach((cell, cIdx) => {
@@ -2023,27 +1994,23 @@ async function exportPDF() {
                 });
 
                 const contentH = cell.split ? Math.max(contentH_L, contentH_R) : contentH_L;
-                const hPerLine = contentH / rs;
+                const hPerLine = (contentH + 2) / rs; // Distribute content height across all merged rows
                 for (let i = 0; i < rs; i++) {
-                    if (rIdx + i < rowHeights.length) rowHeights[rIdx + i] = Math.max(rowHeights[rIdx + i], hPerLine);
+                    if (rIdx + i < rowHeights.length) {
+                        rowHeights[rIdx + i] = Math.max(rowHeights[rIdx + i], hPerLine);
+                    }
                 }
             });
         });
 
-        // 3. DRAWING
+        // 4. DRAWING PHASE
         doc.setFont("helvetica", "bold").setFontSize(14);
-        doc.text(title, margin, margin + 5);
+        doc.text(title.toUpperCase(), margin, margin + 5);
         let currentY = margin + 15;
 
         grid.forEach((row, rIdx) => {
+            // Check for page break
             let blockHeight = rowHeights[rIdx];
-            row.forEach(cell => {
-                if (cell.hidden) return;
-                let mh = 0;
-                for (let i = 0; i < (cell.rS || 1); i++) mh += (rowHeights[rIdx + i] || 0);
-                blockHeight = Math.max(blockHeight, rowHeights[rIdx]);
-            });
-
             if (currentY + blockHeight > pageHeight - margin) {
                 doc.addPage();
                 currentY = margin + 10;
@@ -2055,11 +2022,20 @@ async function exportPDF() {
                 const w = colWidths[cIdx];
                 if (cell.hidden) { currentX += w; return; }
 
+                // Calculate Span Dimensions
                 let cellW = 0; for (let i = 0; i < (cell.cS || 1); i++) cellW += colWidths[cIdx + i];
                 let cellH = 0; for (let i = 0; i < (cell.rS || 1); i++) cellH += (rowHeights[rIdx + i] || 0);
 
+                // BACKGROUND FILL (Keeps your colors)
+                if (cell.clr && cell.clr !== "#ffffff") {
+                    const rgb = hexToRgb(cell.clr); // You'll need this helper below
+                    if (rgb) doc.setFillColor(rgb.r, rgb.g, rgb.b).rect(currentX, currentY, cellW, cellH, 'F');
+                }
+
+                // BORDER
                 doc.setDrawColor(148, 163, 184).setLineWidth(0.15).rect(currentX, currentY, cellW, cellH);
 
+                // CONTENT
                 const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
                 let tL = 0, tR = 0;
                 (cell.items || []).forEach((it, idx) => {
@@ -2069,8 +2045,8 @@ async function exportPDF() {
                     if (cell.split && idx % 2 !== 0) tR += h; else tL += h;
                 });
 
-                const contentHeight = cell.split ? Math.max(tL, tR) : tL;
-                let yL = currentY + ((cellH - contentHeight) / 2) + 3, yR = yL;
+                let yL = currentY + ((cellH - (cell.split ? Math.max(tL, tR) : tL)) / 2) + 3;
+                let yR = yL;
 
                 (cell.items || []).forEach((item, idx) => {
                     const isRight = cell.split && idx % 2 !== 0;
@@ -2102,9 +2078,14 @@ async function exportPDF() {
 
         doc.save(`${title}.pdf`);
     } catch (err) {
-        console.error("Erreur export PDF:", err);
-        alert("Erreur: " + err.message);
+        console.error("PDF Error:", err);
     }
+}
+
+// Helper needed for colors
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : null;
 }
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
