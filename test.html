@@ -2103,28 +2103,89 @@ function hexToRgb(hex) {
         document.getElementById('overlay').style.display = 'block';
     }
 
-    function getSentencesByRow(r) {
-        let pathCells = [];
-        for (let cIdx = 0; cIdx < grid[0].length; cIdx++) {
-            let cell = getCellAt(r, cIdx);
-            if (!cell || cell.hidden || (cIdx > 0 && getCellAt(r, cIdx - 1) === cell)) continue;
-            let items = cell.items.filter(it => it.t.trim() || it.tr.trim());
-            if (items.length > 0) pathCells.push(items.map(it => ({ t: it.t.trim(), tr: it.tr.trim(), col: cIdx })));
+ function getSentencesByRow(r) {
+    // We start with one empty path
+    let currentPaths = [{ t: "", tr: "", parts: [] }];
+
+    for (let c = 0; c < grid[0].length; c++) {
+        // Use getCellAt to find the owner of this coordinate (handles vertical merges)
+        let cell = getCellAt(r, c);
+        
+        // BRIDGE LOGIC: If the cell is empty or hidden, we SKIP it and move to the next column
+        // This allows the sentence to continue from Col 1 to Col 3
+        const hasText = cell && cell.items && cell.items.some(it => it.t && it.t.trim() !== "");
+        if (!hasText) continue;
+
+        // Prevent double-processing cells that span multiple columns
+        let firstColOfCell = -1;
+        for (let j = 0; j <= c; j++) {
+            if (getCellAt(r, j) === cell) { firstColOfCell = j; break; }
         }
-        return pathCells.length ? cartesian(pathCells).map(combo => ({ t: combo.map(p => p.t).join(' '), tr: combo.map(p => p.tr).join(' '), parts: combo })) : [];
+        if (c > firstColOfCell) continue;
+
+        let nextPaths = [];
+        cell.items.forEach(item => {
+            if (!item.t || item.t.trim() === "") return;
+            
+            currentPaths.forEach(path => {
+                nextPaths.push({
+                    t: (path.t + " " + item.t).trim(),
+                    tr: (path.tr + " " + item.tr).trim(),
+                    parts: [...path.parts, { t: item.t, tr: item.tr }]
+                });
+            });
+        });
+
+        // Only update paths if we actually found text in this column
+        if (nextPaths.length > 0) {
+            currentPaths = nextPaths;
+        }
+    }
+    // Only return sentences that actually have content
+    return currentPaths.filter(p => p.parts.length > 0);
+}
+ function getAssembledSentences() {
+    let allSentences = [];
+    
+    for (let r = 0; r < grid.length; r++) {
+        let rowResults = getSentencesByRow(r);
+        allSentences = allSentences.concat(rowResults);
     }
 
-    function getAssembledSentences() {
-        let allCompiled = [];
-        for (let r = 0; r < grid.length; r++) {
-            let rowSents = getSentencesByRow(r);
-            rowSents.forEach(s => allCompiled.push({...s, originRow: r}));
+    // Deduplicate: If Row 1 and Row 2 both use the same Bridge, 
+    // they might produce the same sentence. We only show it once.
+    const uniqueSentences = [];
+    const seen = new Set();
+    
+    allSentences.forEach(s => {
+        if (!seen.has(s.t)) {
+            uniqueSentences.push(s);
+            seen.add(s.t);
         }
-        return allCompiled;
-    }
+    });
+
+    return uniqueSentences;
+}
 
     function cartesian(args) { return args.reduce((a, b) => { let ret = []; a.forEach(a_item => { b.forEach(b_item => { ret.push(a_item.concat([b_item])); }); }); return ret; }, [[]]); }
-    function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
+  function getCellAt(r, c) {
+    // If out of bounds
+    if (r < 0 || r >= grid.length || c < 0 || c >= grid[0].length) return null;
+    
+    let cell = grid[r][c];
+    if (!cell.hidden) return cell;
+
+    // If hidden, search backwards/upwards for the root of the merge
+    for (let i = r; i >= 0; i--) {
+        for (let j = c; j >= 0; j--) {
+            let root = grid[i][j];
+            if (!root.hidden && (i + (root.rS || 1) > r) && (j + (root.cS || 1) > c)) {
+                return root;
+            }
+        }
+    }
+    return cell;
+}
 
     function generateWorksheet() {
         const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
