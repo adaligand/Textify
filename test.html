@@ -1411,7 +1411,15 @@ async function permanentlyDelete(id, event) {
    GRID CORE
 ========================= */
 function c() {
-    return { items:[{t:"",tr:""}], color:"#ffffff", rS:1, cS:1, hidden:false, sel:false, split:false };
+    return { 
+        items: [{t: "", tr: ""}], 
+        clr: "#ffffff", 
+        sel: false, 
+        split: false, 
+        hidden: false, 
+        rS: 1, 
+        cS: 1 
+    };
 }
 
 function pushHistory() {
@@ -1832,18 +1840,42 @@ function openModal(id) {
     document.getElementById(id).style.display = 'block';
 }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
-       function mergeSelected() {
-        let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
-        if(sel.length < 2) return;
-        let root = sel[0], items = [];
-        sel.forEach(p => { items = [...items, ...grid[p.r][p.c].items.filter(it => it.t || it.tr)]; });
-        let maxR = Math.max(...sel.map(i => i.r + grid[i.r][i.c].rS)), maxC = Math.max(...sel.map(i => i.c + grid[i.r][i.c].cS));
-        grid[root.r][root.c].items = items.length ? items : [{t:"", tr:""}];
-        grid[root.r][root.c].rS = maxR - root.r; grid[root.r][root.c].cS = maxC - root.c;
-        grid[root.r][root.c].sel = false;
-        for(let r=root.r; r<maxR; r++) for(let c=root.c; c<maxC; c++) { if(r===root.r && c===root.c) continue; grid[r][c].hidden = true; grid[r][c].sel = false; }
-        render();
+     function mergeSelected() {
+    let sel = [];
+    grid.forEach((row, r) => row.forEach((cell, cIdx) => {
+        if(cell.sel) sel.push({r, c: cIdx});
+    }));
+    if(sel.length < 2) return;
+
+    let root = sel[0];
+    let allItems = [];
+    let minR = Math.min(...sel.map(p => p.r)), maxR = 0;
+    let minC = Math.min(...sel.map(p => p.c)), maxC = 0;
+
+    sel.forEach(p => {
+        const cell = grid[p.r][p.c];
+        allItems = [...allItems, ...cell.items.filter(it => it.t || it.tr)];
+        maxR = Math.max(maxR, p.r + (cell.rS || 1));
+        maxC = Math.max(maxC, p.c + (cell.cS || 1));
+    });
+
+    // Update Root Cell
+    grid[root.r][root.c].items = allItems.length ? allItems : [{t:"", tr:""}];
+    grid[root.r][root.c].rS = maxR - root.r;
+    grid[root.r][root.c].cS = maxC - root.c;
+    grid[root.r][root.c].sel = false;
+
+    // Hide merged-in cells
+    for(let r = root.r; r < maxR; r++) {
+        for(let c = root.c; c < maxC; c++) {
+            if(r === root.r && c === root.c) continue;
+            grid[r][c].hidden = true;
+            grid[r][c].sel = false;
+        }
     }
+    render();
+    saveToCloud(true);
+}
     function splitSelected() {
         grid.forEach((row, r) => row.forEach((cell, cIdx) => {
             if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
@@ -1876,645 +1908,201 @@ function initMetaListeners() {
 async function exportPDF() {
     try {
         console.log("Démarrage de l'export...");
-
-        const title =
-            document.getElementById('builder-title').value ||
-            "Sentence Builder";
-
+        const title = document.getElementById('builder-title').value || "Sentence Builder";
         const { jsPDF } = window.jspdf;
 
-        // --------------------------------------------------
-        // LANGUAGE
-        // --------------------------------------------------
+        let lang = (typeof meta !== 'undefined' && meta.lang) ? meta.lang : "MFL";
 
-        let lang = "MFL";
-
-        if (typeof meta !== 'undefined' && meta.lang) {
-            lang = meta.lang;
-        }
-
-        // --------------------------------------------------
-        // OPTION A: EAL (SCREENSHOT EXPORT)
-        // --------------------------------------------------
-
+        // --- OPTION A: EAL (SCREENSHOT) ---
         if (lang === "EAL") {
-
-            const edits = document.querySelectorAll(
-                '.no-export, .action-btn, .cell-actions'
-            );
-
-            edits.forEach(el => {
-                el.style.visibility = 'hidden';
-            });
-
+            const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
+            edits.forEach(el => el.style.visibility = 'hidden');
             const element = document.getElementById('grid-container');
-
-            const canvas = await html2canvas(element, {
-                scale: 3,
-                useCORS: true
-            });
-
-            edits.forEach(el => {
-                el.style.visibility = 'visible';
-            });
+            const canvas = await html2canvas(element, { scale: 3, useCORS: true });
+            edits.forEach(el => el.style.visibility = 'visible');
 
             const pdf = new jsPDF('l', 'mm', 'a4');
-
             const imgData = canvas.toDataURL('image/png');
-
             const margin = 10;
-
-            const availableWidth =
-                pdf.internal.pageSize.getWidth() - (margin * 2);
-
+            const availableWidth = pdf.internal.pageSize.getWidth() - (margin * 2);
             const imgProps = pdf.getImageProperties(imgData);
+            const imgHeight = (imgProps.height * availableWidth) / imgProps.width;
 
-            const imgHeight =
-                (imgProps.height * availableWidth) /
-                imgProps.width;
-
-            pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(16);
-
+            pdf.setFont("helvetica", "bold").setFontSize(16);
             pdf.text(title, margin, margin + 5);
-
-            pdf.addImage(
-                imgData,
-                'PNG',
-                margin,
-                25,
-                availableWidth,
-                imgHeight
-            );
-
+            pdf.addImage(imgData, 'PNG', margin, 25, availableWidth, imgHeight);
             pdf.save(`${title}.pdf`);
-
             return;
         }
 
-// --------------------------------------------------
-// OPTION B: MFL (VECTOR EXPORT)
-// --------------------------------------------------
-
-if (
-    typeof grid === 'undefined' ||
-    !grid ||
-    grid.length === 0
-) {
-    alert("Erreur : La grille est introuvable.");
-    return;
-}
-
-const doc = new jsPDF('l', 'mm', 'a4');
-
-const margin = 15;
-
-const pageWidth = doc.internal.pageSize.getWidth();
-const pageHeight = doc.internal.pageSize.getHeight();
-
-const availableWidth = pageWidth - (margin * 2);
-
-const fontSize = 9;
-const lineSpacing = 3.6;
-const itemGap = 1.5;
-const cellPaddingV = 4;
-
-doc.setFont("helvetica", "normal");
-doc.setFontSize(fontSize);
-
-// --------------------------------------------------
-// SMART TEXT WRAP
-// --------------------------------------------------
-
-function splitText(text, width) {
-
-    return doc.splitTextToSize(
-        String(text || "")
-            .replaceAll("-", "- ")
-            .replaceAll("/", "/ "),
-        width,
-        {
-            lineBreak: false
+        // --- OPTION B: MFL (VECTOR) ---
+        if (typeof grid === 'undefined' || !grid || grid.length === 0) {
+            alert("Erreur : La grille est introuvable.");
+            return;
         }
-    );
-}
 
-// --------------------------------------------------
-// INLINE OR STACK
-// --------------------------------------------------
+        const doc = new jsPDF('l', 'mm', 'a4');
+        const margin = 15;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const availableWidth = pageWidth - (margin * 2);
+        const fontSize = 9;
+        const lineSpacing = 3.6;
+        const itemGap = 1.5;
+        const cellPaddingV = 4;
 
-function shouldStackText(tl, tr, effW) {
+        doc.setFont("helvetica", "normal").setFontSize(fontSize);
 
-    const wTl = doc.getTextWidth(tl || "");
+        function splitText(text, width) {
+            return doc.splitTextToSize(String(text || "").replaceAll("-", "- ").replaceAll("/", "/ "), width, { lineBreak: false });
+        }
 
-    const wTr = tr
-        ? doc.getTextWidth(` (${tr})`)
-        : 0;
+        function shouldStackText(tl, tr, effW) {
+            const wTl = doc.getTextWidth(tl || "");
+            const wTr = tr ? doc.getTextWidth(` (${tr})`) : 0;
+            return (wTl + wTr + 1.5 > effW * 0.9) || (tl || "").length > 24 || (tr || "").length > 28;
+        }
 
-    const inlineThreshold = effW * 0.9;
-
-    return (
-        (wTl + wTr + 1.5 > inlineThreshold) ||
-        (tl || "").length > 24 ||
-        (tr || "").length > 28
-    );
-}
-
-const colCount = grid[0].length;
+        const colCount = grid[0].length;
         let isBridge = new Array(colCount).fill(true);
 
         grid.forEach(row => {
             row.forEach((cell, cIdx) => {
-                // If a cell has items/text, this column is NOT a bridge
-                if (cell.items && cell.items.length > 0 && cell.items.some(it => it.t && it.t.trim() !== "")) {
+                if (cell.items && cell.items.some(it => it.t && it.t.trim() !== "")) {
                     isBridge[cIdx] = false;
                 }
             });
         });
 
-        // --------------------------------------------------
-        // COLUMN WIDTHS (WITH BRIDGE LOGIC)
-        // --------------------------------------------------
+        // 1. CALCULATE COLUMN WIDTHS (The "Gap" Fix)
         let colWeights = new Array(colCount).fill(0);
-
         grid.forEach(row => {
             row.forEach((cell, cIdx) => {
                 if (cell.hidden || isBridge[cIdx]) return;
-
                 let cellMax = 0;
                 (cell.items || []).forEach(it => {
-                    const tl = it.t || "";
-                    const tr = it.tr || "";
-                    let len = tl.length;
-                    if (tr.length > 18) len += 3;
+                    let len = (it.t || "").length + ((it.tr || "").length > 18 ? 3 : 0);
                     if (cell.split) len *= 0.72;
                     if (len > cellMax) cellMax = len;
                 });
-
                 const weight = cellMax / (cell.cS || 1);
                 if (weight > colWeights[cIdx]) colWeights[cIdx] = weight;
             });
         });
 
-        // Determine total weight. Bridges get a tiny fixed weight.
         const BRIDGE_WEIGHT = 5; 
         const totalWeight = colWeights.reduce((acc, w, idx) => {
+            // FIX: If a column is fully hidden by a merge, it adds 0 to total weight
+            if (grid.every(r => r[idx].hidden)) return acc; 
             return acc + (isBridge[idx] ? BRIDGE_WEIGHT : Math.max(w, 12));
         }, 0);
 
-        // Calculate final widths
         const colWidths = colWeights.map((w, idx) => {
+            // FIX: If column is entirely part of a merge "bridge", force width to 0
+            if (grid.every(r => r[idx].hidden)) return 0;
             const weight = isBridge[idx] ? BRIDGE_WEIGHT : Math.max(w, 12);
             return (weight / totalWeight) * availableWidth;
         });
 
-// --------------------------------------------------
-// ROW HEIGHTS
-// --------------------------------------------------
-
-let rowHeights = new Array(grid.length).fill(10);
-
-grid.forEach((row, rIdx) => {
-
-    row.forEach((cell, cIdx) => {
-
-        if (cell.hidden) {
-            return;
-        }
-
-        const rs = cell.rS || 1;
-        const cs = cell.cS || 1;
-
-        let cellW = 0;
-
-        for (let i = 0; i < cs; i++) {
-            cellW += colWidths[cIdx + i];
-        }
-
-        const effW = cell.split
-            ? (cellW / 2) - 4
-            : cellW - 6;
-
-        let contentH_L = cellPaddingV;
-        let contentH_R = cellPaddingV;
-
-        (cell.items || []).forEach((it, idx) => {
-
-            const tl = it.t || "";
-            const tr = it.tr || "";
-
-            const shouldStack =
-                shouldStackText(
-                    tl,
-                    tr,
-                    effW
-                );
-
-            let h;
-
-            if (!shouldStack) {
-
-                h = lineSpacing;
-
-            } else {
-
-                const tlLines =
-                    splitText(
-                        tl,
-                        effW
-                    ).length;
-
-                const trLines =
-                    tr
-                        ? splitText(
-                              `(${tr})`,
-                              effW - 2
-                          ).length
-                        : 0;
-
-                h =
-                    (tlLines * lineSpacing) +
-                    (trLines * (lineSpacing - 0.3));
-            }
-
-            h += itemGap;
-
-            if (cell.split && idx % 2 !== 0) {
-                contentH_R += h;
-            } else {
-                contentH_L += h;
-            }
-        });
-
-        const contentH = cell.split
-            ? Math.max(contentH_L, contentH_R)
-            : contentH_L;
-
-        const hPerLine = contentH / rs;
-
-        for (let i = 0; i < rs; i++) {
-
-            if (
-                rIdx + i < rowHeights.length &&
-                hPerLine > rowHeights[rIdx + i]
-            ) {
-                rowHeights[rIdx + i] = hPerLine;
-            }
-        }
-    });
-});
-
-// --------------------------------------------------
-// TITLE
-// --------------------------------------------------
-
-doc.setFont("helvetica", "bold");
-doc.setFontSize(14);
-
-doc.text(title, margin, margin + 5);
-
-let currentY = margin + 15;
-
-// --------------------------------------------------
-// DRAW GRID
-// --------------------------------------------------
-
-grid.forEach((row, rIdx) => {
-
-    // --------------------------------------------------
-    // TRUE BLOCK HEIGHT
-    // --------------------------------------------------
-
-    let blockHeight = rowHeights[rIdx];
-
-    row.forEach(cell => {
-
-        if (cell.hidden) {
-            return;
-        }
-
-        const rs = cell.rS || 1;
-
-        if (rs > 1) {
-
-            let mergedHeight = 0;
-
-            for (let i = 0; i < rs; i++) {
-                mergedHeight += (
-                    rowHeights[rIdx + i] || 0
-                );
-            }
-
-            blockHeight = Math.max(
-                blockHeight,
-                mergedHeight
-            );
-        }
-    });
-
-    // --------------------------------------------------
-    // PAGE BREAK
-    // --------------------------------------------------
-
-    if (
-        currentY + blockHeight >
-        pageHeight - margin
-    ) {
-
-        doc.addPage();
-
-        currentY = margin + 10;
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(14);
-
-        doc.text(title, margin, margin + 5);
-    }
-
-    let currentX = margin;
-
-    row.forEach((cell, cIdx) => {
-
-        const w = colWidths[cIdx];
-
-        if (cell.hidden) {
-            currentX += w;
-            return;
-        }
-
-        const rs = cell.rS || 1;
-        const cs = cell.cS || 1;
-
-        let cellW = 0;
-
-        for (let i = 0; i < cs; i++) {
-            cellW += colWidths[cIdx + i];
-        }
-
-        let cellH = 0;
-
-        for (let i = 0; i < rs; i++) {
-            cellH += (
-                rowHeights[rIdx + i] || 0
-            );
-        }
-
-        // --------------------------------------------------
-        // BORDER
-        // --------------------------------------------------
-
-        doc.setDrawColor(148, 163, 184);
-        doc.setLineWidth(0.15);
-
-        doc.rect(
-            currentX,
-            currentY,
-            cellW,
-            cellH
-        );
-
-        const effW = cell.split
-            ? (cellW / 2) - 4
-            : cellW - 6;
-
-        // --------------------------------------------------
-        // CONTENT HEIGHT
-        // --------------------------------------------------
-
-        let tL = 0;
-        let tR = 0;
-
-        (cell.items || []).forEach((it, idx) => {
-
-            const tl = it.t || "";
-            const tr = it.tr || "";
-
-            const shouldStack =
-                shouldStackText(
-                    tl,
-                    tr,
-                    effW
-                );
-
-            let itemH;
-
-            if (!shouldStack) {
-
-                itemH = lineSpacing;
-
-            } else {
-
-                const tlLines =
-                    splitText(
-                        tl,
-                        effW
-                    ).length;
-
-                const trLines =
-                    tr
-                        ? splitText(
-                              `(${tr})`,
-                              effW - 2
-                          ).length
-                        : 0;
-
-                itemH =
-                    (tlLines * lineSpacing) +
-                    (trLines * (lineSpacing - 0.3));
-            }
-
-            itemH += itemGap;
-
-            if (cell.split && idx % 2 !== 0) {
-                tR += itemH;
-            } else {
-                tL += itemH;
-            }
-        });
-
-        const contentHeight =
-            cell.split
-                ? Math.max(tL, tR)
-                : tL;
-
-        let startY =
-            currentY +
-            ((cellH - contentHeight) / 2) +
-            3;
-
-        let yL = startY;
-        let yR = startY;
-
-        // --------------------------------------------------
-        // DRAW ITEMS
-        // --------------------------------------------------
-
-        (cell.items || []).forEach((item, idx) => {
-
-            const isRightCol =
-                cell.split && idx % 2 !== 0;
-
-            const itemX = isRightCol
-                ? currentX + (cellW / 2) + 1
-                : currentX + 3;
-
-            let curY = isRightCol
-                ? yR
-                : yL;
-
-            const tl = item.t || "";
-            const tr = item.tr || "";
-
-            const shouldStack =
-                shouldStackText(
-                    tl,
-                    tr,
-                    effW
-                );
-
-            // --------------------------------------------------
-            // INLINE
-            // --------------------------------------------------
-
-            if (!shouldStack) {
-
-                doc.setFont(
-                    "helvetica",
-                    "normal"
-                );
-
-                doc.setTextColor(0);
-
-                doc.setFontSize(fontSize);
-
-                doc.text(
-                    tl,
-                    itemX,
-                    curY
-                );
-
-                if (tr) {
-
-                    const tlWidth =
-                        doc.getTextWidth(tl);
-
-                    doc.setFont(
-                        "helvetica",
-                        "italic"
-                    );
-
-                    doc.setTextColor(
-                        41,
-                        128,
-                        185
-                    );
-
-                    doc.setFontSize(
-                        fontSize - 1
-                    );
-
-                    doc.text(
-                        ` (${tr})`,
-                        itemX + tlWidth + 1.5,
-                        curY
-                    );
-                }
-
-                curY += lineSpacing;
-
-            } else {
-
-                // --------------------------------------------------
-                // STACKED
-                // --------------------------------------------------
-
-                doc.setFont(
-                    "helvetica",
-                    "normal"
-                );
-
-                doc.setTextColor(0);
-
-                doc.setFontSize(fontSize);
-
-                splitText(
-                    tl,
-                    effW
-                ).forEach(line => {
-
-                    doc.text(
-                        line.trim(),
-                        itemX,
-                        curY
-                    );
-
-                    curY += lineSpacing;
+        // 2. ROW HEIGHTS
+        let rowHeights = new Array(grid.length).fill(10);
+        grid.forEach((row, rIdx) => {
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden) return;
+                const rs = cell.rS || 1;
+                let cellW = 0;
+                for (let i = 0; i < (cell.cS || 1); i++) cellW += colWidths[cIdx + i];
+                const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
+
+                let contentH_L = cellPaddingV, contentH_R = cellPaddingV;
+                (cell.items || []).forEach((it, idx) => {
+                    const stack = shouldStackText(it.t, it.tr, effW);
+                    let h = stack ? (splitText(it.t, effW).length * lineSpacing) + (it.tr ? splitText(`(${it.tr})`, effW - 2).length * (lineSpacing - 0.3) : 0) : lineSpacing;
+                    h += itemGap;
+                    if (cell.split && idx % 2 !== 0) contentH_R += h; else contentH_L += h;
                 });
 
-                if (tr) {
-
-                    curY -= 0.4;
-
-                    doc.setFont(
-                        "helvetica",
-                        "italic"
-                    );
-
-                    doc.setTextColor(
-                        41,
-                        128,
-                        185
-                    );
-
-                    doc.setFontSize(
-                        fontSize - 1
-                    );
-
-                    splitText(
-                        `(${tr})`,
-                        effW - 2
-                    ).forEach(line => {
-
-                        doc.text(
-                            line.trim(),
-                            itemX + 2,
-                            curY
-                        );
-
-                        curY +=
-                            lineSpacing - 0.4;
-                    });
+                const contentH = cell.split ? Math.max(contentH_L, contentH_R) : contentH_L;
+                const hPerLine = contentH / rs;
+                for (let i = 0; i < rs; i++) {
+                    if (rIdx + i < rowHeights.length) rowHeights[rIdx + i] = Math.max(rowHeights[rIdx + i], hPerLine);
                 }
-            }
-
-            curY += itemGap;
-
-            if (isRightCol) {
-
-                yR = curY;
-
-            } else {
-
-                yL = curY;
-
-                if (!cell.split) {
-                    yR = curY;
-                }
-            }
+            });
         });
 
-        currentX += w;
-    });
+        // 3. DRAWING
+        doc.setFont("helvetica", "bold").setFontSize(14);
+        doc.text(title, margin, margin + 5);
+        let currentY = margin + 15;
 
-    currentY += rowHeights[rIdx];
-});
+        grid.forEach((row, rIdx) => {
+            let blockHeight = rowHeights[rIdx];
+            row.forEach(cell => {
+                if (cell.hidden) return;
+                let mh = 0;
+                for (let i = 0; i < (cell.rS || 1); i++) mh += (rowHeights[rIdx + i] || 0);
+                blockHeight = Math.max(blockHeight, rowHeights[rIdx]);
+            });
+
+            if (currentY + blockHeight > pageHeight - margin) {
+                doc.addPage();
+                currentY = margin + 10;
+                doc.setFont("helvetica", "bold").setFontSize(14).text(title, margin, margin + 5);
+            }
+
+            let currentX = margin;
+            row.forEach((cell, cIdx) => {
+                const w = colWidths[cIdx];
+                if (cell.hidden) { currentX += w; return; }
+
+                let cellW = 0; for (let i = 0; i < (cell.cS || 1); i++) cellW += colWidths[cIdx + i];
+                let cellH = 0; for (let i = 0; i < (cell.rS || 1); i++) cellH += (rowHeights[rIdx + i] || 0);
+
+                doc.setDrawColor(148, 163, 184).setLineWidth(0.15).rect(currentX, currentY, cellW, cellH);
+
+                const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
+                let tL = 0, tR = 0;
+                (cell.items || []).forEach((it, idx) => {
+                    const stack = shouldStackText(it.t, it.tr, effW);
+                    let h = stack ? (splitText(it.t, effW).length * lineSpacing) + (it.tr ? splitText(`(${it.tr})`, effW - 2).length * (lineSpacing - 0.3) : 0) : lineSpacing;
+                    h += itemGap;
+                    if (cell.split && idx % 2 !== 0) tR += h; else tL += h;
+                });
+
+                const contentHeight = cell.split ? Math.max(tL, tR) : tL;
+                let yL = currentY + ((cellH - contentHeight) / 2) + 3, yR = yL;
+
+                (cell.items || []).forEach((item, idx) => {
+                    const isRight = cell.split && idx % 2 !== 0;
+                    const itemX = isRight ? currentX + (cellW / 2) + 1 : currentX + 3;
+                    let curY = isRight ? yR : yL;
+                    const stack = shouldStackText(item.t, item.tr, effW);
+
+                    doc.setFont("helvetica", "normal").setTextColor(0).setFontSize(fontSize);
+                    if (!stack) {
+                        doc.text(item.t || "", itemX, curY);
+                        if (item.tr) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
+                            doc.text(` (${item.tr})`, itemX + doc.getTextWidth(item.t || "") + 1.5, curY);
+                        }
+                        curY += lineSpacing;
+                    } else {
+                        splitText(item.t, effW).forEach(l => { doc.text(l.trim(), itemX, curY); curY += lineSpacing; });
+                        if (item.tr) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
+                            splitText(`(${item.tr})`, effW - 2).forEach(l => { doc.text(l.trim(), itemX + 2, curY); curY += lineSpacing - 0.4; });
+                        }
+                    }
+                    if (isRight) yR = curY + itemGap; else { yL = curY + itemGap; if (!cell.split) yR = yL; }
+                });
+                currentX += w;
+            });
+            currentY += rowHeights[rIdx];
+        });
 
         doc.save(`${title}.pdf`);
-
     } catch (err) {
-
         console.error("Erreur export PDF:", err);
-
         alert("Erreur: " + err.message);
     }
 }
