@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder eal ok + cell merging ok</title>
+    <title>Cedasb perfect no exclusion</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -1411,7 +1411,15 @@ async function permanentlyDelete(id, event) {
    GRID CORE
 ========================= */
 function c() {
-    return { items:[{t:"",tr:""}], color:"#ffffff", rS:1, cS:1, hidden:false, sel:false, split:false };
+    return { 
+        items: [{t: "", tr: ""}], 
+        clr: "#ffffff", 
+        sel: false, 
+        split: false, 
+        hidden: false, 
+        rS: 1, 
+        cS: 1 
+    };
 }
 
 function pushHistory() {
@@ -1509,7 +1517,17 @@ function setClr(r, c, color) {
     document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
     render(); // Re-draw the grid to show the new color
 }
-
+/**
+ * Checks if a column is empty (a bridge)
+ * @param {number} colIndex - The index of the column to check
+ * @returns {boolean}
+ */
+function isBridgeColumn(colIndex) {
+    return grid.every(row => {
+        const cell = row[colIndex];
+        return !cell.text || cell.text.trim() === "";
+    });
+}
 // 2. Function to toggle between 1 and 2 columns in a cell
 function toggleCellSplit(r, c) {
     grid[r][c].split = !grid[r][c].split;
@@ -1822,18 +1840,42 @@ function openModal(id) {
     document.getElementById(id).style.display = 'block';
 }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
-       function mergeSelected() {
-        let sel = []; grid.forEach((row, r) => row.forEach((cell, cIdx) => { if(cell.sel) sel.push({r, c: cIdx}); }));
-        if(sel.length < 2) return;
-        let root = sel[0], items = [];
-        sel.forEach(p => { items = [...items, ...grid[p.r][p.c].items.filter(it => it.t || it.tr)]; });
-        let maxR = Math.max(...sel.map(i => i.r + grid[i.r][i.c].rS)), maxC = Math.max(...sel.map(i => i.c + grid[i.r][i.c].cS));
-        grid[root.r][root.c].items = items.length ? items : [{t:"", tr:""}];
-        grid[root.r][root.c].rS = maxR - root.r; grid[root.r][root.c].cS = maxC - root.c;
-        grid[root.r][root.c].sel = false;
-        for(let r=root.r; r<maxR; r++) for(let c=root.c; c<maxC; c++) { if(r===root.r && c===root.c) continue; grid[r][c].hidden = true; grid[r][c].sel = false; }
-        render();
+     function mergeSelected() {
+    let sel = [];
+    grid.forEach((row, r) => row.forEach((cell, cIdx) => {
+        if(cell.sel) sel.push({r, c: cIdx});
+    }));
+    if(sel.length < 2) return;
+
+    let root = sel[0];
+    let allItems = [];
+    let minR = Math.min(...sel.map(p => p.r)), maxR = 0;
+    let minC = Math.min(...sel.map(p => p.c)), maxC = 0;
+
+    sel.forEach(p => {
+        const cell = grid[p.r][p.c];
+        allItems = [...allItems, ...cell.items.filter(it => it.t || it.tr)];
+        maxR = Math.max(maxR, p.r + (cell.rS || 1));
+        maxC = Math.max(maxC, p.c + (cell.cS || 1));
+    });
+
+    // Update Root Cell
+    grid[root.r][root.c].items = allItems.length ? allItems : [{t:"", tr:""}];
+    grid[root.r][root.c].rS = maxR - root.r;
+    grid[root.r][root.c].cS = maxC - root.c;
+    grid[root.r][root.c].sel = false;
+
+    // Hide merged-in cells
+    for(let r = root.r; r < maxR; r++) {
+        for(let c = root.c; c < maxC; c++) {
+            if(r === root.r && c === root.c) continue;
+            grid[r][c].hidden = true;
+            grid[r][c].sel = false;
+        }
     }
+    render();
+    saveToCloud(true);
+}
     function splitSelected() {
         grid.forEach((row, r) => row.forEach((cell, cIdx) => {
             if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
@@ -1864,179 +1906,186 @@ function initMetaListeners() {
     });
 }
 async function exportPDF() {
-    const title = document.getElementById('builder-title').value || "Sentence Builder";
-    const { jsPDF } = window.jspdf;
+    try {
+        console.log("Démarrage de l'export complet...");
+        const title = document.getElementById('builder-title').value || "Sentence Builder";
+        const { jsPDF } = window.jspdf;
 
-    // --- OPTION A: EAL (Image-based) ---
-   if (meta.lang === "EAL") {
-        const edits = document.querySelectorAll('.no-export, .action-btn, .cell-actions');
-        edits.forEach(el => el.style.visibility = 'hidden');
+        // 1. SETTINGS & PAGE SETUP
+        let lang = (typeof meta !== 'undefined' && meta.lang) ? meta.lang : "MFL";
+        const doc = new jsPDF('l', 'mm', 'a4');
+        const margin = 15;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const availableWidth = pageWidth - (margin * 2);
+        
+        const fontSize = 9;
+        const lineSpacing = 3.6;
+        const itemGap = 1.5;
+        const cellPaddingV = 4;
+        const BRIDGE_WEIGHT = 5;
 
-        try {
-            const element = document.getElementById('grid-container');
-            const canvas = await html2canvas(element, { 
-                scale: 3, 
-                useCORS: true 
+        doc.setFont("helvetica", "normal").setFontSize(fontSize);
+
+        // --- INTERNAL HELPERS ---
+        const splitText = (text, width) => doc.splitTextToSize(String(text || "").replaceAll("-", "- ").replaceAll("/", "/ "), width, { lineBreak: false });
+        
+        const shouldStackText = (tl, tr, effW) => {
+            const wTl = doc.getTextWidth(tl || "");
+            const wTr = tr ? doc.getTextWidth(` (${tr})`) : 0;
+            return (wTl + wTr + 1.5 > effW * 0.9) || (tl || "").length > 24 || (tr || "").length > 28;
+        };
+
+        // 2. CALCULATE BRIDGES & COLUMN WIDTHS
+        const colCount = grid[0].length;
+        let isBridge = new Array(colCount).fill(true);
+        let colWeights = new Array(colCount).fill(0);
+
+        // A column is only a bridge if EVERY cell in it is empty OR hidden (part of a merge)
+        grid.forEach(row => {
+            row.forEach((cell, cIdx) => {
+                const hasText = cell.items && cell.items.some(it => it.t && it.t.trim() !== "");
+                if (hasText && !cell.hidden) isBridge[cIdx] = false;
             });
-            edits.forEach(el => el.style.visibility = 'visible');
-
-            const pdf = new jsPDF('l', 'mm', 'a4');
-            const imgData = canvas.toDataURL('image/png');
-            
-            // --- CONFIGURATION DES MARGES ---
-            const margin = 10; // Marge de 10mm de chaque côté
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            
-            // Calcul de la largeur disponible (Largeur totale - 2x la marge)
-            const availableWidth = pdfWidth - (margin * 2);
-            
-            const imgProps = pdf.getImageProperties(imgData);
-            // On calcule la hauteur proportionnellement à la LARGEUR DISPONIBLE (pas la largeur totale)
-            const imgHeight = (imgProps.height * availableWidth) / imgProps.width;
-            
-            // 1. Ajouter le titre avec la marge
-            pdf.setFont("helvetica", "bold");
-            pdf.setFontSize(16);
-            pdf.text(title, margin, margin + 5);
-
-            // 2. Ajouter l'image centrée avec les marges
-            // x = margin, y = 20 (pour laisser de la place au titre)
-            pdf.addImage(imgData, 'PNG', margin, 25, availableWidth, imgHeight);
-
-            // Si le contenu dépasse une page (gestion multi-page simplifiée)
-            let heightLeft = imgHeight - (pdfHeight - 35);
-            let position = -(pdfHeight - 35);
-
-            while (heightLeft > 0) {
-                pdf.addPage();
-                pdf.addImage(imgData, 'PNG', margin, position, availableWidth, imgHeight);
-                heightLeft -= pdfHeight;
-                position -= pdfHeight;
-            }
-
-            pdf.save(`${title}.pdf`);
-        } catch (err) {
-            console.error("EAL PDF Export failed:", err);
-            edits.forEach(el => el.style.visibility = 'visible');
-        }
-        return; 
-    }
-
- // --- OPTION B: MFL (Vector-based / Searchable Text) ---
-    const doc = new jsPDF('l', 'mm', 'a4');
-    const margin = 15;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const availableWidth = pageWidth - (margin * 2);
-
-    if (!grid || grid.length === 0) return;
-
-    const colCount = grid[0].length;
-    const baseCellWidth = availableWidth / colCount;
-    
-    // Titre
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text(title, margin, margin + 5);
-
-    let currentY = margin + 15;
-
-    // ÉTAPE 1: CALCULER LES HAUTEURS DE CHAQUE LIGNE
-    const rowHeights = grid.map(row => {
-        let maxRowH = 15; // Hauteur minimale par défaut
-        row.forEach((cell, colIndex) => {
-            if (cell.hidden) return;
-            
-            const cs = cell.cS || 1;
-            const internalWidth = (baseCellWidth * cs) - 6; // Padding
-            let cellContentHeight = 8; // Padding vertical initial
-
-            if (cell.items) {
-                cell.items.forEach(item => {
-                    const fullText = (item.t || "") + (item.tr ? ` (${item.tr})` : "");
-                    doc.setFontSize(9);
-                    const lines = doc.splitTextToSize(fullText, internalWidth);
-                    cellContentHeight += (lines.length * 5) + 2;
-                });
-            }
-            // Si la cellule est fusionnée sur plusieurs lignes (rS), 
-            // on divise sa hauteur nécessaire par le nombre de lignes qu'elle occupe
-            const rs = cell.rS || 1;
-            const heightPerLine = cellContentHeight / rs;
-            if (heightPerLine > maxRowH) maxRowH = heightPerLine;
         });
-        return maxRowH;
-    });
 
-    // ÉTAPE 2: DESSINER LE TABLEAU
-    grid.forEach((row, rowIndex) => {
-        const h = rowHeights[rowIndex];
+        grid.forEach(row => {
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden || isBridge[cIdx]) return;
+                let cellMax = 0;
+                (cell.items || []).forEach(it => {
+                    let len = (it.t || "").length + ((it.tr || "").length > 18 ? 3 : 0);
+                    if (cell.split) len *= 0.72;
+                    if (len > cellMax) cellMax = len;
+                });
+                const weight = cellMax / (cell.cS || 1);
+                if (weight > colWeights[cIdx]) colWeights[cIdx] = weight;
+            });
+        });
 
-        // Vérifier le saut de page AVANT de dessiner la ligne
-        if (currentY + h > pageHeight - margin) {
-            doc.addPage();
-            currentY = margin;
-            // Réécrire le titre ou un rappel sur la nouvelle page si souhaité
-        }
+        // CRITICAL FIX: The "Blank Gap" occurs if totalWeight includes hidden columns
+        const totalWeight = colWeights.reduce((acc, w, idx) => {
+            if (grid.every(r => r[idx].hidden)) return acc; // Completely ignore merged-away columns
+            return acc + (isBridge[idx] ? BRIDGE_WEIGHT : Math.max(w, 12));
+        }, 0);
 
-        row.forEach((cell, colIndex) => {
-            if (cell.hidden) return;
+        const colWidths = colWeights.map((w, idx) => {
+            if (grid.every(r => r[idx].hidden)) return 0; // Force width to zero for merged gaps
+            const weight = isBridge[idx] ? BRIDGE_WEIGHT : Math.max(w, 12);
+            return (weight / totalWeight) * availableWidth;
+        });
 
-            const rs = cell.rS || 1;
-            const cs = cell.cS || 1;
-            
-            // Calcul de la hauteur totale de cette cellule fusionnée
-            let totalCellHeight = 0;
-            for(let i = 0; i < rs; i++) {
-                totalCellHeight += rowHeights[rowIndex + i] || h;
-            }
+        // 3. CALCULATE ROW HEIGHTS (Vertical Merge Fix)
+        let rowHeights = new Array(grid.length).fill(10);
+        grid.forEach((row, rIdx) => {
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden) return;
+                const rs = cell.rS || 1;
+                let cellW = 0;
+                for (let i = 0; i < (cell.cS || 1); i++) cellW += colWidths[cIdx + i];
+                const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
 
-            const cellWidth = baseCellWidth * cs;
-            const x = margin + (colIndex * baseCellWidth);
+                let contentH_L = cellPaddingV, contentH_R = cellPaddingV;
+                (cell.items || []).forEach((it, idx) => {
+                    const stack = shouldStackText(it.t, it.tr, effW);
+                    let h = stack ? (splitText(it.t, effW).length * lineSpacing) + (it.tr ? splitText(`(${it.tr})`, effW - 2).length * (lineSpacing - 0.3) : 0) : lineSpacing;
+                    h += itemGap;
+                    if (cell.split && idx % 2 !== 0) contentH_R += h; else contentH_L += h;
+                });
 
-            // Dessin de la bordure
-            doc.setDrawColor(148, 163, 184);
-            doc.setLineWidth(0.2);
-            doc.rect(x, currentY, cellWidth, totalCellHeight);
-
-            // Rendu du texte
-            let textY = currentY + 7;
-            const padding = 3;
-            const internalWidth = cellWidth - (padding * 2);
-
-            cell.items.forEach(item => {
-                const tl = item.t || "";
-                const tr = item.tr ? ` (${item.tr})` : "";
-                doc.setFontSize(9);
-                const lines = doc.splitTextToSize(tl + tr, internalWidth);
-
-                lines.forEach(lineText => {
-                    let currentX = x + padding;
-                    if (tl !== "" && lineText.includes(tl)) {
-                        doc.setFont("helvetica", "normal");
-                        doc.setTextColor(0, 0, 0);
-                        doc.text(tl, currentX, textY);
-                        if (item.tr) {
-                            doc.setFont("helvetica", "italic");
-                            doc.setTextColor(41, 128, 185);
-                            doc.text(` (${item.tr})`, currentX + doc.getTextWidth(tl), textY);
-                        }
-                    } else {
-                        doc.setFont("helvetica", "italic");
-                        doc.setTextColor(41, 128, 185);
-                        doc.text(lineText, currentX, textY);
+                const contentH = cell.split ? Math.max(contentH_L, contentH_R) : contentH_L;
+                const hPerLine = (contentH + 2) / rs; // Distribute content height across all merged rows
+                for (let i = 0; i < rs; i++) {
+                    if (rIdx + i < rowHeights.length) {
+                        rowHeights[rIdx + i] = Math.max(rowHeights[rIdx + i], hPerLine);
                     }
-                    textY += 5;
-                });
-                textY += 2;
+                }
             });
         });
 
-        currentY += h;
-    });
+        // 4. DRAWING PHASE
+        doc.setFont("helvetica", "bold").setFontSize(14);
+        doc.text(title.toUpperCase(), margin, margin + 5);
+        let currentY = margin + 15;
 
-    doc.save(`${title}.pdf`);
+        grid.forEach((row, rIdx) => {
+            // Check for page break
+            let blockHeight = rowHeights[rIdx];
+            if (currentY + blockHeight > pageHeight - margin) {
+                doc.addPage();
+                currentY = margin + 10;
+                doc.setFont("helvetica", "bold").setFontSize(14).text(title, margin, margin + 5);
+            }
+
+            let currentX = margin;
+            row.forEach((cell, cIdx) => {
+                const w = colWidths[cIdx];
+                if (cell.hidden) { currentX += w; return; }
+
+                // Calculate Span Dimensions
+                let cellW = 0; for (let i = 0; i < (cell.cS || 1); i++) cellW += colWidths[cIdx + i];
+                let cellH = 0; for (let i = 0; i < (cell.rS || 1); i++) cellH += (rowHeights[rIdx + i] || 0);
+
+                // BACKGROUND FILL (Keeps your colors)
+                if (cell.clr && cell.clr !== "#ffffff") {
+                    const rgb = hexToRgb(cell.clr); // You'll need this helper below
+                    if (rgb) doc.setFillColor(rgb.r, rgb.g, rgb.b).rect(currentX, currentY, cellW, cellH, 'F');
+                }
+
+                // BORDER
+                doc.setDrawColor(148, 163, 184).setLineWidth(0.15).rect(currentX, currentY, cellW, cellH);
+
+                // CONTENT
+                const effW = cell.split ? (cellW / 2) - 4 : cellW - 6;
+                let tL = 0, tR = 0;
+                (cell.items || []).forEach((it, idx) => {
+                    const stack = shouldStackText(it.t, it.tr, effW);
+                    let h = stack ? (splitText(it.t, effW).length * lineSpacing) + (it.tr ? splitText(`(${it.tr})`, effW - 2).length * (lineSpacing - 0.3) : 0) : lineSpacing;
+                    h += itemGap;
+                    if (cell.split && idx % 2 !== 0) tR += h; else tL += h;
+                });
+
+                let yL = currentY + ((cellH - (cell.split ? Math.max(tL, tR) : tL)) / 2) + 3;
+                let yR = yL;
+
+                (cell.items || []).forEach((item, idx) => {
+                    const isRight = cell.split && idx % 2 !== 0;
+                    const itemX = isRight ? currentX + (cellW / 2) + 1 : currentX + 3;
+                    let curY = isRight ? yR : yL;
+                    const stack = shouldStackText(item.t, item.tr, effW);
+
+                    doc.setFont("helvetica", "normal").setTextColor(0).setFontSize(fontSize);
+                    if (!stack) {
+                        doc.text(item.t || "", itemX, curY);
+                        if (item.tr) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
+                            doc.text(` (${item.tr})`, itemX + doc.getTextWidth(item.t || "") + 1.5, curY);
+                        }
+                        curY += lineSpacing;
+                    } else {
+                        splitText(item.t, effW).forEach(l => { doc.text(l.trim(), itemX, curY); curY += lineSpacing; });
+                        if (item.tr) {
+                            doc.setFont("helvetica", "italic").setTextColor(41, 128, 185).setFontSize(fontSize - 1);
+                            splitText(`(${item.tr})`, effW - 2).forEach(l => { doc.text(l.trim(), itemX + 2, curY); curY += lineSpacing - 0.4; });
+                        }
+                    }
+                    if (isRight) yR = curY + itemGap; else { yL = curY + itemGap; if (!cell.split) yR = yL; }
+                });
+                currentX += w;
+            });
+            currentY += rowHeights[rIdx];
+        });
+
+        doc.save(`${title}.pdf`);
+    } catch (err) {
+        console.error("PDF Error:", err);
+    }
+}
+
+// Helper needed for colors
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : null;
 }
     // --- WORKSHEET & PREVIEW ---
     function openPreview() {
@@ -2054,106 +2103,268 @@ async function exportPDF() {
         document.getElementById('overlay').style.display = 'block';
     }
 
-    function getSentencesByRow(r) {
-        let pathCells = [];
-        for (let cIdx = 0; cIdx < grid[0].length; cIdx++) {
-            let cell = getCellAt(r, cIdx);
-            if (!cell || cell.hidden || (cIdx > 0 && getCellAt(r, cIdx - 1) === cell)) continue;
-            let items = cell.items.filter(it => it.t.trim() || it.tr.trim());
-            if (items.length > 0) pathCells.push(items.map(it => ({ t: it.t.trim(), tr: it.tr.trim(), col: cIdx })));
+/* --- 1. THE STARTING ENGINE --- */
+function getAssembledSentences() {
+    let allSentences = [];
+    
+    // Start a path search for every row that isn't hidden by a merge
+    for (let r = 0; r < grid.length; r++) {
+        if (!grid[r][0].hidden) {
+            allSentences = allSentences.concat(findPaths(r, 0));
         }
-        return pathCells.length ? cartesian(pathCells).map(combo => ({ t: combo.map(p => p.t).join(' '), tr: combo.map(p => p.tr).join(' '), parts: combo })) : [];
     }
 
-    function getAssembledSentences() {
-        let allCompiled = [];
-        for (let r = 0; r < grid.length; r++) {
-            let rowSents = getSentencesByRow(r);
-            rowSents.forEach(s => allCompiled.push({...s, originRow: r}));
+    // Deduplicate and filter empty strings
+    const unique = [];
+    const seen = new Set();
+    allSentences.forEach(s => {
+        const text = s.t.trim();
+        if (text && !seen.has(text)) {
+            unique.push(s);
+            seen.add(text);
         }
-        return allCompiled;
+    });
+    return unique;
+}
+
+/* --- 2. THE RECURSIVE PATHFINDER --- */
+function findPaths(r, c, startRow = null) {
+    let cell = getCellAt(r, c);
+    if (!cell) return [];
+
+    // Use the provided startRow or default to the current row 'r' if it's the start
+    const originRow = startRow !== null ? startRow : r;
+
+    // 1. Extract words from current cell
+    let currentOptions = cell.items
+        .filter(it => it.t && it.t.trim() !== "")
+        .map(it => ({
+            t: it.t.trim(),
+            tr: it.tr.trim(),
+            parts: [{ t: it.t, tr: it.tr }],
+            originRow: originRow // Tag every segment with the starting row
+        }));
+
+    // If at the end of the grid, return the words found here
+    if (c === grid[0].length - 1) return currentOptions;
+
+    let nextCol = c + 1;
+    let combinedSubPaths = [];
+
+    // Helper: Detects if the entire next column is empty
+    const isColumnBridge = (colIdx) => {
+        if (colIdx >= grid[0].length) return false;
+        return grid.every(row => {
+            const cEl = row[colIdx];
+            return !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
+        });
+    };
+
+    // 2. PATHFINDING LOGIC
+    if (isColumnBridge(nextCol)) {
+        // --- BRIDGE FOUND ---
+        let targetCol = nextCol + 1;
+        // Skip consecutive bridges
+        while (isColumnBridge(targetCol) && targetCol < grid[0].length) {
+            targetCol++;
+        }
+
+        if (targetCol < grid[0].length) {
+            // JUMP: Explore every row in the column after the bridge
+            for (let targetRow = 0; targetRow < grid.length; targetRow++) {
+                if (!grid[targetRow][targetCol].hidden) {
+                    // Pass the originRow through so it's never forgotten
+                    combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, targetCol, originRow));
+                }
+            }
+        }
+    } else {
+        // --- TRACK LOCKED ---
+        // No bridge: Stay in current row 'r'
+        combinedSubPaths = findPaths(r, nextCol, originRow);
     }
 
+    // 3. ASSEMBLY
+    // If current cell is empty (bridge start), pass through future paths
+    if (currentOptions.length === 0) return combinedSubPaths;
+    
+    // If no paths exist ahead, return what we have
+    if (combinedSubPaths.length === 0) return currentOptions;
+
+    let finalPaths = [];
+    currentOptions.forEach(curr => {
+        combinedSubPaths.forEach(sub => {
+            finalPaths.push({
+                t: (curr.t + " " + sub.t).trim(),
+                tr: (curr.tr + " " + sub.tr).trim(),
+                parts: [...curr.parts, ...sub.parts],
+                originRow: originRow // Ensure the final sentence carries the tag
+            });
+        });
+    });
+
+    return finalPaths;
+}
+/* --- YOUR EXISTING STARTING FUNCTION (KEEP THIS) --- */
+function getAssembledSentences() {
+    let allSentences = [];
+    // Start from every row in the first column
+    for (let r = 0; r < grid.length; r++) {
+        if (!grid[r][0].hidden) {
+            // This starts the 'train' on every row
+            allSentences = allSentences.concat(findPaths(r, 0));
+        }
+    }
+
+    // Deduplicate and filter
+    const unique = [];
+    const seen = new Set();
+    allSentences.forEach(s => {
+        const text = s.t.trim();
+        if (text && !seen.has(text)) {
+            unique.push(s);
+            seen.add(text);
+        }
+    });
+    return unique;
+}
     function cartesian(args) { return args.reduce((a, b) => { let ret = []; a.forEach(a_item => { b.forEach(b_item => { ret.push(a_item.concat([b_item])); }); }); return ret; }, [[]]); }
-    function getCellAt(r, c) { for (let row = 0; row <= r; row++) { for (let col = 0; col <= c; col++) { let cell = grid[row][col]; if (!cell.hidden && r < row + cell.rS && c < col + cell.cS) return cell; } } return null; }
+function getCellAt(r, c) {
+    if (r < 0 || r >= grid.length || c < 0 || c >= grid[0].length) return null;
+    let cell = grid[r][c];
+    if (!cell.hidden) return cell;
 
-    function generateWorksheet() {
-        const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
-        const selected = activityOrder.filter(id => document.getElementById(`chk-${id}`).checked);
-        if (selected.length === 0) return alert("Select at least one activity!");
-
-        let rowBuckets = [];
-        for (let r = 0; r < grid.length; r++) {
-            let rowSents = getSentencesByRow(r); 
-            if (rowSents.length > 0) rowBuckets.push({ rowIndex: r, sentences: rowSents });
+    for (let i = r; i >= 0; i--) {
+        for (let j = c; j >= 0; j--) {
+            let root = grid[i][j];
+            if (root && !root.hidden && (i + (root.rS || 1) > r) && (j + (root.cS || 1) > c)) {
+                return root;
+            }
         }
+    }
+    return cell;
+}
+function generateWorksheet() {
+    const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
+    const selected = activityOrder.filter(id => {
+        const el = document.getElementById(`chk-${id}`);
+        return el && el.checked;
+    });
+    
+    if (selected.length === 0) return alert("Select at least one activity!");
 
-        const getBalancedSelection = (limit, isStudyTable = false) => {
-            let selection = []; let tempBuckets = rowBuckets.map(b => ({...b, sentences: [...b.sentences]}));
-            if (!isStudyTable) tempBuckets.forEach(b => b.sentences.sort(() => 0.5 - Math.random()));
-            let bucketPointer = 0;
-            while (selection.length < limit) {
-                let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
-                if (activeBuckets.length === 0) break;
-                if (tempBuckets[bucketPointer].sentences.length > 0) selection.push({ ...tempBuckets[bucketPointer].sentences.shift(), originRow: tempBuckets[bucketPointer].rowIndex });
-                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
-            }
-            return selection;
-        };
+    const allSentences = getAssembledSentences();
+    if (allSentences.length === 0) return alert("No sentences found!");
 
-        let contentHtml = "";
-        selected.forEach(type => {
-            const label = document.querySelector(`label[for="chk-${type}"]`).innerText;
-            let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
-            let isStudy = (type === 'study');
-            let currentSents = getBalancedSelection(isStudy ? 20 : 10, isStudy);
-            currentSents.sort((a, b) => a.originRow - b.originRow);
+    // 1. Group sentences by their tagged origin row
+    let rowBuckets = {};
+    allSentences.forEach(s => {
+        const r = s.originRow;
+        if (!rowBuckets[r]) rowBuckets[r] = [];
+        rowBuckets[r].push(s);
+    });
 
-            if (type === 'study') {
-                activityHtml += `<table><tr><th>Target Language</th><th>English</th></tr>`;
-                currentSents.forEach(s => activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
-                activityHtml += `</table>`;
-            } else if (type === 'match') {
-                let shuf = [...currentSents].sort(() => 0.5 - Math.random());
-                activityHtml += `<table>`;
-                currentSents.forEach((s, i) => activityHtml += `<tr><td style="border:none;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
-                activityHtml += `</table>`;
-            } else {
-                currentSents.forEach((s, i) => {
-                    let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
-                    if (type === 'vowels' || type === 'cons') {
-                        let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
-                        out = s.t.split(' ').map(word => word.replace(pattern, '_').replace(/_(?=_)/g, '_ ')).join('&nbsp;&nbsp;');
-                    }
-                    else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
-                    else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
-                    else if (type === 'gap-t') { let w = s.t.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = w.join(' '); }
-                    else if (type === 'gap-en') { let w = s.tr.split(' '); w[Math.floor(Math.random()*w.length)] = "________"; out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; }
-                    else if (type === 'trans-en') { out = s.t; hint = ""; }
-                    else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
-                    else if (type === 'faulty') {
-                        let parts = [...s.parts]; let rowSents = getSentencesByRow(s.originRow);
-                        let faultyTr = null; let swapIdx = -1;
-                        let indices = parts.map((_, idx) => idx).sort(() => 0.5 - Math.random());
-                        for (let idx of indices) {
-                            let alternatives = rowSents.filter(f => f.parts[idx] && f.parts[idx].tr !== parts[idx].tr);
-                            if (alternatives.length > 0) { faultyTr = alternatives[Math.floor(Math.random() * alternatives.length)].parts[idx].tr; swapIdx = idx; break; }
-                        }
-                        let trText = (swapIdx !== -1) ? parts.map((p, i) => i === swapIdx ? faultyTr : p.tr).join(' ') : "...";
-                        activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${trText}</span><br>__________________________________________________________________</p>`;
-                        return;
-                    }
-                    activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>__________________________________________________________________</p>`;
-                });
-            }
-            activityHtml += `</div>`;
-            contentHtml += activityHtml;
+    const bucketList = Object.keys(rowBuckets).map(r => ({
+        rowIndex: parseInt(r),
+        sentences: rowBuckets[r]
+    }));
+
+    // 2. Balanced Round-Robin Selection
+    const getBalancedSelection = (limit) => {
+        let selection = [];
+        
+        // Clone and shuffle the sentences INSIDE each bucket
+        // This stops the "Always Line 1" issue.
+        let tempBuckets = bucketList.map(b => {
+            let shuffledSents = [...b.sentences].sort(() => 0.5 - Math.random());
+            return { ...b, sentences: shuffledSents };
         });
 
-        const header = `<html><head><style>@page { size: A4 landscape; margin: 1cm; } body { font-family: Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; } table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; } td, th { border: 1px solid black; padding: 5pt; font-size: 10pt; } .activity-container { page-break-inside: avoid; margin-bottom: 20pt; } h2 { border-bottom: 1px solid #ccc; font-size: 14pt; }</style></head><body>${contentHtml}</body></html>`;
-        saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
-        closeModals();
-    }
+        let bucketPointer = 0;
+        while (selection.length < limit) {
+            let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
+            if (activeBuckets.length === 0) break;
+            
+            // If current bucket is exhausted, move to next
+            if (tempBuckets[bucketPointer].sentences.length === 0) {
+                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
+                continue;
+            }
+
+            selection.push(tempBuckets[bucketPointer].sentences.shift());
+            
+            // Move to next bucket to ensure diversity across rows
+            bucketPointer = (bucketPointer + 1) % tempBuckets.length;
+        }
+        return selection;
+    };
+
+    // 3. HTML Generation
+    let contentHtml = "";
+    selected.forEach(type => {
+        const labelEl = document.querySelector(`label[for="chk-${type}"]`);
+        const label = labelEl ? labelEl.innerText : type;
+        let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
+        
+        let isStudy = (type === 'study');
+        // Get 20 sentences for study, 10 for others
+        let currentSents = getBalancedSelection(isStudy ? 20 : 10);
+        
+        // Final Sort by originRow so the worksheet looks organized (Row 1 items together, etc)
+        currentSents.sort((a, b) => a.originRow - b.originRow);
+
+        if (type === 'study') {
+            activityHtml += `<table><tr><th>Target Language</th><th>English</th></tr>`;
+            currentSents.forEach(s => {
+                activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`;
+            });
+            activityHtml += `</table>`;
+        } else if (type === 'match') {
+            let shuf = [...currentSents].sort(() => 0.5 - Math.random());
+            activityHtml += `<table>`;
+            currentSents.forEach((s, i) => {
+                activityHtml += `<tr><td style="border:none;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`;
+            });
+            activityHtml += `</table>`;
+        } else {
+            currentSents.forEach((s, i) => {
+                let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
+                
+                if (type === 'vowels' || type === 'cons') {
+                    let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
+                    out = s.t.split(' ').map(word => word.replace(pattern, '_').replace(/_(?=_)/g, '_ ')).join('&nbsp;&nbsp;');
+                }
+                else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
+                else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
+                else if (type === 'gap-t') { 
+                    let w = s.t.split(' '); 
+                    w[Math.floor(Math.random() * w.length)] = "________"; 
+                    out = w.join(' '); 
+                }
+                else if (type === 'gap-en') { 
+                    let w = s.tr.split(' '); 
+                    w[Math.floor(Math.random() * w.length)] = "________"; 
+                    out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; 
+                }
+                else if (type === 'trans-en') { out = s.t; hint = ""; }
+                else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
+                else if (type === 'faulty') {
+                    activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">... [Translate correctly] ...</span><br>__________________________________________________________________</p>`;
+                    return;
+                }
+                
+                activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>__________________________________________________________________</p>`;
+            });
+        }
+        activityHtml += `</div>`;
+        contentHtml += activityHtml;
+    });
+
+    // 4. Save and Export
+    const header = `<html><head><style>@page { size: A4 landscape; margin: 1cm; } body { font-family: Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; } table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; } td, th { border: 1px solid black; padding: 5pt; font-size: 10pt; } .activity-container { page-break-inside: avoid; margin-bottom: 20pt; } h2 { border-bottom: 1px solid #ccc; font-size: 14pt; }</style></head><body>${contentHtml}</body></html>`;
+    saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
+    closeModals();
+}
     function toggleMode(m) { 
     currentMode = (currentMode === m) ? null : m; 
     render(false); 
