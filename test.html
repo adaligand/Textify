@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedac sbridge not ok</title>
+    <title>Cedrrac sbridge not ok</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2169,56 +2169,64 @@ function getAssembledSentences() {
     });
     return unique;
 }
-
+/* --- UPDATED PATHFINDING WITH BRIDGE LOGIC --- */
 function findPaths(r, c) {
-    const cell = getCellAt(r, c);
+    let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // 1. Get text from current cell
-    let currentOptions = (cell.items || [])
+    // 1. Get options from the current cell
+    let currentOptions = cell.items
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
             t: it.t.trim(),
-            tr: (it.tr || "").trim(),
+            tr: it.tr.trim(),
             parts: [{ t: it.t, tr: it.tr }]
         }));
 
-    let nextCol = c + (cell.cS || 1);
-    
-    // If we are at the end, return what we have
-    if (nextCol >= grid[0].length) return currentOptions;
+    // If we're at the last column, return current options
+    if (c === grid[0].length - 1) return currentOptions;
 
-    // 2. THE FORWARD SCAN
-    // We check if the cell directly ahead has content
-    const cellAhead = getCellAt(r, nextCol);
-    const aheadHasContent = cellAhead && cellAhead.items && cellAhead.items.some(it => it.t && it.t.trim() !== "");
+    // 2. Look ahead to find the next valid "station"
+    let nextCol = c + 1;
+    let bridgeFound = false;
 
+    // Check if the NEXT column is a "Bridge" (entirely empty)
+    const isColumnEmpty = (colIdx) => {
+        return grid.every(row => {
+            const cEl = row[colIdx];
+            return !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
+        });
+    };
+
+    if (isColumnEmpty(nextCol)) {
+        bridgeFound = true;
+        // Skip the bridge and look for content in the column after
+        nextCol++; 
+        if (nextCol >= grid[0].length) return currentOptions;
+    }
+
+    // 3. Determine potential next paths
     let combinedSubPaths = [];
-
-    // 3. DECIDE NAVIGATION
-    if (!aheadHasContent || cell.rS > 1) {
-        // BRIDGE/JUNCTION: The path directly ahead is blocked or empty.
-        // We look at EVERY row in the next column to find where the path continues.
+    
+    // If we crossed a bridge OR the current cell is a vertical merge, 
+    // we allow jumping to ANY row in the target column.
+    if (bridgeFound || cell.rS > 1) {
         for (let nextRow = 0; nextRow < grid.length; nextRow++) {
-            const target = grid[nextRow][nextCol];
-            if (!target.hidden) {
-                const sub = findPaths(nextRow, nextCol);
-                if (sub.length > 0) combinedSubPaths = combinedSubPaths.concat(sub);
+            // Avoid processing hidden/merged cells twice
+            if (!grid[nextRow][nextCol].hidden) {
+                combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, nextCol));
             }
         }
     } else {
-        // CONTENT LOCK: Content exists directly ahead in this row. Stay on track.
+        // No bridge and no merge: stay in the same row
         combinedSubPaths = findPaths(r, nextCol);
     }
 
-    // 4. THE "EMPTY CELL" PASS-THROUGH
-    // If this current cell is empty (like a bridge), don't return []. 
-    // Instead, return the sub-paths found ahead so the sentence continues.
-    if (currentOptions.length === 0) {
-        return combinedSubPaths;
-    }
-
-    // 5. COMBINE
+    // 4. Recursive Assembly
+    // If the current cell was empty (a bridge cell), just return subpaths
+    if (currentOptions.length === 0) return combinedSubPaths;
+    
+    // If there are no more subpaths ahead, return what we have
     if (combinedSubPaths.length === 0) return currentOptions;
 
     let finalPaths = [];
