@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedacbridge not ok</title>
+    <title>Cedacbridccge not ok</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2169,12 +2169,11 @@ function getAssembledSentences() {
     });
     return unique;
 }
-/* --- UPDATED PATHFINDING WITH BRIDGE LOGIC --- */
 function findPaths(r, c) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // 1. Get words from current cell
+    // 1. Get words from the current cell
     let currentOptions = cell.items
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
@@ -2183,53 +2182,48 @@ function findPaths(r, c) {
             parts: [{ t: it.t, tr: it.tr }]
         }));
 
-    // End of grid
     if (c === grid[0].length - 1) return currentOptions;
 
     let nextCol = c + 1;
     let combinedSubPaths = [];
 
-    // Helper to check if a specific column is a "Bridge"
-    const isColumnEmpty = (colIdx) => {
-        if (colIdx >= grid[0].length) return false;
+    // 2. BRIDGE CHECK: Is the WHOLE next column empty?
+    const isNextColABridge = () => {
+        if (nextCol >= grid[0].length) return false;
         return grid.every(row => {
-            const cellInCol = row[colIdx];
-            return !cellInCol.items || cellInCol.items.every(it => !it.t || it.t.trim() === "");
+            const cEl = row[nextCol];
+            return !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
         });
     };
 
-    // 2. DECISION POINT: Jump or Stay?
-    if (isColumnEmpty(nextCol)) {
-        // --- BRIDGE CASE ---
-        // Jump across the empty column to ANY row in the column after it
+    if (isNextColABridge()) {
+        /* --- BRIDGE BEHAVIOR --- */
+        // Move to the column AFTER the bridge
         let afterBridgeCol = nextCol + 1;
+        
         if (afterBridgeCol < grid[0].length) {
-            for (let nextRow = 0; nextRow < grid.length; nextRow++) {
-                if (!grid[nextRow][afterBridgeCol].hidden) {
-                    // Start new path from nextRow and STAY there
-                    combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, afterBridgeCol));
+            // A bridge allows us to look at EVERY row to find a new track
+            for (let targetRow = 0; targetRow < grid.length; targetRow++) {
+                if (!grid[targetRow][afterBridgeCol].hidden) {
+                    // Start the path in the new row. 
+                    // Crucially, this recursive call will then hit the 'else' 
+                    // below in its next step, locking it to targetRow.
+                    combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, afterBridgeCol));
                 }
             }
         }
-    } else if (cell.rS > 1) {
-        // --- VERTICAL MERGE CASE ---
-        // Current cell spans multiple rows, so we can branch out to those rows in nextCol
-        for (let nextRow = 0; nextRow < grid.length; nextRow++) {
-            if (!grid[nextRow][nextCol].hidden) {
-                combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, nextCol));
-            }
-        }
     } else {
-        // --- TRACK LOCKED CASE ---
-        // No bridge and no merge: You MUST stay in row 'r'
+        /* --- TRACK LOCKED BEHAVIOR --- */
+        // No bridge detected. You MUST stay in row 'r'.
+        // This prevents jumping between Row 1 and Row 2 if Col 2 has content.
         combinedSubPaths = findPaths(r, nextCol);
     }
 
-    // 3. ASSEMBLY
-    // If this cell is empty (part of a bridge), just pass through the subpaths
+    // 3. Assemble results
+    // If current cell was empty (like the start of a bridge), just return what follows
     if (currentOptions.length === 0) return combinedSubPaths;
     
-    // If there's nothing ahead, just return these words
+    // If nothing follows, return what we have
     if (combinedSubPaths.length === 0) return currentOptions;
 
     let finalPaths = [];
