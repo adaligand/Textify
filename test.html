@@ -2144,19 +2144,18 @@ function hexToRgb(hex) {
     // Only return sentences that actually have content
     return currentPaths.filter(p => p.parts.length > 0);
 }
+/* --- RAILWAY PATHFINDING LOGIC --- */
+
 function getAssembledSentences() {
     let allSentences = [];
-    
-    // We start a path from every cell in the FIRST column that isn't hidden
+    // Start paths from every non-hidden cell in the first column
     for (let r = 0; r < grid.length; r++) {
-        const cell = grid[r][0];
-        if (cell && !cell.hidden) {
-            const results = findPaths(r, 0);
-            allSentences = allSentences.concat(results);
+        if (!grid[r][0].hidden) {
+            allSentences = allSentences.concat(findPaths(r, 0));
         }
     }
 
-    // Deduplicate identical sentences
+    // Deduplicate
     const unique = [];
     const seen = new Set();
     allSentences.forEach(s => {
@@ -2167,15 +2166,12 @@ function getAssembledSentences() {
     });
     return unique;
 }
-/**
- * Railroad Pathfinding:
- * Only allows row-switching if the current column or the next column is a bridge.
- */
+
 function findPaths(r, c) {
     const cell = getCellAt(r, c);
-    if (!cell || !cell.items || cell.items.every(it => !it.t)) return [];
+    if (!cell || !cell.items) return [];
 
-    // 1. Get current cell text options
+    // 1. Build current cell options
     let currentCellOptions = cell.items
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
@@ -2184,60 +2180,51 @@ function findPaths(r, c) {
             parts: [{ t: it.t, tr: it.tr }]
         }));
 
-    let nextCol = c + (cell.cS || 1);
+    // If this cell is empty but we were sent here, treat as "pass-through"
+    if (currentCellOptions.length === 0) {
+        currentCellOptions = [{ t: "", tr: "", parts: [] }];
+    }
+
+    const nextCol = c + (cell.cS || 1);
     if (nextCol >= grid[0].length) return currentCellOptions;
 
     let combinedSubPaths = [];
 
-    // 2. Determine if we are at a "Junction" (Bridge)
-    // A junction is a column where a cell spans multiple rows (the bridge you described)
-    const isJunction = cell.rS > 1;
+    // 2. CHECK FOR BRIDGES
+    // Is the current column or the next cell a vertical merge (bridge)?
+    const isCurrentBridge = cell.rS > 1;
+    const nextCellInRow = getCellAt(r, nextCol);
+    const isNextCellEmpty = nextCellInRow && (!nextCellInRow.items || !nextCellInRow.items.some(it => it.t && it.t.trim() !== ""));
 
-    // 3. Look for the next cell
-    // If the CURRENT cell is a bridge, we can explore ALL rows in the next column
-    if (isJunction) {
+    // 3. DECIDE THE NEXT MOVE
+    if (isCurrentBridge || isNextCellEmpty) {
+        // JUNCTION FOUND: Explore all rows in the next column
         for (let nextRow = 0; nextRow < grid.length; nextRow++) {
-            if (!grid[nextRow][nextCol].hidden) { // Only start from the root of a cell
-                combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, nextCol));
+            const nc = grid[nextRow][nextCol];
+            if (!nc.hidden) {
+                const sub = findPaths(nextRow, nextCol);
+                combinedSubPaths = combinedSubPaths.concat(sub);
             }
         }
     } else {
-        // If the CURRENT cell is NOT a bridge, we MUST stay in the same row 'r'
-        // UNLESS the next cell itself is a bridge that covers our row
-        const nextCell = getCellAt(r, nextCol);
-        if (nextCell) {
-            // Check if nextCell is empty/bridge. If it's a bridge, we jump through it.
-            const hasText = nextCell.items && nextCell.items.some(it => it.t && it.t.trim() !== "");
-            
-            if (hasText) {
-                // Regular content in the same row
-                combinedSubPaths = combinedSubPaths.concat(findPaths(r, nextCol));
-            } else {
-                // The next cell is a "Gap Bridge" (empty column)
-                // We jump this column and look at the column after it, 
-                // but because it's an empty bridge, we can now look at ALL rows in the destination
-                let jumpCol = nextCol + (nextCell.cS || 1);
-                if (jumpCol < grid[0].length) {
-                    for (let nextRow = 0; nextRow < grid.length; nextRow++) {
-                        if (!grid[nextRow][jumpCol].hidden) {
-                            combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, jumpCol));
-                        }
-                    }
-                }
-            }
-        }
+        // NO BRIDGE: Stay strictly on the current row 'r'
+        const sub = findPaths(r, nextCol);
+        combinedSubPaths = combinedSubPaths.concat(sub);
     }
 
-    // 4. If no further paths found, return current
-    if (combinedSubPaths.length === 0) return currentCellOptions;
+    // 4. COMBINE
+    if (combinedSubPaths.length === 0) return currentCellOptions.filter(o => o.parts.length > 0);
 
-    // 5. Build the sentences
     let finalPaths = [];
     currentCellOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
+            // Only add spaces if there's actual text
+            const newT = (curr.t + (curr.t && sub.t ? " " : "") + sub.t).trim();
+            const newTr = (curr.tr + (curr.tr && sub.tr ? " " : "") + sub.tr).trim();
+            
             finalPaths.push({
-                t: (curr.t + " " + sub.t).trim(),
-                tr: (curr.tr + " " + sub.tr).trim(),
+                t: newT,
+                tr: newTr,
                 parts: [...curr.parts, ...sub.parts]
             });
         });
