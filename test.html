@@ -2170,8 +2170,7 @@ function findPaths(r, c) {
     const cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // 1. Get current text options. 
-    // If cell is empty, we provide an empty starting point to keep the path alive.
+    // 1. Extract text from current cell
     let currentCellOptions = (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
@@ -2180,6 +2179,7 @@ function findPaths(r, c) {
             parts: [{ t: it.t, tr: it.tr }]
         }));
 
+    // If cell is empty, keep path alive with an empty entry
     const isCellEmpty = currentCellOptions.length === 0;
     if (isCellEmpty) currentCellOptions = [{ t: "", tr: "", parts: [] }];
 
@@ -2188,29 +2188,37 @@ function findPaths(r, c) {
 
     let combinedSubPaths = [];
 
-    // 2. THE JUNCTION RULE:
-    // We look at the cell directly ahead in our CURRENT row.
+    // 2. Identify the "Railway Junction"
     const nextCellInSameRow = getCellAt(r, nextCol);
+    
+    // A junction exists if:
+    // - The next cell in this row is empty/has no text
+    // - OR the current cell spans multiple rows (vertical bridge)
+    // - OR the next cell in this row spans multiple rows (incoming bridge)
     const nextInRowHasContent = nextCellInSameRow && 
                                 nextCellInSameRow.items && 
                                 nextCellInSameRow.items.some(it => it.t && it.t.trim() !== "");
+    
+    const isJunction = !nextInRowHasContent || cell.rS > 1 || (nextCellInSameRow && nextCellInSameRow.rS > 1);
 
-    // 3. NAVIGATION:
-    // If there is NO content directly ahead in this row OR if the current cell is a vertical bridge...
-    if (!nextInRowHasContent || cell.rS > 1) {
-        // We are at a JUNCTION. We can switch to ANY row in the next column that has content.
+    // 3. Navigate
+    if (isJunction) {
+        // JUNCTION: Explore all rows in the next column to find content
         for (let nextRow = 0; nextRow < grid.length; nextRow++) {
             const targetCell = grid[nextRow][nextCol];
+            // Only start from the "root" of a cell (not hidden) to avoid duplicates
             if (!targetCell.hidden) {
-                combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, nextCol));
+                // Only follow paths that actually contain text
+                const sub = findPaths(nextRow, nextCol);
+                combinedSubPaths = combinedSubPaths.concat(sub);
             }
         }
     } else {
-        // STICK TO TRACK: There is content ahead in this row, so we MUST stay here.
-        combinedSubPaths = combinedSubPaths.concat(findPaths(r, nextCol));
+        // LOCKED: Must stay in current row 'r'
+        combinedSubPaths = findPaths(r, nextCol);
     }
 
-    // 4. COMBINATION
+    // 4. Build results
     if (combinedSubPaths.length === 0) return isCellEmpty ? [] : currentCellOptions;
 
     let finalPaths = [];
