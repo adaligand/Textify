@@ -1509,7 +1509,17 @@ function setClr(r, c, color) {
     document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
     render(); // Re-draw the grid to show the new color
 }
-
+/**
+ * Checks if a column is empty (a bridge)
+ * @param {number} colIndex - The index of the column to check
+ * @returns {boolean}
+ */
+function isBridgeColumn(colIndex) {
+    return grid.every(row => {
+        const cell = row[colIndex];
+        return !cell.text || cell.text.trim() === "";
+    });
+}
 // 2. Function to toggle between 1 and 2 columns in a cell
 function toggleCellSplit(r, c) {
     grid[r][c].split = !grid[r][c].split;
@@ -2010,60 +2020,53 @@ function shouldStackText(tl, tr, effW) {
     );
 }
 
-// --------------------------------------------------
-// COLUMN WIDTHS
-// --------------------------------------------------
-
 const colCount = grid[0].length;
+        let isBridge = new Array(colCount).fill(true);
 
-let colWeights = new Array(colCount).fill(0);
-
-grid.forEach(row => {
-
-    row.forEach((cell, cIdx) => {
-
-        if (cell.hidden) {
-            return;
-        }
-
-        let cellMax = 0;
-
-        (cell.items || []).forEach(it => {
-
-            const tl = it.t || "";
-            const tr = it.tr || "";
-
-            let len = tl.length;
-
-            if (tr.length > 18) {
-                len += 3;
-            }
-
-            if (cell.split) {
-                len *= 0.72;
-            }
-
-            if (len > cellMax) {
-                cellMax = len;
-            }
+        grid.forEach(row => {
+            row.forEach((cell, cIdx) => {
+                // If a cell has items/text, this column is NOT a bridge
+                if (cell.items && cell.items.length > 0 && cell.items.some(it => it.t && it.t.trim() !== "")) {
+                    isBridge[cIdx] = false;
+                }
+            });
         });
 
-        const weight = cellMax / (cell.cS || 1);
+        // --------------------------------------------------
+        // COLUMN WIDTHS (WITH BRIDGE LOGIC)
+        // --------------------------------------------------
+        let colWeights = new Array(colCount).fill(0);
 
-        if (weight > colWeights[cIdx]) {
-            colWeights[cIdx] = weight;
-        }
-    });
-});
+        grid.forEach(row => {
+            row.forEach((cell, cIdx) => {
+                if (cell.hidden || isBridge[cIdx]) return;
 
-const totalWeight = colWeights.reduce(
-    (a, b) => a + Math.max(b, 12),
-    0
-);
+                let cellMax = 0;
+                (cell.items || []).forEach(it => {
+                    const tl = it.t || "";
+                    const tr = it.tr || "";
+                    let len = tl.length;
+                    if (tr.length > 18) len += 3;
+                    if (cell.split) len *= 0.72;
+                    if (len > cellMax) cellMax = len;
+                });
 
-const colWidths = colWeights.map(w =>
-    (Math.max(w, 12) / totalWeight) * availableWidth
-);
+                const weight = cellMax / (cell.cS || 1);
+                if (weight > colWeights[cIdx]) colWeights[cIdx] = weight;
+            });
+        });
+
+        // Determine total weight. Bridges get a tiny fixed weight.
+        const BRIDGE_WEIGHT = 5; 
+        const totalWeight = colWeights.reduce((acc, w, idx) => {
+            return acc + (isBridge[idx] ? BRIDGE_WEIGHT : Math.max(w, 12));
+        }, 0);
+
+        // Calculate final widths
+        const colWidths = colWeights.map((w, idx) => {
+            const weight = isBridge[idx] ? BRIDGE_WEIGHT : Math.max(w, 12);
+            return (weight / totalWeight) * availableWidth;
+        });
 
 // --------------------------------------------------
 // ROW HEIGHTS
