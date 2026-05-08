@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars bridge okno worksheet</title>
+    <title>Cedars  okno worksheet</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2244,7 +2244,6 @@ function getCellAt(r, c) {
     }
     return cell;
 }
-
 function generateWorksheet() {
     const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
     const selected = activityOrder.filter(id => {
@@ -2257,7 +2256,7 @@ function generateWorksheet() {
     const allSentences = getAssembledSentences();
     if (allSentences.length === 0) return alert("No sentences found!");
 
-    // 1. Group sentences by originRow
+    // 1. Group sentences by their tagged origin row
     let rowBuckets = {};
     allSentences.forEach(s => {
         const r = s.originRow;
@@ -2271,18 +2270,14 @@ function generateWorksheet() {
     }));
 
     // 2. Balanced Round-Robin Selection
-    const getBalancedSelection = (limit, isStudyTable = false) => {
+    const getBalancedSelection = (limit) => {
         let selection = [];
         
-        // IMPORTANT: We clone and SHUFFLE the sentences inside each bucket here
-        // so that we aren't always picking the first item of the row.
+        // Clone and shuffle the sentences INSIDE each bucket
+        // This stops the "Always Line 1" issue.
         let tempBuckets = bucketList.map(b => {
-            let sents = [...b.sentences];
-            // Always shuffle unless it's the study table and you want alphabetical/grid order
-            if (!isStudyTable) {
-                sents.sort(() => 0.5 - Math.random());
-            }
-            return { ...b, sentences: sents };
+            let shuffledSents = [...b.sentences].sort(() => 0.5 - Math.random());
+            return { ...b, sentences: shuffledSents };
         });
 
         let bucketPointer = 0;
@@ -2290,7 +2285,7 @@ function generateWorksheet() {
             let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
             if (activeBuckets.length === 0) break;
             
-            // Move pointer to a bucket that actually has sentences left
+            // If current bucket is exhausted, move to next
             if (tempBuckets[bucketPointer].sentences.length === 0) {
                 bucketPointer = (bucketPointer + 1) % tempBuckets.length;
                 continue;
@@ -2312,20 +2307,24 @@ function generateWorksheet() {
         let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
         
         let isStudy = (type === 'study');
-        // Get 20 for study, 10 for others
-        let currentSents = getBalancedSelection(isStudy ? 20 : 10, isStudy);
+        // Get 20 sentences for study, 10 for others
+        let currentSents = getBalancedSelection(isStudy ? 20 : 10);
         
-        // Sort by row for the final output so it looks organized
+        // Final Sort by originRow so the worksheet looks organized (Row 1 items together, etc)
         currentSents.sort((a, b) => a.originRow - b.originRow);
 
         if (type === 'study') {
             activityHtml += `<table><tr><th>Target Language</th><th>English</th></tr>`;
-            currentSents.forEach(s => activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`);
+            currentSents.forEach(s => {
+                activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`;
+            });
             activityHtml += `</table>`;
         } else if (type === 'match') {
             let shuf = [...currentSents].sort(() => 0.5 - Math.random());
             activityHtml += `<table>`;
-            currentSents.forEach((s, i) => activityHtml += `<tr><td style="border:none;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`);
+            currentSents.forEach((s, i) => {
+                activityHtml += `<tr><td style="border:none;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`;
+            });
             activityHtml += `</table>`;
         } else {
             currentSents.forEach((s, i) => {
@@ -2361,6 +2360,7 @@ function generateWorksheet() {
         contentHtml += activityHtml;
     });
 
+    // 4. Save and Export
     const header = `<html><head><style>@page { size: A4 landscape; margin: 1cm; } body { font-family: Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; } table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; } td, th { border: 1px solid black; padding: 5pt; font-size: 10pt; } .activity-container { page-break-inside: avoid; margin-bottom: 20pt; } h2 { border-bottom: 1px solid #ccc; font-size: 14pt; }</style></head><body>${contentHtml}</body></html>`;
     saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
     closeModals();
