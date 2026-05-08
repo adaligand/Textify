@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedrrac sbridge not ok</title>
+    <title>Cedac sbridge not ok</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2170,11 +2170,12 @@ function getAssembledSentences() {
     return unique;
 }
 /* --- UPDATED PATHFINDING WITH BRIDGE LOGIC --- */
+/* --- THE FIX: Bridge jump followed by row lock --- */
 function findPaths(r, c) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // 1. Get options from the current cell
+    // 1. Extract words from current cell
     let currentOptions = cell.items
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
@@ -2183,50 +2184,53 @@ function findPaths(r, c) {
             parts: [{ t: it.t, tr: it.tr }]
         }));
 
-    // If we're at the last column, return current options
     if (c === grid[0].length - 1) return currentOptions;
 
-    // 2. Look ahead to find the next valid "station"
     let nextCol = c + 1;
-    let bridgeFound = false;
-
-    // Check if the NEXT column is a "Bridge" (entirely empty)
+    
+    // 2. Identify if the NEXT column is a bridge (entirely empty)
     const isColumnEmpty = (colIdx) => {
+        if (colIdx >= grid[0].length) return false;
         return grid.every(row => {
             const cEl = row[colIdx];
+            // A column is empty if it's not hidden AND has no text
             return !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
         });
     };
 
-    if (isColumnEmpty(nextCol)) {
-        bridgeFound = true;
-        // Skip the bridge and look for content in the column after
-        nextCol++; 
-        if (nextCol >= grid[0].length) return currentOptions;
-    }
-
-    // 3. Determine potential next paths
     let combinedSubPaths = [];
-    
-    // If we crossed a bridge OR the current cell is a vertical merge, 
-    // we allow jumping to ANY row in the target column.
-    if (bridgeFound || cell.rS > 1) {
+
+    // Check if we are facing a bridge
+    if (isColumnEmpty(nextCol)) {
+        /* BRIDGE LOGIC: Jump to any row in the column AFTER the bridge */
+        let afterBridgeCol = nextCol + 1;
+        
+        if (afterBridgeCol < grid[0].length) {
+            for (let nextRow = 0; nextRow < grid.length; nextRow++) {
+                if (!grid[nextRow][afterBridgeCol].hidden) {
+                    // CRITICAL: We find paths starting from 'nextRow' 
+                    // This "locks" the sentence into that specific row for the rest of the path
+                    combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, afterBridgeCol));
+                }
+            }
+        }
+    } else if (cell.rS > 1) {
+        /* VERTICAL MERGE LOGIC: Acts like a permanent junction */
         for (let nextRow = 0; nextRow < grid.length; nextRow++) {
-            // Avoid processing hidden/merged cells twice
             if (!grid[nextRow][nextCol].hidden) {
                 combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, nextCol));
             }
         }
     } else {
-        // No bridge and no merge: stay in the same row
+        /* TRACK LOCKED: No bridge, no merge. Stay in row 'r' */
         combinedSubPaths = findPaths(r, nextCol);
     }
 
-    // 4. Recursive Assembly
-    // If the current cell was empty (a bridge cell), just return subpaths
+    // 3. Assemble results
+    // Handle the case where the current cell itself is part of a bridge (empty)
     if (currentOptions.length === 0) return combinedSubPaths;
     
-    // If there are no more subpaths ahead, return what we have
+    // Handle end of the line
     if (combinedSubPaths.length === 0) return currentOptions;
 
     let finalPaths = [];
