@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars no bridgenot ok</title>
+    <title>Cedars nobrigenot ok</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2103,56 +2103,114 @@ function hexToRgb(hex) {
         document.getElementById('overlay').style.display = 'block';
     }
 
- function getSentencesByRow(r) {
-    // We start with one empty path
-    let currentPaths = [{ t: "", tr: "", parts: [] }];
-
-    for (let c = 0; c < grid[0].length; c++) {
-        // Use getCellAt to find the owner of this coordinate (handles vertical merges)
-        let cell = getCellAt(r, c);
-        
-        // BRIDGE LOGIC: If the cell is empty or hidden, we SKIP it and move to the next column
-        // This allows the sentence to continue from Col 1 to Col 3
-        const hasText = cell && cell.items && cell.items.some(it => it.t && it.t.trim() !== "");
-        if (!hasText) continue;
-
-        // Prevent double-processing cells that span multiple columns
-        let firstColOfCell = -1;
-        for (let j = 0; j <= c; j++) {
-            if (getCellAt(r, j) === cell) { firstColOfCell = j; break; }
-        }
-        if (c > firstColOfCell) continue;
-
-        let nextPaths = [];
-        cell.items.forEach(item => {
-            if (!item.t || item.t.trim() === "") return;
-            
-            currentPaths.forEach(path => {
-                nextPaths.push({
-                    t: (path.t + " " + item.t).trim(),
-                    tr: (path.tr + " " + item.tr).trim(),
-                    parts: [...path.parts, { t: item.t, tr: item.tr }]
-                });
-            });
-        });
-
-        // Only update paths if we actually found text in this column
-        if (nextPaths.length > 0) {
-            currentPaths = nextPaths;
+/* --- 1. THE STARTING ENGINE --- */
+function getAssembledSentences() {
+    let allSentences = [];
+    // We start the "train" at column 0 for every row.
+    for (let r = 0; r < grid.length; r++) {
+        // Only start on cells that aren't hidden by a vertical/horizontal merge
+        if (!grid[r][0].hidden) {
+            allSentences = allSentences.concat(findPaths(r, 0));
         }
     }
-    // Only return sentences that actually have content
-    return currentPaths.filter(p => p.parts.length > 0);
+
+    // Deduplicate the final list so identical sentences don't appear twice
+    const unique = [];
+    const seen = new Set();
+    allSentences.forEach(s => {
+        const text = s.t.trim();
+        if (text && !seen.has(text)) {
+            unique.push(s);
+            seen.add(text);
+        }
+    });
+    return unique;
 }
-/* --- RAILWAY PATHFINDING LOGIC --- */
 
-/* --- THE FINAL FORWARD-LOOKING ENGINE --- */
+/* --- 2. THE RECURSIVE PATHFINDER --- */
+function findPaths(r, c) {
+    let cell = getCellAt(r, c);
+    if (!cell) return [];
 
+    // Get all valid items in this specific cell
+    let currentOptions = cell.items
+        .filter(it => it.t && it.t.trim() !== "")
+        .map(it => ({
+            t: it.t.trim(),
+            tr: it.tr.trim(),
+            parts: [{ t: it.t, tr: it.tr }]
+        }));
+
+    // If this is the last column of the entire grid, stop here
+    if (c === grid[0].length - 1) return currentOptions;
+
+    let nextCol = c + 1;
+    let combinedSubPaths = [];
+
+    // Helper: Checks if EVERY cell in a specific column is empty
+    const isColumnBridge = (colIdx) => {
+        if (colIdx >= grid[0].length) return false;
+        return grid.every(row => {
+            const cEl = row[colIdx];
+            return !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
+        });
+    };
+
+    // LOGIC: Bridge vs Track
+    if (isColumnBridge(nextCol)) {
+        /* --- BRIDGE DETECTED --- */
+        let targetCol = nextCol + 1;
+        
+        // If there are multiple empty columns in a row, skip them all
+        while (isColumnBridge(targetCol) && targetCol < grid[0].length) {
+            targetCol++;
+        }
+
+        if (targetCol < grid[0].length) {
+            // Because it's a bridge, we search EVERY row in the next valid column
+            for (let targetRow = 0; targetRow < grid.length; targetRow++) {
+                if (!grid[targetRow][targetCol].hidden) {
+                    // Start new paths from the target row. 
+                    // Crucially, this locks those paths into targetRow.
+                    combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, targetCol));
+                }
+            }
+        }
+    } else {
+        /* --- NO BRIDGE: TRACK LOCKED --- */
+        // Stay in row 'r' and move to the next column
+        combinedSubPaths = findPaths(r, nextCol);
+    }
+
+    // ASSEMBLY PHASE
+    // If the current cell had no text (common at the very start or in a bridge),
+    // just pass through the paths found ahead.
+    if (currentOptions.length === 0) return combinedSubPaths;
+    
+    // If we have text here but reached a dead end, return current text
+    if (combinedSubPaths.length === 0) return currentOptions;
+
+    // Multiply current cell options by all found future subpaths
+    let finalPaths = [];
+    currentOptions.forEach(curr => {
+        combinedSubPaths.forEach(sub => {
+            finalPaths.push({
+                t: (curr.t + " " + sub.t).trim(),
+                tr: (curr.tr + " " + sub.tr).trim(),
+                parts: [...curr.parts, ...sub.parts]
+            });
+        });
+    });
+
+    return finalPaths;
+}
+/* --- YOUR EXISTING STARTING FUNCTION (KEEP THIS) --- */
 function getAssembledSentences() {
     let allSentences = [];
     // Start from every row in the first column
     for (let r = 0; r < grid.length; r++) {
         if (!grid[r][0].hidden) {
+            // This starts the 'train' on every row
             allSentences = allSentences.concat(findPaths(r, 0));
         }
     }
@@ -2168,77 +2226,6 @@ function getAssembledSentences() {
         }
     });
     return unique;
-}
-function findPaths(r, c) {
-    let cell = getCellAt(r, c);
-    if (!cell) return [];
-
-    // 1. Get words from the current cell
-    let currentOptions = cell.items
-        .filter(it => it.t && it.t.trim() !== "")
-        .map(it => ({
-            t: it.t.trim(),
-            tr: it.tr.trim(),
-            parts: [{ t: it.t, tr: it.tr }]
-        }));
-
-    // If we're at the very last column, return the words found here
-    if (c === grid[0].length - 1) return currentOptions;
-
-    let nextCol = c + 1;
-    let combinedSubPaths = [];
-
-    // Helper: Is the entire next column a bridge?
-    const isColumnEmpty = (colIdx) => {
-        if (colIdx >= grid[0].length) return false;
-        return grid.every(row => {
-            const cellInCol = row[colIdx];
-            // Column is empty if every cell in it has no text
-            return !cellInCol.items || cellInCol.items.every(it => !it.t || it.t.trim() === "");
-        });
-    };
-
-    // 2. Determine where to look next
-    if (isColumnEmpty(nextCol)) {
-        /* --- BRIDGE LOGIC --- */
-        let afterBridgeCol = nextCol + 1;
-        if (afterBridgeCol < grid[0].length) {
-            // JUMP: Gather paths from EVERY row in the column after the bridge
-            for (let targetRow = 0; targetRow < grid.length; targetRow++) {
-                // Ensure we don't skip rows that are part of a merge
-                if (!grid[targetRow][afterBridgeCol].hidden) {
-                    const pathsFromThisRow = findPaths(targetRow, afterBridgeCol);
-                    // Add these paths to our collection
-                    combinedSubPaths = combinedSubPaths.concat(pathsFromThisRow);
-                }
-            }
-        }
-    } else {
-        /* --- TRACK LOCKED LOGIC --- */
-        // No bridge: You MUST stay in row 'r'
-        combinedSubPaths = findPaths(r, nextCol);
-    }
-
-    // 3. Assembly
-    // If the current cell was empty (a bridge cell), just pass through the paths found ahead
-    if (currentOptions.length === 0) return combinedSubPaths;
-    
-    // If we have words here but hit a dead end ahead, just return these words
-    if (combinedSubPaths.length === 0) return currentOptions;
-
-    // Combine current cell's words with all valid future paths
-    let finalPaths = [];
-    currentOptions.forEach(curr => {
-        combinedSubPaths.forEach(sub => {
-            finalPaths.push({
-                t: (curr.t + " " + sub.t).trim(),
-                tr: (curr.tr + " " + sub.tr).trim(),
-                parts: [...curr.parts, ...sub.parts]
-            });
-        });
-    });
-
-    return finalPaths;
 }
     function cartesian(args) { return args.reduce((a, b) => { let ret = []; a.forEach(a_item => { b.forEach(b_item => { ret.push(a_item.concat([b_item])); }); }); return ret; }, [[]]); }
 function getCellAt(r, c) {
