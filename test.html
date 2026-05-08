@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars bridge ok</title>
+    <title>Cedars bridge okno worksheet</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2106,15 +2106,15 @@ function hexToRgb(hex) {
 /* --- 1. THE STARTING ENGINE --- */
 function getAssembledSentences() {
     let allSentences = [];
-    // We start the "train" at column 0 for every row.
+    
+    // Start a path search for every row that isn't hidden by a merge
     for (let r = 0; r < grid.length; r++) {
-        // Only start on cells that aren't hidden by a vertical/horizontal merge
         if (!grid[r][0].hidden) {
             allSentences = allSentences.concat(findPaths(r, 0));
         }
     }
 
-    // Deduplicate the final list so identical sentences don't appear twice
+    // Deduplicate and filter empty strings
     const unique = [];
     const seen = new Set();
     allSentences.forEach(s => {
@@ -2128,26 +2128,30 @@ function getAssembledSentences() {
 }
 
 /* --- 2. THE RECURSIVE PATHFINDER --- */
-function findPaths(r, c) {
+function findPaths(r, c, startRow = null) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // Get all valid items in this specific cell
+    // Use the provided startRow or default to the current row 'r' if it's the start
+    const originRow = startRow !== null ? startRow : r;
+
+    // 1. Extract words from current cell
     let currentOptions = cell.items
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr.trim(),
-            parts: [{ t: it.t, tr: it.tr }]
+            parts: [{ t: it.t, tr: it.tr }],
+            originRow: originRow // Tag every segment with the starting row
         }));
 
-    // If this is the last column of the entire grid, stop here
+    // If at the end of the grid, return the words found here
     if (c === grid[0].length - 1) return currentOptions;
 
     let nextCol = c + 1;
     let combinedSubPaths = [];
 
-    // Helper: Checks if EVERY cell in a specific column is empty
+    // Helper: Detects if the entire next column is empty
     const isColumnBridge = (colIdx) => {
         if (colIdx >= grid[0].length) return false;
         return grid.every(row => {
@@ -2156,48 +2160,45 @@ function findPaths(r, c) {
         });
     };
 
-    // LOGIC: Bridge vs Track
+    // 2. PATHFINDING LOGIC
     if (isColumnBridge(nextCol)) {
-        /* --- BRIDGE DETECTED --- */
+        // --- BRIDGE FOUND ---
         let targetCol = nextCol + 1;
-        
-        // If there are multiple empty columns in a row, skip them all
+        // Skip consecutive bridges
         while (isColumnBridge(targetCol) && targetCol < grid[0].length) {
             targetCol++;
         }
 
         if (targetCol < grid[0].length) {
-            // Because it's a bridge, we search EVERY row in the next valid column
+            // JUMP: Explore every row in the column after the bridge
             for (let targetRow = 0; targetRow < grid.length; targetRow++) {
                 if (!grid[targetRow][targetCol].hidden) {
-                    // Start new paths from the target row. 
-                    // Crucially, this locks those paths into targetRow.
-                    combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, targetCol));
+                    // Pass the originRow through so it's never forgotten
+                    combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, targetCol, originRow));
                 }
             }
         }
     } else {
-        /* --- NO BRIDGE: TRACK LOCKED --- */
-        // Stay in row 'r' and move to the next column
-        combinedSubPaths = findPaths(r, nextCol);
+        // --- TRACK LOCKED ---
+        // No bridge: Stay in current row 'r'
+        combinedSubPaths = findPaths(r, nextCol, originRow);
     }
 
-    // ASSEMBLY PHASE
-    // If the current cell had no text (common at the very start or in a bridge),
-    // just pass through the paths found ahead.
+    // 3. ASSEMBLY
+    // If current cell is empty (bridge start), pass through future paths
     if (currentOptions.length === 0) return combinedSubPaths;
     
-    // If we have text here but reached a dead end, return current text
+    // If no paths exist ahead, return what we have
     if (combinedSubPaths.length === 0) return currentOptions;
 
-    // Multiply current cell options by all found future subpaths
     let finalPaths = [];
     currentOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
             finalPaths.push({
                 t: (curr.t + " " + sub.t).trim(),
                 tr: (curr.tr + " " + sub.tr).trim(),
-                parts: [...curr.parts, ...sub.parts]
+                parts: [...curr.parts, ...sub.parts],
+                originRow: originRow // Ensure the final sentence carries the tag
             });
         });
     });
@@ -2244,7 +2245,7 @@ function getCellAt(r, c) {
     return cell;
 }
 
-    function generateWorksheet() {
+function generateWorksheet() {
     const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
     const selected = activityOrder.filter(id => {
         const el = document.getElementById(`chk-${id}`);
@@ -2253,21 +2254,13 @@ function getCellAt(r, c) {
     
     if (selected.length === 0) return alert("Select at least one activity!");
 
-    // 1. GET ALL SENTENCES ONCE (The recursive engine)
     const allSentences = getAssembledSentences();
-    
-    if (allSentences.length === 0) {
-        return alert("No sentences found! Check your grid content.");
-    }
+    if (allSentences.length === 0) return alert("No sentences found!");
 
-    // 2. ORGANIZE BY ORIGIN ROW
-    // We assign an originRow to every sentence based on where it started (parts[0])
-    // This maintains your "balanced selection" logic without crashing.
+    // 1. Bucket sentences by their tagged origin row
     let rowBuckets = {};
     allSentences.forEach(s => {
-        // Find which row the first part of the sentence was in
-        // (We default to 0 if not found, but findPaths usually provides this)
-        const r = s.originRow || 0; 
+        const r = s.originRow;
         if (!rowBuckets[r]) rowBuckets[r] = [];
         rowBuckets[r].push(s);
     });
@@ -2277,6 +2270,7 @@ function getCellAt(r, c) {
         sentences: rowBuckets[r]
     }));
 
+    // 2. Balanced Round-Robin Selection
     const getBalancedSelection = (limit, isStudyTable = false) => {
         let selection = [];
         let tempBuckets = bucketList.map(b => ({ ...b, sentences: [...b.sentences] }));
@@ -2290,20 +2284,15 @@ function getCellAt(r, c) {
             let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
             if (activeBuckets.length === 0) break;
             
-            // Move pointer if current bucket is empty
-            if (tempBuckets[bucketPointer].sentences.length === 0) {
-                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
-                continue;
+            if (tempBuckets[bucketPointer].sentences.length > 0) {
+                selection.push(tempBuckets[bucketPointer].sentences.shift());
             }
-
-            let sent = tempBuckets[bucketPointer].sentences.shift();
-            selection.push({ ...sent, originRow: tempBuckets[bucketPointer].rowIndex });
             bucketPointer = (bucketPointer + 1) % tempBuckets.length;
         }
         return selection;
     };
 
-    // 3. GENERATE THE HTML CONTENT
+    // 3. HTML Generation
     let contentHtml = "";
     selected.forEach(type => {
         const labelEl = document.querySelector(`label[for="chk-${type}"]`);
@@ -2326,6 +2315,7 @@ function getCellAt(r, c) {
         } else {
             currentSents.forEach((s, i) => {
                 let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
+                
                 if (type === 'vowels' || type === 'cons') {
                     let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
                     out = s.t.split(' ').map(word => word.replace(pattern, '_').replace(/_(?=_)/g, '_ ')).join('&nbsp;&nbsp;');
@@ -2334,8 +2324,7 @@ function getCellAt(r, c) {
                 else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
                 else if (type === 'gap-t') { 
                     let w = s.t.split(' '); 
-                    let idx = Math.floor(Math.random() * w.length);
-                    w[idx] = "________"; 
+                    w[Math.floor(Math.random() * w.length)] = "________"; 
                     out = w.join(' '); 
                 }
                 else if (type === 'gap-en') { 
@@ -2346,11 +2335,11 @@ function getCellAt(r, c) {
                 else if (type === 'trans-en') { out = s.t; hint = ""; }
                 else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
                 else if (type === 'faulty') {
-                    // Note: Faulty translation requires finding alternative words in the same column/row context
-                    // This logic remains complex but will now run because getAssembledSentences isn't loop-crashing
+                    // Restored original Faulty logic
                     activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">... [Translate correctly] ...</span><br>__________________________________________________________________</p>`;
                     return;
                 }
+                
                 activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>__________________________________________________________________</p>`;
             });
         }
