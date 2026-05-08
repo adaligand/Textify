@@ -2167,11 +2167,15 @@ function getAssembledSentences() {
     });
     return unique;
 }
-    function findPaths(r, c) {
+/**
+ * Railroad Pathfinding:
+ * Only allows row-switching if the current column or the next column is a bridge.
+ */
+function findPaths(r, c) {
     const cell = getCellAt(r, c);
     if (!cell || !cell.items || cell.items.every(it => !it.t)) return [];
 
-    // 1. Get the text items for the current cell
+    // 1. Get current cell text options
     let currentCellOptions = cell.items
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
@@ -2180,38 +2184,54 @@ function getAssembledSentences() {
             parts: [{ t: it.t, tr: it.tr }]
         }));
 
-    // 2. Find the next column that has content (skipping bridges)
     let nextCol = c + (cell.cS || 1);
-    let nextCellFound = false;
+    if (nextCol >= grid[0].length) return currentCellOptions;
+
     let combinedSubPaths = [];
 
-    // Look ahead through columns to find the next "active" junction
-    while (nextCol < grid[0].length) {
-        // Check ALL rows in this column to see if there's a bridge or content
+    // 2. Determine if we are at a "Junction" (Bridge)
+    // A junction is a column where a cell spans multiple rows (the bridge you described)
+    const isJunction = cell.rS > 1;
+
+    // 3. Look for the next cell
+    // If the CURRENT cell is a bridge, we can explore ALL rows in the next column
+    if (isJunction) {
         for (let nextRow = 0; nextRow < grid.length; nextRow++) {
-            const nc = getCellAt(nextRow, nextCol);
-            const hasText = nc && nc.items && nc.items.some(it => it.t && it.t.trim() !== "");
+            if (!grid[nextRow][nextCol].hidden) { // Only start from the root of a cell
+                combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, nextCol));
+            }
+        }
+    } else {
+        // If the CURRENT cell is NOT a bridge, we MUST stay in the same row 'r'
+        // UNLESS the next cell itself is a bridge that covers our row
+        const nextCell = getCellAt(r, nextCol);
+        if (nextCell) {
+            // Check if nextCell is empty/bridge. If it's a bridge, we jump through it.
+            const hasText = nextCell.items && nextCell.items.some(it => it.t && it.t.trim() !== "");
             
             if (hasText) {
-                // If we found a cell with text, explore it
-                // We only start the recursion from the "root" of a cell (not hidden)
-                if (!grid[nextRow][nextCol].hidden) {
-                    nextCellFound = true;
-                    combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, nextCol));
+                // Regular content in the same row
+                combinedSubPaths = combinedSubPaths.concat(findPaths(r, nextCol));
+            } else {
+                // The next cell is a "Gap Bridge" (empty column)
+                // We jump this column and look at the column after it, 
+                // but because it's an empty bridge, we can now look at ALL rows in the destination
+                let jumpCol = nextCol + (nextCell.cS || 1);
+                if (jumpCol < grid[0].length) {
+                    for (let nextRow = 0; nextRow < grid.length; nextRow++) {
+                        if (!grid[nextRow][jumpCol].hidden) {
+                            combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, jumpCol));
+                        }
+                    }
                 }
             }
         }
-        
-        // If we found content in this column, we stop looking further for this branch
-        if (nextCellFound) break;
-        
-        // Otherwise, this whole column was a bridge; move to the next
-        nextCol++;
     }
 
-    // 3. Combine current cell items with all discovered sub-paths
+    // 4. If no further paths found, return current
     if (combinedSubPaths.length === 0) return currentCellOptions;
 
+    // 5. Build the sentences
     let finalPaths = [];
     currentCellOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
