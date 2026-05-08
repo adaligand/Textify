@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Ceda sbridge not ok</title>
+    <title>Cedac sbridge not ok</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2146,18 +2146,18 @@ function hexToRgb(hex) {
 }
 /* --- RAILWAY PATHFINDING LOGIC --- */
 
-/* --- THE RAILWAY JUNCTION ENGINE --- */
+/* --- THE FINAL FORWARD-LOOKING ENGINE --- */
 
 function getAssembledSentences() {
     let allSentences = [];
-    // We start from every row in the first column
+    // Start from every row in the first column
     for (let r = 0; r < grid.length; r++) {
         if (!grid[r][0].hidden) {
             allSentences = allSentences.concat(findPaths(r, 0));
         }
     }
 
-    // Deduplicate and filter out empty paths
+    // Deduplicate and filter
     const unique = [];
     const seen = new Set();
     allSentences.forEach(s => {
@@ -2183,45 +2183,43 @@ function findPaths(r, c) {
             parts: [{ t: it.t, tr: it.tr }]
         }));
 
-    const nextCol = c + (cell.cS || 1);
+    let nextCol = c + (cell.cS || 1);
     
-    // Base Case: If we hit the end of the grid, return current options
-    if (nextCol >= grid[0].length) {
-        return currentOptions;
-    }
+    // If we are at the end, return what we have
+    if (nextCol >= grid[0].length) return currentOptions;
 
-    // 2. The Bridge/Junction Logic
-    // We look at the cell directly ahead in our current row.
+    // 2. THE FORWARD SCAN
+    // We check if the cell directly ahead has content
     const cellAhead = getCellAt(r, nextCol);
-    const aheadIsEmpty = !cellAhead || !cellAhead.items || !cellAhead.items.some(it => it.t && it.t.trim() !== "");
-    
+    const aheadHasContent = cellAhead && cellAhead.items && cellAhead.items.some(it => it.t && it.t.trim() !== "");
+
     let combinedSubPaths = [];
 
-    if (aheadIsEmpty || cell.rS > 1) {
-        /* JUNCTION TRIGGERED */
-        // If the cell ahead is empty, or our current cell is a vertical merge, 
-        // we can jump to ANY row in the next column that has content.
+    // 3. DECIDE NAVIGATION
+    if (!aheadHasContent || cell.rS > 1) {
+        // BRIDGE/JUNCTION: The path directly ahead is blocked or empty.
+        // We look at EVERY row in the next column to find where the path continues.
         for (let nextRow = 0; nextRow < grid.length; nextRow++) {
-            if (!grid[nextRow][nextCol].hidden) {
-                combinedSubPaths = combinedSubPaths.concat(findPaths(nextRow, nextCol));
+            const target = grid[nextRow][nextCol];
+            if (!target.hidden) {
+                const sub = findPaths(nextRow, nextCol);
+                if (sub.length > 0) combinedSubPaths = combinedSubPaths.concat(sub);
             }
         }
     } else {
-        /* TRACK LOCKED */
-        // There is content directly ahead in our row, so we follow it.
+        // CONTENT LOCK: Content exists directly ahead in this row. Stay on track.
         combinedSubPaths = findPaths(r, nextCol);
     }
 
-    // 3. Recursive Assembly
-    // If we are an empty cell (a bridge), we just pass the subpaths up.
+    // 4. THE "EMPTY CELL" PASS-THROUGH
+    // If this current cell is empty (like a bridge), don't return []. 
+    // Instead, return the sub-paths found ahead so the sentence continues.
     if (currentOptions.length === 0) {
         return combinedSubPaths;
     }
 
-    // If we have text and found subpaths, combine them.
-    if (combinedSubPaths.length === 0) {
-        return currentOptions;
-    }
+    // 5. COMBINE
+    if (combinedSubPaths.length === 0) return currentOptions;
 
     let finalPaths = [];
     currentOptions.forEach(curr => {
