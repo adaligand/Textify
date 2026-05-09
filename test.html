@@ -2255,20 +2255,18 @@ function getAssembledSentences() {
     return unique;
 }
 
-function findPaths(r, c, startRow = null) {
+/* --- THE "ROW-LOCKED" PATHFINDER --- */
+function findPaths(r, c) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    const originRow = startRow !== null ? startRow : r;
-
-    // 1. Get items from current cell
+    // 1. Current cell items
     let currentOptions = cell.items
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr.trim(),
-            parts: [{ t: it.t, tr: it.tr, r: r, c: c }],
-            originRow: originRow 
+            parts: [{ t: it.t, tr: it.tr, r: r, c: c }]
         }));
 
     if (c === grid[0].length - 1) {
@@ -2278,8 +2276,7 @@ function findPaths(r, c, startRow = null) {
     let nextCol = c + 1;
     let combinedSubPaths = [];
 
-    // 2. PATHFINDING LOGIC
-    // Check if the next column is a bridge (all empty)
+    // Helper to see if a column is a bridge
     const isColumnBridge = (colIdx) => {
         if (colIdx >= grid[0].length) return false;
         return grid.every(row => {
@@ -2288,46 +2285,47 @@ function findPaths(r, c, startRow = null) {
         });
     };
 
+    // Determine the "vertical range" of the current cell
+    const currentStart = r;
+    const currentEnd = r + (cell.rS || 1);
+
     if (isColumnBridge(nextCol)) {
-        // --- BRIDGE: Keep moving until we find content ---
+        // --- BRIDGE CASE ---
         let targetCol = nextCol + 1;
-        while (isColumnBridge(targetCol) && targetCol < grid[0].length) {
-            targetCol++;
-        }
+        while (isColumnBridge(targetCol) && targetCol < grid[0].length) targetCol++;
 
         if (targetCol < grid[0].length) {
-            // After a bridge, we strictly stay in the originRow 
-            // UNLESS that cell is part of a merge.
-            for (let targetRow = 0; targetRow < grid.length; targetRow++) {
-                let targetCell = getCellAt(targetRow, targetCol);
-                
-                // VALIDATION:
-                // 1. It's the same row we started on
-                // OR 2. The cell at this position is a merged cell that covers our originRow
-                const isSameRow = (targetRow === originRow);
-                const isMergedCoveringOrigin = (targetCell.rS > 1 && originRow >= targetRow && originRow < targetRow + targetCell.rS);
+            // After bridge, only look for cells that OVERLAP with the current cell's rows
+            for (let tr = 0; tr < grid.length; tr++) {
+                let targetCell = grid[tr][targetCol];
+                if (targetCell.hidden) continue;
 
-                if (!targetCell.hidden && (isSameRow || isMergedCoveringOrigin)) {
-                    combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, targetCol, originRow));
+                const targetStart = tr;
+                const targetEnd = tr + (targetCell.rS || 1);
+
+                // Overlap check: do the rows touch?
+                if (targetStart < currentEnd && targetEnd > currentStart) {
+                    combinedSubPaths = combinedSubPaths.concat(findPaths(tr, targetCol));
                 }
             }
         }
     } else {
-        // --- NO BRIDGE: Regular step ---
-        for (let targetRow = 0; targetRow < grid.length; targetRow++) {
-            let nextCell = getCellAt(targetRow, nextCol);
-            
-            // Check if we should move into this cell
-            const isSameRow = (targetRow === originRow);
-            const isMergedCoveringOrigin = (nextCell.rS > 1 && originRow >= targetRow && originRow < targetRow + nextCell.rS);
+        // --- REGULAR STEP CASE ---
+        // Only look in the next column for cells that OVERLAP vertically
+        for (let tr = 0; tr < grid.length; tr++) {
+            let nextCell = grid[tr][nextCol];
+            if (nextCell.hidden) continue;
 
-            if (!nextCell.hidden && (isSameRow || isMergedCoveringOrigin)) {
-                combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, nextCol, originRow));
+            const nextStart = tr;
+            const nextEnd = tr + (nextCell.rS || 1);
+
+            if (nextStart < currentEnd && nextEnd > currentStart) {
+                combinedSubPaths = combinedSubPaths.concat(findPaths(tr, nextCol));
             }
         }
     }
 
-    // 3. ASSEMBLY (remains the same)
+    // 3. ASSEMBLY
     if (currentOptions.length === 0) return combinedSubPaths.filter(p => !isExcludedCombination(p.parts));
     if (combinedSubPaths.length === 0) return currentOptions.filter(p => !isExcludedCombination(p.parts));
 
@@ -2339,8 +2337,7 @@ function findPaths(r, c, startRow = null) {
                 finalPaths.push({
                     t: (curr.t + " " + sub.t).trim(),
                     tr: (curr.tr + " " + sub.tr).trim(),
-                    parts: combinedParts,
-                    originRow: originRow 
+                    parts: combinedParts
                 });
             }
         });
