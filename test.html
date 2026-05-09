@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedasb perfect no exclusion</title>
+    <title>Cedasb  no exclusion</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -277,6 +277,14 @@ body {
 /* Make inputs transparent when selected so the blue shows through */
 .cell.visual-selected input {
     background-color: transparent !important;
+}
+ .cell.exclude-selected {
+    outline: 4px solid #ef4444;
+    outline-offset: -4px;
+}
+
+.cell.exclude-linked {
+    background: #fee2e2 !important;
 }
 /* =========================
    VOCAB UI
@@ -649,6 +657,7 @@ button:hover {
         <button onclick="toggleMode('del-col')">- Col</button>
         <button onclick="mergeSelected()" title="Merge Cells">🔗 Merge</button>
         <button onclick="splitSelected()" title="Split Cell">✂️ Split</button>
+        <button onclick="toggleMode('exclude')">🚫 Exclude</button>
         <button onclick="exportPDF()" class="btn-danger">📄 PDF</button>
         <button onclick="openPreview()" class="btn-info">👁️ Preview</button>
         <button onclick="openActivityMenu()" class="btn-purple">📜 Worksheet</button>
@@ -748,6 +757,9 @@ let nav = {
 };
 
 let grid = [[c(), c(), c()], [c(), c(), c()]];
+let excludedPairs = [];   // [{ a:{r,c}, b:{r,c} }]
+let excludeSelection = []; // temporary two-cell selection
+
 let history = [JSON.stringify(grid)];
 let historyStep = 0;
 let currentMode = null;
@@ -1277,14 +1289,22 @@ async function saveToCloud(isAutosave = false) {
     try {
         // 1. Manually get values to avoid updateMeta() errors
         const langVal = document.getElementById('meta-lang').value;
-        const yearVal = (langVal === "EAL") ? "EAL" : document.getElementById('meta-year').value;
-        
+        const yearVal =
+            (langVal === "EAL")
+                ? "EAL"
+                : document.getElementById('meta-year').value;
+
         const topicSelect = document.getElementById("meta-topic-select");
         const topicNew = document.getElementById("meta-topic-new");
-        const topicValue = (topicSelect.value === "__new__") ? topicNew.value : topicSelect.value;
+        const topicValue =
+            (topicSelect.value === "__new__")
+                ? topicNew.value
+                : topicSelect.value;
 
         if (!topicValue) {
-            if (!isAutosave) alert("Please select or enter a topic before saving.");
+            if (!isAutosave) {
+                alert("Please select or enter a topic before saving.");
+            }
             return;
         }
 
@@ -1295,6 +1315,10 @@ async function saveToCloud(isAutosave = false) {
             year: yearVal,
             topic: topicValue,
             grid: JSON.stringify(grid),
+
+            // NEW: Save excluded combinations
+            excludedPairs: excludedPairs,
+
             isDeleted: false,
             updated: firebase.firestore.FieldValue.serverTimestamp()
         };
@@ -1308,18 +1332,28 @@ async function saveToCloud(isAutosave = false) {
         }
 
         // 3. UI Update
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const time = new Date().toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+
         if (isAutosave) {
-            if (autoStatus) autoStatus.innerText = `Autosaved at ${time}`;
+            if (autoStatus) {
+                autoStatus.innerText = `Autosaved at ${time}`;
+            }
         } else {
             if (manualStatus) {
+                manualStatus.style.color = "";
                 manualStatus.innerText = "Saved!";
-                setTimeout(() => { manualStatus.innerText = ""; }, 5000);
+                setTimeout(() => {
+                    manualStatus.innerText = "";
+                }, 5000);
             }
         }
 
     } catch (e) {
         console.error("Critical Save Error:", e);
+
         if (!isAutosave && manualStatus) {
             manualStatus.innerText = "Error Saving!";
             manualStatus.style.color = "red";
@@ -1332,6 +1366,14 @@ async function loadProject(id) {
 
     currentDocId = id;
     grid = JSON.parse(d.grid);
+
+    // NEW: Load excluded combinations
+    excludedPairs = Array.isArray(d.excludedPairs)
+        ? d.excludedPairs
+        : [];
+
+    // Clear any temporary selection
+    excludeSelection = [];
 
     meta = {
         lang: d.lang,
@@ -1359,7 +1401,11 @@ async function loadProject(id) {
 
     handleTopicSelect();
 
-    history = [JSON.stringify(grid)];
+    // Include excludedPairs in undo/redo history
+    history = [JSON.stringify({
+        grid: grid,
+        excludedPairs: excludedPairs
+    })];
     historyStep = 0;
 
     showPage("editor-page");
@@ -1423,15 +1469,54 @@ function c() {
 }
 
 function pushHistory() {
-    const state = JSON.stringify(grid);
-    if (state === history[historyStep]) return;
     history = history.slice(0, historyStep + 1);
-    history.push(state);
-    historyStep++;
+
+    history.push(JSON.stringify({
+        grid: grid,
+        excludedPairs: excludedPairs
+    }));
+
+    historyStep = history.length - 1;
 }
 
-    function undo() { if (historyStep > 0) { historyStep--; grid = JSON.parse(history[historyStep]); render(false); } }
-    function redo() { if (historyStep < history.length - 1) { historyStep++; grid = JSON.parse(history[historyStep]); render(false); } }
+   function undo() {
+    if (historyStep > 0) {
+        historyStep--;
+
+        const state = JSON.parse(history[historyStep]);
+
+        if (Array.isArray(state)) {
+            // Backward compatibility with older history entries
+            grid = state;
+            excludedPairs = [];
+        } else {
+            grid = state.grid;
+            excludedPairs = state.excludedPairs || [];
+        }
+
+        excludeSelection = [];
+        render(false);
+    }
+}
+ function redo() {
+    if (historyStep < history.length - 1) {
+        historyStep++;
+
+        const state = JSON.parse(history[historyStep]);
+
+        if (Array.isArray(state)) {
+            // Backward compatibility with older history entries
+            grid = state;
+            excludedPairs = [];
+        } else {
+            grid = state.grid;
+            excludedPairs = state.excludedPairs || [];
+        }
+
+        excludeSelection = [];
+        render(false);
+    }
+}
 function render(doSave = true) {
     if (doSave) pushHistory();
     const container = document.getElementById('grid-container');
@@ -1445,7 +1530,22 @@ function render(doSave = true) {
 
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
-            
+            cellDiv.onclick = (e) => {
+    if (currentMode !== 'exclude') return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    handleExcludeClick(r, cIdx);
+};
+
+if (excludeSelection.some(p => p.r === r && p.c === cIdx)) {
+    cellDiv.classList.add('exclude-selected');
+}
+
+if (isCellExcluded(r, cIdx)) {
+    cellDiv.classList.add('exclude-linked');
+}
             cellDiv.style.gridRow = `${r + 1} / span ${cell.rS || 1}`;
             cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
             cellDiv.style.backgroundColor = cell.color || "#ffffff";
@@ -1535,25 +1635,31 @@ function toggleCellSplit(r, c) {
 }
 async function duplicateSB(id, e) {
     if (e) e.stopPropagation();
-    
+
     try {
         // Fetch the original document from Firestore
         const doc = await db.collection("builders").doc(id).get();
         if (!doc.exists) return;
-        
+
         const original = doc.data();
-        const newTitle = prompt("Enter name for the duplicate:", "Copy of " + original.title);
+        const newTitle = prompt(
+            "Enter name for the duplicate:",
+            "Copy of " + original.title
+        );
+
         if (!newTitle) return;
 
-        // Create the duplicate object
+        // Create a deep-safe copy if needed
         const duplicateData = {
             ...original,
             title: newTitle,
-            updated: firebase.firestore.FieldValue.serverTimestamp()
+            updated: firebase.firestore.FieldValue.serverTimestamp(),
+            excludedPairs: JSON.parse(JSON.stringify(original.excludedPairs || []))
         };
 
         await db.collection("builders").add(duplicateData);
         renderProjectsInline(); // Refresh the list
+
     } catch (err) {
         console.error("Duplication failed:", err);
         alert("Duplication failed: " + err.message);
@@ -1764,19 +1870,29 @@ async function createNewProject() {
             return;
         }
 
-        meta = { 
-            lang: modalLang, 
-            year: modalLang === "EAL" ? "EAL" : modalYear, 
+        meta = {
+            lang: modalLang,
+            year: modalLang === "EAL" ? "EAL" : modalYear,
             topic: modalTopic
         };
 
         document.getElementById('builder-title').value = "Untitled Builder";
 
+        // Create fresh grid
         grid = [[c(), c(), c()], [c(), c(), c()]];
-        history = [JSON.stringify(grid)];
+
+        // NEW: Reset exclusions
+        excludedPairs = [];
+        excludeSelection = [];
+
+        // Reset history including exclusions
+        history = [JSON.stringify({
+            grid: grid,
+            excludedPairs: excludedPairs
+        })];
         historyStep = 0;
 
-        closeModals?.(); // safe call
+        closeModals?.();
         showPage('editor-page');
 
         document.getElementById('meta-lang').value = meta.lang;
@@ -1810,29 +1926,40 @@ async function createNewProject() {
     if (!newTitle) return;
 
     // 3. Clear current document ID so Firebase creates a NEW entry
-    currentDocId = null; 
+    currentDocId = null;
 
     // 4. Reset the grid to a fresh 2x3 layout
-    grid = [[c(), c(), c()], [c(), c(), c()]]; 
-    history = [JSON.stringify(grid)];
+    grid = [[c(), c(), c()], [c(), c(), c()]];
+
+    // NEW: Reset exclusions
+    excludedPairs = [];
+    excludeSelection = [];
+
+    // Reset history including exclusions
+    history = [JSON.stringify({
+        grid: grid,
+        excludedPairs: excludedPairs
+    })];
     historyStep = 0;
 
     // 5. Update the Title UI
     document.getElementById('builder-title').value = newTitle;
-    
+
     // 6. Save immediately to Firebase
     // This uses the current meta.lang, meta.year, and meta.topic automatically
     await saveToCloud(true);
 
     // 7. Refresh the screen
     render(false);
-    
+
     // 8. Update status message
     const status = document.getElementById('manual-save-status');
     if (status) {
         status.innerText = "New Builder Created!";
-        status.style.color = "#8b5cf6"; // Purple color for 'New'
-        setTimeout(() => status.innerText = "", 3000);
+        status.style.color = "#8b5cf6";
+        setTimeout(() => {
+            status.innerText = "";
+        }, 3000);
     }
 }
 function openModal(id) {
@@ -2141,12 +2268,19 @@ function findPaths(r, c, startRow = null) {
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr.trim(),
-            parts: [{ t: it.t, tr: it.tr }],
+            parts: [{
+                t: it.t,
+                tr: it.tr,
+                r: r,   // Store cell row for exclusion checking
+                c: c    // Store cell column for exclusion checking
+            }],
             originRow: originRow // Tag every segment with the starting row
         }));
 
     // If at the end of the grid, return the words found here
-    if (c === grid[0].length - 1) return currentOptions;
+    if (c === grid[0].length - 1) {
+        return currentOptions.filter(path => !isExcludedCombination(path.parts));
+    }
 
     let nextCol = c + 1;
     let combinedSubPaths = [];
@@ -2164,6 +2298,7 @@ function findPaths(r, c, startRow = null) {
     if (isColumnBridge(nextCol)) {
         // --- BRIDGE FOUND ---
         let targetCol = nextCol + 1;
+
         // Skip consecutive bridges
         while (isColumnBridge(targetCol) && targetCol < grid[0].length) {
             targetCol++;
@@ -2174,7 +2309,9 @@ function findPaths(r, c, startRow = null) {
             for (let targetRow = 0; targetRow < grid.length; targetRow++) {
                 if (!grid[targetRow][targetCol].hidden) {
                     // Pass the originRow through so it's never forgotten
-                    combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, targetCol, originRow));
+                    combinedSubPaths = combinedSubPaths.concat(
+                        findPaths(targetRow, targetCol, originRow)
+                    );
                 }
             }
         }
@@ -2185,13 +2322,19 @@ function findPaths(r, c, startRow = null) {
     }
 
     // 3. ASSEMBLY
+
     // If current cell is empty (bridge start), pass through future paths
-    if (currentOptions.length === 0) return combinedSubPaths;
-    
+    if (currentOptions.length === 0) {
+        return combinedSubPaths.filter(path => !isExcludedCombination(path.parts));
+    }
+
     // If no paths exist ahead, return what we have
-    if (combinedSubPaths.length === 0) return currentOptions;
+    if (combinedSubPaths.length === 0) {
+        return currentOptions.filter(path => !isExcludedCombination(path.parts));
+    }
 
     let finalPaths = [];
+
     currentOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
             finalPaths.push({
@@ -2203,7 +2346,10 @@ function findPaths(r, c, startRow = null) {
         });
     });
 
-    return finalPaths;
+    // Remove any path containing an excluded cell pair
+    return finalPaths.filter(path =>
+        !isExcludedCombination(path.parts)
+    );
 }
 /* --- YOUR EXISTING STARTING FUNCTION (KEEP THIS) --- */
 function getAssembledSentences() {
@@ -2392,7 +2538,62 @@ function addIcon(p, t, pos, l, a) {
     b.onclick = (e) => { e.stopPropagation(); a(); }; 
     p.appendChild(b); 
 }
+    function toggleMode(m) { 
+    currentMode = (currentMode === m) ? null : m; 
+    render(false); 
+}
+function normalizePair(a, b) {
+    const first = (a.r < b.r || (a.r === b.r && a.c <= b.c)) ? a : b;
+    const second = first === a ? b : a;
 
+    return {
+        a: { r: first.r, c: first.c },
+        b: { r: second.r, c: second.c }
+    };
+}
+
+function samePair(p1, p2) {
+    return (
+        p1.a.r === p2.a.r &&
+        p1.a.c === p2.a.c &&
+        p1.b.r === p2.b.r &&
+        p1.b.c === p2.b.c
+    );
+}
+
+function isCellInExcludedPair(r, c) {
+    return excludedPairs.some(pair =>
+        (pair.a.r === r && pair.a.c === c) ||
+        (pair.b.r === r && pair.b.c === c)
+    );
+}
+
+function toggleExcludedPair(cellA, cellB) {
+    const normalized = normalizePair(cellA, cellB);
+
+    const existingIndex = excludedPairs.findIndex(pair =>
+        samePair(pair, normalized)
+    );
+
+    if (existingIndex >= 0) {
+        excludedPairs.splice(existingIndex, 1); // unexclude
+    } else {
+        excludedPairs.push(normalized); // exclude
+    }
+
+    excludeSelection = [];
+    pushHistory();
+    render();
+    saveToCloud(true);
+}
+
+function isExcludedCombination(partsMeta) {
+    return excludedPairs.some(pair => {
+        const hasA = partsMeta.some(p => p.r === pair.a.r && p.c === pair.a.c);
+        const hasB = partsMeta.some(p => p.r === pair.b.r && p.c === pair.b.c);
+        return hasA && hasB;
+    });
+}
 /* --- UPDATED ROW/COL MANAGEMENT --- */
 
 function insertRow(i) { 
