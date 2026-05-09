@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder exclude styles not splitmrge</title>
+    <title>Cedars builder exclude work not splitmrge</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -665,8 +665,8 @@ button:hover {
         <button onclick="toggleMode('del-row')">- Row</button>
         <button onclick="toggleMode('add-col')">+ Col</button>
         <button onclick="toggleMode('del-col')">- Col</button>
-        <button onclick="toggleMode('splitSelected')">✂️ Split</button>
-        <button onclick="toggleMode('merge')">🔗 Merge</button>
+       <button onclick="splitSelected()">✂️ Split</button>
+        <button onclick="mergeSelected()">🔗 Merge</button>
         <button onclick="toggleMode('exclude')">🚫 Exclude</button>
         <button onclick="exportPDF()" class="btn-danger">📄 PDF</button>
         <button onclick="openPreview()" class="btn-info">👁️ Preview</button>
@@ -1995,12 +1995,21 @@ function openModal(id) {
     document.getElementById(id).style.display = 'block';
 }
     function showColors(e, r, c) { e.stopPropagation(); document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none'); document.getElementById(`cp-${r}-${c}`).style.display = 'grid'; }
-     function mergeSelected() {
+function mergeSelected() {
+    // 1. Highlight the button immediately
+    const btn = event.currentTarget;
+    if (btn) btn.classList.add('active-mode');
+
     let sel = [];
     grid.forEach((row, r) => row.forEach((cell, cIdx) => {
         if(cell.sel) sel.push({r, c: cIdx});
     }));
-    if(sel.length < 2) return;
+
+    if(sel.length < 2) {
+        // Remove highlight if nothing to merge
+        if (btn) btn.classList.remove('active-mode');
+        return;
+    }
 
     let root = sel[0];
     let allItems = [];
@@ -2014,13 +2023,11 @@ function openModal(id) {
         maxC = Math.max(maxC, p.c + (cell.cS || 1));
     });
 
-    // Update Root Cell
     grid[root.r][root.c].items = allItems.length ? allItems : [{t:"", tr:""}];
     grid[root.r][root.c].rS = maxR - root.r;
     grid[root.r][root.c].cS = maxC - root.c;
     grid[root.r][root.c].sel = false;
 
-    // Hide merged-in cells
     for(let r = root.r; r < maxR; r++) {
         for(let c = root.c; c < maxC; c++) {
             if(r === root.r && c === root.c) continue;
@@ -2028,22 +2035,35 @@ function openModal(id) {
             grid[r][c].sel = false;
         }
     }
+
     render();
     saveToCloud(true);
+
+    // 2. Remove the highlight after a tiny delay so it feels like a real click
+    if (btn) setTimeout(() => btn.classList.remove('active-mode'), 150);
 }
-    function splitSelected() {
-        grid.forEach((row, r) => row.forEach((cell, cIdx) => {
-            if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
-                const rs = cell.rS; const cs = cell.cS;
-                for (let i = r; i < r + rs; i++) for (let j = cIdx; j < cIdx + cs; j++) {
-                    grid[i][j].hidden = false; grid[i][j].rS = 1; grid[i][j].cS = 1; grid[i][j].sel = false;
-                    if (i !== r || j !== cIdx) { grid[i][j].items = [{t: "", tr: ""}]; grid[i][j].color = "#ffffff"; }
-                }
+function splitSelected() {
+    // 1. Visual Feedback: Find the button and make it grey
+    const btn = event.currentTarget;
+    if (btn) btn.classList.add('active-mode');
+
+    // --- YOUR ORIGINAL LOGIC ---
+    grid.forEach((row, r) => row.forEach((cell, cIdx) => {
+        if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
+            const rs = cell.rS; const cs = cell.cS;
+            for (let i = r; i < r + rs; i++) for (let j = cIdx; j < cIdx + cs; j++) {
+                grid[i][j].hidden = false; grid[i][j].rS = 1; grid[i][j].cS = 1; grid[i][j].sel = false;
+                if (i !== r || j !== cIdx) { grid[i][j].items = [{t: "", tr: ""}]; grid[i][j].color = "#ffffff"; }
             }
-            grid[r][cIdx].sel = false;
-        }));
-        render();
-    }
+        }
+        grid[r][cIdx].sel = false;
+    }));
+
+    // 2. Refresh the grid and remove the grey highlight after 200ms
+    render();
+    saveToCloud(true);
+    if (btn) setTimeout(() => btn.classList.remove('active-mode'), 200);
+}
 function initMetaListeners() {
     const lang = document.getElementById("meta-lang");
     const year = document.getElementById("meta-year");
