@@ -2255,30 +2255,22 @@ function getAssembledSentences() {
     return unique;
 }
 
-/* --- 2. THE RECURSIVE PATHFINDER --- */
 function findPaths(r, c, startRow = null) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // Use the provided startRow or default to the current row 'r' if it's the start
     const originRow = startRow !== null ? startRow : r;
 
-    // 1. Extract words from current cell
+    // 1. Get items from current cell
     let currentOptions = cell.items
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr.trim(),
-            parts: [{
-                t: it.t,
-                tr: it.tr,
-                r: r,   // Store cell row for exclusion checking
-                c: c    // Store cell column for exclusion checking
-            }],
-            originRow: originRow // Tag every segment with the starting row
+            parts: [{ t: it.t, tr: it.tr, r: r, c: c }],
+            originRow: originRow 
         }));
 
-    // If at the end of the grid, return the words found here
     if (c === grid[0].length - 1) {
         return currentOptions.filter(path => !isExcludedCombination(path.parts));
     }
@@ -2286,7 +2278,8 @@ function findPaths(r, c, startRow = null) {
     let nextCol = c + 1;
     let combinedSubPaths = [];
 
-    // Helper: Detects if the entire next column is empty
+    // 2. PATHFINDING LOGIC
+    // Check if the next column is a bridge (all empty)
     const isColumnBridge = (colIdx) => {
         if (colIdx >= grid[0].length) return false;
         return grid.every(row => {
@@ -2295,62 +2288,65 @@ function findPaths(r, c, startRow = null) {
         });
     };
 
-    // 2. PATHFINDING LOGIC
     if (isColumnBridge(nextCol)) {
-        // --- BRIDGE FOUND ---
+        // --- BRIDGE: Keep moving until we find content ---
         let targetCol = nextCol + 1;
-
-        // Skip consecutive bridges
         while (isColumnBridge(targetCol) && targetCol < grid[0].length) {
             targetCol++;
         }
 
         if (targetCol < grid[0].length) {
-            // JUMP: Explore every row in the column after the bridge
+            // After a bridge, we strictly stay in the originRow 
+            // UNLESS that cell is part of a merge.
             for (let targetRow = 0; targetRow < grid.length; targetRow++) {
-                if (!grid[targetRow][targetCol].hidden) {
-                    // Pass the originRow through so it's never forgotten
-                    combinedSubPaths = combinedSubPaths.concat(
-                        findPaths(targetRow, targetCol, originRow)
-                    );
+                let targetCell = getCellAt(targetRow, targetCol);
+                
+                // VALIDATION:
+                // 1. It's the same row we started on
+                // OR 2. The cell at this position is a merged cell that covers our originRow
+                const isSameRow = (targetRow === originRow);
+                const isMergedCoveringOrigin = (targetCell.rS > 1 && originRow >= targetRow && originRow < targetRow + targetCell.rS);
+
+                if (!targetCell.hidden && (isSameRow || isMergedCoveringOrigin)) {
+                    combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, targetCol, originRow));
                 }
             }
         }
     } else {
-        // --- TRACK LOCKED ---
-        // No bridge: Stay in current row 'r'
-        combinedSubPaths = findPaths(r, nextCol, originRow);
+        // --- NO BRIDGE: Regular step ---
+        for (let targetRow = 0; targetRow < grid.length; targetRow++) {
+            let nextCell = getCellAt(targetRow, nextCol);
+            
+            // Check if we should move into this cell
+            const isSameRow = (targetRow === originRow);
+            const isMergedCoveringOrigin = (nextCell.rS > 1 && originRow >= targetRow && originRow < targetRow + nextCell.rS);
+
+            if (!nextCell.hidden && (isSameRow || isMergedCoveringOrigin)) {
+                combinedSubPaths = combinedSubPaths.concat(findPaths(targetRow, nextCol, originRow));
+            }
+        }
     }
 
-    // 3. ASSEMBLY
-
-    // If current cell is empty (bridge start), pass through future paths
-    if (currentOptions.length === 0) {
-        return combinedSubPaths.filter(path => !isExcludedCombination(path.parts));
-    }
-
-    // If no paths exist ahead, return what we have
-    if (combinedSubPaths.length === 0) {
-        return currentOptions.filter(path => !isExcludedCombination(path.parts));
-    }
+    // 3. ASSEMBLY (remains the same)
+    if (currentOptions.length === 0) return combinedSubPaths.filter(p => !isExcludedCombination(p.parts));
+    if (combinedSubPaths.length === 0) return currentOptions.filter(p => !isExcludedCombination(p.parts));
 
     let finalPaths = [];
-
     currentOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
-            finalPaths.push({
-                t: (curr.t + " " + sub.t).trim(),
-                tr: (curr.tr + " " + sub.tr).trim(),
-                parts: [...curr.parts, ...sub.parts],
-                originRow: originRow // Ensure the final sentence carries the tag
-            });
+            const combinedParts = [...curr.parts, ...sub.parts];
+            if (!isExcludedCombination(combinedParts)) {
+                finalPaths.push({
+                    t: (curr.t + " " + sub.t).trim(),
+                    tr: (curr.tr + " " + sub.tr).trim(),
+                    parts: combinedParts,
+                    originRow: originRow 
+                });
+            }
         });
     });
 
-    // Remove any path containing an excluded cell pair
-    return finalPaths.filter(path =>
-        !isExcludedCombination(path.parts)
-    );
+    return finalPaths;
 }
 /* --- YOUR EXISTING STARTING FUNCTION (KEEP THIS) --- */
 function getAssembledSentences() {
