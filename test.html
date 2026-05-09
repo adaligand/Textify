@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedas no exclusion</title>
+    <title>Cedacs no exclusion</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -283,8 +283,10 @@ body {
     outline-offset: -4px;
 }
 
-.cell.exclude-linked {
-    background: #fee2e2 !important;
+.btn-active-exclude {
+    background-color: var(--red) !important;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.3);
+    border: 2px solid black;
 }
 /* =========================
    VOCAB UI
@@ -1525,28 +1527,43 @@ function render(doSave = true) {
     const cols = grid[0].length;
     container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
 
+    // Distinct colors for exclusion borders
+    const pairColors = ['#e74c3c', '#9b59b6', '#3498db', '#e67e22', '#2ecc71', '#f1c40f', '#1abc9c', '#34495e'];
+
     grid.forEach((row, r) => {
         row.forEach((cell, cIdx) => {
             if (cell.hidden) return;
 
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
+            
+            // --- EXCLUSION STYLING ---
+            // 1. Find if this cell is part of an excluded pair
+            const pairIndex = excludedPairs.findIndex(pair => 
+                (pair.a.r === r && pair.a.c === cIdx) || (pair.b.r === r && pair.b.c === cIdx)
+            );
+
+            if (pairIndex !== -1) {
+                cellDiv.classList.add('exclude-linked');
+                // Use a unique color from the array based on the pair index
+                const color = pairColors[pairIndex % pairColors.length];
+                cellDiv.style.border = `4px double ${color}`;
+            }
+
+            // 2. Highlight if it's currently selected as the first half of a new pair
+            if (excludeSelection.some(p => p.r === r && p.c === cIdx)) {
+                cellDiv.style.outline = "4px dashed #333";
+                cellDiv.style.outlineOffset = "-4px";
+            }
+
             cellDiv.onclick = (e) => {
-    if (currentMode !== 'exclude') return;
+                if (currentMode === 'exclude') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleExcludeClick(r, cIdx);
+                }
+            };
 
-    e.preventDefault();
-    e.stopPropagation();
-
-    handleExcludeClick(r, cIdx);
-};
-
-if (excludeSelection.some(p => p.r === r && p.c === cIdx)) {
-    cellDiv.classList.add('exclude-selected');
-}
-
-if (isCellExcluded(r, cIdx)) {
-    cellDiv.classList.add('exclude-linked');
-}
             cellDiv.style.gridRow = `${r + 1} / span ${cell.rS || 1}`;
             cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
             cellDiv.style.backgroundColor = cell.color || "#ffffff";
@@ -1580,35 +1597,24 @@ if (isCellExcluded(r, cIdx)) {
                     </div>
                 </div>
             `;
-            
-                // --- ADD THIS INSIDE render() grid.forEach loop ---
-if (currentMode === 'add-col' && r === 0) {
-    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-}
-if (currentMode === 'del-col' && r === 0) {
-    addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-}
-if (currentMode === 'add-row' && cIdx === 0) {
-    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-}
-if (currentMode === 'del-row' && cIdx === 0) {
-    addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
-}
-               
-                if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-                if (currentMode === 'add-row' && cIdx === 0) {
-                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-                }
-                if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
 
-                container.appendChild(cellDiv);
-                cellDiv.querySelectorAll('input').forEach(syncSize);
-            });
+            // Mode-specific icons (Add/Del rows/cols)
+            if (currentMode === 'add-col' && r === 0) {
+                addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+            }
+            if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+            if (currentMode === 'add-row' && cIdx === 0) {
+                addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+            }
+            if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+
+            container.appendChild(cellDiv);
+            cellDiv.querySelectorAll('input').forEach(syncSize);
         });
-    }
+    });
+}
     /* --- FIXES FOR CELL ACTIONS --- */
 
 // 1. Function to update cell color
@@ -2155,8 +2161,8 @@ async function exportPDF() {
                 let cellH = 0; for (let i = 0; i < (cell.rS || 1); i++) cellH += (rowHeights[rIdx + i] || 0);
 
                 // BACKGROUND FILL (Keeps your colors)
-                if (cell.clr && cell.clr !== "#ffffff") {
-                    const rgb = hexToRgb(cell.clr); // You'll need this helper below
+                if (cell.colour && cell.colour !== "#ffffff") {
+                    const rgb = hexToRgb(cell.colour); // You'll need this helper below
                     if (rgb) doc.setFillColor(rgb.r, rgb.g, rgb.b).rect(currentX, currentY, cellW, cellH, 'F');
                 }
 
@@ -2499,9 +2505,22 @@ function generateWorksheet() {
     saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
     closeModals();
 }
-    function toggleMode(m) { 
-    currentMode = (currentMode === m) ? null : m; 
-    render(false); 
+  function toggleMode(m) {
+    currentMode = (currentMode === m) ? null : m;
+    
+    // Update button visual state
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        // Check if the button's onclick contains the mode string
+        if (currentMode && btn.getAttribute('onclick').includes(m)) {
+            btn.style.backgroundColor = "#ffcccc"; // Light red highlight
+            btn.style.border = "2px solid #f44336";
+        } else {
+            btn.style.backgroundColor = ""; 
+            btn.style.border = "";
+        }
+    });
+
+    render(false);
 }
 
 /* --- ROW/COL MANAGEMENT LOGIC --- */
