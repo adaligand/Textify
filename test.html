@@ -48,7 +48,7 @@
                 <table class="min-w-[950px] border-collapse border border-gray-200 text-center text-sm table-fixed w-full">
                     <thead class="bg-gray-100">
                         <tr>
-                            <th class="w-20 border border-gray-300 p-2.5 font-bold text-gray-700">Device</th>
+                            <th class="w-24 border border-gray-300 p-2.5 font-bold text-gray-700">Device</th>
                             <th class="border border-gray-300 p-2.5 font-bold text-gray-700">Period 1</th>
                             <th class="border border-gray-300 p-2.5 font-bold text-gray-700">Period 2</th>
                             <th class="border border-gray-300 p-2.5 font-bold text-gray-700">Period 3</th>
@@ -95,7 +95,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, doc, getDoc, onSnapshot, setDoc, collection, addDoc, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, onSnapshot, setDoc, collection, addDoc, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAZRhkuq7bIjTGMbgjhEyOjyWFHbv5Ogew",
@@ -199,27 +199,18 @@
             const todayKey = getTodayString();
 
             try {
-                // Step 1: Query the log history to find the absolute last known state of every Chromebook hardware unit
                 const logsRef = collection(db, "logs");
                 
                 for (let d = 1; d <= TOTAL_CHROMEBOOKS; d++) {
-                    const qLastStatus = query(
-                        logsRef, 
-                        orderBy("timestamp", "desc")
-                    );
-                    
+                    const qLastStatus = query(logsRef, orderBy("timestamp", "desc"));
                     const querySnapshot = await getDocs(qLastStatus);
                     let items = [];
                     querySnapshot.forEach(doc => {
                         if(doc.data().device === d) items.push(doc.data());
                     });
 
-                    // Grab the single most recent logged action for this hardware index
                     const lastAction = items[0];
-
                     if (lastAction) {
-                        // If the final action on record anywhere in history is 'borrowed', 
-                        // and it wasn't logged today, it means it was never returned!
                         const actionDate = lastAction.timestamp.split('T')[0];
                         if (lastAction.action === 'borrowed' && actionDate !== todayKey) {
                             missingDevices.add(d);
@@ -230,7 +221,6 @@
                 console.error("Deep history audit trace failed:", err);
             }
 
-            // Step 2: Establish today's real-time interface channel
             onSnapshot(doc(db, "chromebooks", todayKey), (docSnap) => {
                 activeStates = docSnap.exists() ? docSnap.data() : {};
                 renderMatrix();
@@ -243,13 +233,27 @@
 
             for (let d = 1; d <= TOTAL_CHROMEBOOKS; d++) {
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-gray-50 border-b border-gray-200 h-12"; 
+                tr.className = "border-b border-gray-200 h-12"; 
 
+                // --- LEFT LABEL COLUMN (Morphic Missing Reset Button) ---
                 const tdLabel = document.createElement('td');
-                tdLabel.className = "p-1 font-bold text-gray-800 border-r border-gray-200 bg-gray-50 h-12";
-                tdLabel.textContent = `#${d}`;
+                tdLabel.className = "p-1 border-r border-gray-200 h-12";
+                
+                if (missingDevices.has(d)) {
+                    // Turn device ID cell into a light red recovery button
+                    const findBtn = document.createElement('button');
+                    findBtn.className = "w-full h-full text-center bg-red-100 border border-red-300 text-red-800 font-extrabold rounded text-[11px] uppercase tracking-wider hover:bg-red-200 cursor-pointer transition shadow-sm animate-pulse";
+                    findBtn.innerHTML = `⚠️ #${d} Found?`;
+                    findBtn.onclick = () => clearMissingStatus(d);
+                    tdLabel.appendChild(findBtn);
+                } else {
+                    // Standard neutral layout display
+                    tdLabel.className += " font-bold text-gray-800 bg-gray-50 flex items-center justify-center pt-3.5";
+                    tdLabel.textContent = `#${d}`;
+                }
                 tr.appendChild(tdLabel);
 
+                // --- LESSON BLOCKS PERIOD COLUMNS ---
                 PERIODS.forEach((period) => {
                     const tdCell = document.createElement('td');
                     tdCell.className = "p-1 border-r border-gray-200 h-12";
@@ -260,19 +264,19 @@
                     const btn = document.createElement('button');
                     btn.className = "w-full h-full py-1.5 px-2 text-xs font-semibold rounded border shadow-sm transition block text-center truncate whitespace-nowrap overflow-hidden ";
 
-                    // STATE 0: PERSISTENT UNRETURNED STATE (Light Red)
-                    if (missingDevices.has(d) && (!booking || booking.status !== 'available')) {
-                        btn.className += "bg-red-100 border-red-300 text-red-800 hover:bg-red-200 cursor-pointer";
-                        btn.innerHTML = `<span class="uppercase tracking-wider font-extrabold text-[10px]">⚠️ Missing</span>`;
-                        btn.onclick = () => clearMissingStatus(d);
+                    // CASE 0: SYSTEM ROW LOCKED DOWN (Device is Missing)
+                    if (missingDevices.has(d)) {
+                        btn.className += "bg-red-50 border-red-200 text-red-400 cursor-default opacity-50";
+                        btn.innerHTML = `<span class="uppercase tracking-wider font-bold text-[10px]">Locked</span>`;
+                        btn.disabled = true;
                     }
-                    // STATE 1: AVAILABLE (Light Grey)
+                    // CASE 1: AVAILABLE (Light Grey)
                     else if (!booking || booking.status === 'available') {
                         btn.className += "bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200 cursor-pointer";
                         btn.innerHTML = `<span class="uppercase tracking-wider font-extrabold text-[10px]">Available</span>`;
                         btn.onclick = () => toggleCell(cellKey, d, period, 'borrowed');
                     } 
-                    // STATE 2: BORROWED (Light Yellow)
+                    // CASE 2: BORROWED (Light Yellow)
                     else if (booking.status === 'borrowed') {
                         const isMine = booking.by === currentUser.email;
                         btn.className += "bg-yellow-100 border-yellow-300 text-yellow-800 " + (isMine ? "hover:bg-yellow-200 cursor-pointer" : "cursor-not-allowed opacity-70");
@@ -286,7 +290,7 @@
                             btn.disabled = true;
                         }
                     } 
-                    // STATE 3: RETURNED (Light Green)
+                    // CASE 3: RETURNED (Light Green)
                     else if (booking.status === 'returned') {
                         btn.className += "bg-green-100 border-green-300 text-green-800 cursor-default opacity-80";
                         const shortName = booking.by.split('@')[0];
@@ -327,12 +331,12 @@
             });
         }
 
-        // Clears the persistent missing flag and forces all cells in this device row back to available
+        // Clears the missing status row restriction via the Left Morph label button
         async function clearMissingStatus(deviceId) {
             const todayKey = getTodayString();
             const realTimestamp = new Date().toISOString();
-            const localizedTimeString = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
+            // Unlock and return all 5 lesson slot keys cleanly back to base state
             PERIODS.forEach(p => {
                 activeStates[`${deviceId}_${p}`] = {
                     status: 'available',
@@ -346,8 +350,7 @@
             
             await setDoc(doc(db, "chromebooks", todayKey), activeStates, { merge: true });
 
-            // Crucial: Log a clear event to the database so that the Deep History Scanner 
-            // sees that the final log status is no longer "borrowed"
+            // Push a "returned" event down the line to clean out the deep trace chain
             await addDoc(collection(db, "logs"), {
                 timestamp: realTimestamp,
                 user: currentUser.email,
