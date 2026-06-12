@@ -95,7 +95,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, doc, getDoc, onSnapshot, setDoc, collection, addDoc, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, onSnapshot, setDoc, collection, addDoc, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js"
+        import { getFirestore as initFirestore, doc as fDoc, setDoc as fSetDoc, collection as fCollection, addDoc as fAddDoc, query as fQuery, orderBy as fOrderBy, getDocs as fGetDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAZRhkuq7bIjTGMbgjhEyOjyWFHbv5Ogew",
@@ -108,14 +109,13 @@
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
-        const db = getFirestore(app);
+        const db = initFirestore(app);
         const provider = new GoogleAuthProvider();
 
         const TOTAL_CHROMEBOOKS = 29;
         const PERIODS = ["p1", "p2", "p3", "p4", "p5"];
         const ADMINS = ['adaligand@cedarsupper.co.uk', 'cbetts@cedarsupper.co.uk'];
 
-        // Helper to check if a device number is active or removed
         const isExistingDevice = (d) => {
             if (d === 12) return false;
             if (d >= 20 && d <= 24) return false;
@@ -206,13 +206,13 @@
             const todayKey = getTodayString();
 
             try {
-                const logsRef = collection(db, "logs");
+                const logsRef = fCollection(db, "logs");
                 
                 for (let d = 1; d <= TOTAL_CHROMEBOOKS; d++) {
-                    if (!isExistingDevice(d)) continue; // Skip deleted devices from logic checking
+                    if (!isExistingDevice(d)) continue;
 
-                    const qLastStatus = query(logsRef, orderBy("timestamp", "desc"));
-                    const querySnapshot = await getDocs(qLastStatus);
+                    const qLastStatus = fQuery(logsRef, fOrderBy("timestamp", "desc"));
+                    const querySnapshot = await fGetDocs(qLastStatus);
                     let items = [];
                     querySnapshot.forEach(doc => {
                         if(doc.data().device === d) items.push(doc.data());
@@ -230,7 +230,7 @@
                 console.error("Deep history audit trace failed:", err);
             }
 
-            onSnapshot(doc(db, "chromebooks", todayKey), (docSnap) => {
+            onSnapshot(fDoc(db, "chromebooks", todayKey), (docSnap) => {
                 activeStates = docSnap.exists() ? docSnap.data() : {};
                 renderMatrix();
             });
@@ -239,24 +239,34 @@
         // --- Grid Renderer Engine ---
         function renderMatrix() {
             matrixTableBody.innerHTML = '';
+            const isAdmin = ADMINS.includes(currentUser.email);
 
             for (let d = 1; d <= TOTAL_CHROMEBOOKS; d++) {
-                if (!isExistingDevice(d)) continue; // Completely skips rendering row 12 and rows 20-24
+                if (!isExistingDevice(d)) continue;
 
                 const tr = document.createElement('tr');
                 tr.className = "border-b border-gray-200 h-12"; 
 
-                // --- LEFT LABEL COLUMN (Morphic Missing Reset Button) ---
+                // --- LEFT LABEL COLUMN (Morphic Missing Reset / Admin Toggle Button) ---
                 const tdLabel = document.createElement('td');
-                tdLabel.className = "p-1 border-r border-gray-200 h-12";
+                tdLabel.className = "p-1 border-r border-gray-200 h-12 text-center";
                 
                 if (missingDevices.has(d)) {
+                    // Active Missing State Button (Visible and clickable by everyone to return it)
                     const findBtn = document.createElement('button');
                     findBtn.className = "w-full h-full text-center bg-red-100 border border-red-300 text-red-800 font-extrabold rounded text-[11px] uppercase tracking-wider hover:bg-red-200 cursor-pointer transition shadow-sm animate-pulse";
                     findBtn.innerHTML = `⚠️ #${d} Found?`;
                     findBtn.onclick = () => clearMissingStatus(d);
                     tdLabel.appendChild(findBtn);
+                } else if (isAdmin) {
+                    // Admin Interactive Option to FLAG a Chromebook as Missing
+                    const adminFlagBtn = document.createElement('button');
+                    adminFlagBtn.className = "w-full h-full text-center bg-gray-50 hover:bg-red-50 border border-transparent hover:border-red-200 font-bold text-gray-800 hover:text-red-600 rounded text-sm transition cursor-pointer group";
+                    adminFlagBtn.innerHTML = `<span class="group-hover:hidden">#${d}</span><span class="hidden group-hover:inline text-[10px] font-black uppercase tracking-tighter">Flag ⚠️</span>`;
+                    adminFlagBtn.onclick = () => forceMissingStatus(d);
+                    tdLabel.appendChild(adminFlagBtn);
                 } else {
+                    // Standard Non-Admin Label (Plain Text)
                     tdLabel.className += " font-bold text-gray-800 bg-gray-50 flex items-center justify-center pt-3.5";
                     tdLabel.textContent = `#${d}`;
                 }
@@ -279,13 +289,13 @@
                         btn.innerHTML = `<span class="uppercase tracking-wider font-bold text-[10px]">Locked</span>`;
                         btn.disabled = true;
                     }
-                    // CASE 1: AVAILABLE (Light Grey)
+                    // CASE 1: AVAILABLE
                     else if (!booking || booking.status === 'available') {
                         btn.className += "bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200 cursor-pointer";
                         btn.innerHTML = `<span class="uppercase tracking-wider font-extrabold text-[10px]">Available</span>`;
                         btn.onclick = () => toggleCell(cellKey, d, period, 'borrowed');
                     } 
-                    // CASE 2: BORROWED (Light Yellow)
+                    // CASE 2: BORROWED
                     else if (booking.status === 'borrowed') {
                         const isMine = booking.by === currentUser.email;
                         btn.className += "bg-yellow-100 border-yellow-300 text-yellow-800 " + (isMine ? "hover:bg-yellow-200 cursor-pointer" : "cursor-not-allowed opacity-70");
@@ -299,7 +309,7 @@
                             btn.disabled = true;
                         }
                     } 
-                    // CASE 3: RETURNED (Light Green)
+                    // CASE 3: RETURNED
                     else if (booking.status === 'returned') {
                         btn.className += "bg-green-100 border-green-300 text-green-800 cursor-default opacity-80";
                         const shortName = booking.by.split('@')[0];
@@ -329,14 +339,45 @@
             };
 
             activeStates[cellKey] = itemPayload;
-            await setDoc(doc(db, "chromebooks", todayKey), activeStates, { merge: true });
+            await fSetDoc(fDoc(db, "chromebooks", todayKey), activeStates, { merge: true });
 
-            await addDoc(collection(db, "logs"), {
+            await fAddDoc(fCollection(db, "logs"), {
                 timestamp: realTimestamp,
                 user: currentUser.email,
                 device: deviceId,
                 period: periodId.toUpperCase(),
                 action: targetAction
+            });
+        }
+
+        // Action Triggered when an Admin forces a row into Missing / Repair status
+        async function forceMissingStatus(deviceId) {
+            if(!confirm(`Are you sure you want to flag Chromebook #${deviceId} as Missing / In Repair? This locks all periods.`)) return;
+
+            const todayKey = getTodayString();
+            const realTimestamp = new Date().toISOString();
+
+            // Insert a specific placeholder key for today's snapshot mapping to maintain lock integrity
+            PERIODS.forEach(p => {
+                activeStates[`${deviceId}_${p}`] = {
+                    status: 'missing',
+                    by: currentUser.email,
+                    time: realTimestamp,
+                    displayTime: 'REPAIR'
+                };
+            });
+
+            missingDevices.add(deviceId);
+            await fSetDoc(fDoc(db, "chromebooks", todayKey), activeStates, { merge: true });
+
+            // Crucial: Send an active 'borrowed' status into history logs 
+            // so the backend engine flags this device as unreturned across historical date thresholds
+            await fAddDoc(fCollection(db, "logs"), {
+                timestamp: realTimestamp,
+                user: currentUser.email,
+                device: deviceId,
+                period: "ALL",
+                action: "borrowed"
             });
         }
 
@@ -354,10 +395,9 @@
             });
 
             missingDevices.delete(deviceId);
-            
-            await setDoc(doc(db, "chromebooks", todayKey), activeStates, { merge: true });
+            await fSetDoc(fDoc(db, "chromebooks", todayKey), activeStates, { merge: true });
 
-            await addDoc(collection(db, "logs"), {
+            await fAddDoc(fCollection(db, "logs"), {
                 timestamp: realTimestamp,
                 user: currentUser.email,
                 device: deviceId,
@@ -371,8 +411,8 @@
             staffView.classList.add('hidden');
             adminView.classList.remove('hidden');
 
-            const q = query(collection(db, "logs"), orderBy("timestamp", "desc"));
-            const querySnapshot = await getDocs(q);
+            const q = fQuery(fCollection(db, "logs"), fOrderBy("timestamp", "desc"));
+            const querySnapshot = await fGetDocs(q);
 
             allLogs = [];
             logsTableBody.innerHTML = '';
