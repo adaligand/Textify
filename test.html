@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chromebook Loan Tracker</title>
+    <title>Chromebook Lesson Tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -21,10 +21,10 @@
         </div>
     </div>
 
-    <div id="app-container" class="hidden max-w-6xl mx-auto p-4 sm:p-6 lg:p-8">
+    <div id="app-container" class="hidden max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         <header class="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm mb-6 gap-4">
             <div>
-                <h1 class="text-xl font-bold text-gray-800">Chromebook Tracker Dashboard</h1>
+                <h1 class="text-xl font-bold text-gray-800">Chromebook Lesson Booking Grid</h1>
                 <p id="user-display" class="text-gray-600 text-sm"></p>
             </div>
             <button id="logout-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded transition text-sm">
@@ -39,14 +39,26 @@
         </div>
 
         <main id="staff-view">
-            <div class="bg-white p-6 rounded-lg shadow-sm">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-lg font-semibold text-gray-700">Today's Availability (29 Devices)</h2>
+            <div class="bg-white p-6 rounded-lg shadow-sm overflow-x-auto">
+                <div class="flex justify-between items-center mb-4 min-w-[800px]">
+                    <h2 class="text-lg font-semibold text-gray-700">Daily Matrix Booking Plan</h2>
                     <span id="current-date" class="text-sm font-medium text-gray-500 bg-gray-100 px-3 py-1 rounded-full"></span>
                 </div>
-                <p class="text-xs text-gray-500 mb-6">Click any available item to borrow it. Click your borrowed items to return them.</p>
-
-                <div id="chromebook-grid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 gap-4"></div>
+                
+                <table class="min-w-full border-collapse border border-gray-200 text-center text-sm table-fixed">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="w-24 border border-gray-300 p-3 font-bold text-gray-700">Device</th>
+                            <th class="border border-gray-300 p-3 font-bold text-gray-700">Period 1</th>
+                            <th class="border border-gray-300 p-3 font-bold text-gray-700">Period 2</th>
+                            <th class="border border-gray-300 p-3 font-bold text-gray-700">Period 3</th>
+                            <th class="border border-gray-300 p-3 font-bold text-gray-700">Period 4</th>
+                            <th class="border border-gray-300 p-3 font-bold text-gray-700">Period 5</th>
+                        </tr>
+                    </thead>
+                    <tbody id="matrix-table-body" class="divide-y divide-gray-200 bg-white">
+                        </tbody>
+                </table>
             </div>
         </main>
 
@@ -54,14 +66,14 @@
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
                     <h2 class="text-xl font-bold text-purple-800">Master Historical Logs</h2>
-                    <p class="text-sm text-gray-500">Full audit log of all borrowing activities.</p>
+                    <p class="text-sm text-gray-500">Full backend audit trail of actions.</p>
                 </div>
                 <div class="flex gap-2">
                     <button id="export-btn" class="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded shadow text-sm transition">
                         Download Spreadsheet (.xlsx)
                     </button>
                     <button id="back-to-staff" class="bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded shadow text-sm transition">
-                        Back to Borrow Grid
+                        Back to Lesson Plan
                     </button>
                 </div>
             </div>
@@ -71,8 +83,8 @@
                         <tr>
                             <th class="px-6 py-3 font-semibold text-gray-700">Timestamp</th>
                             <th class="px-6 py-3 font-semibold text-gray-700">Staff Email</th>
-                            <th class="px-6 py-3 font-semibold text-gray-700">Device No.</th>
-                            <th class="px-6 py-3 font-semibold text-gray-700">Action</th>
+                            <th class="px-6 py-3 font-semibold text-gray-700">Device/Period</th>
+                            <th class="px-6 py-3 font-semibold text-gray-700">Action Status</th>
                         </tr>
                     </thead>
                     <tbody id="logs-table-body" class="divide-y divide-gray-200"></tbody>
@@ -84,7 +96,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, setDoc, updateDoc, collection, addDoc, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, doc, onSnapshot, setDoc, collection, addDoc, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         // Verified Active Firebase Configuration
         const firebaseConfig = {
@@ -101,18 +113,19 @@
         const db = getFirestore(app);
         const provider = new GoogleAuthProvider();
 
-        // Constants
+        // System Constants
         const TOTAL_CHROMEBOOKS = 29;
+        const PERIODS = ["p1", "p2", "p3", "p4", "p5"];
         const ADMINS = ['adaligand@cedarsupper.co.uk', 'cbetts@cedarsupper.co.uk'];
 
-        // Elements
+        // Core Layout Elements
         const authContainer = document.getElementById('auth-container');
         const appContainer = document.getElementById('app-container');
         const loginBtn = document.getElementById('login-btn');
         const logoutBtn = document.getElementById('logout-btn');
         const authError = document.getElementById('auth-error');
         const userDisplay = document.getElementById('user-display');
-        const chromebookGrid = document.getElementById('chromebook-grid');
+        const matrixTableBody = document.getElementById('matrix-table-body');
         const currentDateSpan = document.getElementById('current-date');
         const adminToggleZone = document.getElementById('admin-toggle-zone');
         const adminViewBtn = document.getElementById('admin-view-btn');
@@ -126,14 +139,13 @@
         let activeStates = {};
         let allLogs = [];
 
-        // Formatting Helpers
         const getTodayString = () => {
             const today = new Date();
             return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         };
         currentDateSpan.textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-        // --- Auth Management ---
+        // --- Auth System ---
         loginBtn.addEventListener('click', async () => {
             try {
                 authError.classList.add('hidden');
@@ -147,7 +159,7 @@
                     showAuthError("Access Denied. Only staff accounts without digits in their username can access this system.");
                 }
             } catch (error) {
-                showAuthError("Authentication failed. Please try again.");
+                showAuthError("Authentication failed. Make sure your callback domains match.");
             }
         });
 
@@ -175,7 +187,7 @@
             }
         });
 
-        // --- Main Logic ---
+        // --- Dashboard Initialization ---
         function setupDashboard() {
             authContainer.classList.add('hidden');
             appContainer.classList.remove('hidden');
@@ -188,93 +200,122 @@
             const todayKey = getTodayString();
             onSnapshot(doc(db, "chromebooks", todayKey), (docSnap) => {
                 activeStates = docSnap.exists() ? docSnap.data() : {};
-                renderGrid();
+                renderMatrix();
             });
         }
 
-        function renderGrid() {
-            chromebookGrid.innerHTML = '';
-            for (let i = 1; i <= TOTAL_CHROMEBOOKS; i++) {
-                const item = activeStates[i];
-                const btn = document.createElement('button');
-                btn.className = "p-4 border-2 rounded-xl text-center font-bold flex flex-col items-center justify-center transition min-h-[90px] ";
-                
-                const numLabel = document.createElement('span');
-                numLabel.className = "text-xl block";
-                numLabel.textContent = `#${i}`;
-                btn.appendChild(numLabel);
+        // --- Core Matrix Layout Generation ---
+        function renderMatrix() {
+            matrixTableBody.innerHTML = '';
 
-                if (!item || item.status === 'returned') {
-                    btn.className += "bg-green-50 border-green-300 text-green-700 hover:bg-green-100";
-                    const statusLabel = document.createElement('span');
-                    statusLabel.className = "text-xs font-normal opacity-70 mt-1";
-                    statusLabel.textContent = "Available";
-                    btn.appendChild(statusLabel);
+            for (let d = 1; d <= TOTAL_CHROMEBOOKS; d++) {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-gray-50 border-b border-gray-200";
 
-                    btn.onclick = () => toggleDevice(i, 'borrowed');
-                } else {
-                    const isMine = item.by === currentUser.email;
-                    btn.className += isMine 
-                        ? "bg-blue-600 border-blue-700 text-white hover:bg-blue-700" 
-                        : "bg-red-50 border-red-200 text-red-400 cursor-not-allowed";
+                // Column 1: Chromebook Number Identifier Label
+                const tdLabel = document.createElement('td');
+                tdLabel.className = "p-3 font-bold text-gray-800 border-r border-gray-200 bg-gray-50";
+                tdLabel.textContent = `#${d}`;
+                tr.appendChild(tdLabel);
 
-                    const staffLabel = document.createElement('span');
-                    staffLabel.className = "text-xs font-medium truncate max-w-full mt-1 block px-1";
-                    staffLabel.textContent = item.by.split('@')[0];
-                    btn.appendChild(staffLabel);
+                // Columns 2-6: Lesson Periods (P1 - P5)
+                PERIODS.forEach((period) => {
+                    const tdCell = document.createElement('td');
+                    tdCell.className = "p-2 border-r border-gray-200 min-h-[70px]";
 
-                    if (isMine) {
-                        btn.onclick = () => toggleDevice(i, 'returned');
+                    const cellKey = `${d}_${period}`;
+                    const booking = activeStates[cellKey];
+
+                    const btn = document.createElement('button');
+                    btn.className = "w-full py-2 px-1 text-xs font-semibold rounded-md shadow-sm transition flex flex-col items-center justify-center gap-0.5 ";
+
+                    if (!booking || booking.status === 'returned') {
+                        // Available Cell Variant
+                        btn.className += "bg-green-50 border border-green-300 text-green-700 hover:bg-green-100";
+                        btn.innerHTML = `<span class="uppercase tracking-wider font-bold">Available</span>`;
+                        
+                        // If it has historical text components from a returned state, render it inside cleanly
+                        if (booking?.status === 'returned') {
+                            btn.innerHTML += `<span class="text-[10px] text-gray-400 font-normal truncate max-w-full">Ret: ${booking.by.split('@')[0]} (${booking.displayTime})</span>`;
+                        }
+
+                        btn.onclick = () => toggleCell(cellKey, d, period, 'borrowed');
                     } else {
-                        btn.disabled = true;
+                        // Borrowed Cell Variant
+                        const isMine = booking.by === currentUser.email;
+                        btn.className += isMine 
+                            ? "bg-blue-600 border border-blue-700 text-white hover:bg-blue-700" 
+                            : "bg-red-50 border border-red-200 text-red-400 cursor-not-allowed";
+
+                        btn.innerHTML = `
+                            <span class="uppercase tracking-wider font-bold">${isMine ? 'Your Loan' : 'Borrowed'}</span>
+                            <span class="font-medium text-[10px] truncate max-w-full">${booking.by.split('@')[0]}</span>
+                            <span class="text-[9px] opacity-80 font-normal">${booking.displayTime}</span>
+                        `;
+
+                        if (isMine) {
+                            btn.onclick = () => toggleCell(cellKey, d, period, 'returned');
+                        } else {
+                            btn.disabled = true;
+                        }
                     }
-                }
-                chromebookGrid.appendChild(btn);
+
+                    tdCell.appendChild(btn);
+                    tr.appendChild(tdCell);
+                });
+
+                matrixTableBody.appendChild(tr);
             }
         }
 
-        async function toggleDevice(id, action) {
+        // --- Core Write Engine Logic ---
+        async function toggleCell(cellKey, deviceId, periodId, targetAction) {
             const todayKey = getTodayString();
-            const timestamp = new Date().toISOString();
-            
-            const stateUpdate = {
-                status: action,
+            const realTimestamp = new Date().toISOString();
+            const localizedTimeString = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+            const itemPayload = {
+                status: targetAction,
                 by: currentUser.email,
-                time: timestamp
+                time: realTimestamp,
+                displayTime: localizedTimeString
             };
 
-            activeStates[id] = stateUpdate;
+            // Write change payload to active live matrix layout maps
+            activeStates[cellKey] = itemPayload;
             await setDoc(doc(db, "chromebooks", todayKey), activeStates, { merge: true });
 
+            // Send detailed logging event payload downstream to Master Logs for compliance audits
             await addDoc(collection(db, "logs"), {
-                timestamp: timestamp,
+                timestamp: realTimestamp,
                 user: currentUser.email,
-                deviceId: id,
-                action: action
+                device: deviceId,
+                period: periodId.toUpperCase(),
+                action: targetAction
             });
         }
 
-        // --- Admin Controls ---
+        // --- Admin Audit Handling ---
         adminViewBtn.addEventListener('click', async () => {
             staffView.classList.add('hidden');
             adminView.classList.remove('hidden');
-            
+
             const q = query(collection(db, "logs"), orderBy("timestamp", "desc"));
             const querySnapshot = await getDocs(q);
-            
+
             allLogs = [];
             logsTableBody.innerHTML = '';
-            
+
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
                 allLogs.push(data);
 
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-gray-50";
+                tr.className = "hover:bg-gray-50 border-b";
                 tr.innerHTML = `
                     <td class="px-6 py-4 text-gray-600 whitespace-nowrap">${new Date(data.timestamp).toLocaleString('en-GB')}</td>
                     <td class="px-6 py-4 text-gray-900 font-medium">${data.user}</td>
-                    <td class="px-6 py-4 text-gray-700 font-bold">#${data.deviceId}</td>
+                    <td class="px-6 py-4 text-gray-700 font-bold">Chromebook #${data.device} (${data.period})</td>
                     <td class="px-6 py-4">
                         <span class="px-2.5 py-1 rounded-full text-xs font-semibold ${data.action === 'borrowed' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}">
                             ${data.action.toUpperCase()}
@@ -292,18 +333,19 @@
 
         exportBtn.addEventListener('click', () => {
             if (allLogs.length === 0) return alert("No logs available to export.");
-            
+
             const processedData = allLogs.map(log => ({
                 "Date & Time": new Date(log.timestamp).toLocaleString('en-GB'),
                 "Staff Email": log.user,
-                "Device Number": `Chromebook #${log.deviceId}`,
-                "Action Status": log.action.toUpperCase()
+                "Device Allocation": `Chromebook #${log.device}`,
+                "Lesson Block": log.period,
+                "Action Taken": log.action.toUpperCase()
             }));
 
             const worksheet = XLSX.utils.json_to_sheet(processedData);
             const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Loan History Master");
-            XLSX.writeFile(workbook, `Chromebook_Logs_${getTodayString()}.xlsx`);
+            XLSX.utils.book_append_sheet(workbook, worksheet, "System Master Logs");
+            XLSX.writeFile(workbook, `Chromebook_Matrix_Logs_${getTodayString()}.xlsx`);
         });
     </script>
 </body>
