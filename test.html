@@ -140,7 +140,7 @@
 
         let currentUser = null;
         let activeStates = {};
-        let missingDevices = new Set(); 
+        let missingDevices = new Map(); // Converted to Map to store specific sub-state ('missing' or 'repair')
         let allLogs = [];
 
         const getTodayString = () => {
@@ -221,8 +221,10 @@
                     const lastAction = items[0];
                     if (lastAction) {
                         const actionDate = lastAction.timestamp.split('T')[0];
-                        if (lastAction.action === 'borrowed' && actionDate !== todayKey) {
-                            missingDevices.add(d);
+                        if ((lastAction.action === 'missing' || lastAction.action === 'repair' || lastAction.action === 'borrowed') && actionDate !== todayKey) {
+                            // Map over the correct persistent type flag
+                            const resolvedType = (lastAction.action === 'repair') ? 'repair' : 'missing';
+                            missingDevices.set(d, resolvedType);
                         }
                     }
                 }
@@ -232,6 +234,16 @@
 
             onSnapshot(fDoc(db, "chromebooks", todayKey), (docSnap) => {
                 activeStates = docSnap.exists() ? docSnap.data() : {};
+                
+                // Repopulate active states runtime map from live document values if present
+                for (let d = 1; d <= TOTAL_CHROMEBOOKS; d++) {
+                    if (!isExistingDevice(d)) continue;
+                    const checkKey = `${d}_p1`;
+                    if (activeStates[checkKey] && (activeStates[checkKey].status === 'missing' || activeStates[checkKey].status === 'repair')) {
+                        missingDevices.set(d, activeStates[checkKey].status);
+                    }
+                }
+                
                 renderMatrix();
             });
         }
@@ -247,26 +259,52 @@
                 const tr = document.createElement('tr');
                 tr.className = "border-b border-gray-200 h-12"; 
 
-                // --- LEFT LABEL COLUMN (Morphic Missing Reset / Admin Toggle Button) ---
+                // --- LEFT LABEL COLUMN (Morphic Flag Settings Mode) ---
                 const tdLabel = document.createElement('td');
-                tdLabel.className = "p-1 border-r border-gray-200 h-12 text-center";
+                tdLabel.className = "p-1 border-r border-gray-200 h-12 text-center relative";
                 
                 if (missingDevices.has(d)) {
-                    // Active Missing State Button (Visible and clickable by everyone to return it)
+                    const statusType = missingDevices.get(d);
+                    const isRepair = statusType === 'repair';
+                    
                     const findBtn = document.createElement('button');
-                    findBtn.className = "w-full h-full text-center bg-red-100 border border-red-300 text-red-800 font-extrabold rounded text-[11px] uppercase tracking-wider hover:bg-red-200 cursor-pointer transition shadow-sm animate-pulse";
-                    findBtn.innerHTML = `⚠️ #${d} Found?`;
+                    findBtn.className = `w-full h-full text-center border font-extrabold rounded text-[10px] uppercase tracking-wider cursor-pointer transition shadow-sm animate-pulse ${
+                        isRepair 
+                        ? 'bg-orange-100 border-orange-300 text-orange-800 hover:bg-orange-200' 
+                        : 'bg-red-100 border-red-300 text-red-800 hover:bg-red-200'
+                    }`;
+                    findBtn.innerHTML = isRepair ? `🛠️ #${d} Fixed?` : `⚠️ #${d} Found?`;
                     findBtn.onclick = () => clearMissingStatus(d);
                     tdLabel.appendChild(findBtn);
                 } else if (isAdmin) {
-                    // Admin Interactive Option to FLAG a Chromebook as Missing
-                    const adminFlagBtn = document.createElement('button');
-                    adminFlagBtn.className = "w-full h-full text-center bg-gray-50 hover:bg-red-50 border border-transparent hover:border-red-200 font-bold text-gray-800 hover:text-red-600 rounded text-sm transition cursor-pointer group";
-                    adminFlagBtn.innerHTML = `<span class="group-hover:hidden">#${d}</span><span class="hidden group-hover:inline text-[10px] font-black uppercase tracking-tighter">Flag ⚠️</span>`;
-                    adminFlagBtn.onclick = () => forceMissingStatus(d);
-                    tdLabel.appendChild(adminFlagBtn);
+                    // Admin Selector Dropdown System instead of a single clickable text layout
+                    const selectEl = document.createElement('select');
+                    selectEl.className = "w-full h-full text-center bg-gray-50 hover:bg-purple-50 font-bold text-gray-800 hover:text-purple-700 rounded text-sm transition cursor-pointer border border-transparent hover:border-purple-200 appearance-none outline-none";
+                    
+                    // Default visible non-selected base label
+                    const defaultOpt = document.createElement('option');
+                    defaultOpt.value = "";
+                    defaultOpt.textContent = `#${d}`;
+                    defaultOpt.disabled = false;
+                    selectEl.appendChild(defaultOpt);
+
+                    const missingOpt = document.createElement('option');
+                    missingOpt.value = "missing";
+                    missingOpt.textContent = "⚠️ Missing";
+                    selectEl.appendChild(missingOpt);
+
+                    const repairOpt = document.createElement('option');
+                    repairOpt.value = "repair";
+                    repairOpt.textContent = "🛠️ In Repair";
+                    selectEl.appendChild(repairOpt);
+
+                    selectEl.onchange = (e) => {
+                        const selectedVal = e.target.value;
+                        if(selectedVal) forceSystemStatus(d, selectedVal);
+                    };
+
+                    tdLabel.appendChild(selectEl);
                 } else {
-                    // Standard Non-Admin Label (Plain Text)
                     tdLabel.className += " font-bold text-gray-800 bg-gray-50 flex items-center justify-center pt-3.5";
                     tdLabel.textContent = `#${d}`;
                 }
@@ -283,10 +321,16 @@
                     const btn = document.createElement('button');
                     btn.className = "w-full h-full py-1.5 px-2 text-xs font-semibold rounded border shadow-sm transition block text-center truncate whitespace-nowrap overflow-hidden ";
 
-                    // CASE 0: SYSTEM ROW LOCKED DOWN (Device is Missing)
+                    // CASE 0: SYSTEM ROW LOCKED DOWN (Device is Flagged Missing / Repair)
                     if (missingDevices.has(d)) {
-                        btn.className += "bg-red-50 border-red-200 text-red-400 cursor-default opacity-50";
-                        btn.innerHTML = `<span class="uppercase tracking-wider font-bold text-[10px]">MISSING</span>`;
+                        const statusType = missingDevices.get(d);
+                        if (statusType === 'repair') {
+                            btn.className += "bg-orange-50 border-orange-200 text-orange-500 cursor-default opacity-60";
+                            btn.innerHTML = `<span class="uppercase tracking-wider font-bold text-[10px]">IN REPAIR</span>`;
+                        } else {
+                            btn.className += "bg-red-50 border-red-200 text-red-400 cursor-default opacity-50";
+                            btn.innerHTML = `<span class="uppercase tracking-wider font-bold text-[10px]">MISSING</span>`;
+                        }
                         btn.disabled = true;
                     }
                     // CASE 1: AVAILABLE
@@ -350,34 +394,35 @@
             });
         }
 
-        // Action Triggered when an Admin forces a row into Missing / Repair status
-        async function forceMissingStatus(deviceId) {
-            if(!confirm(`Are you sure you want to flag Chromebook #${deviceId} as Missing / In Repair? This locks all periods.`)) return;
+        // Action Triggered when an Admin selects an operational lockdown state
+        async function forceSystemStatus(deviceId, targetType) {
+            const displayLabel = targetType === 'repair' ? 'In Repair' : 'Missing';
+            if(!confirm(`Are you sure you want to flag Chromebook #${deviceId} as ${displayLabel}? This completely locks all matrix blocks.`)) {
+                renderMatrix(); // Re-render to clear chosen index select state safely
+                return;
+            }
 
             const todayKey = getTodayString();
             const realTimestamp = new Date().toISOString();
 
-            // Insert a specific placeholder key for today's snapshot mapping to maintain lock integrity
             PERIODS.forEach(p => {
                 activeStates[`${deviceId}_${p}`] = {
-                    status: 'missing',
+                    status: targetType,
                     by: currentUser.email,
                     time: realTimestamp,
-                    displayTime: 'REPAIR'
+                    displayTime: targetType.toUpperCase()
                 };
             });
 
-            missingDevices.add(deviceId);
+            missingDevices.set(deviceId, targetType);
             await fSetDoc(fDoc(db, "chromebooks", todayKey), activeStates, { merge: true });
 
-            // Crucial: Send an active 'borrowed' status into history logs 
-            // so the backend engine flags this device as unreturned across historical date thresholds
             await fAddDoc(fCollection(db, "logs"), {
                 timestamp: realTimestamp,
                 user: currentUser.email,
                 device: deviceId,
                 period: "ALL",
-                action: "borrowed"
+                action: targetType
             });
         }
 
@@ -427,6 +472,8 @@
                 let badgeStyle = "bg-gray-100 text-gray-800";
                 if (data.action === 'borrowed') badgeStyle = "bg-amber-100 text-amber-800";
                 if (data.action === 'returned') badgeStyle = "bg-green-100 text-green-800";
+                if (data.action === 'missing') badgeStyle = "bg-red-100 text-red-800";
+                if (data.action === 'repair') badgeStyle = "bg-orange-100 text-orange-800";
 
                 tr.innerHTML = `
                     <td class="px-6 py-4 text-gray-600 whitespace-nowrap">${new Date(data.timestamp).toLocaleString('en-GB')}</td>
