@@ -95,9 +95,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, setDoc, collection, addDoc, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, onSnapshot, setDoc, collection, addDoc, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Active Project Configuration Mapping
         const firebaseConfig = {
             apiKey: "AIzaSyAZRhkuq7bIjTGMbgjhEyOjyWFHbv5Ogew",
             authDomain: "chromebook-16465.firebaseapp.com",
@@ -134,12 +133,20 @@
 
         let currentUser = null;
         let activeStates = {};
+        let missingDevices = new Set(); 
         let allLogs = [];
 
         const getTodayString = () => {
             const today = new Date();
             return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         };
+
+        const getYesterdayString = () => {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            return `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+        };
+
         currentDateSpan.textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
         // --- Auth System ---
@@ -184,13 +191,34 @@
             }
         });
 
-        function setupDashboard() {
+        // --- Overnight Carry-Over Engine ---
+        async function setupDashboard() {
             authContainer.classList.add('hidden');
             appContainer.classList.remove('hidden');
             userDisplay.textContent = `Logged in as: ${currentUser.email}`;
 
             if (ADMINS.includes(currentUser.email)) {
                 adminToggleZone.classList.remove('hidden');
+            }
+
+            missingDevices.clear();
+            const yesterdayKey = getYesterdayString();
+            try {
+                const yesterdaySnap = await getDoc(doc(db, "chromebooks", yesterdayKey));
+                if (yesterdaySnap.exists()) {
+                    const yData = yesterdaySnap.data();
+                    for (let d = 1; d <= TOTAL_CHROMEBOOKS; d++) {
+                        let isMissing = false;
+                        PERIODS.forEach(p => {
+                            if (yData[`${d}_${p}`]?.status === 'borrowed') {
+                                isMissing = true;
+                            }
+                        });
+                        if (isMissing) missingDevices.add(d);
+                    }
+                }
+            } catch (err) {
+                console.error("Historical lookup error:", err);
             }
 
             const todayKey = getTodayString();
@@ -200,7 +228,7 @@
             });
         }
 
-        // --- Layout Processing Rendering ---
+        // --- Grid Renderer Engine ---
         function renderMatrix() {
             matrixTableBody.innerHTML = '';
 
@@ -223,16 +251,22 @@
                     const btn = document.createElement('button');
                     btn.className = "w-full h-full py-1.5 px-2 text-xs font-semibold rounded border shadow-sm transition block text-center truncate whitespace-nowrap overflow-hidden ";
 
+                    // STATE 0: OVERNIGHT MISSING (Light Red Carrier Over)
+                    if (missingDevices.has(d) && (!booking || booking.status === 'missing')) {
+                        btn.className += "bg-red-100 border-red-300 text-red-800 hover:bg-red-200 cursor-pointer";
+                        btn.innerHTML = `<span class="uppercase tracking-wider font-extrabold text-[10px]">⚠️ Missing</span>`;
+                        btn.onclick = () => clearMissingStatus(d);
+                    }
                     // STATE 1: AVAILABLE (Light Grey)
-                    if (!booking || booking.status === 'available') {
-                        btn.className += "bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200";
+                    else if (!booking || booking.status === 'available') {
+                        btn.className += "bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200 cursor-pointer";
                         btn.innerHTML = `<span class="uppercase tracking-wider font-extrabold text-[10px]">Available</span>`;
                         btn.onclick = () => toggleCell(cellKey, d, period, 'borrowed');
                     } 
                     // STATE 2: BORROWED (Light Yellow)
                     else if (booking.status === 'borrowed') {
                         const isMine = booking.by === currentUser.email;
-                        btn.className += "bg-yellow-100 border-yellow-300 text-yellow-800 " + (isMine ? "hover:bg-yellow-200" : "cursor-not-allowed opacity-70");
+                        btn.className += "bg-yellow-100 border-yellow-300 text-yellow-800 " + (isMine ? "hover:bg-yellow-200 cursor-pointer" : "cursor-not-allowed opacity-70");
                         
                         const shortName = booking.by.split('@')[0];
                         btn.innerHTML = `<span class="uppercase tracking-wider font-extrabold text-[10px]">Borrowed:</span> <span class="font-normal text-[11px]">${shortName} (${booking.displayTime})</span>`;
@@ -243,15 +277,11 @@
                             btn.disabled = true;
                         }
                     } 
-                    // STATE 3: RETURNED (Light Green) -> Frozen Execution State
+                    // STATE 3: RETURNED (Light Green) -> Clean, Default Cursor
                     else if (booking.status === 'returned') {
-                        // Completely removes mouse interaction pointers, modifications are blocked
-                        btn.className += "bg-green-100 border-green-300 text-green-800 cursor-not-allowed opacity-80";
-                        
+                        btn.className += "bg-green-100 border-green-300 text-green-800 cursor-default opacity-80";
                         const shortName = booking.by.split('@')[0];
                         btn.innerHTML = `<span class="uppercase tracking-wider font-extrabold text-[10px]">Returned:</span> <span class="font-normal text-[11px]">${shortName} (${booking.displayTime})</span>`;
-                        
-                        // Explicitly disable the action engine step loop
                         btn.disabled = true; 
                     }
 
@@ -263,6 +293,7 @@
             }
         }
 
+        // --- Database Write Handlers ---
         async function toggleCell(cellKey, deviceId, periodId, targetAction) {
             const todayKey = getTodayString();
             const realTimestamp = new Date().toISOString();
@@ -287,6 +318,32 @@
             });
         }
 
+        async function clearMissingStatus(deviceId) {
+            const todayKey = getTodayString();
+            const realTimestamp = new Date().toISOString();
+
+            PERIODS.forEach(p => {
+                activeStates[`${deviceId}_${p}`] = {
+                    status: 'available',
+                    by: currentUser.email,
+                    time: realTimestamp,
+                    displayTime: '--:--'
+                };
+            });
+
+            missingDevices.delete(deviceId);
+            
+            await setDoc(doc(db, "chromebooks", todayKey), activeStates, { merge: true });
+
+            await addDoc(collection(db, "logs"), {
+                timestamp: realTimestamp,
+                user: currentUser.email,
+                device: deviceId,
+                period: "ALL",
+                action: "found / marked available"
+            });
+        }
+
         // --- Admin Audit Handling ---
         adminViewBtn.addEventListener('click', async () => {
             staffView.classList.add('hidden');
@@ -308,6 +365,7 @@
                 let badgeStyle = "bg-gray-100 text-gray-800";
                 if (data.action === 'borrowed') badgeStyle = "bg-amber-100 text-amber-800";
                 if (data.action === 'returned') badgeStyle = "bg-green-100 text-green-800";
+                if (data.action.includes('found')) badgeStyle = "bg-blue-100 text-blue-800";
 
                 tr.innerHTML = `
                     <td class="px-6 py-4 text-gray-600 whitespace-nowrap">${new Date(data.timestamp).toLocaleString('en-GB')}</td>
