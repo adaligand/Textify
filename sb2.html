@@ -255,6 +255,28 @@
 
                     <div class="md:col-span-2 bg-white p-5 rounded-lg border shadow-sm space-y-4">
                         <h3 class="font-bold text-md text-gray-800 border-b pb-2">⚙️ Existing System Cohort Infrastructure</h3>
+                        
+                        <div id="matrix-class-edit-panel" class="hidden bg-blue-50 border border-blue-200 p-4 rounded-lg space-y-3">
+                            <div class="flex justify-between items-center border-b border-blue-200 pb-1.5">
+                                <h4 class="text-xs font-bold text-blue-900 uppercase">📝 Update Settings for: <span id="matrix-edit-label-target" class="underline"></span></h4>
+                                <button onclick="document.getElementById('matrix-class-edit-panel').classList.add('hidden')" class="text-[11px] text-gray-500 hover:text-gray-700 font-semibold">Cancel</button>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-600 uppercase">Rename Class Group Name</label>
+                                    <input id="matrix-edit-class-name" type="text" class="w-full p-1.5 bg-white border rounded text-xs mt-0.5">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-600 uppercase">Update Teacher Email(s)</label>
+                                    <input id="matrix-edit-class-teacher" type="text" class="w-full p-1.5 bg-white border rounded text-xs mt-0.5">
+                                </div>
+                            </div>
+                            <div class="flex gap-2 pt-1.5 justify-end">
+                                <button id="btn-matrix-delete-class" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-xs font-bold shadow-sm">🗑️ Delete Group</button>
+                                <button id="btn-matrix-save-class" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-xs font-bold shadow-sm">Save Changes</button>
+                            </div>
+                        </div>
+
                         <div class="overflow-x-auto border rounded">
                             <table class="w-full text-left text-xs border-collapse">
                                 <thead class="bg-gray-50 border-b font-semibold text-gray-600">
@@ -451,17 +473,26 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, collection, addDoc, onSnapshot, query, orderBy, where, deleteDoc, updateDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        
-        // Ensure you paste your Firebase App Config Object and Gemini API Key correctly here
+        import { GoogleGenAI } from "https://esm.run/@google/genai";
+
+        // *** PLEASE PASTE YOUR FIREBASE AND GEMINI KEYS HERE ***
         const firebaseConfig = {
-            // ... (Your Firebase Init details should be placed here) ...
+            // apiKey: "...",
+            // authDomain: "...",
+            // projectId: "...",
+            // storageBucket: "...",
+            // messagingSenderId: "...",
+            // appId: "..."
         };
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
+        
+        // PASTE YOUR GEMINI API KEY BELOW
+        const ai = new GoogleGenAI({ apiKey: "YOUR_GEMINI_API_KEY_HERE" });
 
-        // UI STATE & ROSTERS
+        // STATE VARIABLES
         let currentUser = null;
         let userRole = null;
         let activeSelectedClassDocId = null;
@@ -469,8 +500,54 @@
         let activeEditingBankItemId = null;
         let activeEditingBankCollectionType = null;
         let currentAssignTargetItem = null;
+        let activeEditingMatrixClassId = null;
 
-        // UI Pane Routing
+        // MEDIA/AUDIO GLOBALS
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        let activeTask = null;
+        let taskStepsArray = [];
+        let currentStepIndex = 0;
+        let cachedStepSubmissions = [];
+
+        // ==========================================
+        // ROUTING AND VIEW MANAGEMENT
+        // ==========================================
+        function routeTo(viewName) {
+            document.getElementById('view-auth').classList.add('hidden');
+            document.getElementById('view-student-onboarding').classList.add('hidden');
+            document.getElementById('view-student').classList.add('hidden');
+            document.getElementById('view-teacher').classList.add('hidden');
+            document.getElementById('btn-dashboard-toggle').classList.add('hidden');
+
+            if (viewName === 'auth') {
+                document.getElementById('nav-controls').classList.add('hidden');
+                document.getElementById('view-auth').classList.remove('hidden');
+            } else if (viewName === 'onboarding') {
+                document.getElementById('nav-controls').classList.remove('hidden');
+                document.getElementById('user-display').textContent = `${currentUser.email} (PENDING)`;
+                document.getElementById('view-student-onboarding').classList.remove('hidden');
+            } else {
+                document.getElementById('nav-controls').classList.remove('hidden');
+                document.getElementById('user-display').textContent = `${currentUser.email} (${userRole.toUpperCase()})`;
+                if (userRole === 'teacher') document.getElementById('btn-dashboard-toggle').classList.remove('hidden');
+
+                if (viewName === 'teacher' && userRole === 'teacher') {
+                    document.getElementById('view-teacher').classList.remove('hidden');
+                    document.getElementById('btn-dashboard-toggle').textContent = "Switch to Student Mode";
+                } else {
+                    document.getElementById('view-student').classList.remove('hidden');
+                    document.getElementById('btn-dashboard-toggle').textContent = "Teacher Command Center";
+                }
+            }
+        }
+
+        document.getElementById('btn-dashboard-toggle').addEventListener('click', () => {
+            const isCurrentlyTeacherView = !document.getElementById('view-teacher').classList.contains('hidden');
+            routeTo(isCurrentlyTeacherView ? 'student' : 'teacher');
+        });
+
         function switchTeacherPane(paneId, btnId) {
             ['pane-classes', 'pane-manage-matrix', 'pane-banks', 'pane-create-task'].forEach(id => {
                 document.getElementById(id).classList.add('hidden');
@@ -482,6 +559,10 @@
             document.getElementById(paneId).classList.remove('hidden');
             document.getElementById(btnId).classList.add('bg-blue-600', 'text-white');
             document.getElementById(btnId).classList.remove('bg-gray-100', 'text-gray-700');
+
+            if (paneId === 'pane-banks') {
+                syncAndRenderQuestionBankMasterGrid();
+            }
         }
 
         document.getElementById('hub-btn-classes').addEventListener('click', () => switchTeacherPane('pane-classes', 'hub-btn-classes'));
@@ -489,7 +570,173 @@
         document.getElementById('hub-btn-banks').addEventListener('click', () => switchTeacherPane('pane-banks', 'hub-btn-banks'));
         document.getElementById('hub-btn-create').addEventListener('click', () => switchTeacherPane('pane-create-task', 'hub-btn-create'));
 
-        // CREATION DROPDOWN LOGIC
+        // ==========================================
+        // AUTHENTICATION LOGIC
+        // ==========================================
+        document.getElementById('btn-google-login').addEventListener('click', async () => {
+            const provider = new GoogleAuthProvider();
+            provider.setCustomParameters({ hd: 'cedarsupper.co.uk' });
+            try {
+                await signInWithPopup(auth, provider);
+            } catch (err) {
+                console.error(err);
+                alert("Login process terminated: " + err.message);
+            }
+        });
+
+        document.getElementById('btn-logout').addEventListener('click', () => signOut(auth));
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                if (!user.email.endsWith('@cedarsupper.co.uk')) {
+                    alert("Unauthorized entry. Only @cedarsupper.co.uk accounts are verified.");
+                    signOut(auth);
+                    return;
+                }
+                currentUser = user;
+
+                // Simple check: identify teacher by domain pattern or database check
+                let identifiedRole = 'student';
+                if (user.email.includes('teacher') || user.email.includes('staff')) { // Customize logic as needed
+                    identifiedRole = 'teacher';
+                }
+
+                userRole = identifiedRole;
+
+                if (userRole === 'student') {
+                    const studentDoc = await getDoc(doc(db, "students", user.uid));
+                    if (studentDoc.exists()) {
+                        activeSelectedClassDocId = studentDoc.data().classId;
+                        routeTo('student');
+                        loadStudentAssignmentsDashboardFeed();
+                        loadStudentPerformanceHistory();
+                    } else {
+                        routeTo('onboarding');
+                        loadOnboardingClassesList();
+                    }
+                } else {
+                    routeTo('teacher');
+                    loadTeacherMatrixClasses();
+                    syncAndRenderQuestionBankMasterGrid();
+                }
+            } else {
+                currentUser = null;
+                userRole = null;
+                routeTo('auth');
+            }
+        });
+
+        // ==========================================
+        // STUDENT ONBOARDING & DASHBOARD
+        // ==========================================
+        async function loadOnboardingClassesList() {
+            const snap = await getDocs(collection(db, "classes"));
+            const select = document.getElementById('onboarding-class-select');
+            select.innerHTML = '<option value="">-- Select designated class cohort --</option>';
+            snap.forEach(d => {
+                select.innerHTML += `<option value="${d.id}">${d.data().name} (Teacher: ${d.data().teacher})</option>`;
+            });
+        }
+
+        document.getElementById('btn-submit-onboarding').addEventListener('click', async () => {
+            const selectedClass = document.getElementById('onboarding-class-select').value;
+            if (!selectedClass) return alert("Please select a target group.");
+            try {
+                await setDoc(doc(db, "students", currentUser.uid), {
+                    email: currentUser.email,
+                    classId: selectedClass,
+                    registeredAt: Date.now()
+                });
+                activeSelectedClassDocId = selectedClass;
+                routeTo('student');
+                loadStudentAssignmentsDashboardFeed();
+                loadStudentPerformanceHistory();
+            } catch (err) {
+                console.error(err);
+                alert("Failed to sync structural onboarding.");
+            }
+        });
+
+        async function loadStudentAssignmentsDashboardFeed() {
+            const badge = document.getElementById('student-current-class-badge');
+            badge.textContent = "Loading...";
+
+            try {
+                const classDoc = await getDoc(doc(db, "classes", activeSelectedClassDocId));
+                if (classDoc.exists()) {
+                    badge.textContent = classDoc.data().name;
+                } else {
+                    badge.textContent = "Unknown Class Connection";
+                }
+            } catch(e) {
+                badge.textContent = "Fetch Failed";
+            }
+
+            // Fixed Sorting to Client-Side (bypasses index crashes)
+            const q = query(collection(db, "assignments"), where("classId", "==", activeSelectedClassDocId));
+            onSnapshot(q, (snap) => {
+                const container = document.getElementById('student-task-list');
+                if(!container) return;
+                container.innerHTML = '';
+                
+                if(snap.empty) {
+                    container.innerHTML = `<p class="text-xs text-gray-400 italic text-center py-8">All current tasks clear! No pending assigned workloads found.</p>`;
+                    return;
+                }
+
+                let tasks = [];
+                snap.forEach(d => tasks.push({id: d.id, ...d.data()}));
+                tasks.sort((a,b) => b.assignedAt - a.assignedAt);
+
+                tasks.forEach(task => {
+                    const div = document.createElement('div');
+                    div.className = "p-3 bg-gray-50 border hover:bg-blue-50/60 rounded-xl cursor-pointer text-xs space-y-1 hover:shadow-sm transition";
+                    div.innerHTML = `
+                        <div class="flex justify-between font-bold text-gray-800">
+                            <span>${task.taskTitle}</span>
+                            <span class="text-[10px] text-blue-600 uppercase">${task.type}</span>
+                        </div>
+                        <div class="text-[10px] text-gray-500">Tier Level: <span class="font-bold">${task.tier}</span></div>
+                    `;
+                    div.addEventListener('click', () => loadStudentPracticeArena(task));
+                    container.appendChild(div);
+                });
+            });
+        }
+
+        function loadStudentPerformanceHistory() {
+            const qRef = query(collection(db, "submissions"), where("studentId", "==", currentUser.uid));
+            onSnapshot(qRef, (snap) => {
+                const tbody = document.getElementById('student-history-table');
+                if(!tbody) return;
+                tbody.innerHTML = '';
+                
+                if(snap.empty) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-400 italic">No historical tracking metrics found.</td></tr>`;
+                    return;
+                }
+
+                let logs = [];
+                snap.forEach(d => logs.push(d.data()));
+                logs.sort((a,b) => b.submittedAt - a.submittedAt);
+
+                logs.forEach(log => {
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-gray-50 border-b">
+                            <td class="p-3 font-medium">${log.taskTitle}</td>
+                            <td class="p-3 font-semibold text-blue-600 text-xs uppercase">${log.type}</td>
+                            <td class="p-3 text-emerald-600 font-bold">${log.accuracyScore}%</td>
+                            <td class="p-3 text-blue-600 font-bold">${log.fluencyScore}%</td>
+                            <td class="p-3 text-gray-400 text-xs">${new Date(log.submittedAt).toLocaleDateString()}</td>
+                        </tr>
+                    `;
+                });
+            });
+        }
+
+        // ==========================================
+        // CREATE TASK & BANK LOGIC (Teacher Panes)
+        // ==========================================
         document.getElementById('bank-create-type-select').addEventListener('change', (e) => {
             document.getElementById('form-container-conversation').classList.add('hidden');
             document.getElementById('form-container-read-aloud').classList.add('hidden');
@@ -518,11 +765,6 @@
             document.getElementById('btn-add-to-rpbank').textContent = "Save Scenario Package Array";
         }
 
-        // ============================================
-        // SAVING FORMS AND ROUTES BACK TO LIBRARY BANK
-        // ============================================
-        
-        // CONVERSATION SAVE
         document.getElementById('btn-add-to-qbank').addEventListener('click', async () => {
             const title = document.getElementById('bank-input-conv-title').value.trim();
             const language = document.getElementById('bank-input-lang').value;
@@ -543,11 +785,10 @@
                     alert("Saved to Conversational Pool.");
                 }
                 clearAndResetAllBankInputForms();
-                switchTeacherPane('pane-banks', 'hub-btn-banks'); // Route Back
+                switchTeacherPane('pane-banks', 'hub-btn-banks');
             } catch (err) { console.error(err); }
         });
 
-        // READ ALOUD SAVE
         document.getElementById('btn-add-to-stimulusbank').addEventListener('click', async () => {
             const title = document.getElementById('bank-input-stimulus-title').value.trim();
             const language = document.getElementById('bank-input-stimulus-lang').value;
@@ -569,11 +810,10 @@
                     alert("Saved Read Aloud package to library!");
                 }
                 clearAndResetAllBankInputForms();
-                switchTeacherPane('pane-banks', 'hub-btn-banks'); // Route Back
+                switchTeacherPane('pane-banks', 'hub-btn-banks');
             } catch (err) { console.error(err); }
         });
 
-        // ROLEPLAY SAVE
         document.getElementById('btn-add-to-rpbank').addEventListener('click', async () => {
             const title = document.getElementById('bank-input-rp-title').value.trim();
             const lang = document.getElementById('bank-input-rp-lang').value;
@@ -600,12 +840,10 @@
                     alert("Saved roleplay scenario.");
                 }
                 clearAndResetAllBankInputForms();
-                switchTeacherPane('pane-banks', 'hub-btn-banks'); // Route Back
+                switchTeacherPane('pane-banks', 'hub-btn-banks');
             } catch (err) { console.error(err); }
         });
 
-
-        // EDIT ACTION - MAP DATA TO THE NEW CREATE PANE 
         window.populateItemToEdit = function(item) {
             activeEditingBankItemId = item.id;
             activeEditingBankCollectionType = item.collection;
@@ -645,11 +883,83 @@
             }
         }
 
+        window.deleteBankItem = async function(collectionName, documentId) {
+            if(!confirm("Are you certain you want to permanently remove this template item from the library?")) return;
+            try {
+                await deleteDoc(doc(db, collectionName, documentId));
+                alert("Template successfully removed.");
+                syncAndRenderQuestionBankMasterGrid();
+            } catch(err) {
+                console.error(err);
+            }
+        }
 
-        // ===============================================
-        // ASSIGNMENT DEPLOYMENT & INDEXING / SORTING FIXES
-        // ===============================================
+        async function syncAndRenderQuestionBankMasterGrid() {
+            const gridContainer = document.getElementById('bank-assets-grid-container');
+            gridContainer.innerHTML = `<p class="col-span-full text-center text-xs text-gray-400 italic py-6">Syncing repository...</p>`;
+            
+            const selectedLang = document.getElementById('filter-bank-lang').value;
+            const selectedType = document.getElementById('filter-bank-type').value;
+            
+            let combinedItems = [];
+            try {
+                const qSnap = await getDocs(collection(db, "qbank"));
+                const sSnap = await getDocs(collection(db, "stimulusbank"));
+                const rpSnap = await getDocs(collection(db, "rpbank"));
+                
+                qSnap.forEach(doc => combinedItems.push({ id: doc.id, collection: 'qbank', ...doc.data() }));
+                sSnap.forEach(doc => combinedItems.push({ id: doc.id, collection: 'stimulusbank', ...doc.data() }));
+                rpSnap.forEach(doc => combinedItems.push({ id: doc.id, collection: 'rpbank', ...doc.data() }));
+                
+                let filteredItems = combinedItems.filter(item => {
+                    const matchLang = (selectedLang === 'All' || item.language === selectedLang);
+                    const matchType = (selectedType === 'All' || item.type === selectedType);
+                    return matchLang && matchType;
+                });
+                
+                if (filteredItems.length === 0) {
+                    gridContainer.innerHTML = `<p class="col-span-full text-center text-xs text-gray-400 italic py-6">No tasks found matching current library filters.</p>`;
+                    return;
+                }
+                
+                gridContainer.innerHTML = '';
+                filteredItems.forEach(item => {
+                    let colorAccent = "border-purple-500 text-purple-700 bg-purple-50";
+                    if (item.type === "read-aloud") colorAccent = "border-emerald-500 text-emerald-700 bg-emerald-50";
+                    if (item.type === "role-play") colorAccent = "border-blue-500 text-blue-700 bg-blue-50";
+                    
+                    const card = document.createElement('div');
+                    card.className = "bg-white border p-4 rounded-xl shadow-sm flex flex-col justify-between relative hover:shadow-md transition";
+                    card.innerHTML = `
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-center">
+                                <span class="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded border ${colorAccent}">${item.type}</span>
+                                <span class="text-xs font-bold text-gray-500">${item.language}</span>
+                            </div>
+                            <h4 class="font-bold text-gray-800 text-sm">${item.title || 'Untitled Bank Package'}</h4>
+                            <p class="text-xs text-gray-500 line-clamp-2">${item.passage || item.description || (item.questions ? item.questions.join(', ') : 'No preview available')}</p>
+                        </div>
+                        <div class="flex items-center justify-between mt-4 pt-3 border-t">
+                            <div class="flex gap-2">
+                                <button class="text-[10px] text-blue-600 font-bold hover:underline" onclick='populateItemToEdit(${JSON.stringify(item)})'>Edit Details</button>
+                                <button class="text-[10px] text-red-500 font-bold hover:underline ml-2" onclick="deleteBankItem('${item.collection}', '${item.id}')">Trash</button>
+                            </div>
+                            <button class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold shadow-sm transition" onclick='openAssignModal(${JSON.stringify(item)})'>Assign</button>
+                        </div>
+                    `;
+                    gridContainer.appendChild(card);
+                });
+            } catch(e) {
+                gridContainer.innerHTML = "Fetch failed.";
+            }
+        }
 
+        document.getElementById('filter-bank-lang').addEventListener('change', syncAndRenderQuestionBankMasterGrid);
+        document.getElementById('filter-bank-type').addEventListener('change', syncAndRenderQuestionBankMasterGrid);
+
+        // ==========================================
+        // ASSIGN MODAL & MATRIX OPERATIONS
+        // ==========================================
         window.openAssignModal = function(item) {
             currentAssignTargetItem = item;
             document.getElementById('modal-assign-item-info').textContent = `Asset: ${item.title || 'Conversational Session'} (${item.language})`;
@@ -657,7 +967,7 @@
             const tierContainer = document.getElementById('modal-assign-tier-container');
             const tierSelect = document.getElementById('modal-assign-tier-select');
             
-            // Removing Tier option completely for Conversations
+            // Tier Logic enforcement
             if (item.type === 'conversation') {
                 tierContainer.classList.add('hidden');
                 tierSelect.innerHTML = '<option value="Untiered">Untiered</option>';
@@ -666,6 +976,13 @@
                 tierSelect.innerHTML = '<option value="Foundation">Foundation</option><option value="Higher">Higher</option>';
             }
             
+            // Populate classes list into modal
+            const select = document.getElementById('modal-assign-class-select');
+            select.innerHTML = '<option value="">Select a tracked group</option>';
+            allRegisteredClassesCache.forEach(c => {
+                select.innerHTML += `<option value="${c.id}">${c.name}</option>`;
+            });
+
             document.getElementById('modal-quick-assign').classList.remove('hidden');
         }
 
@@ -698,12 +1015,73 @@
             }
         });
 
+        function loadTeacherMatrixClasses() {
+            onSnapshot(collection(db, "classes"), (snap) => {
+                allRegisteredClassesCache = [];
+                const tbody = document.getElementById('matrix-classes-tbody');
+                const cardsContainer = document.getElementById('class-cards-container');
+                tbody.innerHTML = '';
+                cardsContainer.innerHTML = '';
 
-        // Teacher Feed -> FIXED Firebase Indexing by sorting in JS Client Logic explicitly
+                if (snap.empty) {
+                    tbody.innerHTML = `<tr><td colspan="3" class="p-3 text-center text-gray-400 italic">No structural classes built yet.</td></tr>`;
+                    cardsContainer.innerHTML = `<p class="text-xs text-gray-400 italic">No target classes linked to your account module yet.</p>`;
+                    return;
+                }
+
+                snap.forEach(doc => {
+                    const c = { id: doc.id, ...doc.data() };
+                    allRegisteredClassesCache.push(c);
+                    
+                    // Matrix table population
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-50";
+                    tr.innerHTML = `
+                        <td class="p-3 font-semibold text-gray-800">${c.name}</td>
+                        <td class="p-3 font-medium text-gray-500">${c.teacher}</td>
+                        <td class="p-3 text-right">
+                            <button class="text-blue-600 hover:text-blue-800 font-bold underline transition">Settings & Scrub</button>
+                        </td>
+                    `;
+                    tr.querySelector('button').addEventListener('click', () => {
+                        activeEditingMatrixClassId = c.id;
+                        document.getElementById('matrix-edit-label-target').textContent = c.name;
+                        document.getElementById('matrix-edit-class-name').value = c.name;
+                        document.getElementById('matrix-edit-class-teacher').value = c.teacher;
+                        document.getElementById('matrix-class-edit-panel').classList.remove('hidden');
+                    });
+                    tbody.appendChild(tr);
+
+                    // Classes Pane Cards
+                    const btn = document.createElement('button');
+                    btn.className = "bg-white border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50 px-4 py-3 rounded-lg text-sm font-bold text-gray-700 transition w-[180px] text-left break-words";
+                    btn.textContent = c.name;
+                    btn.addEventListener('click', () => {
+                        document.getElementById('active-class-workspace').classList.remove('hidden');
+                        document.getElementById('active-class-title').textContent = c.name;
+                        document.getElementById('active-class-teachers-label').textContent = `Assigned Teacher: ${c.teacher}`;
+                        loadClassAssignmentsTimelineView(c.id);
+                        document.getElementById('roster-drawer-panel').classList.add('hidden');
+                    });
+                    cardsContainer.appendChild(btn);
+                });
+            });
+        }
+
+        document.getElementById('btn-matrix-create-class').addEventListener('click', async () => {
+            const name = document.getElementById('matrix-new-class-name').value.trim();
+            const teacher = document.getElementById('matrix-new-class-teacher').value.trim();
+            if(!name || !teacher) return alert("Please fill both metadata fields fully.");
+            try {
+                await addDoc(collection(db, "classes"), { name: name, teacher: teacher, createdAt: Date.now() });
+                alert("Class registered!");
+                document.getElementById('matrix-new-class-name').value = '';
+                document.getElementById('matrix-new-class-teacher').value = '';
+            } catch(e) { console.error(e); }
+        });
+
         function loadClassAssignmentsTimelineView(classId) {
-            // Removed 'orderBy' from query config!
             const q = query(collection(db, "assignments"), where("classId", "==", classId));
-            
             onSnapshot(q, (snap) => {
                 const container = document.getElementById('class-assignments-list-group');
                 container.innerHTML = '';
@@ -712,7 +1090,6 @@
                     return;
                 }
                 
-                // Sort Descending Array
                 let tasks = [];
                 snap.forEach(d => tasks.push({id: d.id, ...d.data()}));
                 tasks.sort((a,b) => b.assignedAt - a.assignedAt);
@@ -730,97 +1107,214 @@
                             <span class="text-red-500">Due: ${item.deadlineDate || 'None'}</span>
                         </div>
                     `;
-                    // Assign item summary hook here logic 
+                    // Assume metrics load hook here for future expansion
                     container.appendChild(div);
                 });
             });
         }
 
+        // ==========================================
+        // STUDENT PRACTICE ARENA & AUDIO HANDLING
+        // ==========================================
+        function loadStudentPracticeArena(task) {
+            activeTask = task;
+            taskStepsArray = [];
+            currentStepIndex = 0;
+            cachedStepSubmissions = [];
 
-        // =======================================
-        // STUDENT DASHBOARD CACHING AND UI FIXES
-        // =======================================
+            document.getElementById('task-title').textContent = task.taskTitle;
+            document.getElementById('task-type-badge').textContent = task.type.toUpperCase();
+            document.getElementById('task-tier-badge').textContent = `${task.tier} TIER`;
+            document.getElementById('task-lang').textContent = task.language;
 
-        async function loadStudentAssignmentsDashboardFeed() {
-            // Fix loading the exact student class direct from DB instead of missing local caching lists
-            const badge = document.getElementById('student-current-class-badge');
-            badge.textContent = "Loading...";
+            document.getElementById('ai-feedback').classList.add('hidden');
+            document.getElementById('ai-loading').classList.add('hidden');
+            
+            document.getElementById('read-aloud-text-container').classList.add('hidden');
+            document.getElementById('roleplay-scenario-container').classList.add('hidden');
 
-            try {
-                const classDoc = await getDoc(doc(db, "classes", activeSelectedClassDocId));
-                if (classDoc.exists()) {
-                    badge.textContent = classDoc.data().name;
-                } else {
-                    badge.textContent = "Unknown Class Connection";
-                }
-            } catch(e) {
-                badge.textContent = "Fetch Failed";
+            if (task.type === 'read-aloud') {
+                document.getElementById('read-aloud-text-container').classList.remove('hidden');
+                document.getElementById('student-stimulus-text').textContent = task.passage;
+                taskStepsArray.push({ type: 'reading', instruction: "Read the entire passage aloud.", promptText: task.passage });
+                if(task.followUpQuestions) task.followUpQuestions.forEach((q, i) => {
+                    taskStepsArray.push({ type: 'question', instruction: `Listen and respond to Unseen Question ${i+1}`, promptText: q });
+                });
+            } else if (task.type === 'role-play') {
+                document.getElementById('roleplay-scenario-container').classList.remove('hidden');
+                document.getElementById('student-scenario-text').textContent = task.description;
+                if(task.prompts) task.prompts.forEach((p, i) => {
+                    taskStepsArray.push({ type: 'prompt', instruction: `Speak instruction prompt ${i+1}`, promptText: p });
+                });
+            } else if (task.type === 'conversation') {
+                if(task.questions) task.questions.forEach((q, i) => {
+                    taskStepsArray.push({ type: 'question', instruction: `Respond continuously to node ${i+1}`, promptText: q });
+                });
             }
 
-            // Fixed Sorting Index Bypass Student Dashboard Load
-            const q = query(collection(db, "assignments"), where("classId", "==", activeSelectedClassDocId));
-            onSnapshot(q, (snap) => {
-                const container = document.getElementById('student-task-list');
-                if(!container) return;
-                container.innerHTML = '';
-                
-                if(snap.empty) {
-                    container.innerHTML = `<p class="text-xs text-gray-400 italic text-center py-8">All current tasks clear! No pending assigned workloads found.</p>`;
-                    return;
+            document.getElementById('practice-arena').classList.remove('hidden');
+            renderActiveStepSequenceStateLayout();
+        }
+
+        function renderActiveStepSequenceStateLayout() {
+            const currentStep = taskStepsArray[currentStepIndex];
+            document.getElementById('student-step-indicator').textContent = `Step ${currentStepIndex + 1} of ${taskStepsArray.length}`;
+            document.getElementById('student-step-instruction').textContent = currentStep.instruction;
+            document.getElementById('recording-status').textContent = "Microphone tracking synchronized.";
+            document.getElementById('btn-record').className = "bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-full font-bold shadow transition";
+            document.getElementById('btn-record').textContent = "Record Response";
+            isRecording = false;
+        }
+
+        document.getElementById('btn-speak-prompt').addEventListener('click', () => {
+            if(taskStepsArray.length === 0 || !activeTask) return;
+            const textToSpeak = taskStepsArray[currentStepIndex].promptText;
+            const langCode = activeTask.language === 'French' ? 'fr-FR' : (activeTask.language === 'Spanish' ? 'es-ES' : 'de-DE');
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(textToSpeak);
+                utterance.lang = langCode;
+                window.speechSynthesis.speak(utterance);
+            } else {
+                alert("Your browser does not support speech synthesis components.");
+            }
+        });
+
+        document.getElementById('btn-record').addEventListener('click', async () => {
+            if(!isRecording) {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    return alert("Your browser blocks access to media capture.");
                 }
+                audioChunks = [];
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.ondataavailable = (e) => {
+                        if(e.data.size > 0) audioChunks.push(e.data);
+                    };
+                    mediaRecorder.onstop = () => processSpeechAudioBinaryPayloadInput();
+                    mediaRecorder.start();
+                    isRecording = true;
+                    document.getElementById('btn-record').className = "bg-gray-800 hover:bg-gray-900 text-white px-6 py-3 rounded-full font-bold shadow animate-pulse";
+                    document.getElementById('btn-record').textContent = "🛑 Stop & Submit";
+                    document.getElementById('recording-status').textContent = "Recording live audio stream...";
+                } catch(e) {
+                    console.error("Audio block: ", e);
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+            }
+        });
 
-                let tasks = [];
-                snap.forEach(d => tasks.push({id: d.id, ...d.data()}));
-                tasks.sort((a,b) => b.assignedAt - a.assignedAt);
+        async function processSpeechAudioBinaryPayloadInput() {
+            document.getElementById('ai-loading').classList.remove('hidden');
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            
+            try {
+                // Simulate Transcribe (Replace with Whisper API if needed)
+                const transcript = "Student's simulated transcribed audio response payload output.";
+                
+                const promptText = taskStepsArray[currentStepIndex].promptText;
+                const promptEngineTemplateInputString = `
+                You are an expert ${activeTask.language} examiner marking UK GCSE Language speaking tests. 
+                Evaluate this student spoken response for a ${activeTask.language} (${activeTask.tier} Tier Level) task.
+                
+                [TASK CONTEXT NODE]: ${promptText}
+                [STUDENT TRANSCRIBED VERBATIM UTTERANCE]: ${transcript}
+                
+                Respond strictly with a valid JSON block containing:
+                {
+                  "accuracyScore": integer (0 to 100),
+                  "fluencyScore": integer (0 to 100),
+                  "feedbackCritique": "Concise high-impact feedback sentence."
+                }
+                `;
 
-                tasks.forEach(task => {
-                    const div = document.createElement('div');
-                    div.className = "p-3 bg-gray-50 border hover:bg-blue-50/60 rounded-xl cursor-pointer text-xs space-y-1 hover:shadow-sm transition";
-                    div.innerHTML = `
-                        <div class="flex justify-between font-bold text-gray-800">
-                            <span>${task.taskTitle}</span>
-                            <span class="text-[10px] text-blue-600 uppercase">${task.type}</span>
+                const response = await ai.models.generateContent({
+                    model: "gemini-1.5-flash",
+                    contents: promptEngineTemplateInputString,
+                    config: { responseMimeType: "application/json" }
+                });
+
+                const parseData = JSON.parse(response.text.trim());
+                cachedStepSubmissions.push({
+                    promptText: promptText,
+                    studentTranscript: transcript,
+                    accuracy: parseData.accuracyScore || 70,
+                    fluency: parseData.fluencyScore || 70,
+                    analysisFeedback: parseData.feedbackCritique || "Well attempted iteration."
+                });
+
+                document.getElementById('ai-loading').classList.add('hidden');
+
+                if (currentStepIndex < taskStepsArray.length - 1) {
+                    currentStepIndex++;
+                    renderActiveStepSequenceStateLayout();
+                } else {
+                    compileAndSaveFinalPerformanceTrackingMatrix();
+                }
+            } catch (err) {
+                console.error("AI Node Execution Failed: ", err);
+                document.getElementById('ai-loading').classList.add('hidden');
+                alert("Evaluation Engine failed processing.");
+            }
+        }
+
+        async function compileAndSaveFinalPerformanceTrackingMatrix() {
+            let totalAcc = 0; let totalFluency = 0;
+            cachedStepSubmissions.forEach(s => {
+                totalAcc += s.accuracy;
+                totalFluency += s.fluency;
+            });
+            const avgAcc = Math.round(totalAcc / cachedStepSubmissions.length);
+            const avgFlu = Math.round(totalFluency / cachedStepSubmissions.length);
+
+            const submissionPayload = {
+                studentId: currentUser.uid,
+                studentEmail: currentUser.email,
+                classId: activeSelectedClassDocId,
+                assignmentId: activeTask.id,
+                taskTitle: activeTask.taskTitle,
+                type: activeTask.type,
+                tier: activeTask.tier,
+                language: activeTask.language,
+                accuracyScore: avgAcc,
+                fluencyScore: avgFlu,
+                stepBreakdowns: cachedStepSubmissions,
+                submittedAt: Date.now()
+            };
+
+            try {
+                await addDoc(collection(db, "submissions"), submissionPayload);
+                
+                const wrapper = document.getElementById('feedback-steps-wrapper');
+                wrapper.innerHTML = `
+                    <div class="flex justify-around bg-white p-4 rounded border border-emerald-100 shadow-sm mb-4">
+                        <div class="text-center"><span class="block text-xs font-bold text-gray-500 uppercase">Avg Accuracy</span><span class="text-2xl font-black text-emerald-600">${avgAcc}%</span></div>
+                        <div class="text-center"><span class="block text-xs font-bold text-gray-500 uppercase">Avg Fluency</span><span class="text-2xl font-black text-blue-600">${avgFlu}%</span></div>
+                    </div>
+                `;
+                cachedStepSubmissions.forEach((step, idx) => {
+                    wrapper.innerHTML += `
+                        <div class="pt-4">
+                            <h5 class="text-xs font-bold text-gray-600 uppercase">Step ${idx+1}: ${step.promptText}</h5>
+                            <div class="my-2 p-2 bg-white rounded border text-xs text-gray-600 font-serif italic">"${step.studentTranscript}"</div>
+                            <p class="text-gray-500 font-normal leading-relaxed text-sm"><span class="font-bold text-gray-700">Critique:</span> ${step.analysisFeedback}</p>
                         </div>
-                        <div class="text-[10px] text-gray-500">Tier Level: <span class="font-bold">${task.tier}</span></div>
-                    `;
-                    container.appendChild(div);
-                });
-            });
-        }
-
-
-        function loadStudentPerformanceHistory() {
-            // Index bypass sorting solution
-            const qRef = query(collection(db, "submissions"), where("studentId", "==", currentUser.uid));
-            onSnapshot(qRef, (snap) => {
-                const tbody = document.getElementById('student-history-table');
-                if(!tbody) return;
-                tbody.innerHTML = '';
-                
-                if(snap.empty) {
-                    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-400 italic">No historical tracking metrics found.</td></tr>`;
-                    return;
-                }
-
-                let logs = [];
-                snap.forEach(d => logs.push(d.data()));
-                logs.sort((a,b) => b.submittedAt - a.submittedAt);
-
-                logs.forEach(log => {
-                    tbody.innerHTML += `
-                        <tr class="hover:bg-gray-50 border-b">
-                            <td class="p-3 font-medium">${log.taskTitle}</td>
-                            <td class="p-3 font-semibold text-blue-600 text-xs uppercase">${log.type}</td>
-                            <td class="p-3 text-emerald-600 font-bold">${log.accuracyScore}%</td>
-                            <td class="p-3 text-blue-600 font-bold">${log.fluencyScore}%</td>
-                            <td class="p-3 text-gray-400 text-xs">${new Date(log.submittedAt).toLocaleDateString()}</td>
-                        </tr>
                     `;
                 });
-            });
-        }
 
-        // Add additional remaining original logic hooks (e.g. MediaRecorder) normally...
+                document.getElementById('practice-arena').classList.add('hidden');
+                document.getElementById('ai-feedback').classList.remove('hidden');
+                document.getElementById('practice-arena').classList.remove('hidden'); // Show layout wrapper
+                document.getElementById('student-content-card').classList.add('hidden');
+                document.getElementById('btn-record').classList.add('hidden');
+
+            } catch (err) {
+                console.error("Submission sync log: ", err);
+            }
+        }
     </script>
 </body>
 </html>
