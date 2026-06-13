@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Language Speaking Practice</title>
+    <title>MFL Speaking Practice</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans">
 
     <nav class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
-        <h1 class="text-xl font-bold tracking-wide">🌍 Cedars Upper AI Speaking Hub</h1>
+        <h1 class="text-xl font-bold tracking-wide">🌍 Cedars Upper Speaking Hub</h1>
         <div id="nav-controls" class="hidden flex items-center gap-4">
             <span id="user-display" class="text-sm font-medium bg-blue-700 px-3 py-1 rounded"></span>
             <button id="btn-dashboard-toggle" class="bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-sm font-semibold transition hidden">Teacher Command Center</button>
@@ -39,7 +39,7 @@
         <section id="view-student" class="hidden space-y-6">
             <div class="border-b pb-4">
                 <h2 class="text-2xl font-bold text-gray-800">Your Assignments & Track Record</h2>
-                <p class="text-gray-600">Practice your speaking skills and monitor your progress grades below.</p>
+                <p class="text-gray-600">Practice your speaking skills and monitor your personal grades below.</p>
             </div>
             
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -125,7 +125,7 @@
         <section id="view-teacher" class="hidden space-y-8">
             <div class="border-b pb-4">
                 <h2 class="text-2xl font-bold text-gray-800">Teacher Management Console</h2>
-                <p class="text-gray-600">Manage tasks, assign homework targets to classes, and view real-time student performance metrics.</p>
+                <p class="text-gray-600">Manage tasks, assign homework targets to classes, and view real-time student performance metrics across cohorts.</p>
             </div>
 
             <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -204,7 +204,7 @@
             messagingSenderId: "162949632188",
             appId: "1:162949632188:web:e5981bcf305b346d99c0b9"
         };
-        const GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"; // Drop your school's Gemini key right here!
+        const GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"; // Place your school's Gemini key string here
 
         // Initialize Web SDK Instances
         const app = initializeApp(firebaseConfig);
@@ -249,7 +249,7 @@
             }
         }
 
-        // --- GOOGLE SIGN-IN FLOW WITH INTEGRATED EMAIL VALIDATION PARSER ---
+        // --- GOOGLE SIGN-IN PROVIDER TRIGGER ---
         document.getElementById('btn-google-login').addEventListener('click', async () => {
             try {
                 const result = await signInWithPopup(auth, provider);
@@ -261,23 +261,7 @@
                     alert("Access Denied: You must sign in using an official @cedarsupper.co.uk school Google profile.");
                     return;
                 }
-
-                // Split rules parsing to detect Student numeric indices vs Teacher alphabetic entries
-                const emailLocalPart = email.split('@')[0];
-                const startsWithNumber = /^[0-9]/.test(emailLocalPart);
-                const role = startsWithNumber ? 'student' : 'teacher';
-
-                // Check if user record profile doc exists already; if not, create one automatically
-                const userDocRef = doc(db, "users", result.user.uid);
-                const userDocSnap = await getDoc(userDocRef);
-                
-                if (!userDocSnap.exists()) {
-                    await setDoc(userDocRef, {
-                        email: email,
-                        role: role,
-                        createdAt: new Date().toISOString()
-                    });
-                }
+                // The onAuthStateChanged block below will now catch this and provision documents asynchronously!
             } catch (err) {
                 alert("Authentication Interrupted: " + err.message);
             }
@@ -289,15 +273,51 @@
             routeTo(isCurrentlyViewingTeacher ? 'student' : 'teacher');
         });
 
+        // --- BULLETPROOF AUTH STATE LISTENER ---
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 currentUser = user;
-                const userDoc = await getDoc(doc(db, "users", user.uid));
-                userRole = userDoc.exists() ? userDoc.data().role : 'student';
-                routeTo('student');
-                loadStudentTasks();
-                loadStudentPerformanceHistory();
-                loadTeacherGradebook();
+                const email = user.email.toLowerCase();
+
+                try {
+                    // 1. Attempt to fetch the user profile doc
+                    const userDocRef = doc(db, "users", user.uid);
+                    const userDocSnap = await getDoc(userDocRef);
+
+                    if (userDocSnap.exists()) {
+                        // User exists! Read role assignment
+                        userRole = userDocSnap.data().role;
+                    } else {
+                        // 2. User is brand new. Calculate role based on local prefix character structures
+                        const emailLocalPart = email.split('@')[0];
+                        const startsWithNumber = /^[0-9]/.test(emailLocalPart);
+                        userRole = startsWithNumber ? 'student' : 'teacher';
+
+                        // 3. Write profile trace initialization matrix to database
+                        await setDoc(userDocRef, {
+                            email: email,
+                            role: userRole,
+                            createdAt: new Date().toISOString()
+                        });
+                        console.log(`New profile auto-provisioned for ${email} as ${userRole}`);
+                    }
+
+                    // 4. Fire view layouts router mapping configurations
+                    if (userRole === 'teacher') {
+                        routeTo('teacher');
+                    } else {
+                        routeTo('student');
+                    }
+
+                    // 5. Populate tracking data sets across dashboard pipelines
+                    loadStudentTasks();
+                    loadStudentPerformanceHistory();
+                    loadTeacherGradebook();
+
+                } catch (permissionError) {
+                    console.error("Firestore Policy Catch:", permissionError);
+                    alert("Permissions initialization error. Please verify your Security Rules tab inside the Firebase Console.");
+                }
             } else {
                 currentUser = null;
                 routeTo('auth');
