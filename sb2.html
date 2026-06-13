@@ -247,8 +247,9 @@
                             <input id="matrix-new-class-name" type="text" placeholder="e.g., Year 11 French Higher" class="w-full p-2 border rounded mt-1 text-xs bg-white focus:ring-1 focus:ring-blue-500 outline-none">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-gray-600 uppercase">Lead Class Teacher Email</label>
-                            <input id="matrix-new-class-teacher" type="email" placeholder="teacher@cedarsupper.co.uk" class="w-full p-2 border rounded mt-1 text-xs bg-gray-50 focus:bg-white focus:ring-1 focus:ring-blue-500 outline-none">
+                            <label class="block text-xs font-bold text-gray-600 uppercase">Lead Class Teacher Email(s)</label>
+                            <input id="matrix-new-class-teacher" type="email" placeholder="teacher1@cedarsupper.co.uk, teacher2@..." class="w-full p-2 border rounded mt-1 text-xs bg-gray-50 focus:bg-white focus:ring-1 focus:ring-blue-500 outline-none">
+                            <p class="text-[10px] text-gray-400 mt-1">Separate multiple teachers with a comma.</p>
                         </div>
                         <button id="btn-matrix-create-class" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded text-xs shadow transition">Initialize New Class</button>
                     </div>
@@ -268,7 +269,7 @@
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-bold text-gray-600 uppercase">Update Teacher Email(s)</label>
-                                    <input id="matrix-edit-class-teacher" type="text" class="w-full p-1.5 bg-white border rounded text-xs mt-0.5">
+                                    <input id="matrix-edit-class-teacher" type="text" placeholder="Separate with comma" class="w-full p-1.5 bg-white border rounded text-xs mt-0.5">
                                 </div>
                             </div>
                             <div class="flex gap-2 pt-1.5 justify-end">
@@ -302,7 +303,8 @@
                             <h3 class="text-lg font-bold text-gray-800">📚 Live Question Bank Assets Repository</h3>
                             <p class="text-xs text-gray-500">Open templates, tweak prompts, delete, or immediately assign packages to custom class streams.</p>
                         </div>
-                        <div class="flex gap-2">
+                        <div class="flex gap-2 items-center">
+                            <button id="btn-toggle-trash" class="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-bold px-3 py-2 rounded text-xs transition shadow-sm mr-2">🗑️ View Trash Bin</button>
                             <select id="filter-bank-lang" class="p-2 border rounded text-xs bg-gray-50 font-medium">
                                 <option value="All">All Languages</option>
                                 <option value="French">French</option>
@@ -458,6 +460,9 @@
                     <option value="Higher">Higher</option>
                 </select>
             </div>
+            
+            <div id="modal-assign-questions-container" class="hidden border p-2 rounded max-h-40 overflow-y-auto space-y-1 bg-gray-50 text-xs"></div>
+
             <div>
                 <label class="block text-xs font-bold text-gray-600 uppercase">Set Absolute Deadline Date</label>
                 <input id="modal-assign-deadline" type="date" class="w-full p-2 border rounded mt-1 text-sm bg-white">
@@ -502,6 +507,7 @@
         let activeEditingBankCollectionType = null;
         let currentAssignTargetItem = null;
         let activeEditingMatrixClassId = null;
+        let showingTrash = false;
 
         let mediaRecorder;
         let audioChunks = [];
@@ -560,7 +566,20 @@
 
         document.getElementById('btn-dashboard-toggle').addEventListener('click', () => {
             const isCurrentlyTeacherView = !document.getElementById('view-teacher').classList.contains('hidden');
-            routeTo(isCurrentlyTeacherView ? 'student' : 'teacher');
+            if (isCurrentlyTeacherView) { 
+                // Teacher is Switching to Student View
+                if (activeSelectedClassDocId) {
+                    routeTo('student');
+                    loadStudentAssignmentsDashboardFeed();
+                    loadStudentPerformanceHistory();
+                } else {
+                    routeTo('onboarding');
+                    loadOnboardingClassesList();
+                }
+            } else {
+                // Switching back to Teacher view
+                routeTo('teacher');
+            }
         });
 
         document.getElementById('hub-btn-classes').addEventListener('click', () => switchTeacherPane('pane-classes', 'hub-btn-classes'));
@@ -571,7 +590,6 @@
         // AUTHENTICATION
         document.getElementById('btn-google-login').addEventListener('click', async () => {
             const provider = new GoogleAuthProvider();
-            // Important: This locks login to cedarsupper.co.uk domains!
             provider.setCustomParameters({ hd: 'cedarsupper.co.uk' });
             try {
                 await signInWithPopup(auth, provider);
@@ -592,19 +610,20 @@
                 }
                 currentUser = user;
                 
-                // --- NEW ROLE IDENTIFICATION LOGIC ---
+                // --- ROLE IDENTIFICATION LOGIC ---
                 // If there are ANY numbers before the @ symbol, they are a student.
-                // If there are NO numbers before the @ symbol, they are a teacher.
                 const localPart = user.email.split('@')[0];
                 const hasNumbers = /\d/.test(localPart);
-                
-                let identifiedRole = hasNumbers ? 'student' : 'teacher';
-                userRole = identifiedRole;
+                userRole = hasNumbers ? 'student' : 'teacher';
+
+                // Fetch student profile regardless of role, so teachers can test student view
+                const studentDoc = await getDoc(doc(db, "students", user.uid));
+                if (studentDoc.exists()) {
+                    activeSelectedClassDocId = studentDoc.data().classId;
+                }
 
                 if (userRole === 'student') {
-                    const studentDoc = await getDoc(doc(db, "students", user.uid));
-                    if (studentDoc.exists()) {
-                        activeSelectedClassDocId = studentDoc.data().classId;
+                    if (activeSelectedClassDocId) {
                         routeTo('student');
                         loadStudentAssignmentsDashboardFeed();
                         loadStudentPerformanceHistory();
@@ -620,6 +639,7 @@
             } else {
                 currentUser = null;
                 userRole = null;
+                activeSelectedClassDocId = null;
                 routeTo('auth');
             }
         });
@@ -657,13 +677,11 @@
             const badge = document.getElementById('student-current-class-badge');
             badge.textContent = "Loading Matrix Data...";
 
-            // Direct fetch bypasses cache problems if student loaded first
             try {
                 const classDoc = await getDoc(doc(db, "classes", activeSelectedClassDocId));
                 if(classDoc.exists()) badge.textContent = classDoc.data().name;
             } catch(e) {}
 
-            // Index-free client side sort
             const q = query(collection(db, "assignments"), where("classId", "==", activeSelectedClassDocId));
             onSnapshot(q, (snap) => {
                 const container = document.getElementById('student-task-list');
@@ -753,7 +771,7 @@
             document.getElementById('btn-add-to-rpbank').textContent = "Save Scenario Package Array";
         }
 
-        // SAVE BUTTONS WITH ROUTING FIX
+        // SAVE BUTTONS
         document.getElementById('btn-add-to-qbank').addEventListener('click', async () => {
             const title = document.getElementById('bank-input-conv-title').value.trim();
             const language = document.getElementById('bank-input-lang').value;
@@ -869,16 +887,44 @@
             }
         }
 
+        // --- TRASH LOGIC ---
+        document.getElementById('btn-toggle-trash').addEventListener('click', () => {
+            showingTrash = !showingTrash;
+            const btn = document.getElementById('btn-toggle-trash');
+            if (showingTrash) {
+                btn.textContent = "📚 Back to Active Library";
+                btn.className = "bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 font-bold px-3 py-2 rounded text-xs transition shadow-sm mr-2";
+            } else {
+                btn.textContent = "🗑️ View Trash Bin";
+                btn.className = "bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-bold px-3 py-2 rounded text-xs transition shadow-sm mr-2";
+            }
+            syncAndRenderQuestionBankMasterGrid();
+        });
+
         window.deleteBankItem = async function(collectionName, documentId) {
-            if(!confirm("Are you certain you want to permanently remove this template item from the library?")) return;
+            if(!confirm("Move this template item to the trash bin? It will automatically be deleted after 30 days.")) return;
             try {
-                await deleteDoc(doc(db, collectionName, documentId));
-                alert("Template successfully removed.");
+                await updateDoc(doc(db, collectionName, documentId), { deletedAt: Date.now() });
                 syncAndRenderQuestionBankMasterGrid();
             } catch(err) { console.error(err); }
         }
 
-        // QUESTION BANK GRID
+        window.restoreBankItem = async function(collectionName, documentId) {
+            try {
+                await updateDoc(doc(db, collectionName, documentId), { deletedAt: null });
+                syncAndRenderQuestionBankMasterGrid();
+            } catch(err) { console.error(err); }
+        }
+
+        window.hardDeleteBankItem = async function(collectionName, documentId) {
+            if(!confirm("Are you sure you want to PERMANENTLY delete this item? This cannot be undone.")) return;
+            try {
+                await deleteDoc(doc(db, collectionName, documentId));
+                syncAndRenderQuestionBankMasterGrid();
+            } catch(err) { console.error(err); }
+        }
+
+        // QUESTION BANK GRID (With Trash Filtering & Auto-Delete)
         async function syncAndRenderQuestionBankMasterGrid() {
             const gridContainer = document.getElementById('bank-assets-grid-container');
             gridContainer.innerHTML = `<p class="col-span-full text-center text-xs text-gray-400 italic py-6">Syncing repository...</p>`;
@@ -886,24 +932,44 @@
             const selectedLang = document.getElementById('filter-bank-lang').value;
             const selectedType = document.getElementById('filter-bank-type').value;
             
+            const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+            const now = Date.now();
+
             let combinedItems = [];
             try {
                 const qSnap = await getDocs(collection(db, "qbank"));
                 const sSnap = await getDocs(collection(db, "stimulusbank"));
                 const rpSnap = await getDocs(collection(db, "rpbank"));
                 
-                qSnap.forEach(doc => combinedItems.push({ id: doc.id, collection: 'qbank', ...doc.data() }));
-                sSnap.forEach(doc => combinedItems.push({ id: doc.id, collection: 'stimulusbank', ...doc.data() }));
-                rpSnap.forEach(doc => combinedItems.push({ id: doc.id, collection: 'rpbank', ...doc.data() }));
+                const processSnap = (snap, colName) => {
+                    snap.forEach(docSnap => {
+                        const data = docSnap.data();
+                        // Auto-delete mechanism
+                        if (data.deletedAt && (now - data.deletedAt > THIRTY_DAYS_MS)) {
+                            deleteDoc(doc(db, colName, docSnap.id)); 
+                            return; // Skip adding to display array
+                        }
+                        combinedItems.push({ id: docSnap.id, collection: colName, ...data });
+                    });
+                };
+
+                processSnap(qSnap, 'qbank');
+                processSnap(sSnap, 'stimulusbank');
+                processSnap(rpSnap, 'rpbank');
                 
                 let filteredItems = combinedItems.filter(item => {
+                    // Filter based on Trash state
+                    if (showingTrash && !item.deletedAt) return false;
+                    if (!showingTrash && item.deletedAt) return false;
+
                     const matchLang = (selectedLang === 'All' || item.language === selectedLang);
                     const matchType = (selectedType === 'All' || item.type === selectedType);
                     return matchLang && matchType;
                 });
                 
                 if (filteredItems.length === 0) {
-                    gridContainer.innerHTML = `<p class="col-span-full text-center text-xs text-gray-400 italic py-6">No tasks found matching current library filters.</p>`;
+                    const emptyMsg = showingTrash ? "The trash bin is currently empty." : "No tasks found matching current library filters.";
+                    gridContainer.innerHTML = `<p class="col-span-full text-center text-xs text-gray-400 italic py-6">${emptyMsg}</p>`;
                     return;
                 }
                 
@@ -914,7 +980,28 @@
                     if (item.type === "role-play") colorAccent = "border-blue-500 text-blue-700 bg-blue-50";
                     
                     const card = document.createElement('div');
-                    card.className = "bg-white border p-4 rounded-xl shadow-sm flex flex-col justify-between relative hover:shadow-md transition";
+                    card.className = `bg-white border p-4 rounded-xl shadow-sm flex flex-col justify-between relative hover:shadow-md transition ${item.deletedAt ? 'opacity-80' : ''}`;
+                    
+                    let actionButtons = '';
+                    if (showingTrash) {
+                        actionButtons = `
+                            <div class="flex gap-2 w-full mt-2">
+                                <button class="flex-1 bg-green-100 hover:bg-green-200 text-green-800 px-3 py-1.5 rounded text-xs font-bold transition" onclick="restoreBankItem('${item.collection}', '${item.id}')">♻️ Restore</button>
+                                <button class="flex-1 bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1.5 rounded text-xs font-bold transition" onclick="hardDeleteBankItem('${item.collection}', '${item.id}')">Permanently Delete</button>
+                            </div>
+                        `;
+                    } else {
+                        actionButtons = `
+                            <div class="flex items-center justify-between mt-4 pt-3 border-t w-full">
+                                <div class="flex gap-2">
+                                    <button class="text-[10px] text-blue-600 font-bold hover:underline" onclick='populateItemToEdit(${JSON.stringify(item)})'>Edit Details</button>
+                                    <button class="text-[10px] text-red-500 font-bold hover:underline ml-2" onclick="deleteBankItem('${item.collection}', '${item.id}')">Trash</button>
+                                </div>
+                                <button class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold shadow-sm transition" onclick='openAssignModal(${JSON.stringify(item)})'>Assign</button>
+                            </div>
+                        `;
+                    }
+
                     card.innerHTML = `
                         <div class="space-y-2">
                             <div class="flex justify-between items-center">
@@ -923,14 +1010,9 @@
                             </div>
                             <h4 class="font-bold text-gray-800 text-sm">${item.title || 'Untitled Bank Package'}</h4>
                             <p class="text-xs text-gray-500 line-clamp-2">${item.passage || item.description || (item.questions ? item.questions.join(', ') : 'No preview available')}</p>
+                            ${showingTrash ? `<p class="text-[10px] text-red-500 italic mt-2">Deleted on: ${new Date(item.deletedAt).toLocaleDateString()}</p>` : ''}
                         </div>
-                        <div class="flex items-center justify-between mt-4 pt-3 border-t">
-                            <div class="flex gap-2">
-                                <button class="text-[10px] text-blue-600 font-bold hover:underline" onclick='populateItemToEdit(${JSON.stringify(item)})'>Edit Details</button>
-                                <button class="text-[10px] text-red-500 font-bold hover:underline ml-2" onclick="deleteBankItem('${item.collection}', '${item.id}')">Trash</button>
-                            </div>
-                            <button class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold shadow-sm transition" onclick='openAssignModal(${JSON.stringify(item)})'>Assign</button>
-                        </div>
+                        ${actionButtons}
                     `;
                     gridContainer.appendChild(card);
                 });
@@ -949,11 +1031,28 @@
             
             const tierContainer = document.getElementById('modal-assign-tier-container');
             const tierSelect = document.getElementById('modal-assign-tier-select');
+            const qContainer = document.getElementById('modal-assign-questions-container');
             
-            // Apply Tier rules
+            qContainer.innerHTML = '';
+            qContainer.classList.add('hidden');
+
             if (item.type === 'conversation') {
                 tierContainer.classList.add('hidden');
                 tierSelect.innerHTML = '<option value="Untiered">Untiered</option>';
+                
+                // Construct Checkboxes for selecting specific questions
+                if(item.questions && item.questions.length > 0) {
+                    qContainer.classList.remove('hidden');
+                    qContainer.innerHTML = '<label class="block font-bold mb-2 text-gray-700">Select Specific Questions to Assign:</label>';
+                    item.questions.forEach((q, idx) => {
+                        qContainer.innerHTML += `
+                            <label class="flex items-start gap-2 cursor-pointer hover:bg-gray-100 p-1.5 rounded border border-transparent hover:border-gray-200 transition">
+                                <input type="checkbox" class="modal-q-checkbox mt-0.5" value="${idx}" checked> 
+                                <span class="text-gray-800">${q}</span>
+                            </label>
+                        `;
+                    });
+                }
             } else {
                 tierContainer.classList.remove('hidden');
                 tierSelect.innerHTML = '<option value="Foundation">Foundation</option><option value="Higher">Higher</option>';
@@ -975,6 +1074,19 @@
 
             if(!classId) return alert("Please specify an operational target cohort.");
 
+            // Determine if subset of questions was selected for Conversations
+            let assignedQuestions = currentAssignTargetItem.questions || null;
+            if (currentAssignTargetItem.type === 'conversation') {
+                const checkboxes = document.querySelectorAll('.modal-q-checkbox');
+                assignedQuestions = [];
+                checkboxes.forEach(cb => {
+                    if (cb.checked) assignedQuestions.push(currentAssignTargetItem.questions[cb.value]);
+                });
+                if (assignedQuestions.length === 0) {
+                    return alert("You must select at least one question to deploy.");
+                }
+            }
+
             try {
                 await addDoc(collection(db, "assignments"), {
                     taskTitle: currentAssignTargetItem.title || 'Conversational Task',
@@ -987,7 +1099,7 @@
                     followUpQuestions: currentAssignTargetItem.followUpQuestions || null,
                     description: currentAssignTargetItem.description || null,
                     prompts: currentAssignTargetItem.prompts || null,
-                    questions: currentAssignTargetItem.questions || null,
+                    questions: assignedQuestions,
                     assignedAt: Date.now()
                 });
                 alert("Task successfully assigned to cohort stream!");
@@ -1061,8 +1173,26 @@
             } catch(e) { console.error(e); }
         });
 
+        document.getElementById('btn-matrix-save-class').addEventListener('click', async () => {
+            if(!activeEditingMatrixClassId) return;
+            const name = document.getElementById('matrix-edit-class-name').value.trim();
+            const teacher = document.getElementById('matrix-edit-class-teacher').value.trim();
+            try {
+                await updateDoc(doc(db, "classes", activeEditingMatrixClassId), { name, teacher });
+                document.getElementById('matrix-class-edit-panel').classList.add('hidden');
+            } catch(e) {}
+        });
+
+        document.getElementById('btn-matrix-delete-class').addEventListener('click', async () => {
+            if(!activeEditingMatrixClassId) return;
+            if(!confirm("Destroy this entire class group? This deletes all roster mapping.")) return;
+            try {
+                await deleteDoc(doc(db, "classes", activeEditingMatrixClassId));
+                document.getElementById('matrix-class-edit-panel').classList.add('hidden');
+            } catch(e) {}
+        });
+
         function loadClassAssignmentsTimelineView(classId) {
-            // Replaced index crashing sort with native array sort
             const q = query(collection(db, "assignments"), where("classId", "==", classId));
             onSnapshot(q, (snap) => {
                 const container = document.getElementById('class-assignments-list-group');
@@ -1089,7 +1219,6 @@
                             <span class="text-red-500">Due: ${item.deadlineDate || 'None'}</span>
                         </div>
                     `;
-                    // Analytics Hook (left for future summary metrics function)
                     container.appendChild(div);
                 });
             });
