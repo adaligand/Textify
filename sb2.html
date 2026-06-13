@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MFL Speaking Practice</title>
+    <title>AI Language Speaking Practice</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans">
 
     <nav class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
-        <h1 class="text-xl font-bold tracking-wide">🌍 Cedars Upper Speaking Hub</h1>
+        <h1 class="text-xl font-bold tracking-wide">🌍 Cedars Upper AI Speaking Hub</h1>
         <div id="nav-controls" class="hidden flex items-center gap-4">
             <span id="user-display" class="text-sm font-medium bg-blue-700 px-3 py-1 rounded"></span>
             <button id="btn-dashboard-toggle" class="bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-sm font-semibold transition hidden">Teacher Command Center</button>
@@ -255,13 +255,11 @@
                 const result = await signInWithPopup(auth, provider);
                 const email = result.user.email.toLowerCase();
 
-                // Gatekeeper Domain Security Logic
                 if (!email.endsWith('@cedarsupper.co.uk')) {
                     await signOut(auth);
                     alert("Access Denied: You must sign in using an official @cedarsupper.co.uk school Google profile.");
                     return;
                 }
-                // The onAuthStateChanged block below will now catch this and provision documents asynchronously!
             } catch (err) {
                 alert("Authentication Interrupted: " + err.message);
             }
@@ -273,50 +271,48 @@
             routeTo(isCurrentlyViewingTeacher ? 'student' : 'teacher');
         });
 
-        // --- BULLETPROOF AUTH STATE LISTENER ---
+        // --- SEQUENTIAL FIXED AUTH STATE LISTENER ---
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 currentUser = user;
                 const email = user.email.toLowerCase();
 
                 try {
-                    // 1. Attempt to fetch the user profile doc
                     const userDocRef = doc(db, "users", user.uid);
-                    const userDocSnap = await getDoc(userDocRef);
+                    
+                    // 1. Calculate role upfront locally so we aren't dependent on DB reads to log in
+                    const emailLocalPart = email.split('@')[0];
+                    const startsWithNumber = /^[0-9]/.test(emailLocalPart);
+                    userRole = startsWithNumber ? 'student' : 'teacher';
 
-                    if (userDocSnap.exists()) {
-                        // User exists! Read role assignment
-                        userRole = userDocSnap.data().role;
-                    } else {
-                        // 2. User is brand new. Calculate role based on local prefix character structures
-                        const emailLocalPart = email.split('@')[0];
-                        const startsWithNumber = /^[0-9]/.test(emailLocalPart);
-                        userRole = startsWithNumber ? 'student' : 'teacher';
+                    // 2. Write/Update profile document and AWAIT completion completely
+                    await setDoc(userDocRef, {
+                        email: email,
+                        role: userRole,
+                        updatedAt: new Date().toISOString()
+                    }, { merge: true });
 
-                        // 3. Write profile trace initialization matrix to database
-                        await setDoc(userDocRef, {
-                            email: email,
-                            role: userRole,
-                            createdAt: new Date().toISOString()
-                        });
-                        console.log(`New profile auto-provisioned for ${email} as ${userRole}`);
-                    }
+                    console.log(`Profile successfully verified/created for ${email} as ${userRole}`);
 
-                    // 4. Fire view layouts router mapping configurations
+                    // 3. Route layouts safely
                     if (userRole === 'teacher') {
                         routeTo('teacher');
                     } else {
                         routeTo('student');
                     }
 
-                    // 5. Populate tracking data sets across dashboard pipelines
-                    loadStudentTasks();
-                    loadStudentPerformanceHistory();
-                    loadTeacherGradebook();
+                    // 4. Delay active database listeners by 200ms to allow security engines to sync
+                    setTimeout(() => {
+                        loadStudentTasks();
+                        loadStudentPerformanceHistory();
+                        if (userRole === 'teacher') {
+                            loadTeacherGradebook();
+                        }
+                    }, 200);
 
                 } catch (permissionError) {
                     console.error("Firestore Policy Catch:", permissionError);
-                    alert("Permissions initialization error. Please verify your Security Rules tab inside the Firebase Console.");
+                    alert("Permissions initialization error: " + permissionError.message);
                 }
             } else {
                 currentUser = null;
@@ -368,7 +364,7 @@
                         </tr>
                     `;
                 });
-            });
+            }, (err) => console.log("Gradebook sync paused:", err.message));
         }
 
         // --- STUDENT LOGIC: ASSIGNMENT LOADERS AND SPEECH ANALYTICS HUB ---
@@ -409,7 +405,7 @@
                     };
                     container.appendChild(item);
                 });
-            });
+            }, (err) => console.log("Assignments sync paused:", err.message));
         }
 
         function loadStudentPerformanceHistory() {
@@ -433,7 +429,7 @@
                         </tr>
                     `;
                 });
-            });
+            }, (err) => console.log("History sync paused:", err.message));
         }
 
         // --- NATIVE BROWSER WEBAUDIO RECORDER API ---
