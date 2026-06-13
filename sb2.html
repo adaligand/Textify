@@ -865,4 +865,582 @@
                 document.getElementById('bank-input-stimulus-title').value = item.title;
                 document.getElementById('bank-input-stimulus-lang').value = item.language;
                 document.getElementById('bank-input-stimulus-body').value = item.passage;
-                if(item.followUpQuestions)
+                if(item.followUpQuestions) {
+                    if(item.followUpQuestions[0]) document.getElementById('bank-input-stimulus-q1').value = item.followUpQuestions[0];
+                    if(item.followUpQuestions[1]) document.getElementById('bank-input-stimulus-q2').value = item.followUpQuestions[1];
+                }
+                document.getElementById('btn-add-to-stimulusbank').textContent = "Update Read Aloud Template";
+            } else if (item.type === 'role-play') {
+                document.getElementById('bank-input-rp-title').value = item.title;
+                document.getElementById('bank-input-rp-scenario-topic').value = item.topic;
+                document.getElementById('bank-input-rp-lang').value = item.language;
+                document.getElementById('bank-input-rp-desc').value = item.description;
+                if(item.prompts) {
+                    item.prompts.forEach((p, idx) => {
+                        const el = document.getElementById(`bank-input-rp-bp${idx+1}`);
+                        if(el) el.value = p;
+                    });
+                }
+                document.getElementById('btn-add-to-rpbank').textContent = "Update Scenario Template";
+            }
+        }
+
+        // TRASH LOGIC
+        document.getElementById('btn-toggle-trash').addEventListener('click', () => {
+            showingTrash = !showingTrash;
+            const btn = document.getElementById('btn-toggle-trash');
+            if (showingTrash) {
+                btn.textContent = "📚 Back to Active Library";
+                btn.className = "bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 font-bold px-3 py-2 rounded text-xs transition shadow-sm mr-2";
+            } else {
+                btn.textContent = "🗑️ View Trash Bin";
+                btn.className = "bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-bold px-3 py-2 rounded text-xs transition shadow-sm mr-2";
+            }
+            syncAndRenderQuestionBankMasterGrid();
+        });
+
+        async function deleteBankItem(collectionName, documentId) {
+            if(!confirm("Move this template item to the trash bin? It will automatically be deleted after 30 days.")) return;
+            try {
+                await updateDoc(doc(db, collectionName, documentId), { deletedAt: Date.now() });
+                syncAndRenderQuestionBankMasterGrid();
+            } catch(err) { console.error(err); }
+        }
+
+        async function restoreBankItem(collectionName, documentId) {
+            try {
+                await updateDoc(doc(db, collectionName, documentId), { deletedAt: null });
+                syncAndRenderQuestionBankMasterGrid();
+            } catch(err) { console.error(err); }
+        }
+
+        async function hardDeleteBankItem(collectionName, documentId) {
+            if(!confirm("Are you sure you want to PERMANENTLY delete this item? This cannot be undone.")) return;
+            try {
+                await deleteDoc(doc(db, collectionName, documentId));
+                syncAndRenderQuestionBankMasterGrid();
+            } catch(err) { console.error(err); }
+        }
+
+        // QUESTION BANK GRID 
+        async function syncAndRenderQuestionBankMasterGrid() {
+            const gridContainer = document.getElementById('bank-assets-grid-container');
+            gridContainer.innerHTML = `<p class="col-span-full text-center text-xs text-gray-400 italic py-6">Syncing repository...</p>`;
+            
+            const selectedLang = document.getElementById('filter-bank-lang').value;
+            const selectedType = document.getElementById('filter-bank-type').value;
+            
+            const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+            const now = Date.now();
+
+            let combinedItems = [];
+            try {
+                const qSnap = await getDocs(collection(db, "qbank"));
+                const sSnap = await getDocs(collection(db, "stimulusbank"));
+                const rpSnap = await getDocs(collection(db, "rpbank"));
+                
+                const processSnap = (snap, colName) => {
+                    snap.forEach(docSnap => {
+                        const data = docSnap.data();
+                        if (data.deletedAt && (now - data.deletedAt > THIRTY_DAYS_MS)) {
+                            deleteDoc(doc(db, colName, docSnap.id)); 
+                            return; 
+                        }
+                        combinedItems.push({ id: docSnap.id, collection: colName, ...data });
+                    });
+                };
+
+                processSnap(qSnap, 'qbank');
+                processSnap(sSnap, 'stimulusbank');
+                processSnap(rpSnap, 'rpbank');
+                
+                let filteredItems = combinedItems.filter(item => {
+                    if (showingTrash && !item.deletedAt) return false;
+                    if (!showingTrash && item.deletedAt) return false;
+
+                    const matchLang = (selectedLang === 'All' || item.language === selectedLang);
+                    const matchType = (selectedType === 'All' || item.type === selectedType);
+                    return matchLang && matchType;
+                });
+                
+                if (filteredItems.length === 0) {
+                    const emptyMsg = showingTrash ? "The trash bin is currently empty." : "No tasks found matching current library filters.";
+                    gridContainer.innerHTML = `<p class="col-span-full text-center text-xs text-gray-400 italic py-6">${emptyMsg}</p>`;
+                    return;
+                }
+                
+                gridContainer.innerHTML = '';
+                
+                // Safe text escapement to prevent quote breakage
+                const escapeHTML = str => {
+                    if(!str) return '';
+                    return str.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+                };
+
+                filteredItems.forEach(item => {
+                    let colorAccent = "border-purple-500 text-purple-700 bg-purple-50";
+                    if (item.type === "read-aloud") colorAccent = "border-emerald-500 text-emerald-700 bg-emerald-50";
+                    if (item.type === "role-play") colorAccent = "border-blue-500 text-blue-700 bg-blue-50";
+                    
+                    const card = document.createElement('div');
+                    card.className = `bg-white border p-4 rounded-xl shadow-sm flex flex-col justify-between relative hover:shadow-md transition ${item.deletedAt ? 'opacity-80' : ''}`;
+                    
+                    let actionButtonsHTML = '';
+                    if (showingTrash) {
+                        actionButtonsHTML = `
+                            <div class="flex gap-2 w-full mt-2">
+                                <button class="btn-restore flex-1 bg-green-100 hover:bg-green-200 text-green-800 px-3 py-1.5 rounded text-xs font-bold transition">♻️ Restore</button>
+                                <button class="btn-hard-delete flex-1 bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1.5 rounded text-xs font-bold transition">Permanently Delete</button>
+                            </div>
+                        `;
+                    } else {
+                        actionButtonsHTML = `
+                            <div class="flex items-center justify-between mt-4 pt-3 border-t w-full">
+                                <div class="flex gap-2">
+                                    <button class="btn-edit text-[10px] text-blue-600 font-bold hover:underline">Edit Details</button>
+                                    <button class="btn-trash text-[10px] text-red-500 font-bold hover:underline ml-2">Trash</button>
+                                </div>
+                                <button class="btn-assign bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold shadow-sm transition">Assign</button>
+                            </div>
+                        `;
+                    }
+
+                    const safeTitle = escapeHTML(item.title || 'Untitled Bank Package');
+                    let previewText = item.passage || item.description || (item.questions ? item.questions.join(', ') : 'No preview available');
+                    const safePreview = escapeHTML(previewText);
+
+                    card.innerHTML = `
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-center">
+                                <span class="text-[10px] font-bold tracking-wide uppercase px-2 py-0.5 rounded border ${colorAccent}">${item.type}</span>
+                                <span class="text-xs font-bold text-gray-500">${escapeHTML(item.language)}</span>
+                            </div>
+                            <h4 class="font-bold text-gray-800 text-sm">${safeTitle}</h4>
+                            <p class="text-xs text-gray-500 line-clamp-2">${safePreview}</p>
+                            ${showingTrash ? `<p class="text-[10px] text-red-500 italic mt-2">Deleted on: ${new Date(item.deletedAt).toLocaleDateString()}</p>` : ''}
+                        </div>
+                        ${actionButtonsHTML}
+                    `;
+                    
+                    // Add DOM event listeners directly so quotes in questions never break HTML attributes again
+                    if (showingTrash) {
+                        card.querySelector('.btn-restore').addEventListener('click', () => restoreBankItem(item.collection, item.id));
+                        card.querySelector('.btn-hard-delete').addEventListener('click', () => hardDeleteBankItem(item.collection, item.id));
+                    } else {
+                        card.querySelector('.btn-edit').addEventListener('click', () => populateItemToEdit(item));
+                        card.querySelector('.btn-trash').addEventListener('click', () => deleteBankItem(item.collection, item.id));
+                        card.querySelector('.btn-assign').addEventListener('click', () => openAssignModal(item));
+                    }
+
+                    gridContainer.appendChild(card);
+                });
+            } catch(e) {
+                gridContainer.innerHTML = "Fetch failed.";
+            }
+        }
+
+        document.getElementById('filter-bank-lang').addEventListener('change', syncAndRenderQuestionBankMasterGrid);
+        document.getElementById('filter-bank-type').addEventListener('change', syncAndRenderQuestionBankMasterGrid);
+
+        // MODAL ASSIGNMENT & SPECIFIC QUESTION TICKBOXES
+        function openAssignModal(item) {
+            currentAssignTargetItem = item;
+            document.getElementById('modal-assign-item-info').textContent = `Asset: ${item.title || 'Conversational Session'} (${item.language})`;
+            
+            const tierContainer = document.getElementById('modal-assign-tier-container');
+            const tierSelect = document.getElementById('modal-assign-tier-select');
+            const qContainer = document.getElementById('modal-assign-questions-container');
+            
+            qContainer.innerHTML = '';
+            qContainer.classList.add('hidden');
+
+            if (item.type === 'conversation') {
+                tierContainer.classList.add('hidden');
+                tierSelect.innerHTML = '<option value="Untiered">Untiered</option>';
+                
+                if(item.questions && item.questions.length > 0) {
+                    qContainer.classList.remove('hidden');
+                    qContainer.innerHTML = '<label class="block font-bold mb-2 text-gray-700">Select Specific Questions to Assign:</label>';
+                    item.questions.forEach((q, idx) => {
+                        const safeQ = q.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                        qContainer.innerHTML += `
+                            <label class="flex items-start gap-2 cursor-pointer hover:bg-gray-100 p-1.5 rounded border border-transparent hover:border-gray-200 transition">
+                                <input type="checkbox" class="modal-q-checkbox mt-0.5" value="${idx}" checked> 
+                                <span class="text-gray-800">${safeQ}</span>
+                            </label>
+                        `;
+                    });
+                }
+            } else {
+                tierContainer.classList.remove('hidden');
+                tierSelect.innerHTML = '<option value="Foundation">Foundation</option><option value="Higher">Higher</option>';
+            }
+            
+            const select = document.getElementById('modal-assign-class-select');
+            select.innerHTML = '<option value="">Select a tracked group</option>';
+            allRegisteredClassesCache.forEach(c => {
+                select.innerHTML += `<option value="${c.id}">${c.name}</option>`;
+            });
+
+            document.getElementById('modal-quick-assign').classList.remove('hidden');
+        }
+
+        document.getElementById('btn-modal-assign-submit').addEventListener('click', async () => {
+            const classId = document.getElementById('modal-assign-class-select').value;
+            const tier = document.getElementById('modal-assign-tier-select').value;
+            const deadlineValue = document.getElementById('modal-assign-deadline').value;
+
+            if(!classId) return alert("Please specify an operational target cohort.");
+
+            let assignedQuestions = currentAssignTargetItem.questions || null;
+            if (currentAssignTargetItem.type === 'conversation') {
+                const checkboxes = document.querySelectorAll('.modal-q-checkbox');
+                assignedQuestions = [];
+                checkboxes.forEach(cb => {
+                    if (cb.checked) assignedQuestions.push(currentAssignTargetItem.questions[cb.value]);
+                });
+                if (assignedQuestions.length === 0) {
+                    return alert("You must select at least one question to deploy.");
+                }
+            }
+
+            try {
+                await addDoc(collection(db, "assignments"), {
+                    taskTitle: currentAssignTargetItem.title || 'Conversational Task',
+                    type: currentAssignTargetItem.type,
+                    language: currentAssignTargetItem.language,
+                    tier: tier,
+                    classId: classId,
+                    deadlineDate: deadlineValue || "No Deadline Specified",
+                    passage: currentAssignTargetItem.passage || null,
+                    followUpQuestions: currentAssignTargetItem.followUpQuestions || null,
+                    description: currentAssignTargetItem.description || null,
+                    prompts: currentAssignTargetItem.prompts || null,
+                    questions: assignedQuestions,
+                    assignedAt: Date.now()
+                });
+                alert("Task successfully assigned to cohort stream!");
+                document.getElementById('modal-quick-assign').classList.add('hidden');
+            } catch(err) {
+                console.error("Assignment dispatch error: ", err);
+            }
+        });
+
+        // TEACHER MATRIX MANAGEMENT
+        function loadTeacherMatrixClasses() {
+            onSnapshot(collection(db, "classes"), (snap) => {
+                allRegisteredClassesCache = [];
+                const tbody = document.getElementById('matrix-classes-tbody');
+                const cardsContainer = document.getElementById('class-cards-container');
+                tbody.innerHTML = '';
+                cardsContainer.innerHTML = '';
+
+                if (snap.empty) {
+                    tbody.innerHTML = `<tr><td colspan="3" class="p-3 text-center text-gray-400 italic">No structural classes built yet.</td></tr>`;
+                    cardsContainer.innerHTML = `<p class="text-xs text-gray-400 italic">No target classes linked to your account module yet.</p>`;
+                    return;
+                }
+
+                snap.forEach(doc => {
+                    const c = { id: doc.id, ...doc.data() };
+                    allRegisteredClassesCache.push(c);
+                    
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-50";
+                    tr.innerHTML = `
+                        <td class="p-3 font-semibold text-gray-800">${c.name}</td>
+                        <td class="p-3 font-medium text-gray-500">${c.teacher}</td>
+                        <td class="p-3 text-right">
+                            <button class="text-blue-600 hover:text-blue-800 font-bold underline transition">Settings & Scrub</button>
+                        </td>
+                    `;
+                    tr.querySelector('button').addEventListener('click', () => {
+                        activeEditingMatrixClassId = c.id;
+                        document.getElementById('matrix-edit-label-target').textContent = c.name;
+                        document.getElementById('matrix-edit-class-name').value = c.name;
+                        document.getElementById('matrix-edit-class-teacher').value = c.teacher;
+                        document.getElementById('matrix-class-edit-panel').classList.remove('hidden');
+                    });
+                    tbody.appendChild(tr);
+
+                    const btn = document.createElement('button');
+                    btn.className = "bg-white border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50 px-4 py-3 rounded-lg text-sm font-bold text-gray-700 transition w-[180px] text-left break-words";
+                    btn.textContent = c.name;
+                    btn.addEventListener('click', () => {
+                        document.getElementById('active-class-workspace').classList.remove('hidden');
+                        document.getElementById('active-class-title').textContent = c.name;
+                        document.getElementById('active-class-teachers-label').textContent = `Assigned Teacher(s): ${c.teacher}`;
+                        loadClassAssignmentsTimelineView(c.id);
+                        document.getElementById('roster-drawer-panel').classList.add('hidden');
+                    });
+                    cardsContainer.appendChild(btn);
+                });
+            });
+        }
+
+        document.getElementById('btn-matrix-create-class').addEventListener('click', async () => {
+            const name = document.getElementById('matrix-new-class-name').value.trim();
+            const teacher = document.getElementById('matrix-new-class-teacher').value.trim();
+            if(!name || !teacher) return alert("Please fill both metadata fields fully.");
+            try {
+                await addDoc(collection(db, "classes"), { name: name, teacher: teacher, createdAt: Date.now() });
+                alert("Class registered!");
+                document.getElementById('matrix-new-class-name').value = '';
+                document.getElementById('matrix-new-class-teacher').value = '';
+            } catch(e) { console.error(e); }
+        });
+
+        document.getElementById('btn-matrix-save-class').addEventListener('click', async () => {
+            if(!activeEditingMatrixClassId) return;
+            const name = document.getElementById('matrix-edit-class-name').value.trim();
+            const teacher = document.getElementById('matrix-edit-class-teacher').value.trim();
+            try {
+                await updateDoc(doc(db, "classes", activeEditingMatrixClassId), { name, teacher });
+                document.getElementById('matrix-class-edit-panel').classList.add('hidden');
+            } catch(e) {}
+        });
+
+        document.getElementById('btn-matrix-delete-class').addEventListener('click', async () => {
+            if(!activeEditingMatrixClassId) return;
+            if(!confirm("Destroy this entire class group? This deletes all roster mapping.")) return;
+            try {
+                await deleteDoc(doc(db, "classes", activeEditingMatrixClassId));
+                document.getElementById('matrix-class-edit-panel').classList.add('hidden');
+            } catch(e) {}
+        });
+
+        function loadClassAssignmentsTimelineView(classId) {
+            const q = query(collection(db, "assignments"), where("classId", "==", classId));
+            onSnapshot(q, (snap) => {
+                const container = document.getElementById('class-assignments-list-group');
+                container.innerHTML = '';
+                if(snap.empty) {
+                    container.innerHTML = `<p class="text-xs text-gray-400 italic">No tasks assigned to this class cohort timeline track yet.</p>`;
+                    return;
+                }
+                
+                let tasks = [];
+                snap.forEach(d => tasks.push({id: d.id, ...d.data()}));
+                tasks.sort((a,b) => b.assignedAt - a.assignedAt);
+
+                tasks.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = "p-3 bg-gray-50 border hover:bg-blue-50/50 rounded-lg text-xs cursor-pointer transition flex flex-col gap-1";
+                    div.innerHTML = `
+                        <div class="flex justify-between font-bold text-gray-800">
+                            <span>${item.taskTitle}</span>
+                            <span class="text-[10px] text-blue-600 uppercase">${item.type}</span>
+                        </div>
+                        <div class="flex justify-between items-center text-gray-400 text-[10px] font-medium">
+                            <span>Tier Level: ${item.tier}</span>
+                            <span class="text-red-500">Due: ${item.deadlineDate || 'None'}</span>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+            });
+        }
+
+        // STUDENT PRACTICE ARENA
+        function loadStudentPracticeArena(task) {
+            activeTask = task;
+            taskStepsArray = [];
+            currentStepIndex = 0;
+            cachedStepSubmissions = [];
+
+            document.getElementById('task-title').textContent = task.taskTitle;
+            document.getElementById('task-type-badge').textContent = task.type.toUpperCase();
+            document.getElementById('task-tier-badge').textContent = `${task.tier} TIER`;
+            document.getElementById('task-lang').textContent = task.language;
+
+            document.getElementById('ai-feedback').classList.add('hidden');
+            document.getElementById('ai-loading').classList.add('hidden');
+            
+            document.getElementById('read-aloud-text-container').classList.add('hidden');
+            document.getElementById('roleplay-scenario-container').classList.add('hidden');
+
+            if (task.type === 'read-aloud') {
+                document.getElementById('read-aloud-text-container').classList.remove('hidden');
+                document.getElementById('student-stimulus-text').textContent = task.passage;
+                taskStepsArray.push({ type: 'reading', instruction: "Read the entire passage aloud.", promptText: task.passage });
+                if(task.followUpQuestions) task.followUpQuestions.forEach((q, i) => {
+                    taskStepsArray.push({ type: 'question', instruction: `Listen and respond to Unseen Question ${i+1}`, promptText: q });
+                });
+            } else if (task.type === 'role-play') {
+                document.getElementById('roleplay-scenario-container').classList.remove('hidden');
+                document.getElementById('student-scenario-text').textContent = task.description;
+                if(task.prompts) task.prompts.forEach((p, i) => {
+                    taskStepsArray.push({ type: 'prompt', instruction: `Speak instruction prompt ${i+1}`, promptText: p });
+                });
+            } else if (task.type === 'conversation') {
+                if(task.questions) task.questions.forEach((q, i) => {
+                    taskStepsArray.push({ type: 'question', instruction: `Respond continuously to node ${i+1}`, promptText: q });
+                });
+            }
+
+            document.getElementById('practice-arena').classList.remove('hidden');
+            renderActiveStepSequenceStateLayout();
+        }
+
+        function renderActiveStepSequenceStateLayout() {
+            const currentStep = taskStepsArray[currentStepIndex];
+            document.getElementById('student-step-indicator').textContent = `Step ${currentStepIndex + 1} of ${taskStepsArray.length}`;
+            document.getElementById('student-step-instruction').textContent = currentStep.instruction;
+            document.getElementById('recording-status').textContent = "Microphone tracking synchronized.";
+            document.getElementById('btn-record').className = "bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-full font-bold shadow transition";
+            document.getElementById('btn-record').textContent = "Record Response";
+            isRecording = false;
+        }
+
+        document.getElementById('btn-speak-prompt').addEventListener('click', () => {
+            if(taskStepsArray.length === 0 || !activeTask) return;
+            const textToSpeak = taskStepsArray[currentStepIndex].promptText;
+            const langCode = activeTask.language === 'French' ? 'fr-FR' : (activeTask.language === 'Spanish' ? 'es-ES' : 'de-DE');
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(textToSpeak);
+                utterance.lang = langCode;
+                window.speechSynthesis.speak(utterance);
+            } else {
+                alert("Your browser does not support speech synthesis components.");
+            }
+        });
+
+        document.getElementById('btn-record').addEventListener('click', async () => {
+            if(!isRecording) {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    return alert("Your browser blocks access to media capture.");
+                }
+                audioChunks = [];
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.ondataavailable = (e) => {
+                        if(e.data.size > 0) audioChunks.push(e.data);
+                    };
+                    mediaRecorder.onstop = () => processSpeechAudioBinaryPayloadInput();
+                    mediaRecorder.start();
+                    isRecording = true;
+                    document.getElementById('btn-record').className = "bg-gray-800 hover:bg-gray-900 text-white px-6 py-3 rounded-full font-bold shadow animate-pulse";
+                    document.getElementById('btn-record').textContent = "🛑 Stop & Submit";
+                    document.getElementById('recording-status').textContent = "Recording live audio stream...";
+                } catch(e) {
+                    console.error("Audio block: ", e);
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+            }
+        });
+
+        async function processSpeechAudioBinaryPayloadInput() {
+            document.getElementById('ai-loading').classList.remove('hidden');
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            
+            try {
+                // Audio upload/transcription API hook goes here in reality
+                const transcript = "Student's simulated transcribed audio response payload output.";
+                const promptText = taskStepsArray[currentStepIndex].promptText;
+                
+                const promptEngineTemplateInputString = `
+                You are an expert ${activeTask.language} examiner marking UK GCSE Language speaking tests. 
+                Evaluate this student spoken response for a ${activeTask.language} (${activeTask.tier} Tier Level) task.
+                
+                [TASK CONTEXT NODE]: ${promptText}
+                [STUDENT TRANSCRIBED VERBATIM UTTERANCE]: ${transcript}
+                
+                Respond strictly with a valid JSON block containing:
+                {
+                  "accuracyScore": integer (0 to 100),
+                  "fluencyScore": integer (0 to 100),
+                  "feedbackCritique": "Concise high-impact feedback sentence."
+                }
+                `;
+
+                const response = await ai.models.generateContent({
+                    model: "gemini-1.5-flash",
+                    contents: promptEngineTemplateInputString,
+                    config: { responseMimeType: "application/json" }
+                });
+
+                const parseData = JSON.parse(response.text.trim());
+                cachedStepSubmissions.push({
+                    promptText: promptText,
+                    studentTranscript: transcript,
+                    accuracy: parseData.accuracyScore || 70,
+                    fluency: parseData.fluencyScore || 70,
+                    analysisFeedback: parseData.feedbackCritique || "Well attempted iteration."
+                });
+
+                document.getElementById('ai-loading').classList.add('hidden');
+
+                if (currentStepIndex < taskStepsArray.length - 1) {
+                    currentStepIndex++;
+                    renderActiveStepSequenceStateLayout();
+                } else {
+                    compileAndSaveFinalPerformanceTrackingMatrix();
+                }
+            } catch (err) {
+                console.error("AI Node Execution Failed: ", err);
+                document.getElementById('ai-loading').classList.add('hidden');
+                alert("Evaluation Engine failed processing. Is Gemini API Key correct?");
+            }
+        }
+
+        async function compileAndSaveFinalPerformanceTrackingMatrix() {
+            let totalAcc = 0; let totalFluency = 0;
+            cachedStepSubmissions.forEach(s => {
+                totalAcc += s.accuracy;
+                totalFluency += s.fluency;
+            });
+            const avgAcc = Math.round(totalAcc / cachedStepSubmissions.length);
+            const avgFlu = Math.round(totalFluency / cachedStepSubmissions.length);
+
+            const submissionPayload = {
+                studentId: currentUser.uid,
+                studentEmail: currentUser.email,
+                classId: activeSelectedClassDocId,
+                assignmentId: activeTask.id,
+                taskTitle: activeTask.taskTitle,
+                type: activeTask.type,
+                tier: activeTask.tier,
+                language: activeTask.language,
+                accuracyScore: avgAcc,
+                fluencyScore: avgFlu,
+                stepBreakdowns: cachedStepSubmissions,
+                submittedAt: Date.now()
+            };
+
+            try {
+                await addDoc(collection(db, "submissions"), submissionPayload);
+                
+                const wrapper = document.getElementById('feedback-steps-wrapper');
+                wrapper.innerHTML = `
+                    <div class="flex justify-around bg-white p-4 rounded border border-emerald-100 shadow-sm mb-4">
+                        <div class="text-center"><span class="block text-xs font-bold text-gray-500 uppercase">Avg Accuracy</span><span class="text-2xl font-black text-emerald-600">${avgAcc}%</span></div>
+                        <div class="text-center"><span class="block text-xs font-bold text-gray-500 uppercase">Avg Fluency</span><span class="text-2xl font-black text-blue-600">${avgFlu}%</span></div>
+                    </div>
+                `;
+                cachedStepSubmissions.forEach((step, idx) => {
+                    wrapper.innerHTML += `
+                        <div class="pt-4">
+                            <h5 class="text-xs font-bold text-gray-600 uppercase">Step ${idx+1}: ${step.promptText}</h5>
+                            <div class="my-2 p-2 bg-white rounded border text-xs text-gray-600 font-serif italic">"${step.studentTranscript}"</div>
+                            <p class="text-gray-500 font-normal leading-relaxed text-sm"><span class="font-bold text-gray-700">Critique:</span> ${step.analysisFeedback}</p>
+                        </div>
+                    `;
+                });
+
+                document.getElementById('practice-arena').classList.add('hidden');
+                document.getElementById('ai-feedback').classList.remove('hidden');
+                document.getElementById('practice-arena').classList.remove('hidden');
+                document.getElementById('student-content-card').classList.add('hidden');
+                document.getElementById('btn-record').classList.add('hidden');
+
+            } catch (err) {
+                console.error("Submission sync log: ", err);
+            }
+        }
+    </script>
+</body>
+</html>
