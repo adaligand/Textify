@@ -44,7 +44,7 @@
             <div class="border-b pb-4 flex justify-between items-center">
                 <h2 class="text-2xl font-bold text-gray-800">Your Assignments & Track Record</h2>
                 <div class="text-xs font-semibold bg-gray-100 border px-3 py-1 rounded text-gray-600">
-                    Your Registered Group: <span id="student-current-class-badge" class="text-blue-600 font-bold">Loading...</span>
+                    Your Registered Group: <span id="student-current-class-badge" class="text-blue-600">Loading...</span>
                 </div>
             </div>
             
@@ -287,7 +287,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="matrix-classes-tbody" class="divide-y">
-                                    <tr><td colspan="3" class="p-3 text-center text-gray-400 italic">Loading matrix classes...</td></tr>
+                                    <tr><td colspan="3" class="p-3 text-center text-gray-400 italic">No structural classes built yet.</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -324,7 +324,7 @@
                 </div>
             </div>
 
-            <div id="pane-create-task" class="hidden space-y-6">
+            <div id="pane-create-task" class="hidden space-y-8">
                 <div class="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-md border space-y-6">
                     <h3 class="font-bold text-xl text-gray-800 border-b pb-3">➕ Create Library Asset</h3>
                     
@@ -443,7 +443,7 @@
         </section>
     </main>
 
-    <div id="modal-quick-assign" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+    <div id="modal-quick-assign" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
         <div class="bg-white p-6 rounded-xl max-w-sm w-full space-y-4 shadow-xl">
             <h3 class="text-lg font-bold text-gray-800">🚀 Deploy Bank Item to Class</h3>
             <p id="modal-assign-item-info" class="text-xs text-gray-500 font-semibold uppercase"></p>
@@ -485,14 +485,26 @@
             // appId: "..."
         };
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        let app, auth, db, ai;
         
-        // PASTE YOUR GEMINI API KEY BELOW
-        const ai = new GoogleGenAI({ apiKey: "YOUR_GEMINI_API_KEY_HERE" });
+        try {
+            // Safe Initialization: Prevents entire app from crashing if keys are missing
+            if(Object.keys(firebaseConfig).length === 0) {
+                console.warn("WARNING: Firebase Config is empty! You must paste your keys to log in.");
+            } else {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+            }
+            
+            // Gemini API
+            ai = new GoogleGenAI({ apiKey: "YOUR_GEMINI_API_KEY_HERE" }); 
+        } catch (error) {
+            console.error("Initialization error:", error);
+            alert("System initialization failed. Check your API Keys in the code.");
+        }
 
-        // STATE VARIABLES
+        // GLOBALS
         let currentUser = null;
         let userRole = null;
         let activeSelectedClassDocId = null;
@@ -502,7 +514,6 @@
         let currentAssignTargetItem = null;
         let activeEditingMatrixClassId = null;
 
-        // MEDIA/AUDIO GLOBALS
         let mediaRecorder;
         let audioChunks = [];
         let isRecording = false;
@@ -511,9 +522,7 @@
         let currentStepIndex = 0;
         let cachedStepSubmissions = [];
 
-        // ==========================================
-        // ROUTING AND VIEW MANAGEMENT
-        // ==========================================
+        // ROUTING
         function routeTo(viewName) {
             document.getElementById('view-auth').classList.add('hidden');
             document.getElementById('view-student-onboarding').classList.add('hidden');
@@ -543,11 +552,6 @@
             }
         }
 
-        document.getElementById('btn-dashboard-toggle').addEventListener('click', () => {
-            const isCurrentlyTeacherView = !document.getElementById('view-teacher').classList.contains('hidden');
-            routeTo(isCurrentlyTeacherView ? 'student' : 'teacher');
-        });
-
         function switchTeacherPane(paneId, btnId) {
             ['pane-classes', 'pane-manage-matrix', 'pane-banks', 'pane-create-task'].forEach(id => {
                 document.getElementById(id).classList.add('hidden');
@@ -559,76 +563,80 @@
             document.getElementById(paneId).classList.remove('hidden');
             document.getElementById(btnId).classList.add('bg-blue-600', 'text-white');
             document.getElementById(btnId).classList.remove('bg-gray-100', 'text-gray-700');
-
+            
             if (paneId === 'pane-banks') {
                 syncAndRenderQuestionBankMasterGrid();
             }
         }
+
+        document.getElementById('btn-dashboard-toggle').addEventListener('click', () => {
+            const isCurrentlyTeacherView = !document.getElementById('view-teacher').classList.contains('hidden');
+            routeTo(isCurrentlyTeacherView ? 'student' : 'teacher');
+        });
 
         document.getElementById('hub-btn-classes').addEventListener('click', () => switchTeacherPane('pane-classes', 'hub-btn-classes'));
         document.getElementById('hub-btn-manage-matrix').addEventListener('click', () => switchTeacherPane('pane-manage-matrix', 'hub-btn-manage-matrix'));
         document.getElementById('hub-btn-banks').addEventListener('click', () => switchTeacherPane('pane-banks', 'hub-btn-banks'));
         document.getElementById('hub-btn-create').addEventListener('click', () => switchTeacherPane('pane-create-task', 'hub-btn-create'));
 
-        // ==========================================
-        // AUTHENTICATION LOGIC
-        // ==========================================
+        // AUTHENTICATION
         document.getElementById('btn-google-login').addEventListener('click', async () => {
+            if(!auth) return alert("Firebase keys not set! Cannot process Google Sign in.");
             const provider = new GoogleAuthProvider();
             provider.setCustomParameters({ hd: 'cedarsupper.co.uk' });
             try {
                 await signInWithPopup(auth, provider);
             } catch (err) {
                 console.error(err);
-                alert("Login process terminated: " + err.message);
+                alert("Login failed: " + err.message);
             }
         });
 
-        document.getElementById('btn-logout').addEventListener('click', () => signOut(auth));
+        document.getElementById('btn-logout').addEventListener('click', () => {
+            if(auth) signOut(auth);
+        });
 
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                if (!user.email.endsWith('@cedarsupper.co.uk')) {
-                    alert("Unauthorized entry. Only @cedarsupper.co.uk accounts are verified.");
-                    signOut(auth);
-                    return;
-                }
-                currentUser = user;
+        if(auth) {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    if (!user.email.endsWith('@cedarsupper.co.uk')) {
+                        alert("Unauthorized entry. Only @cedarsupper.co.uk accounts are verified.");
+                        signOut(auth);
+                        return;
+                    }
+                    currentUser = user;
+                    
+                    let identifiedRole = 'student';
+                    if (user.email.includes('teacher') || user.email.includes('staff')) { 
+                        identifiedRole = 'teacher';
+                    }
+                    userRole = identifiedRole;
 
-                // Simple check: identify teacher by domain pattern or database check
-                let identifiedRole = 'student';
-                if (user.email.includes('teacher') || user.email.includes('staff')) { // Customize logic as needed
-                    identifiedRole = 'teacher';
-                }
-
-                userRole = identifiedRole;
-
-                if (userRole === 'student') {
-                    const studentDoc = await getDoc(doc(db, "students", user.uid));
-                    if (studentDoc.exists()) {
-                        activeSelectedClassDocId = studentDoc.data().classId;
-                        routeTo('student');
-                        loadStudentAssignmentsDashboardFeed();
-                        loadStudentPerformanceHistory();
+                    if (userRole === 'student') {
+                        const studentDoc = await getDoc(doc(db, "students", user.uid));
+                        if (studentDoc.exists()) {
+                            activeSelectedClassDocId = studentDoc.data().classId;
+                            routeTo('student');
+                            loadStudentAssignmentsDashboardFeed();
+                            loadStudentPerformanceHistory();
+                        } else {
+                            routeTo('onboarding');
+                            loadOnboardingClassesList();
+                        }
                     } else {
-                        routeTo('onboarding');
-                        loadOnboardingClassesList();
+                        routeTo('teacher');
+                        loadTeacherMatrixClasses();
+                        syncAndRenderQuestionBankMasterGrid();
                     }
                 } else {
-                    routeTo('teacher');
-                    loadTeacherMatrixClasses();
-                    syncAndRenderQuestionBankMasterGrid();
+                    currentUser = null;
+                    userRole = null;
+                    routeTo('auth');
                 }
-            } else {
-                currentUser = null;
-                userRole = null;
-                routeTo('auth');
-            }
-        });
+            });
+        }
 
-        // ==========================================
-        // STUDENT ONBOARDING & DASHBOARD
-        // ==========================================
+        // STUDENT ONBOARDING
         async function loadOnboardingClassesList() {
             const snap = await getDocs(collection(db, "classes"));
             const select = document.getElementById('onboarding-class-select');
@@ -659,20 +667,15 @@
 
         async function loadStudentAssignmentsDashboardFeed() {
             const badge = document.getElementById('student-current-class-badge');
-            badge.textContent = "Loading...";
+            badge.textContent = "Loading Matrix Data...";
 
+            // Direct fetch bypasses cache problems if student loaded first
             try {
                 const classDoc = await getDoc(doc(db, "classes", activeSelectedClassDocId));
-                if (classDoc.exists()) {
-                    badge.textContent = classDoc.data().name;
-                } else {
-                    badge.textContent = "Unknown Class Connection";
-                }
-            } catch(e) {
-                badge.textContent = "Fetch Failed";
-            }
+                if(classDoc.exists()) badge.textContent = classDoc.data().name;
+            } catch(e) {}
 
-            // Fixed Sorting to Client-Side (bypasses index crashes)
+            // Index-free client side sort
             const q = query(collection(db, "assignments"), where("classId", "==", activeSelectedClassDocId));
             onSnapshot(q, (snap) => {
                 const container = document.getElementById('student-task-list');
@@ -693,10 +696,10 @@
                     div.className = "p-3 bg-gray-50 border hover:bg-blue-50/60 rounded-xl cursor-pointer text-xs space-y-1 hover:shadow-sm transition";
                     div.innerHTML = `
                         <div class="flex justify-between font-bold text-gray-800">
-                            <span>${task.taskTitle}</span>
-                            <span class="text-[10px] text-blue-600 uppercase">${task.type}</span>
+                            <h4 class="truncate max-w-[150px]">${task.taskTitle}</h4>
+                            <span class="text-[9px] text-blue-600 uppercase border border-blue-200 px-1 rounded">${task.type}</span>
                         </div>
-                        <div class="text-[10px] text-gray-500">Tier Level: <span class="font-bold">${task.tier}</span></div>
+                        <div class="text-[10px] text-gray-500">Tier Level: <span class="font-bold text-gray-800">${task.tier}</span></div>
                     `;
                     div.addEventListener('click', () => loadStudentPracticeArena(task));
                     container.appendChild(div);
@@ -710,12 +713,11 @@
                 const tbody = document.getElementById('student-history-table');
                 if(!tbody) return;
                 tbody.innerHTML = '';
-                
                 if(snap.empty) {
                     tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-400 italic">No historical tracking metrics found.</td></tr>`;
                     return;
                 }
-
+                
                 let logs = [];
                 snap.forEach(d => logs.push(d.data()));
                 logs.sort((a,b) => b.submittedAt - a.submittedAt);
@@ -734,9 +736,7 @@
             });
         }
 
-        // ==========================================
-        // CREATE TASK & BANK LOGIC (Teacher Panes)
-        // ==========================================
+        // CREATE TASK DROPDOWN LOGIC
         document.getElementById('bank-create-type-select').addEventListener('change', (e) => {
             document.getElementById('form-container-conversation').classList.add('hidden');
             document.getElementById('form-container-read-aloud').classList.add('hidden');
@@ -747,7 +747,7 @@
         function clearAndResetAllBankInputForms() {
             activeEditingBankItemId = null;
             activeEditingBankCollectionType = null;
-
+            
             document.getElementById('bank-input-conv-title').value = '';
             document.getElementById('bank-input-questions-raw').value = '';
             document.getElementById('btn-add-to-qbank').textContent = "Save to Conversational Pool";
@@ -765,6 +765,7 @@
             document.getElementById('btn-add-to-rpbank').textContent = "Save Scenario Package Array";
         }
 
+        // SAVE BUTTONS WITH ROUTING FIX
         document.getElementById('btn-add-to-qbank').addEventListener('click', async () => {
             const title = document.getElementById('bank-input-conv-title').value.trim();
             const language = document.getElementById('bank-input-lang').value;
@@ -772,7 +773,6 @@
             const rawQuestions = document.getElementById('bank-input-questions-raw').value.split('\n').filter(q => q.trim() !== '');
 
             if (!title || rawQuestions.length === 0) return alert("Requires a Title and at least one parsed line entry.");
-
             const recordData = { title, type: "conversation", language, theme, questions: rawQuestions, createdBy: currentUser.uid, updatedAt: Date.now() };
 
             try {
@@ -797,7 +797,6 @@
             const q2 = document.getElementById('bank-input-stimulus-q2').value.trim();
 
             if (!title || !bodyText) return alert("Please fill out Title and Passage Content.");
-
             const recordData = { title, type: "read-aloud", language, passage: bodyText, followUpQuestions: [q1, q2].filter(q => q.length > 0), createdBy: currentUser.uid, updatedAt: Date.now() };
 
             try {
@@ -827,7 +826,6 @@
             }
 
             if (!title || !desc || bpArray.length === 0) return alert("Fields Missing.");
-
             const recordData = { title, type: "role-play", language: lang, topic, description: desc, prompts: bpArray, createdBy: currentUser.uid, updatedAt: Date.now() };
 
             try {
@@ -889,11 +887,10 @@
                 await deleteDoc(doc(db, collectionName, documentId));
                 alert("Template successfully removed.");
                 syncAndRenderQuestionBankMasterGrid();
-            } catch(err) {
-                console.error(err);
-            }
+            } catch(err) { console.error(err); }
         }
 
+        // QUESTION BANK GRID
         async function syncAndRenderQuestionBankMasterGrid() {
             const gridContainer = document.getElementById('bank-assets-grid-container');
             gridContainer.innerHTML = `<p class="col-span-full text-center text-xs text-gray-400 italic py-6">Syncing repository...</p>`;
@@ -957,9 +954,7 @@
         document.getElementById('filter-bank-lang').addEventListener('change', syncAndRenderQuestionBankMasterGrid);
         document.getElementById('filter-bank-type').addEventListener('change', syncAndRenderQuestionBankMasterGrid);
 
-        // ==========================================
-        // ASSIGN MODAL & MATRIX OPERATIONS
-        // ==========================================
+        // MODAL ASSIGNMENT
         window.openAssignModal = function(item) {
             currentAssignTargetItem = item;
             document.getElementById('modal-assign-item-info').textContent = `Asset: ${item.title || 'Conversational Session'} (${item.language})`;
@@ -967,7 +962,7 @@
             const tierContainer = document.getElementById('modal-assign-tier-container');
             const tierSelect = document.getElementById('modal-assign-tier-select');
             
-            // Tier Logic enforcement
+            // Apply Tier rules
             if (item.type === 'conversation') {
                 tierContainer.classList.add('hidden');
                 tierSelect.innerHTML = '<option value="Untiered">Untiered</option>';
@@ -976,7 +971,6 @@
                 tierSelect.innerHTML = '<option value="Foundation">Foundation</option><option value="Higher">Higher</option>';
             }
             
-            // Populate classes list into modal
             const select = document.getElementById('modal-assign-class-select');
             select.innerHTML = '<option value="">Select a tracked group</option>';
             allRegisteredClassesCache.forEach(c => {
@@ -1015,6 +1009,7 @@
             }
         });
 
+        // TEACHER MATRIX MANAGEMENT
         function loadTeacherMatrixClasses() {
             onSnapshot(collection(db, "classes"), (snap) => {
                 allRegisteredClassesCache = [];
@@ -1033,7 +1028,6 @@
                     const c = { id: doc.id, ...doc.data() };
                     allRegisteredClassesCache.push(c);
                     
-                    // Matrix table population
                     const tr = document.createElement('tr');
                     tr.className = "hover:bg-gray-50";
                     tr.innerHTML = `
@@ -1052,7 +1046,6 @@
                     });
                     tbody.appendChild(tr);
 
-                    // Classes Pane Cards
                     const btn = document.createElement('button');
                     btn.className = "bg-white border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50 px-4 py-3 rounded-lg text-sm font-bold text-gray-700 transition w-[180px] text-left break-words";
                     btn.textContent = c.name;
@@ -1081,6 +1074,7 @@
         });
 
         function loadClassAssignmentsTimelineView(classId) {
+            // Replaced index crashing sort with native array sort
             const q = query(collection(db, "assignments"), where("classId", "==", classId));
             onSnapshot(q, (snap) => {
                 const container = document.getElementById('class-assignments-list-group');
@@ -1107,15 +1101,13 @@
                             <span class="text-red-500">Due: ${item.deadlineDate || 'None'}</span>
                         </div>
                     `;
-                    // Assume metrics load hook here for future expansion
+                    // Analytics Hook (left for future summary metrics function)
                     container.appendChild(div);
                 });
             });
         }
 
-        // ==========================================
-        // STUDENT PRACTICE ARENA & AUDIO HANDLING
-        // ==========================================
+        // STUDENT PRACTICE ARENA
         function loadStudentPracticeArena(task) {
             activeTask = task;
             taskStepsArray = [];
@@ -1212,10 +1204,10 @@
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
             
             try {
-                // Simulate Transcribe (Replace with Whisper API if needed)
+                // Audio upload/transcription API hook goes here in reality
                 const transcript = "Student's simulated transcribed audio response payload output.";
-                
                 const promptText = taskStepsArray[currentStepIndex].promptText;
+                
                 const promptEngineTemplateInputString = `
                 You are an expert ${activeTask.language} examiner marking UK GCSE Language speaking tests. 
                 Evaluate this student spoken response for a ${activeTask.language} (${activeTask.tier} Tier Level) task.
@@ -1257,7 +1249,7 @@
             } catch (err) {
                 console.error("AI Node Execution Failed: ", err);
                 document.getElementById('ai-loading').classList.add('hidden');
-                alert("Evaluation Engine failed processing.");
+                alert("Evaluation Engine failed processing. Is Gemini API Key correct?");
             }
         }
 
@@ -1307,7 +1299,7 @@
 
                 document.getElementById('practice-arena').classList.add('hidden');
                 document.getElementById('ai-feedback').classList.remove('hidden');
-                document.getElementById('practice-arena').classList.remove('hidden'); // Show layout wrapper
+                document.getElementById('practice-arena').classList.remove('hidden');
                 document.getElementById('student-content-card').classList.add('hidden');
                 document.getElementById('btn-record').classList.add('hidden');
 
