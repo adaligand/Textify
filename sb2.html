@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title> Language Speaking Practice</title>
+    <title>AI Language Speaking Practice</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans">
@@ -592,6 +592,10 @@
         let currentAssignTargetItem = null;
         let activeEditingMatrixClassId = null;
 
+        // GLOBAL TRACKERS FOR MUTATION OPERATION CONTROLS (PREVENTS DUPLICATION OUTCOMES)
+        let activeEditingBankItemId = null;
+        let activeEditingBankCollectionType = null;
+
         // PANEL CONTROLLER ROUTING
         function switchTeacherPane(activePaneId, activeBtnId) {
             document.getElementById('pane-classes').classList.add('hidden');
@@ -609,6 +613,11 @@
                     el.className = "bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold px-5 py-2.5 rounded-lg text-sm transition";
                 }
             });
+
+            // Reset editing state context if teacher switches away to clean screens
+            if(activePaneId !== 'pane-create-task') {
+                clearAndResetAllBankInputForms();
+            }
 
             if(activePaneId === 'pane-banks') {
                 syncAndRenderQuestionBankMasterGrid();
@@ -809,7 +818,7 @@
         document.getElementById('filter-bank-lang').addEventListener('change', syncAndRenderQuestionBankMasterGrid);
         document.getElementById('filter-bank-type').addEventListener('change', syncAndRenderQuestionBankMasterGrid);
 
-        // BANK CREATION ACTIONS HOOKS
+        // MUTATION ENGINE: CONVERSATION POOL
         document.getElementById('btn-add-to-qbank').addEventListener('click', async () => {
             const rawText = document.getElementById('bank-input-questions-raw').value.trim();
             const language = document.getElementById('bank-input-lang').value;
@@ -817,22 +826,32 @@
             if (!rawText) return alert("Please type at least one question.");
             const questionsArray = rawText.split('\n').map(q => q.trim()).filter(q => q.length > 0);
 
+            const recordData = {
+                title: `${theme} - Conv Pack`,
+                type: "conversation",
+                language: language,
+                theme: theme,
+                questions: questionsArray,
+                createdBy: currentUser.uid,
+                updatedAt: Date.now()
+            };
+
             try {
-                await addDoc(collection(db, "qbank"), {
-                    title: `${theme} - Conv Pack`,
-                    type: "conversation",
-                    language: language,
-                    theme: theme,
-                    questions: questionsArray,
-                    createdBy: currentUser.uid,
-                    createdAt: Date.now()
-                });
-                alert("Saved to Conversational Pool inside your Question Bank!");
-                document.getElementById('bank-input-questions-raw').value = '';
-                if(!document.getElementById('pane-banks').classList.contains('hidden')) syncAndRenderQuestionBankMasterGrid();
+                if (activeEditingBankItemId && activeEditingBankCollectionType === 'qbank') {
+                    // Update current record mutation sequence WITHOUT duplication
+                    await setDoc(doc(db, "qbank", activeEditingBankItemId), recordData, { merge: true });
+                    alert("Changes successfully updated inside your existing Conversational template package.");
+                } else {
+                    // Normal brand-new creation execution
+                    recordData.createdAt = Date.now();
+                    await addDoc(collection(db, "qbank"), recordData);
+                    alert("Saved to Conversational Pool inside your Question Bank!");
+                }
+                clearAndResetAllBankInputForms();
             } catch (err) { console.error(err); }
         });
 
+        // MUTATION ENGINE: READ ALOUD PACKAGES
         document.getElementById('btn-add-to-stimulusbank').addEventListener('click', async () => {
             const title = document.getElementById('bank-input-stimulus-title').value.trim();
             const language = document.getElementById('bank-input-stimulus-lang').value;
@@ -841,25 +860,31 @@
             const q2 = document.getElementById('bank-input-stimulus-q2').value.trim();
             if (!title || !bodyText) return alert("Please fill out Title and Passage Content.");
 
+            const recordData = {
+                title: title,
+                type: "read-aloud",
+                language: language,
+                passage: bodyText,
+                followUpQuestions: [q1, q2].filter(q => q.length > 0),
+                createdBy: currentUser.uid,
+                updatedAt: Date.now()
+            };
+
             try {
-                await addDoc(collection(db, "stimulusbank"), {
-                    title: title,
-                    type: "read-aloud",
-                    language: language,
-                    passage: bodyText,
-                    followUpQuestions: [q1, q2].filter(q => q.length > 0),
-                    createdBy: currentUser.uid,
-                    createdAt: Date.now()
-                });
-                alert("Saved Read Aloud package globally to your library!");
-                document.getElementById('bank-input-stimulus-title').value = '';
-                document.getElementById('bank-input-stimulus-body').value = '';
-                document.getElementById('bank-input-stimulus-q1').value = '';
-                document.getElementById('bank-input-stimulus-q2').value = '';
-                if(!document.getElementById('pane-banks').classList.contains('hidden')) syncAndRenderQuestionBankMasterGrid();
+                if (activeEditingBankItemId && activeEditingBankCollectionType === 'stimulusbank') {
+                    // Overwrites/mutates existing exact file path location document reference node
+                    await setDoc(doc(db, "stimulusbank", activeEditingBankItemId), recordData, { merge: true });
+                    alert("Changes successfully updated inside your existing Read Aloud template document.");
+                } else {
+                    recordData.createdAt = Date.now();
+                    await addDoc(collection(db, "stimulusbank"), recordData);
+                    alert("Saved Read Aloud package globally to your library!");
+                }
+                clearAndResetAllBankInputForms();
             } catch (err) { console.error(err); }
         });
 
+        // MUTATION ENGINE: ROLEPLAY SCENARIOS
         document.getElementById('btn-add-to-rpbank').addEventListener('click', async () => {
             const title = document.getElementById('bank-input-rp-title').value.trim();
             const topic = document.getElementById('bank-input-rp-scenario-topic').value;
@@ -874,25 +899,57 @@
             ].filter(p => p.length > 0);
             if (!title || prompts.length === 0) return alert("Please provide a Title and prompts.");
 
+            const recordData = {
+                title: `${title} (${topic})`,
+                type: "role-play",
+                language: language,
+                topic: topic,
+                description: description,
+                prompts: prompts,
+                createdBy: currentUser.uid,
+                updatedAt: Date.now()
+            };
+
             try {
-                await addDoc(collection(db, "rpbank"), {
-                    title: `${title} (${topic})`,
-                    type: "role-play",
-                    language: language,
-                    topic: topic,
-                    description: description,
-                    prompts: prompts,
-                    createdBy: currentUser.uid,
-                    createdAt: Date.now()
-                });
-                alert("Saved Roleplay Scenario package array to your library!");
-                ['title', 'desc', 'bp1', 'bp2', 'bp3', 'bp4', 'bp5'].forEach(id => {
-                    const el = document.getElementById(`bank-input-rp-${id}`);
-                    if(el) el.value = '';
-                });
-                if(!document.getElementById('pane-banks').classList.contains('hidden')) syncAndRenderQuestionBankMasterGrid();
+                if (activeEditingBankItemId && activeEditingBankCollectionType === 'rpbank') {
+                    // Update structural context array in place mapping node
+                    await setDoc(doc(db, "rpbank", activeEditingBankItemId), recordData, { merge: true });
+                    alert("Changes successfully updated inside your existing Roleplay context array schema.");
+                } else {
+                    recordData.createdAt = Date.now();
+                    await addDoc(collection(db, "rpbank"), recordData);
+                    alert("Saved Roleplay Scenario package array to your library!");
+                }
+                clearAndResetAllBankInputForms();
             } catch (err) { console.error(err); }
         });
+
+        function clearAndResetAllBankInputForms() {
+            // Nullify tracking IDs to switch engines back out of editing mode parameters
+            activeEditingBankItemId = null;
+            activeEditingBankCollectionType = null;
+
+            // Clear column 1 inputs
+            document.getElementById('bank-input-questions-raw').value = '';
+            document.getElementById('btn-add-to-qbank').textContent = "Save to Conversational Pool";
+            document.getElementById('btn-add-to-qbank').className = "w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-1.5 rounded text-xs shadow";
+
+            // Clear column 2 inputs
+            document.getElementById('bank-input-stimulus-title').value = '';
+            document.getElementById('bank-input-stimulus-body').value = '';
+            document.getElementById('bank-input-stimulus-q1').value = '';
+            document.getElementById('bank-input-stimulus-q2').value = '';
+            document.getElementById('btn-add-to-stimulusbank').textContent = "Save Complete Package to Library";
+            document.getElementById('btn-add-to-stimulusbank').className = "w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 rounded text-xs shadow";
+
+            // Clear column 3 inputs
+            ['title', 'desc', 'bp1', 'bp2', 'bp3', 'bp4', 'bp5'].forEach(id => {
+                const el = document.getElementById(`bank-input-rp-${id}`);
+                if(el) el.value = '';
+            });
+            document.getElementById('btn-add-to-rpbank').textContent = "Save Scenario Package Array";
+            document.getElementById('btn-add-to-rpbank').className = "w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 rounded text-xs shadow";
+        }
 
         async function deleteBankItem(collectionName, documentId) {
             if(!confirm("Are you certain you want to permanently remove this template item from the library?")) return;
@@ -904,19 +961,33 @@
         }
 
         function populateItemToEdit(item) {
+            // Map parameters into tracking structures before navigation logic
+            activeEditingBankItemId = item.id;
+            activeEditingBankCollectionType = item.collection;
+
             switchTeacherPane('pane-create-task', 'hub-btn-create');
-            alert(`Loading "${item.title}" into core creation blocks below for template restructuring.`);
             
             if (item.type === 'conversation') {
                 document.getElementById('bank-input-questions-raw').value = item.questions.join('\n');
                 document.getElementById('bank-input-lang').value = item.language;
                 document.getElementById('bank-input-theme').value = item.theme;
+
+                // Adjust interface triggers to flag current state transformation process rules
+                const btn = document.getElementById('btn-add-to-qbank');
+                btn.textContent = "✏️ Update & Save Changes to Existing Item";
+                btn.className = "w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 rounded text-xs shadow animate-pulse";
+
             } else if (item.type === 'read-aloud') {
                 document.getElementById('bank-input-stimulus-title').value = item.title;
                 document.getElementById('bank-input-stimulus-lang').value = item.language;
                 document.getElementById('bank-input-stimulus-body').value = item.passage;
                 document.getElementById('bank-input-stimulus-q1').value = item.followUpQuestions ? (item.followUpQuestions[0] || '') : '';
                 document.getElementById('bank-input-stimulus-q2').value = item.followUpQuestions ? (item.followUpQuestions[1] || '') : '';
+
+                const btn = document.getElementById('btn-add-to-stimulusbank');
+                btn.textContent = "✏️ Update & Save Changes to Existing Item";
+                btn.className = "w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 rounded text-xs shadow animate-pulse";
+
             } else if (item.type === 'role-play') {
                 document.getElementById('bank-input-rp-title').value = item.title.split(' (')[0];
                 document.getElementById('bank-input-rp-lang').value = item.language;
@@ -927,13 +998,17 @@
                         if(el) el.value = item.prompts[i-1] || '';
                     }
                 }
+
+                const btn = document.getElementById('btn-add-to-rpbank');
+                btn.textContent = "✏️ Update & Save Changes to Existing Item";
+                btn.className = "w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 rounded text-xs shadow animate-pulse";
             }
             window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
         }
 
         function showQuickAssignModal(item) {
             currentAssignTargetItem = item;
-            document.getElementById('modal-assign-item-info').textContent = `Targeting: ${item.title} (${item.type})`;
+            document.getElementById('modal-quick-assign').textContent = `Targeting: ${item.title} (${item.type})`;
             const classSelect = document.getElementById('modal-assign-class-select');
             classSelect.innerHTML = '';
             allRegisteredClassesCache.forEach(c => {
