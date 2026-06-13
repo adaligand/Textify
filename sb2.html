@@ -255,6 +255,28 @@
 
                     <div class="md:col-span-2 bg-white p-5 rounded-lg border shadow-sm space-y-4">
                         <h3 class="font-bold text-md text-gray-800 border-b pb-2">⚙️ Existing System Cohort Infrastructure</h3>
+                        
+                        <div id="matrix-class-edit-panel" class="hidden bg-blue-50 border border-blue-200 p-4 rounded-lg space-y-3">
+                            <div class="flex justify-between items-center border-b border-blue-200 pb-1.5">
+                                <h4 class="text-xs font-bold text-blue-900 uppercase">📝 Update Settings for: <span id="matrix-edit-label-target" class="underline"></span></h4>
+                                <button onclick="document.getElementById('matrix-class-edit-panel').classList.add('hidden')" class="text-[11px] text-gray-500 hover:text-gray-700 font-semibold">Cancel</button>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-600 uppercase">Rename Class Group Name</label>
+                                    <input id="matrix-edit-class-name" type="text" class="w-full p-1.5 bg-white border rounded text-xs mt-0.5">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-600 uppercase">Update Teacher Email(s)</label>
+                                    <input id="matrix-edit-class-teacher" type="text" class="w-full p-1.5 bg-white border rounded text-xs mt-0.5">
+                                </div>
+                            </div>
+                            <div class="flex gap-2 pt-1.5 justify-end">
+                                <button id="btn-matrix-delete-class" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-xs font-bold shadow-sm">🗑️ Delete Group</button>
+                                <button id="btn-matrix-save-class" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-xs font-bold shadow-sm">Save Changes</button>
+                            </div>
+                        </div>
+
                         <div class="overflow-x-auto border rounded">
                             <table class="w-full text-left text-xs border-collapse">
                                 <thead class="bg-gray-50 border-b font-semibold text-gray-600">
@@ -566,6 +588,7 @@
         let allRegisteredClassesCache = [];
         let activeSelectedClassDocId = null;
         let currentAssignTargetItem = null;
+        let activeEditingMatrixClassId = null; // Track class group edits
 
         // MULTI-PANE NAVIGATION CONTROLLER
         function switchTeacherPane(activePaneId, activeBtnId) {
@@ -639,12 +662,11 @@
             if(e.target.value === 'conversation') document.getElementById('wizard-conversation').classList.remove('hidden');
         });
 
-        // AUTHENTICATION STATE TRACKER (FIXED ALPHANUMERIC ROLE MATRIX CHECKER)
+        // AUTHENTICATION STATE TRACKER
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 currentUser = user;
                 const email = user.email.toLowerCase();
-                
                 const emailLocalPart = email.split('@')[0];
                 const hasNumbers = /\d/.test(emailLocalPart);
 
@@ -1005,19 +1027,60 @@
                     }
 
                     if(matrixTbody) {
-                        matrixTbody.innerHTML += `
-                            <tr class="border-b text-xs hover:bg-gray-50">
-                                <td class="p-3 font-bold text-gray-800">${c.name}</td>
-                                <td class="p-3 font-medium text-gray-500">${c.teacher}</td>
-                                <td class="p-3 text-right">
-                                    <button class="text-red-500 hover:underline font-semibold" onclick="alert('Contact administrator nodes to cycle architecture components.')">Scrub Group</button>
-                                </td>
-                            </tr>
+                        const tr = document.createElement('tr');
+                        tr.className = "border-b text-xs hover:bg-gray-50 animate-fade-in";
+                        tr.innerHTML = `
+                            <td class="p-3 font-bold text-gray-800">${c.name}</td>
+                            <td class="p-3 font-medium text-gray-500">${c.teacher}</td>
+                            <td class="p-3 text-right">
+                                <button class="bg-gray-100 hover:bg-gray-200 border text-gray-700 px-2.5 py-1 rounded text-[11px] font-bold transition">Settings & Scrub</button>
+                            </td>
                         `;
+                        tr.querySelector('button').addEventListener('click', () => openClassSettingsInMatrix(c));
+                        matrixTbody.appendChild(tr);
                     }
                 });
             });
         }
+
+        // TRIGGER CLASS MASTER CONFIGURATION EDITOR INTERFACE
+        function openClassSettingsInMatrix(classObj) {
+            activeEditingMatrixClassId = classObj.id;
+            document.getElementById('matrix-edit-label-target').textContent = classObj.name;
+            document.getElementById('matrix-edit-class-name').value = classObj.name;
+            document.getElementById('matrix-edit-class-teacher').value = classObj.teacher;
+            document.getElementById('matrix-class-edit-panel').classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // SAVE UPDATED CLASS PARAMETERS BACK TO FIRESTORE
+        document.getElementById('btn-matrix-save-class').addEventListener('click', async () => {
+            if(!activeEditingMatrixClassId) return;
+            const updatedName = document.getElementById('matrix-edit-class-name').value.trim();
+            const updatedTeacher = document.getElementById('matrix-edit-class-teacher').value.trim();
+            
+            if(!updatedName || !updatedTeacher) return alert("Fields cannot be left blank.");
+            try {
+                await updateDoc(doc(db, "classes", activeEditingMatrixClassId), {
+                    name: updatedName,
+                    teacher: updatedTeacher
+                });
+                alert("Class records updated successfully.");
+                document.getElementById('matrix-class-edit-panel').classList.add('hidden');
+            } catch(err) { alert("Error saving records: " + err.message); }
+        });
+
+        // ERASE AN EXISTING CLASS GROUP ARCHITECTURE
+        document.getElementById('btn-matrix-delete-class').addEventListener('click', async () => {
+            if(!activeEditingMatrixClassId) return;
+            if(!confirm("Are you sure you want to completely erase this class? Students will lose connection parameters.")) return;
+            try {
+                await deleteDoc(doc(db, "classes", activeEditingMatrixClassId));
+                alert("Class group fully removed from infrastructure layout.");
+                document.getElementById('matrix-class-edit-panel').classList.add('hidden');
+                document.getElementById('active-class-workspace').classList.add('hidden');
+            } catch(err) { alert("Error removing group: " + err.message); }
+        });
 
         document.getElementById('btn-matrix-create-class').addEventListener('click', async () => {
             const name = document.getElementById('matrix-new-class-name').value.trim();
@@ -1061,14 +1124,23 @@
                 }
                 snap.forEach(d => {
                     const s = d.data();
-                    tbody.innerHTML += `
-                        <tr class="hover:bg-gray-50 border-b">
-                            <td class="p-2.5 font-medium text-gray-700">${s.email}</td>
-                            <td class="p-2.5 text-right">
-                                <button class="text-red-500 hover:underline" onclick="alert('Student records management restricted to master office system keys.')">Unenroll</button>
-                            </td>
-                        </tr>
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-50 border-b";
+                    tr.innerHTML = `
+                        <td class="p-2.5 font-medium text-gray-700">${s.email}</td>
+                        <td class="p-2.5 text-right">
+                            <button class="text-red-500 hover:underline font-semibold">Unenroll Student</button>
+                        </td>
                     `;
+                    // LIVE STUDENT UNENROLLMENT FUNCTIONALITY
+                    tr.querySelector('button').addEventListener('click', async () => {
+                        if(!confirm(`Remove ${s.email} from this class roster?`)) return;
+                        try {
+                            await deleteDoc(doc(db, "students", d.id));
+                            alert("Student successfully removed from class cohort stream.");
+                        } catch(err) { alert("Error removing student: " + err.message); }
+                    });
+                    tbody.appendChild(tr);
                 });
             });
         }
