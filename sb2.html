@@ -38,7 +38,6 @@
             margin-right: auto;
         }
 
-        /* Widened right panel column ratio to accommodate 4-5 classes easily */
         .row-grid {
             display: grid;
             grid-template-columns: 1fr 1.3fr;
@@ -89,7 +88,6 @@
             margin-bottom: 8px;
         }
 
-        /* Fixed sizing layout to hold 4-5 items across neatly without squishing */
         .class-registry-list {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -101,7 +99,7 @@
             background: #fff;
             border: 1px dashed #ccd6dd;
             border-radius: 6px;
-            flex-grow: 1; /* Pushes everything below to the absolute bottom */
+            flex-grow: 1;
         }
 
         .class-badge {
@@ -116,7 +114,7 @@
             font-size: 14px;
             height: 38px;
             box-sizing: border-box;
-            flex-shrink: 0; /* Prevents shrinking */
+            flex-shrink: 0;
             min-width: 140px;
         }
 
@@ -131,7 +129,7 @@
         }
 
         .action-container {
-            margin-top: auto; /* Aligns container block permanently to bottom */
+            margin-top: auto;
             padding-top: 15px;
             border-top: 1px solid #e1e8ed;
             display: flex;
@@ -213,6 +211,7 @@
         }
         .color-swatch:hover { transform: scale(1.05); }
         .color-swatch.active { border-color: #2c3e50; transform: scale(1.05); box-shadow: 0 0 4px rgba(0,0,0,0.3); }
+        .color-swatch.taken { opacity: 0.15; cursor: not-allowed; pointer-events: none; border: 1px dashed #7f8c8d; }
 
         .popup-schedule-matrix-grid {
             display: grid;
@@ -274,9 +273,11 @@
             font-size: 11px;
             cursor: pointer;
             user-select: none;
+            white-space: nowrap;
         }
         .pop-p-lbl input { width: auto; margin: 0; cursor: pointer; }
         .pop-p-lbl:has(input:checked) { background: #e6fffa; border-color: #319795; font-weight: bold; color: #234e52; }
+        .pop-p-lbl.disabled-clash { background: #e2e8f0; border-color: #cbd5e0; color: #a0aec0; cursor: not-allowed; pointer-events: none; }
 
         .modal-actions {
             margin-top: 20px;
@@ -424,10 +425,10 @@
             <h4 style="margin-top:0; margin-bottom:15px; font-size:18px; color:#2c3e50; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">Class Configuration Panel</h4>
             <input type="hidden" id="modalClassEditIdx">
             
-            <label>Class Identifier Code (Max 4 chars suggested)</label>
+            <label>Class Identifier Code</label>
             <input type="text" id="modalClassName" maxlength="6" placeholder="e.g. 10Z, 9B, 12A">
 
-            <label style="margin-top:15px;">Assigned Theme (Ranked Pastel Spectrum Matrix)</label>
+            <label style="margin-top:15px;">Assigned Theme (Gradient Spectrum Layout)</label>
             <div class="color-palette-selection" id="colorPalette"></div>
 
             <div style="margin-top: 15px; display:flex; justify-content:space-between; align-items:center;">
@@ -453,16 +454,12 @@
         let classesData = [];
         let manualRotationOverrides = {}; 
 
+        // Sorted into a smooth hue spectrum gradient mapping sequence
         const pastelColorsExtended = [
-            "#ffcad4", "#ffd6d6", "#fde2e4", "#fae0e4",
-            "#ffb5a7", "#ffcc99", "#fecd91", "#ffe5ec",
-            "#fef08a", "#fff2cc", "#fefae0", "#eef1e6",
-            "#bbf7d0", "#c1f0c8", "#d4edda", "#e8f5e9",
-            "#99f6e4", "#b2f5ea", "#c2f0ec", "#e6fffa",
-            "#bfdbfe", "#cce5ff", "#d0e1fd", "#e0f2fe",
-            "#e9d5ff", "#d6bcfd", "#e2d4f0", "#f3e8ff",
-            "#f5d0fe", "#ebd3f8", "#f0cbf2", "#fbcfe8",
-            "#e2e8f0", "#e5e7eb", "#f1f5f9", "#dcdcdc"
+            "#ffcad4", "#ffe5ec", "#fbcfe8", "#f0cbf2", "#ebd3f8", "#f3e8ff", "#e9d5ff", "#d6bcfd", "#e2d4f0", 
+            "#bfdbfe", "#cce5ff", "#d0e1fd", "#e0f2fe", "#99f6e4", "#b2f5ea", "#c2f0ec", "#e6fffa", "#bbf7d0", 
+            "#c1f0c8", "#d4edda", "#e8f5e9", "#fefae0", "#eef1e6", "#fef08a", "#fff2cc", "#fecd91", "#ffcc99", 
+            "#ffb5a7", "#ffd6d6", "#fde2e4", "#fae0e4", "#f1f5f9", "#e5e7eb", "#e2e8f0", "#f5d0fe", "#dcdcdc"
         ];
         
         let selectedColorHex = pastelColorsExtended[0];
@@ -471,7 +468,6 @@
         window.onload = function() {
             setupDynamicInitialDates();
             const hasLocalData = loadFromLocalStorage();
-            // Refactored conditional line: Ensures defaults render cleanly if no cache data exists
             if (!hasLocalData || document.getElementById('holidayPickerContainer').children.length === 0) {
                 buildDefaultHolidays();
             }
@@ -556,16 +552,26 @@
             document.getElementById('popupSeasonLabel').innerText = currentSeason === 't1' ? 'Standard Track (Sept - May)' : 'Summer Track (June - July)';
             palette.innerHTML = '';
 
+            // Find color hexes currently checked out by other active classes
+            const occupiedColors = classesData
+                .filter((_, idx) => !isEdit || idx !== index)
+                .map(c => c.color.toLowerCase());
+
             pastelColorsExtended.forEach(c => {
                 const swatch = document.createElement('div');
                 swatch.className = 'color-swatch';
                 swatch.style.backgroundColor = c;
-                if(c === selectedColorHex) swatch.classList.add('active');
-                swatch.onclick = () => {
-                    document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
-                    swatch.classList.add('active');
-                    selectedColorHex = c;
-                };
+                
+                if (occupiedColors.includes(c.toLowerCase())) {
+                    swatch.classList.add('taken');
+                } else {
+                    if(c === selectedColorHex) swatch.classList.add('active');
+                    swatch.onclick = () => {
+                        document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+                        swatch.classList.add('active');
+                        selectedColorHex = c;
+                    };
+                }
                 palette.appendChild(swatch);
             });
 
@@ -582,7 +588,8 @@
             } else {
                 document.getElementById('modalClassEditIdx').value = "";
                 document.getElementById('modalClassName').value = "";
-                selectedColorHex = pastelColorsExtended[0];
+                // Fallback to first untaken color
+                selectedColorHex = pastelColorsExtended.find(color => !occupiedColors.includes(color.toLowerCase())) || pastelColorsExtended[0];
                 document.getElementById('deleteClassBtn').style.display = 'none';
             }
 
@@ -605,10 +612,26 @@
 
                     for(let p=1; p<=5; p++) {
                         let isChecked = false;
-                        if(targetClass && targetClass.schedule && targetClass.schedule[currentSeason] && targetClass.schedule[currentSeason][wk] && targetClass.schedule[currentSeason][wk][day]) {
-                            isChecked = targetClass.schedule[currentSeason][wk][day].includes(p);
+                        let clashingClassName = "";
+
+                        // Evaluate cell clashes across the database
+                        classesData.forEach((cls, clsIdx) => {
+                            if (cls.schedule && cls.schedule[currentSeason] && cls.schedule[currentSeason][wk] && cls.schedule[currentSeason][wk][day]) {
+                                if (cls.schedule[currentSeason][wk][day].includes(p)) {
+                                    if (isEdit && clsIdx === index) {
+                                        isChecked = true;
+                                    } else {
+                                        clashingClassName = cls.name;
+                                    }
+                                }
+                            }
+                        });
+
+                        if (clashingClassName) {
+                            grid.innerHTML += `<label class="pop-p-lbl disabled-clash" title="Occupied by ${clashingClassName}"><input type="checkbox" disabled><b>[${clashingClassName}]</b></label>`;
+                        } else {
+                            grid.innerHTML += `<label class="pop-p-lbl"><input type="checkbox" data-wk="${wk}" data-day="${day}" data-p="${p}" ${isChecked ? 'checked' : ''}>P${p}</label>`;
                         }
-                        grid.innerHTML += `<label class="pop-p-lbl"><input type="checkbox" data-wk="${wk}" data-day="${day}" data-p="${p}" ${isChecked ? 'checked' : ''}>P${p}</label>`;
                     }
                     row.appendChild(grid);
                     column.appendChild(row);
@@ -640,7 +663,7 @@
             scheduleState[currentSeason] = { "Week 1": {}, "Week 2": {} };
             const checkboxes = document.querySelectorAll('#popupScheduleMatrix input[type="checkbox"]');
             checkboxes.forEach(chk => {
-                if(chk.checked) {
+                if(chk.checked && !chk.disabled) {
                     const wk = chk.getAttribute('data-wk');
                     const day = chk.getAttribute('data-day');
                     const p = parseInt(chk.getAttribute('data-p'));
