@@ -397,11 +397,12 @@
                 <div class="action-container">
                     <button class="btn" onclick="generatePlannerEngine(true)">Generate</button>
                     <button class="btn btn-orange" onclick="window.print()">Print/Save</button>
-                    <button class="btn btn-blue" onclick="exportConfigurationAsJSON()">Export</button>
+                    
                     <label class="btn btn-purple" style="cursor:pointer; display:flex; align-items:center; justify-content:center;">
                         Import
                         <input type="file" id="jsonUploadInput" accept=".json" style="display:none;" onchange="importConfigurationFromJSON(this)">
                     </label>
+                    <button class="btn btn-blue" onclick="exportConfigurationAsJSON()">Export</button>
                 </div>
             </div>
         </div>
@@ -442,6 +443,7 @@
     <script>
         let classesData = [];
         let manualRotationOverrides = {}; 
+
 const pastelColorsExtended = [
   // Yellow (kept soft all the way)
     "#FFFDF0",
@@ -629,7 +631,7 @@ const pastelColorsExtended = [
             });
         }
 
-        function openClassModal(isEdit = false, index = null) {
+function openClassModal(isEdit = false, index = null) {
             const modal = document.getElementById('classModal');
             const palette = document.getElementById('colorPalette');
             const currentSeason = document.getElementById('seasonToggle').value;
@@ -637,30 +639,13 @@ const pastelColorsExtended = [
             document.getElementById('popupSeasonLabel').innerText = currentSeason === 't1' ? 'Standard Track (Sept - May)' : 'Summer Track (June - July)';
             palette.innerHTML = '';
 
-            const occupiedColors = classesData
-                .filter((_, idx) => !isEdit || idx !== index)
-                .map(c => c.color.toLowerCase());
-
-            pastelColorsExtended.forEach(c => {
-                const swatch = document.createElement('div');
-                swatch.className = 'color-swatch';
-                swatch.style.backgroundColor = c;
-                
-                if (occupiedColors.includes(c.toLowerCase())) {
-                    swatch.classList.add('taken');
-                } else {
-                    if(c === selectedColorHex) swatch.classList.add('active');
-                    swatch.onclick = () => {
-                        document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
-                        swatch.classList.add('active');
-                        selectedColorHex = c;
-                    };
+            // Map occupied colors to the class names that own them
+            const colorOwnershipMap = {};
+            classesData.forEach((cls, idx) => {
+                if (!isEdit || idx !== index) {
+                    colorOwnershipMap[cls.color.toLowerCase()] = cls.name;
                 }
-                palette.appendChild(swatch);
             });
-
-            const matrixContainer = document.getElementById('popupScheduleMatrix');
-            matrixContainer.innerHTML = '';
 
             const targetClass = (isEdit && index !== null) ? classesData[index] : null;
             
@@ -672,9 +657,43 @@ const pastelColorsExtended = [
             } else {
                 document.getElementById('modalClassEditIdx').value = "";
                 document.getElementById('modalClassName').value = "";
-                selectedColorHex = pastelColorsExtended.find(color => !occupiedColors.includes(color.toLowerCase())) || pastelColorsExtended[0];
+                // Find first color not in the keys of our ownership map
+                selectedColorHex = pastelColorsExtended.find(color => !colorOwnershipMap.hasOwnProperty(color.toLowerCase())) || pastelColorsExtended[0];
                 document.getElementById('deleteClassBtn').style.display = 'none';
             }
+
+            pastelColorsExtended.forEach(c => {
+                const swatch = document.createElement('div');
+                swatch.className = 'color-swatch';
+                swatch.style.backgroundColor = c;
+                
+                const lowerColor = c.toLowerCase();
+                if (colorOwnershipMap.hasOwnProperty(lowerColor)) {
+                    swatch.classList.add('taken');
+                    // Add a structural style adjustment for the text positioning
+                    swatch.style.display = 'flex';
+                    swatch.style.alignItems = 'center';
+                    swatch.style.justifyContent = 'center';
+                    swatch.style.fontSize = '10px';
+                    swatch.style.fontWeight = 'bold';
+                    swatch.style.color = '#7f8c8d';
+                    swatch.style.background = `linear-gradient(45deg, ${c} 25%, #e6e6e6 25%, #e6e6e6 50%, ${c} 50%, ${c} 75%, #e6e6e6 75%, #e6e6e6 100%)`;
+                    swatch.style.backgroundSize = '10px 10px';
+                    swatch.title = `Unavailable: Assigned to ${colorOwnershipMap[lowerColor]}`;
+                    swatch.innerText = colorOwnershipMap[lowerColor];
+                } else {
+                    if(lowerColor === selectedColorHex.toLowerCase()) swatch.classList.add('active');
+                    swatch.onclick = () => {
+                        document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+                        swatch.classList.add('active');
+                        selectedColorHex = c;
+                    };
+                }
+                palette.appendChild(swatch);
+            });
+
+            const matrixContainer = document.getElementById('popupScheduleMatrix');
+            matrixContainer.innerHTML = '';
 
             ['Week 1', 'Week 2'].forEach(wk => {
                 const column = document.createElement('div');
@@ -723,7 +742,6 @@ const pastelColorsExtended = [
 
             modal.style.display = 'flex';
         }
-
         function closeClassModal() { document.getElementById('classModal').style.display = 'none'; }
 
         function submitClassForm() {
