@@ -128,7 +128,6 @@
             font-weight: bold;
         }
 
-        /* 5 Buttons Single Line Layout Container */
         .action-container {
             margin-top: auto;
             padding-top: 15px;
@@ -168,7 +167,6 @@
         .btn-danger { background-color: #e74c3c !important; }
         .btn-danger:hover { background-color: #c0392b !important; }
 
-        /* Styled Dropdown - Blue Button Look with List White Overlay */
         select.dropdown-nav-select {
             background-color: #3498db;
             color: white;
@@ -183,9 +181,7 @@
             box-sizing: border-box;
             text-align-last: center;
         }
-        select.dropdown-nav-select:hover {
-            background-color: #2980b9;
-        }
+        select.dropdown-nav-select:hover { background-color: #2980b9; }
         select.dropdown-nav-select option {
             background-color: #ffffff;
             color: #2c3e50;
@@ -193,9 +189,7 @@
             text-align: left;
         }
 
-        .inline-action-btn {
-            width: auto !important;
-        }
+        .inline-action-btn { width: auto !important; }
 
         .modal-overlay {
             position: fixed;
@@ -336,6 +330,9 @@
         .a4-page.page-wed-punch { padding: 10mm 15mm 10mm 4.4mm; }
         .a4-page.page-thu-punch { padding: 10mm 4.4mm 10mm 15mm; }
         .a4-page.page-cover { padding: 20mm; }
+        
+        /* Layout for Year Overview in portrait */
+        .a4-page.page-overview-portrait { padding: 10mm 10mm 10mm 10mm; }
 
         .a4-page-landscape {
             width: 297mm; height: 210mm; background: #ffffff; box-sizing: border-box;
@@ -381,6 +378,17 @@
         .unified-cell-container {
             width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 30px; min-height: 55px;
         }
+
+        /* Year Overview Refined Styling for Portrait Viewports */
+        .year-overview-table {
+            width: 100%; height: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; text-align: center;
+        }
+        .year-overview-table th, .year-overview-table td {
+            border: 1px solid #000000; padding: 0; height: calc(100% / 32); box-sizing: border-box; vertical-align: middle;
+        }
+        .year-overview-table th { font-size: 12px; font-weight: bold; text-transform: uppercase; color: #000; }
+        .year-overview-table td.day-num-heading { font-weight: bold; background-color: #ffffff; font-size: 11px; width: 30px; }
+        .year-overview-table td.empty-date-cell { background-color: #BFBFBF !important; }
 
         .cover-container {
             display: flex;
@@ -440,13 +448,7 @@
         .todo-task-row { display: flex; align-items: center; }
         .todo-check-box { width: 14px; height: 14px; border: 2px solid #000; background: #fff; margin-right: 10px; }
 
-        /* Monthly anchor tags helper styling */
-        .month-header-anchor {
-            page-break-before: always;
-            height: 0;
-            margin: 0;
-            padding: 0;
-        }
+        .month-header-anchor { page-break-before: always; height: 0; margin: 0; padding: 0; }
 
         @media print {
             @page { size: A4 portrait; margin: 0; }
@@ -458,6 +460,7 @@
             .a4-page.page-wed-punch { padding: 12mm 15mm 12mm 4.4mm; }
             .a4-page.page-thu-punch { padding: 12mm 4.4mm 12mm 15mm; }
             .a4-page.page-cover { padding: 20mm; }
+            .a4-page.page-overview-portrait { padding: 10mm 10mm 10mm 10mm; }
             
             .a4-page-landscape { 
                 page: landscape-layout; width: 297mm; height: 210mm; 
@@ -485,7 +488,7 @@
                     </div>
                     <div>
                         <label>Academic Year End</label>
-                        <input type="date" id="calEnd">
+                        <input type="date" id="calEnd" onchange="triggerCanvasIfVisible()">
                     </div>
                 </div>
 
@@ -584,6 +587,22 @@
         let selectedColorHex = pastelColorsExtended[0];
         const daysFr = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
 
+        // Custom structural configuration matching your unique calendar month rotations
+        const excelMonthStyles = {
+            9:  { name: 'Septembre', headerBg: '#FF0066' }, // Reddish fuchsia
+            10: { name: 'Octobre',   headerBg: '#95B3D7' }, // Medium blue
+            11: { name: 'Novembre',  headerBg: '#FF66FF' }, // Bright pink
+            12: { name: 'Décembre',  headerBg: '#C4D79B' }, // Light green
+            1:  { name: 'Janvier',   headerBg: '#F79646' }, // Orange
+            2:  { name: 'Février',   headerBg: '#FF0066' }, // Reddish fuchsia
+            3:  { name: 'Mars',      headerBg: '#95B3D7' }, // Medium blue
+            4:  { name: 'Avril',     headerBg: '#FF66FF' }, // Bright pink
+            5:  { name: 'Mai',       headerBg: '#C4D79B' }, // Light green
+            6:  { name: 'Juin',      headerBg: '#F79646' }, // Orange
+            7:  { name: 'Juillet',   headerBg: '#FF0066' }, // Reddish fuchsia
+            8:  { name: 'Août',      headerBg: '#95B3D7' }  // Medium blue
+        };
+
         window.onload = function() {
             setupDynamicInitialDates();
             const hasLocalData = loadFromLocalStorage();
@@ -607,7 +626,6 @@
         function buildDefaultHolidays() {
             const container = document.getElementById('holidayPickerContainer');
             container.innerHTML = ''; 
-            
             const baseYearStr = document.getElementById('calStart').value.split('-')[0];
             const baseYear = parseInt(baseYearStr) || new Date().getFullYear();
             const nextYear = baseYear + 1;
@@ -632,20 +650,12 @@
             if (!inputEl.value) return;
             const startDate = new Date(inputEl.value);
             const month = startDate.getMonth();
-            
             let daysToAdd = 7;
-            
-            if (month === 11) { 
+            if (month === 11 || month === 2 || month === 3) { 
                 daysToAdd = 14;
-            } else if (month === 2 || month === 3) { 
-                daysToAdd = 14;
-            } else if (month === 1 || month === 4 || month === 9) { 
-                daysToAdd = 7;
             }
-
             const endDate = new Date(startDate);
             endDate.setDate(startDate.getDate() + daysToAdd);
-            
             const endInput = inputEl.parentElement.querySelector('.holiday-end');
             if (endInput) {
                 endInput.value = endDate.toISOString().split('T')[0];
@@ -667,7 +677,6 @@
         }
 
         function addHolidayRow() { createHolidayRow(); }
-
         function triggerCanvasIfVisible() {
             const workspace = document.getElementById('plannerWorkspace');
             if(workspace.style.display === 'block') generatePlannerEngine(false);
@@ -697,7 +706,6 @@
             const modal = document.getElementById('classModal');
             const palette = document.getElementById('colorPalette');
             const currentSeason = document.getElementById('seasonToggle').value;
-            
             document.getElementById('popupSeasonLabel').innerText = currentSeason === 't1' ? 'Standard Track (Sept - May)' : 'Summer Track (June - July)';
             palette.innerHTML = '';
 
@@ -709,7 +717,6 @@
             });
 
             const targetClass = (isEdit && index !== null) ? classesData[index] : null;
-            
             if(isEdit && index !== null) {
                 document.getElementById('modalClassEditIdx').value = index;
                 document.getElementById('modalClassName').value = targetClass.name;
@@ -726,7 +733,6 @@
                 const swatch = document.createElement('div');
                 swatch.className = 'color-swatch';
                 swatch.style.backgroundColor = c;
-                
                 const lowerColor = c.toLowerCase();
                 if (colorOwnershipMap.hasOwnProperty(lowerColor)) {
                     swatch.classList.add('taken');
@@ -753,11 +759,9 @@
 
             const matrixContainer = document.getElementById('popupScheduleMatrix');
             matrixContainer.innerHTML = '';
-
             ['Week 1', 'Week 2'].forEach(wk => {
                 const column = document.createElement('div');
                 column.className = 'popup-week-column';
-                
                 const colTitle = document.createElement('div');
                 colTitle.className = 'popup-week-title';
                 colTitle.innerText = wk;
@@ -767,22 +771,17 @@
                     const row = document.createElement('div');
                     row.className = 'popup-schedule-row';
                     row.innerHTML = `<div class="popup-schedule-day-lbl">${day.substring(0,3)}.</div>`;
-
                     const grid = document.createElement('div');
                     grid.className = 'popup-period-grid';
 
                     for(let p=1; p<=5; p++) {
                         let isChecked = false;
                         let clashingClassName = "";
-
                         classesData.forEach((cls, clsIdx) => {
                             if (cls.schedule && cls.schedule[currentSeason] && cls.schedule[currentSeason][wk] && cls.schedule[currentSeason][wk][day]) {
                                 if (cls.schedule[currentSeason][wk][day].includes(p)) {
-                                    if (isEdit && clsIdx === index) {
-                                        isChecked = true;
-                                    } else {
-                                        clashingClassName = cls.name;
-                                    }
+                                    if (isEdit && clsIdx === index) isChecked = true;
+                                    else clashingClassName = cls.name;
                                 }
                             }
                         });
@@ -798,7 +797,6 @@
                 });
                 matrixContainer.appendChild(column);
             });
-
             modal.style.display = 'flex';
         }
         function closeClassModal() { document.getElementById('classModal').style.display = 'none'; }
@@ -807,7 +805,6 @@
             const nameInput = document.getElementById('modalClassName').value.trim();
             const editIdx = document.getElementById('modalClassEditIdx').value;
             const currentSeason = document.getElementById('seasonToggle').value;
-
             if(!nameInput) return alert("Please specify a valid Class Name.");
 
             const scheduleState = { t1: { "Week 1": {}, "Week 2": {} }, t2: { "Week 1": {}, "Week 2": {} } };
@@ -947,7 +944,6 @@
         function createDayLane(dayName, dateObj, season, rotation) {
             const lane = document.createElement('div');
             lane.className = `day-lane lane-${dayName.toLowerCase()}`;
-
             const headerCell = document.createElement('div');
             headerCell.className = 'day-header-cell';
             headerCell.innerHTML = `<span>${dayName}</span><span class="date-stamp">${dateObj.getDate()}-${dateObj.toLocaleDateString('fr-FR', { month: 'short' }).replace('.','')}.</span>`;
@@ -956,13 +952,11 @@
             for (let p = 1; p <= 5; p++) {
                 const className = getActiveClassName(season, rotation, dayName, p);
                 const classObj = classesData.find(c => c.name === className);
-
                 const card = document.createElement('div');
                 card.className = 'period-card';
 
                 const titleRow = document.createElement('div');
                 titleRow.className = 'period-row-title';
-                
                 const codeCell = document.createElement('div');
                 codeCell.className = 'class-code-cell';
                 if (className) {
@@ -996,14 +990,70 @@
             return lane;
         }
 
-        // Scroll smoothly to target monthly anchor
         function scrollToMonth(elementId) {
             if (!elementId) return;
             const targetEl = document.getElementById(elementId);
             if (targetEl) {
                 targetEl.scrollIntoView({ behavior: 'smooth' });
             }
-            document.getElementById('jumpToMonthDropdown').value = ""; // Reset value for reuse
+            document.getElementById('jumpToMonthDropdown').value = "";
+        }
+
+        // Helper function to dynamically build a clean A4 Portrait Year Overview block
+        function generateYearOverviewPageHtml(monthArray, baseYear, nextYear, holidayRanges, academicEndDate) {
+            let html = `
+                <div class="a4-page page-overview-portrait">
+                    <table class="year-overview-table">
+                        <thead>
+                            <tr>
+                                <th style="width:30px; background:#ffffff;"></th>
+                                ${monthArray.map(mNum => {
+                                    const style = excelMonthStyles[mNum];
+                                    return `<th style="background-color: ${style.headerBg};">${style.name}</th>`;
+                                }).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            for (let day = 1; day <= 31; day++) {
+                html += `<tr><td class="day-num-heading">${day}</td>`;
+                
+                monthArray.forEach(mNum => {
+                    let targetYear = (mNum >= 9) ? baseYear : nextYear;
+                    let dateObj = new Date(targetYear, mNum - 1, day);
+                    
+                    // Verify if this calendar day actually exists in this month row context
+                    if (dateObj.getMonth() !== mNum - 1) {
+                        html += `<td class="empty-date-cell"></td>`;
+                        return;
+                    }
+
+                    const dayOfWeek = dateObj.getDay(); 
+                    const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+                    const style = excelMonthStyles[mNum];
+
+                    let cellStyleStr = "";
+
+                    if (isWeekend) {
+                        cellStyleStr = `background-color: ${style.headerBg};`;
+                    } else {
+                        const isHolidayBreak = holidayRanges.some(r => dateObj >= r.start && dateObj <= r.end);
+                        const isAfterAcademicYear = (academicEndDate && dateObj > academicEndDate);
+
+                        if (isHolidayBreak || isAfterAcademicYear) {
+                            cellStyleStr = `background-color: #FFFF99;`; 
+                        }
+                    }
+
+                    html += `<td style="${cellStyleStr}"></td>`;
+                });
+                
+                html += `</tr>`;
+            }
+
+            html += `</tbody></table></div>`;
+            return html;
         }
 
         function generatePlannerEngine(forceDisplayOpen = false) {
@@ -1012,15 +1062,15 @@
                 workspace.innerHTML = ''; 
                 if(forceDisplayOpen) workspace.style.display = 'block';
 
-                // Setup Month Dropdown with proper label
                 const dropdown = document.getElementById('jumpToMonthDropdown');
                 dropdown.innerHTML = '<option value="">Jump to...</option>';
                 dropdown.style.display = 'none';
 
                 const startDate = new Date(document.getElementById('calStart').value);
                 const endDate = new Date(document.getElementById('calEnd').value);
+                const academicEndDate = document.getElementById('calEnd').value ? new Date(document.getElementById('calEnd').value) : null;
+                
                 let currentMonday = getNormalizedMonday(startDate);
-
                 const currentSeason = document.getElementById('seasonToggle').value;
 
                 const holidayRanges = [];
@@ -1030,9 +1080,9 @@
                     if(s && e) holidayRanges.push({ start: new Date(s), end: new Date(e) });
                 });
 
+                // --- PAGE 1: COVER PAGE ---
                 const coverPage = document.createElement('div');
                 coverPage.className = 'a4-page page-cover';
-                
                 const startYear = startDate.getFullYear() || new Date().getFullYear();
                 const endYear = endDate.getFullYear() || (startYear + 1);
                 const dynamicYearText = startYear === endYear ? startYear : `${startYear} - ${endYear}`;
@@ -1042,7 +1092,6 @@
                         <div style="margin-top: auto; margin-bottom: auto;">
                             <div class="cover-title">School Planner</div>
                             <div class="cover-subtitle">${dynamicYearText}</div>
-                            
                             <div class="cover-fields">
                                 <div class="cover-field-group">
                                     <div class="cover-field-label">Name / Teacher</div>
@@ -1063,6 +1112,7 @@
                 `;
                 workspace.appendChild(coverPage);
 
+                // --- PAGE 2: TIMETABLE ---
                 const landscapePage = document.createElement('div');
                 landscapePage.className = 'a4-page-landscape';
 
@@ -1079,25 +1129,16 @@
 
                 for (let p = 1; p <= 5; p++) {
                     tableHtml += `<tr><td class="period-label-cell">Period ${p}</td>`;
-                    
                     daysFr.forEach(day => {
                         const classW1Name = getActiveClassName(currentSeason, "Week 1", day, p);
                         const classW2Name = getActiveClassName(currentSeason, "Week 2", day, p);
-                        
                         const classW1Obj = classesData.find(c => c.name === classW1Name);
                         const classW2Obj = classesData.find(c => c.name === classW2Name);
-                        
                         const colorW1 = classW1Obj ? classW1Obj.color : '#ffffff';
                         const colorW2 = classW2Obj ? classW2Obj.color : '#ffffff';
 
                         if (classW1Name === classW2Name) {
-                            tableHtml += `
-                                <td style="background-color: ${colorW1}; padding: 0;">
-                                    <div class="unified-cell-container">
-                                        ${classW1Name || ''}
-                                    </div>
-                                </td>
-                            `;
+                            tableHtml += `<td style="background-color: ${colorW1}; padding: 0;"><div class="unified-cell-container">${classW1Name || ''}</div></td>`;
                         } else {
                             tableHtml += `
                                 <td style="padding: 0;">
@@ -1114,28 +1155,37 @@
                     });
                     tableHtml += `</tr>`;
                 }
-
                 tableHtml += `</tbody></table>`;
                 landscapePage.innerHTML = tableHtml;
                 workspace.appendChild(landscapePage);
 
+                // --- PAGES 3 & 4: PORTRAIT YEAR OVERVIEWS (CLEAN) ---
+                const yearOverview1Html = generateYearOverviewPageHtml([9, 10, 11, 12, 1, 2], startYear, endYear, holidayRanges, academicEndDate);
+                const overviewWrapper1 = document.createElement('div');
+                overviewWrapper1.innerHTML = yearOverview1Html;
+                workspace.appendChild(overviewWrapper1.firstElementChild);
+
+                const yearOverview2Html = generateYearOverviewPageHtml([3, 4, 5, 6, 7, 8], startYear, endYear, holidayRanges, academicEndDate);
+                const overviewWrapper2 = document.createElement('div');
+                overviewWrapper2.innerHTML = yearOverview2Html;
+                workspace.appendChild(overviewWrapper2.firstElementChild);
+
+
+                // --- WEEKLY TRACK LANES PAGES ---
                 let baselineRotationIndex = 0; 
                 let recordedMonths = {};
 
                 while (currentMonday <= endDate) {
                     const isBreakWeek = holidayRanges.some(r => currentMonday >= r.start && currentMonday <= r.end);
-
                     if (isBreakWeek) {
                         currentMonday.setDate(currentMonday.getDate() + 7);
                         continue; 
                     }
 
                     let operationalRotation = (baselineRotationIndex % 2 === 0) ? "Week 1" : "Week 2";
-
                     const timeKey = currentMonday.getTime().toString();
                     if(manualRotationOverrides[timeKey]) operationalRotation = manualRotationOverrides[timeKey];
 
-                    // Determine the dominant month of this week (checking Wednesday mid-week)
                     const midWeekDate = new Date(currentMonday);
                     midWeekDate.setDate(midWeekDate.getDate() + 2); 
                     
@@ -1143,7 +1193,6 @@
                     const monthLabel = midWeekDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
                     const monthPageId = "month-anchor-" + monthKey;
 
-                    // Skip recording if it's August, ensuring we map strictly from September onwards
                     if (midWeekDate.getMonth() !== 7) {
                         if (!recordedMonths[monthKey]) {
                             recordedMonths[monthKey] = true;
@@ -1160,9 +1209,9 @@
                         }
                     }
 
+                    // Left Hand Page (Mon, Tue, Wed)
                     const page1 = document.createElement('div');
                     page1.className = 'a4-page page-wed-punch';
-                    
                     const gridLayout1 = document.createElement('div');
                     gridLayout1.className = 'page1-grid';
 
@@ -1174,6 +1223,7 @@
                     page1.appendChild(gridLayout1);
                     workspace.appendChild(page1);
 
+                    // Right Hand Page (Thu, Fri + To-Do Matrix)
                     const page2 = document.createElement('div');
                     page2.className = 'a4-page page-thu-punch';
                     const gridLayout2 = document.createElement('div');
@@ -1198,7 +1248,6 @@
                     
                     const taskContainer = document.createElement('div');
                     taskContainer.className = 'todo-task-container';
-                    
                     for (let k = 0; k < 20; k++) {
                         taskContainer.innerHTML += `<div class="todo-task-row"><div class="todo-check-box"></div></div>`;
                     }
