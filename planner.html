@@ -351,7 +351,7 @@
         
         .outline-item-wrapper {
             position: relative;
-            margin-bottom: 4px;
+            margin-bottom: 2px;
         }
         .outline-lesson-row {
             display: flex;
@@ -389,7 +389,7 @@
             background: #cbd5e0;
             padding: 6px;
             border-radius: 4px;
-            margin: 8px 0;
+            margin: 4px 0;
             border: 1px dashed #2d3748;
         }
         .outline-unit-label {
@@ -422,16 +422,16 @@
             font-weight: bold;
         }
 
+        /* INVISIBLE ZERO-HEIGHT HOVER BUTTON: Keeps list dense, only opens precisely on hover */
         .outline-hover-insertion-line {
-            height: 20px;
-            margin: -5px 0;
+            height: 18px;
+            margin: -9px 0;
             position: relative;
             z-index: 10;
-            opacity: 0.2;
+            opacity: 0;
             display: flex;
             align-items: center;
             justify-content: center;
-            cursor: pointer;
             transition: opacity 0.15s ease;
         }
         .outline-hover-insertion-line:hover {
@@ -443,7 +443,8 @@
             left: 0; right: 0;
             height: 2px;
             background: #3182ce;
-            top: 9px;
+            top: 50%;
+            transform: translateY(-50%);
             pointer-events: none;
         }
         .outline-insert-btn {
@@ -765,7 +766,6 @@
 
         const daysFr = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
         
-        // Fully Restored User's Custom Pastel Palette
         const pastelColorsExtended = [
             "#FFFDF0", "#FFF9C4", "#FFF59D", "#FFF176", "#FFEE58", "#FDD835",
             "#FFF2E6", "#FFE8D1", "#FFD8B1", "#FFC78A", "#FFB366",
@@ -1121,24 +1121,9 @@
             }
         }
 
-        // Global unit insertion function ensures event firing doesn't get lost in the DOM
-        window.insertNewUnitFolder = function(contextId, anchorTimestamp) {
-            saveAllLiveInputsInColumn(contextId);
-            const newUnit = {
-                id: 'unit_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-                title: '',
-                insertAfterTimestamp: anchorTimestamp
-            };
-            if (!unitFoldersDatabase[contextId]) unitFoldersDatabase[contextId] = [];
-            unitFoldersDatabase[contextId].push(newUnit);
-            saveToLocalStorage();
-            renderTermColumnItems(contextId);
-        };
-
         function renderTermColumnItems(contextId) {
             const containerEl = document.getElementById(`col-container-${contextId}`);
             if (!containerEl) return;
-            
             const splitPos = contextId.lastIndexOf('-');
             const className = contextId.substring(0, splitPos);
             const termKey = contextId.substring(splitPos + 1);
@@ -1159,7 +1144,8 @@
                 combinedItems.push({ type: 'lesson', data: les, sortingValue: les.timestamp });
             });
             units.forEach(u => {
-                combinedItems.push({ type: 'unit', data: u, sortingValue: u.insertAfterTimestamp });
+                // FIXED: adding 0.1 forces the new Unit to perfectly sort AFTER the target lesson block
+                combinedItems.push({ type: 'unit', data: u, sortingValue: u.insertAfterTimestamp + 0.1 }); 
             });
 
             combinedItems.sort((a, b) => a.sortingValue - b.sortingValue);
@@ -1193,7 +1179,7 @@
                         <div class="outline-unit-folder-row">
                             <div class="outline-unit-label">📁 Unit Name:</div>
                             <input type="text" class="outline-unit-input" value="${item.data.title}" onchange="updateUnitFolderTitle('${contextId}', '${item.data.id}', this.value)" placeholder="e.g. Unit 3: Algebra">
-                            <button class="outline-unit-delete-btn" onclick="deleteUnitFolder('${contextId}', '${item.data.id}')">Delete</button>
+                            <button type="button" class="outline-unit-delete-btn" onclick="deleteUnitFolder('${contextId}', '${item.data.id}')">Delete</button>
                         </div>
                     `;
                     containerEl.appendChild(div);
@@ -1202,11 +1188,33 @@
             });
         }
 
-        // Inline hardcoded onclick triggers exactly when clicked without memory loss
+        // COMPLETELY REWRITTEN: Now constructs pure memory-bound DOM objects. Cannot fail.
         function createInsertionLine(contextId, anchorTimestamp) {
             const line = document.createElement('div');
             line.className = 'outline-hover-insertion-line';
-            line.innerHTML = `<button type="button" class="outline-insert-btn" onclick="window.insertNewUnitFolder('${contextId}', ${anchorTimestamp})">+ Unit</button>`;
+            
+            const btn = document.createElement('button');
+            btn.className = 'outline-insert-btn';
+            btn.type = 'button';
+            btn.innerText = '+ Add Unit';
+            
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                saveAllLiveInputsInColumn(contextId);
+                const newUnit = {
+                    id: 'unit_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+                    title: '',
+                    insertAfterTimestamp: anchorTimestamp
+                };
+                if (!unitFoldersDatabase[contextId]) {
+                    unitFoldersDatabase[contextId] = [];
+                }
+                unitFoldersDatabase[contextId].push(newUnit);
+                saveToLocalStorage();
+                renderTermColumnItems(contextId);
+            });
+            
+            line.appendChild(btn);
             return line;
         }
 
