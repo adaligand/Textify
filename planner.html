@@ -133,7 +133,7 @@
             padding-top: 15px;
             border-top: 1px solid #e1e8ed;
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(6, 1fr);
             gap: 6px;
             align-items: center;
         }
@@ -298,6 +298,44 @@
         .pop-p-lbl:has(input:checked) { background: #e6fffa; border-color: #319795; font-weight: bold; color: #234e52; }
         .pop-p-lbl.disabled-clash { background: #e2e8f0; border-color: #cbd5e0; color: #a0aec0; cursor: not-allowed; pointer-events: none; }
 
+        /* Lesson Outline styling */
+        .outline-class-section {
+            margin-bottom: 25px;
+            background: #fdfdfd;
+            border: 1px solid #cbd5e0;
+            border-radius: 6px;
+            padding: 15px;
+        }
+        .outline-class-header {
+            font-size: 16px;
+            font-weight: bold;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+            border-bottom: 2px solid #718096;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .outline-lesson-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .outline-lesson-date {
+            width: 140px;
+            font-size: 13px;
+            font-weight: bold;
+            color: #4a5568;
+        }
+        .outline-lesson-input {
+            flex-grow: 1;
+            padding: 6px;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            font-family: inherit;
+        }
+
         .modal-actions {
             margin-top: 20px;
             display: flex;
@@ -331,7 +369,6 @@
         .a4-page.page-thu-punch { padding: 10mm 4.4mm 10mm 15mm; }
         .a4-page.page-cover { padding: 20mm; }
         
-        /* Layout for Year Overview in portrait */
         .a4-page.page-overview-portrait { padding: 10mm 10mm 10mm 10mm; }
 
         .a4-page-landscape {
@@ -379,7 +416,6 @@
             width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 30px; min-height: 55px;
         }
 
-        /* Year Overview Refined Styling for Portrait Viewports */
         .year-overview-table {
             width: 100%; height: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; text-align: center;
         }
@@ -516,7 +552,8 @@
                 <div class="class-registry-list" id="classBadgeList"></div>
 
                 <div class="action-container">
-                    <button class="btn" onclick="generatePlannerEngine(true)">Generate</button>
+                    <button class="btn" onclick="generatePlannerEngine(true)">Generate Calendar</button>
+                    <button class="btn btn-purple" onclick="openLessonOutlinePanel()">Lesson Outline</button>
                     
                     <select id="jumpToMonthDropdown" class="dropdown-nav-select" style="display: none;" onchange="scrollToMonth(this.value)">
                         <option value="">Jump to...</option>
@@ -567,9 +604,23 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="lessonOutlineModal">
+        <div class="modal-box" style="width: 950px; max-width: 95vw;">
+            <h4 style="margin-top:0; margin-bottom:15px; font-size:18px; color:#2c3e50; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">Lesson Outline Panel</h4>
+            
+            <div id="lessonOutlineContent" style="max-height: 65vh; overflow-y: auto; padding-right: 10px;">
+                </div>
+            
+            <div class="modal-actions" style="justify-content: flex-end;">
+                <button class="btn" style="background:#95a5a6; padding: 8px 16px; font-size: 14px; margin:0; width:auto; height: auto;" onclick="closeLessonOutlineModal()">Close & Apply</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let classesData = [];
         let manualRotationOverrides = {}; 
+        let lessonTitlesDatabase = {}; // Stores written text titles matched to unique day/class combinations
 
         const pastelColorsExtended = [
             "#FFFDF0", "#FFF9C4", "#FFF59D", "#FFF176", "#FFEE58", "#FDD835",
@@ -587,20 +638,19 @@
         let selectedColorHex = pastelColorsExtended[0];
         const daysFr = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
 
-        // Custom structural configuration matching your unique calendar month rotations
         const excelMonthStyles = {
-            9:  { name: 'Septembre', headerBg: '#FF0066' }, // Reddish fuchsia
-            10: { name: 'Octobre',   headerBg: '#95B3D7' }, // Medium blue
-            11: { name: 'Novembre',  headerBg: '#FF66FF' }, // Bright pink
-            12: { name: 'Décembre',  headerBg: '#C4D79B' }, // Light green
-            1:  { name: 'Janvier',   headerBg: '#F79646' }, // Orange
-            2:  { name: 'Février',   headerBg: '#FF0066' }, // Reddish fuchsia
-            3:  { name: 'Mars',      headerBg: '#95B3D7' }, // Medium blue
-            4:  { name: 'Avril',     headerBg: '#FF66FF' }, // Bright pink
-            5:  { name: 'Mai',       headerBg: '#C4D79B' }, // Light green
-            6:  { name: 'Juin',      headerBg: '#F79646' }, // Orange
-            7:  { name: 'Juillet',   headerBg: '#FF0066' }, // Reddish fuchsia
-            8:  { name: 'Août',      headerBg: '#95B3D7' }  // Medium blue
+            9:  { name: 'Septembre', headerBg: '#FF0066' },
+            10: { name: 'Octobre',   headerBg: '#95B3D7' },
+            11: { name: 'Novembre',  headerBg: '#FF66FF' },
+            12: { name: 'Décembre',  headerBg: '#C4D79B' },
+            1:  { name: 'Janvier',   headerBg: '#F79646' },
+            2:  { name: 'Février',   headerBg: '#FF0066' },
+            3:  { name: 'Mars',      headerBg: '#95B3D7' },
+            4:  { name: 'Avril',     headerBg: '#FF66FF' },
+            5:  { name: 'Mai',       headerBg: '#C4D79B' },
+            6:  { name: 'Juin',      headerBg: '#F79646' },
+            7:  { name: 'Juillet',   headerBg: '#FF0066' },
+            8:  { name: 'Août',      headerBg: '#95B3D7' }
         };
 
         window.onload = function() {
@@ -801,6 +851,119 @@
         }
         function closeClassModal() { document.getElementById('classModal').style.display = 'none'; }
 
+        /* Updated Lesson Outline Panel Implementation */
+        function openLessonOutlinePanel() {
+            const contentContainer = document.getElementById('lessonOutlineContent');
+            contentContainer.innerHTML = '';
+
+            if (classesData.length === 0) {
+                contentContainer.innerHTML = `<p style="color:#e74c3c; font-weight:bold; text-align:center;">Please add at least one Class and configure its schedule first!</p>`;
+                document.getElementById('lessonOutlineModal').style.display = 'flex';
+                return;
+            }
+
+            const startDate = new Date(document.getElementById('calStart').value);
+            const endDate = new Date(document.getElementById('calEnd').value);
+            const currentSeason = document.getElementById('seasonToggle').value;
+
+            const holidayRanges = [];
+            document.querySelectorAll('.holiday-row').forEach(row => {
+                const s = row.querySelector('.holiday-start').value;
+                const e = row.querySelector('.holiday-end').value;
+                if(s && e) holidayRanges.push({ start: new Date(s), end: new Date(e) });
+            });
+
+            // Prepare structured map per class
+            const classLessonTracks = {};
+            classesData.forEach(c => {
+                classLessonTracks[c.name] = { color: c.color, lessons: [] };
+            });
+
+            let currentMonday = getNormalizedMonday(startDate);
+            let baselineRotationIndex = 0;
+
+            // Compute active lesson dates based on calendar limits
+            while (currentMonday <= endDate) {
+                const isBreakWeek = holidayRanges.some(r => currentMonday >= r.start && currentMonday <= r.end);
+                if (isBreakWeek) {
+                    currentMonday.setDate(currentMonday.getDate() + 7);
+                    continue;
+                }
+
+                let operationalRotation = (baselineRotationIndex % 2 === 0) ? "Week 1" : "Week 2";
+                const timeKey = currentMonday.getTime().toString();
+                if (manualRotationOverrides[timeKey]) operationalRotation = manualRotationOverrides[timeKey];
+
+                for (let d = 0; d < 5; d++) {
+                    const cellDate = new Date(currentMonday);
+                    cellDate.setDate(cellDate.getDate() + d);
+                    if (cellDate > endDate || cellDate < startDate) continue;
+
+                    const dayName = daysFr[d];
+
+                    for (let p = 1; p <= 5; p++) {
+                        const activeClassName = getActiveClassName(currentSeason, operationalRotation, dayName, p);
+                        if (activeClassName && classLessonTracks[activeClassName]) {
+                            const dateLabelStr = cellDate.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+                            const storageKey = `${cellDate.getFullYear()}-${cellDate.getMonth()}-${cellDate.getDate()}-${activeClassName}-P${p}`;
+                            
+                            classLessonTracks[activeClassName].lessons.push({
+                                label: `${dateLabelStr} (P${p})`,
+                                key: storageKey
+                            });
+                        }
+                    }
+                }
+
+                baselineRotationIndex++;
+                currentMonday.setDate(currentMonday.getDate() + 7);
+            }
+
+            // Render interactive panels per class
+            classesData.forEach(c => {
+                const track = classLessonTracks[c.name];
+                if (!track || track.lessons.length === 0) return;
+
+                const section = document.createElement('div');
+                section.className = 'outline-class-section';
+                
+                const header = document.createElement('div');
+                header.className = 'outline-class-header';
+                header.innerHTML = `<span style="background-color:${track.color}; padding: 4px 12px; border-radius:4px; color:#000;">${c.name}</span> <span>Curriculum Plan</span>`;
+                section.appendChild(header);
+
+                track.lessons.forEach((les, idx) => {
+                    const savedValue = lessonTitlesDatabase[les.key] || '';
+                    const row = document.createElement('div');
+                    row.className = 'outline-lesson-row';
+                    row.innerHTML = `
+                        <div class="outline-lesson-date">${les.label}</div>
+                        <input type="text" class="outline-lesson-input" data-storage-key="${les.key}" value="${savedValue}" placeholder="Enter lesson objective or title..." oninput="saveIndividualOutlineTitle(this)">
+                    `;
+                    section.appendChild(row);
+                });
+
+                contentContainer.appendChild(section);
+            });
+
+            if (contentContainer.children.length === 0) {
+                contentContainer.innerHTML = `<p style="color:#7f8c8d; text-align:center;">No scheduled sessions found for the current calendar range.</p>`;
+            }
+
+            document.getElementById('lessonOutlineModal').style.display = 'flex';
+        }
+
+        function saveIndividualOutlineTitle(inputEl) {
+            const key = inputEl.getAttribute('data-storage-key');
+            lessonTitlesDatabase[key] = inputEl.value;
+            saveToLocalStorage();
+        }
+
+        function closeLessonOutlineModal() { 
+            document.getElementById('lessonOutlineModal').style.display = 'none'; 
+            triggerCanvasIfVisible(); // Push outline texts into timeline bars automatically
+        }
+
         function submitClassForm() {
             const nameInput = document.getElementById('modalClassName').value.trim();
             const editIdx = document.getElementById('modalClassEditIdx').value;
@@ -865,6 +1028,7 @@
                 calEnd: document.getElementById('calEnd').value,
                 classesData: classesData,
                 manualRotationOverrides: manualRotationOverrides,
+                lessonTitlesDatabase: lessonTitlesDatabase,
                 holidays: holidays
             };
         }
@@ -891,6 +1055,7 @@
                     classesData = parsed.classesData || [];
                     sortClassesAlphabetically();
                     manualRotationOverrides = parsed.manualRotationOverrides || {};
+                    lessonTitlesDatabase = parsed.lessonTitlesDatabase || {};
                     const container = document.getElementById('holidayPickerContainer');
                     container.innerHTML = '';
                     if(parsed.holidays) parsed.holidays.forEach(h => createHolidayRow(h.start, h.end));
@@ -903,11 +1068,11 @@
         }
 
         function saveToLocalStorage() {
-            localStorage.setItem('planner_v20_db', JSON.stringify(compileStatePayload()));
+            localStorage.setItem('planner_v21_db', JSON.stringify(compileStatePayload()));
         }
 
         function loadFromLocalStorage() {
-            const cached = localStorage.getItem('planner_v20_db');
+            const cached = localStorage.getItem('planner_v21_db');
             if(!cached) return false;
             const db = JSON.parse(cached);
             document.getElementById('calStart').value = db.calStart;
@@ -915,6 +1080,7 @@
             classesData = db.classesData || [];
             sortClassesAlphabetically();
             manualRotationOverrides = db.manualRotationOverrides || {};
+            lessonTitlesDatabase = db.lessonTitlesDatabase || {};
             const container = document.getElementById('holidayPickerContainer');
             container.innerHTML = '';
             if(db.holidays && db.holidays.length > 0) {
@@ -966,8 +1132,18 @@
                     codeCell.innerHTML = '&nbsp;';
                 }
 
+                // Retrieve typed text title matching this specific slot
+                const storageKey = `${dateObj.getFullYear()}-${dateObj.getMonth()}-${dateObj.getDate()}-${className}-P${p}`;
+                const titleText = (className && lessonTitlesDatabase[storageKey]) ? lessonTitlesDatabase[storageKey] : '';
+
                 const titleCell = document.createElement('div');
                 titleCell.className = 'lesson-title-cell';
+                titleCell.style.padding = '4px 6px';
+                titleCell.style.fontSize = '16px'; // Increased font size
+                titleCell.style.fontWeight = 'bold';
+                titleCell.style.overflow = 'hidden';
+                titleCell.innerText = titleText;
+
                 titleRow.appendChild(codeCell);
                 titleRow.appendChild(titleCell);
 
@@ -999,7 +1175,6 @@
             document.getElementById('jumpToMonthDropdown').value = "";
         }
 
-        // Helper function to dynamically build a clean A4 Portrait Year Overview block
         function generateYearOverviewPageHtml(monthArray, baseYear, nextYear, holidayRanges, academicEndDate) {
             let html = `
                 <div class="a4-page page-overview-portrait">
@@ -1023,7 +1198,6 @@
                     let targetYear = (mNum >= 9) ? baseYear : nextYear;
                     let dateObj = new Date(targetYear, mNum - 1, day);
                     
-                    // Verify if this calendar day actually exists in this month row context
                     if (dateObj.getMonth() !== mNum - 1) {
                         html += `<td class="empty-date-cell"></td>`;
                         return;
@@ -1159,7 +1333,7 @@
                 landscapePage.innerHTML = tableHtml;
                 workspace.appendChild(landscapePage);
 
-                // --- PAGES 3 & 4: PORTRAIT YEAR OVERVIEWS (CLEAN) ---
+                // --- PAGES 3 & 4: PORTRAIT YEAR OVERVIEWS ---
                 const yearOverview1Html = generateYearOverviewPageHtml([9, 10, 11, 12, 1, 2], startYear, endYear, holidayRanges, academicEndDate);
                 const overviewWrapper1 = document.createElement('div');
                 overviewWrapper1.innerHTML = yearOverview1Html;
@@ -1209,7 +1383,7 @@
                         }
                     }
 
-                    // Left Hand Page (Mon, Tue, Wed)
+                    // Mon, Tue, Wed Page
                     const page1 = document.createElement('div');
                     page1.className = 'a4-page page-wed-punch';
                     const gridLayout1 = document.createElement('div');
@@ -1223,7 +1397,7 @@
                     page1.appendChild(gridLayout1);
                     workspace.appendChild(page1);
 
-                    // Right Hand Page (Thu, Fri + To-Do Matrix)
+                    // Thu, Fri + To-Do Matrix Page
                     const page2 = document.createElement('div');
                     page2.className = 'a4-page page-thu-punch';
                     const gridLayout2 = document.createElement('div');
