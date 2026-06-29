@@ -2949,16 +2949,14 @@ function generateWorksheet() {
                 
                 // Track correct letter for the matching answer key
                 let matchIndex = shuf.indexOf(s);
-                let correctLetter = String.fromCharCode(65 + matchIndex); // Converts 0 to A, 1 to B, etc.
+                let correctLetter = String.fromCharCode(65 + matchIndex);
                 activityAnswersHtml += `<li>${correctLetter}</li>`;
             });
             activityHtml += `</table>`;
         } else {
             currentSents.forEach((s, i) => {
                 let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
-                
-                // Determine the correct answer string depending on the exercise
-                let answerText = s.t; // Default is the target language sentence
+                let answerText = s.t; // Default correct answer is the target language sentence
                 
                 if (type === 'vowels' || type === 'cons') {
                     let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
@@ -2982,9 +2980,46 @@ function generateWorksheet() {
                     answerText = s.tr; // Correct answer is the full English sentence
                 }
                 else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
+                
+                // --- DYNAMIC FAULTY TRANSLATION GENERATION ---
                 else if (type === 'faulty') {
-                    activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">... [Translate correctly] ...</span><br>__________________________________________________________________</p>`;
-                    activityAnswersHtml += `<li>${answerText}</li>`;
+                    let faultyText = s.t;
+                    
+                    // Look through the components of this sentence for cells with multiple options (slashes)
+                    let eligibleParts = s.details ? s.details.filter(p => p.tAll && p.tAll.length > 1) : [];
+                    
+                    if (eligibleParts.length > 0) {
+                        // Pick a random cell that has alternative choices
+                        let partToChange = eligibleParts[Math.floor(Math.random() * eligibleParts.length)];
+                        let alternatives = partToChange.tAll.filter(w => w.trim() !== partToChange.tWord.trim());
+                        
+                        if (alternatives.length > 0) {
+                            let wrongWord = alternatives[Math.floor(Math.random() * alternatives.length)];
+                            // Reassemble the sentence with the incorrect word replacing the original
+                            faultyText = s.details.map(p => (p === partToChange ? wrongWord : p.tWord)).join(' ');
+                        }
+                    } else if (s.details && s.details.length > 0) {
+                        // Fallback: If no single cell has multiple slash options, pick a random word 
+                        // and swap it with an alternative word from another row in that exact same column
+                        let partToChange = s.details[Math.floor(Math.random() * s.details.length)];
+                        let sameColCells = grid.map(row => row[partToChange.c]).filter(cell => cell && cell.t && cell.t.trim() !== "");
+                        let allWordsInCol = [];
+                        
+                        sameColCells.forEach(cell => {
+                            let words = cell.t.split('/').map(x => x.trim());
+                            allWordsInCol.push(...words);
+                        });
+                        
+                        let alternatives = allWordsInCol.filter(w => w !== partToChange.tWord);
+                        if (alternatives.length > 0) {
+                            let wrongWord = alternatives[Math.floor(Math.random() * alternatives.length)];
+                            faultyText = s.details.map(p => (p === partToChange ? wrongWord : p.tWord)).join(' ');
+                        }
+                    }
+                    
+                    activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${faultyText}</span><br>__________________________________________________________________</p>`;
+                    // The answer key displays the correct text along with the English clarification
+                    activityAnswersHtml += `<li>${s.t} <span class="blue">(${s.tr})</span></li>`;
                     return;
                 }
                 
@@ -3003,12 +3038,9 @@ function generateWorksheet() {
     });
 
     answerKeyHtml += `</div>`; // Close the answer key container
-
-    // Combine student worksheet with the Answer Key
-    contentHtml += answerKeyHtml;
+    contentHtml += answerKeyHtml; // Append the Answer Key right after the student worksheet contents
 
     // 4. Save and Export
-    // I also added standard styling for h3 and ol for the Answer Key in the CSS header
     const header = `<html><head><style>@page { size: A4 landscape; margin: 1cm; } body { font-family: Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; } table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; } td, th { border: 1px solid black; padding: 5pt; font-size: 10pt; } .activity-container { page-break-inside: avoid; margin-bottom: 20pt; } h2 { border-bottom: 1px solid #ccc; font-size: 14pt; } h3 { font-size: 12pt; margin-bottom: 5px; } ol { margin-top: 0; padding-left: 20px; font-size: 10pt; line-height: 1.4; }</style></head><body>${contentHtml}</body></html>`;
     
     saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
