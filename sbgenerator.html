@@ -2886,8 +2886,6 @@ function generateWorksheet() {
     const getBalancedSelection = (limit) => {
         let selection = [];
         
-        // Clone and shuffle the sentences INSIDE each bucket
-        // This stops the "Always Line 1" issue.
         let tempBuckets = bucketList.map(b => {
             let shuffledSents = [...b.sentences].sort(() => 0.5 - Math.random());
             return { ...b, sentences: shuffledSents };
@@ -2898,15 +2896,12 @@ function generateWorksheet() {
             let activeBuckets = tempBuckets.filter(b => b.sentences.length > 0);
             if (activeBuckets.length === 0) break;
             
-            // If current bucket is exhausted, move to next
             if (tempBuckets[bucketPointer].sentences.length === 0) {
                 bucketPointer = (bucketPointer + 1) % tempBuckets.length;
                 continue;
             }
 
             selection.push(tempBuckets[bucketPointer].sentences.shift());
-            
-            // Move to next bucket to ensure diversity across rows
             bucketPointer = (bucketPointer + 1) % tempBuckets.length;
         }
         return selection;
@@ -2914,8 +2909,9 @@ function generateWorksheet() {
 
     // 3. HTML Generation
     let contentHtml = "";
-    // Setup the Answer Key container (starts on a new page)
-    let answerKeyHtml = "<div class='activity-container' style='page-break-before: always;'><h2>Answer Key</h2>";
+    
+    // FIX: Use a hard page break Word understands, and DO NOT use the activity-container class
+    let answerKeyHtml = "<br clear='all' style='page-break-before:always' /><div><h2>Answer Key</h2>";
 
     selected.forEach(type => {
         const labelEl = document.querySelector(`label[for="chk-${type}"]`);
@@ -2923,13 +2919,10 @@ function generateWorksheet() {
         let activityHtml = `<div class="activity-container"><h2>${label}</h2>`;
         
         let isStudy = (type === 'study');
-        // Get 20 sentences for study, 10 for others
         let currentSents = getBalancedSelection(isStudy ? 20 : 10);
         
-        // Final Sort by originRow so the worksheet looks organized (Row 1 items together, etc)
         currentSents.sort((a, b) => a.originRow - b.originRow);
 
-        // --- ANSWER KEY TRACKER FOR THIS ACTIVITY ---
         let activityAnswersHtml = "";
         if (!isStudy) {
             activityAnswersHtml += `<h3>${label}</h3><ol>`;
@@ -2947,7 +2940,6 @@ function generateWorksheet() {
             currentSents.forEach((s, i) => {
                 activityHtml += `<tr><td style="border:none;">${i+1}. ${s.t}</td><td style="border:none; width:40pt; text-align:center;">[ &nbsp; ]</td><td style="border:none;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`;
                 
-                // Track correct letter for the matching answer key
                 let matchIndex = shuf.indexOf(s);
                 let correctLetter = String.fromCharCode(65 + matchIndex);
                 activityAnswersHtml += `<li>${correctLetter}</li>`;
@@ -2956,7 +2948,7 @@ function generateWorksheet() {
         } else {
             currentSents.forEach((s, i) => {
                 let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
-                let answerText = s.t; // Default correct answer is the target language sentence
+                let answerText = s.t; 
                 
                 if (type === 'vowels' || type === 'cons') {
                     let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
@@ -2973,34 +2965,27 @@ function generateWorksheet() {
                     let w = s.tr.split(' '); 
                     w[Math.floor(Math.random() * w.length)] = "________"; 
                     out = s.t; hint = `<span class="blue">(${w.join(' ')})</span>`; 
-                    answerText = s.tr; // Correct answer is the full English sentence
+                    answerText = s.tr; 
                 }
                 else if (type === 'trans-en') { 
                     out = s.t; hint = ""; 
-                    answerText = s.tr; // Correct answer is the full English sentence
+                    answerText = s.tr; 
                 }
                 else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
-                
-                // --- DYNAMIC FAULTY TRANSLATION GENERATION ---
                 else if (type === 'faulty') {
                     let faultyText = s.t;
                     
-                    // Look through the components of this sentence for cells with multiple options (slashes)
                     let eligibleParts = s.details ? s.details.filter(p => p.tAll && p.tAll.length > 1) : [];
                     
                     if (eligibleParts.length > 0) {
-                        // Pick a random cell that has alternative choices
                         let partToChange = eligibleParts[Math.floor(Math.random() * eligibleParts.length)];
                         let alternatives = partToChange.tAll.filter(w => w.trim() !== partToChange.tWord.trim());
                         
                         if (alternatives.length > 0) {
                             let wrongWord = alternatives[Math.floor(Math.random() * alternatives.length)];
-                            // Reassemble the sentence with the incorrect word replacing the original
                             faultyText = s.details.map(p => (p === partToChange ? wrongWord : p.tWord)).join(' ');
                         }
                     } else if (s.details && s.details.length > 0) {
-                        // Fallback: If no single cell has multiple slash options, pick a random word 
-                        // and swap it with an alternative word from another row in that exact same column
                         let partToChange = s.details[Math.floor(Math.random() * s.details.length)];
                         let sameColCells = grid.map(row => row[partToChange.c]).filter(cell => cell && cell.t && cell.t.trim() !== "");
                         let allWordsInCol = [];
@@ -3017,8 +3002,7 @@ function generateWorksheet() {
                         }
                     }
                     
-                    activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${faultyText}</span><br>__________________________________________________________________</p>`;
-                    // The answer key displays the correct text along with the English clarification
+                    activityHtml += `<p class="activity-item">${i+1}. ${faultyText} = <span class="blue">... [Translate correctly] ...</span><br>__________________________________________________________________</p>`;
                     activityAnswersHtml += `<li>${s.t} <span class="blue">(${s.tr})</span></li>`;
                     return;
                 }
@@ -3030,18 +3014,17 @@ function generateWorksheet() {
         activityHtml += `</div>`;
         contentHtml += activityHtml;
 
-        // Finish appending answers for this specific activity
         if (!isStudy) {
             activityAnswersHtml += `</ol>`;
             answerKeyHtml += activityAnswersHtml;
         }
     });
 
-    answerKeyHtml += `</div>`; // Close the answer key container
-    contentHtml += answerKeyHtml; // Append the Answer Key right after the student worksheet contents
+    answerKeyHtml += `</div>`; 
+    contentHtml += answerKeyHtml; 
 
     // 4. Save and Export
-    const header = `<html><head><style>@page { size: A4 landscape; margin: 1cm; } body { font-family: Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; } table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; } td, th { border: 1px solid black; padding: 5pt; font-size: 10pt; } .activity-container { page-break-inside: avoid; margin-bottom: 20pt; } h2 { border-bottom: 1px solid #ccc; font-size: 14pt; } h3 { font-size: 12pt; margin-bottom: 5px; } ol { margin-top: 0; padding-left: 20px; font-size: 10pt; line-height: 1.4; }</style></head><body>${contentHtml}</body></html>`;
+    const header = `<html><head><style>@page { size: A4 landscape; margin: 1cm; } body { font-family: Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; } table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; } td, th { border: 1px solid black; padding: 5pt; font-size: 10pt; } .activity-container { page-break-inside: avoid; margin-bottom: 20pt; } h2 { border-bottom: 1px solid #ccc; font-size: 14pt; } h3 { font-size: 12pt; margin-bottom: 5px; margin-top: 15px; } ol { margin-top: 0; padding-left: 20px; font-size: 10pt; line-height: 1.4; }</style></head><body>${contentHtml}</body></html>`;
     
     saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
     closeModals();
