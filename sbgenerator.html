@@ -2976,59 +2976,59 @@ function generateWorksheet() {
                 else if (type === 'faulty') {
                     let faultyEnglish = s.tr; // Start with the correct English sentence
                     
-                    if (s.details && s.details.length > 0) {
+                    // sentences generated via findPaths store their segments inside 'parts' property
+                    let segments = s.parts || s.details || [];
+                    
+                    if (segments.length > 0) {
                         let sabotageableParts = [];
                         
-                        // Look at every part of the sentence to find cells with multiple options
-                        s.details.forEach(p => {
-                            let cell = grid[p.r][p.c];
-                            if (!cell) return;
+                        segments.forEach(p => {
+                            let cell = grid[p.r] ? grid[p.r][p.c] : null;
+                            if (!cell || !cell.items) return;
                             
-                            let tOpts = (cell.t || "").split('/').map(x => x.trim());
-                            let eOpts = (cell.e || cell.tr || "").split('/').map(x => x.trim());
+                            // The correct English chunk extracted during generation
+                            let correctEngWord = (p.tr || "").trim();
+                            if (!correctEngWord) return;
                             
-                            // Match the chosen target word to its corresponding English word index
-                            let correctIdx = tOpts.indexOf((p.tWord || "").trim());
-                            if (correctIdx === -1) correctIdx = 0; // Fallback
+                            let wrongWords = [];
                             
-                            let correctEngWord = eOpts[correctIdx] || eOpts[0];
-                            
-                            if (correctEngWord) {
-                                let wrongWords = [];
+                            // Scan all rows in the EXACT SAME COLUMN (p.c) for alternative options
+                            for (let rowIdx = 0; rowIdx < grid.length; rowIdx++) {
+                                let colCell = grid[rowIdx][p.c];
+                                if (!colCell || !colCell.items) continue;
                                 
-                                // NEW LOGIC: Scan all rows in the SAME COLUMN (p.c) for alternative English words
-                                for (let rowIdx = 0; rowIdx < grid.length; rowIdx++) {
-                                    let colCell = grid[rowIdx][p.c];
-                                    if (!colCell) continue;
-                                    
-                                    // Extract the English options from this cell
-                                    let colEOpts = (colCell.e || colCell.tr || "").split('/').map(x => x.trim());
-                                    
-                                    colEOpts.forEach(w => {
-                                        // If it's not empty and it's different from our correct word, it's a valid wrong option!
-                                        if (w && w !== correctEngWord && w !== "") {
-                                            wrongWords.push(w);
-                                        }
-                                    });
-                                }
-                                
-                                if (wrongWords.length > 0) {
-                                    sabotageableParts.push({
-                                        correctWord: correctEngWord,
-                                        wrongWords: wrongWords
-                                    });
-                                }
+                                colCell.items.forEach(item => {
+                                    let w = (item.tr || "").trim();
+                                    // If it's not empty and it's different from our correct segment, it's a valid swap!
+                                    if (w && w.toLowerCase() !== correctEngWord.toLowerCase()) {
+                                        wrongWords.push(w);
+                                    }
+                                });
+                            }
+                            
+                            if (wrongWords.length > 0) {
+                                sabotageableParts.push({
+                                    correctWord: correctEngWord,
+                                    wrongWords: wrongWords
+                                });
                             }
                         });
                         
                         if (sabotageableParts.length > 0) {
-                            // Pick a random part of the sentence to sabotage
+                            // Pick a random chunk of the sentence to sabotage
                             let chosen = sabotageableParts[Math.floor(Math.random() * sabotageableParts.length)];
-                            // Pick a random incorrect alternative from that same column
+                            // Pick a random alternative from the same column pool
                             let wrongWord = chosen.wrongWords[Math.floor(Math.random() * chosen.wrongWords.length)];
                             
-                            // Swap the correct English word for the wrong one
-                            faultyEnglish = s.tr.replace(chosen.correctWord, wrongWord);
+                            // Replace the correct segment with the wrong segment in the English string safely
+                            // Using a simple split/join replaces the standalone instance accurately
+                            let partsOfSentence = faultyEnglish.split(chosen.correctWord);
+                            if (partsOfSentence.length > 1) {
+                                faultyEnglish = partsOfSentence.join(wrongWord);
+                            } else {
+                                // Fallback if string exact-case replacement gets blocked
+                                faultyEnglish = faultyEnglish.replace(new RegExp(chosen.correctWord, 'i'), wrongWord);
+                            }
                         }
                     }
                     
