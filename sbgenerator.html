@@ -2974,87 +2974,80 @@ function generateWorksheet() {
                 
                 // --- FIXED FAULTY TRANSLATION LOGIC ---
                 else if (type === 'faulty') {
-                    let faultyEnglish = s.tr; // Start with the correct English sentence
-                    
-                    if (s.details && s.details.length > 0) {
-                        let sabotageableParts = [];
-                        
-                        // Look at every part of the sentence to find cells with multiple options
-                        s.details.forEach(p => {
-                            let cell = grid[p.r][p.c];
-                            if (!cell) return;
-                            
-                            let tOpts = (cell.t || "").split('/').map(x => x.trim());
-                            let eOpts = (cell.e || cell.tr || "").split('/').map(x => x.trim());
-                            
-                            // Match the chosen target word to its corresponding English word index
-                            let correctIdx = tOpts.indexOf((p.tWord || "").trim());
-                            if (correctIdx === -1) correctIdx = 0; // Fallback
-                            
-                            let correctEngWord = eOpts[correctIdx] || eOpts[0];
-                            
-                            if (correctEngWord) {
-                                let wrongWords = [];
-                                
-                                // NEW LOGIC: Scan all rows in the SAME COLUMN (p.c) for alternative English words
-                                for (let rowIdx = 0; rowIdx < grid.length; rowIdx++) {
-                                    let colCell = grid[rowIdx][p.c];
-                                    if (!colCell) continue;
-                                    
-                                    // Extract the English options from this cell
-                                    let colEOpts = (colCell.e || colCell.tr || "").split('/').map(x => x.trim());
-                                    
-                                    colEOpts.forEach(w => {
-                                        // If it's not empty and it's different from our correct word, it's a valid wrong option!
-                                        if (w && w !== correctEngWord && w !== "") {
-                                            wrongWords.push(w);
-                                        }
-                                    });
-                                }
-                                
-                                if (wrongWords.length > 0) {
-                                    sabotageableParts.push({
-                                        correctWord: correctEngWord,
-                                        wrongWords: wrongWords
-                                    });
-                                }
-                            }
-                        });
-                        
-                        if (sabotageableParts.length > 0) {
-                            // Pick a random part of the sentence to sabotage
-                            let chosen = sabotageableParts[Math.floor(Math.random() * sabotageableParts.length)];
-                            // Pick a random incorrect alternative from that same column
-                            let wrongWord = chosen.wrongWords[Math.floor(Math.random() * chosen.wrongWords.length)];
-                            
-                            // Swap the correct English word for the wrong one
-                            faultyEnglish = s.tr.replace(chosen.correctWord, wrongWord);
-                        }
+
+    let faultyEnglish = s.tr;
+
+    if (s.parts && s.parts.length) {
+
+        // Copy the English parts that make up the sentence
+        let englishParts = s.parts.map(p => p.tr);
+
+        // Find every position that could be replaced
+        let candidates = [];
+
+        s.parts.forEach((part, index) => {
+
+            let wrongWords = [];
+
+            // Look down the SAME COLUMN for alternative English phrases
+            for (let row = 0; row < grid.length; row++) {
+
+                let cell = getCellAt(row, part.c);
+                if (!cell || !cell.items) continue;
+
+                cell.items.forEach(item => {
+
+                    const alt = (item.tr || "").trim();
+
+                    if (
+                        alt &&
+                        alt !== part.tr &&
+                        !wrongWords.includes(alt)
+                    ) {
+                        wrongWords.push(alt);
                     }
-                    
-                    // Outputs the correct Target sentence with the FAULTY English sentence
-                    activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${faultyEnglish}</span><br>__________________________________________________________________</p>`;
-                    
-                    // The Answer Key gets the correct Target and CORRECT English
-                    activityAnswersHtml += `<li>${s.t} = <span class="blue">${s.tr}</span></li>`;
-                    return;
-                }
-                
-                activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>__________________________________________________________________</p>`;
-                activityAnswersHtml += `<li>${answerText}</li>`;
-            });
-        }
-        activityHtml += `</div>`;
-        contentHtml += activityHtml;
 
-        if (!isStudy) {
-            activityAnswersHtml += `</ol>`;
-            answerKeyHtml += activityAnswersHtml;
-        }
-    });
+                });
+            }
 
-    answerKeyHtml += `</div>`; 
-    contentHtml += answerKeyHtml; 
+            if (wrongWords.length) {
+                candidates.push({
+                    index,
+                    wrongWords
+                });
+            }
+
+        });
+
+        if (candidates.length) {
+
+            const chosen =
+                candidates[Math.floor(Math.random() * candidates.length)];
+
+            englishParts[chosen.index] =
+                chosen.wrongWords[
+                    Math.floor(Math.random() * chosen.wrongWords.length)
+                ];
+
+            faultyEnglish = englishParts.join(" ");
+        }
+    }
+
+    activityHtml += `
+        <p class="activity-item">
+            ${i + 1}. ${s.t} =
+            <span class="blue">${faultyEnglish}</span>
+            <br>__________________________________________________________________
+        </p>
+    `;
+
+    activityAnswersHtml += `
+        <li>${s.t} = <span class="blue">${s.tr}</span></li>
+    `;
+
+    return;
+}
+      
 
     // 4. Save and Export
     const header = `<html><head><style>@page { size: A4 landscape; margin: 1cm; } body { font-family: Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; } table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; } td, th { border: 1px solid black; padding: 5pt; font-size: 10pt; } .activity-container { page-break-inside: avoid; margin-bottom: 20pt; } h2 { border-bottom: 1px solid #ccc; font-size: 14pt; } h3 { font-size: 12pt; margin-bottom: 5px; margin-top: 15px; } ol { margin-top: 0; padding-left: 20px; font-size: 10pt; line-height: 1.4; }</style></head><body>${contentHtml}</body></html>`;
