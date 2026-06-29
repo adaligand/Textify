@@ -2910,7 +2910,6 @@ function generateWorksheet() {
     // 3. HTML Generation
     let contentHtml = "";
     
-    // Page break for the Answer Key
     let answerKeyHtml = "<br clear='all' style='page-break-before:always' /><div><h2>Answer Key</h2>";
 
     selected.forEach(type => {
@@ -2975,67 +2974,54 @@ function generateWorksheet() {
                 
                 // --- FIXED FAULTY TRANSLATION LOGIC ---
                 else if (type === 'faulty') {
-                    let faultyEnglish = s.tr; // Start with the correct English sentence by default
+                    let faultyEnglish = s.tr; // Start with the correct English sentence
                     
                     if (s.details && s.details.length > 0) {
-                        // Pick a random part of the sentence to sabotage
-                        let partIndex = Math.floor(Math.random() * s.details.length);
-                        let partToChange = s.details[partIndex];
+                        let sabotageableParts = [];
                         
-                        // Fetch the column data directly from the grid to guarantee we find the English alternatives
-                        let colIndex = partToChange.c;
-                        let sameColCells = grid.map(row => row[colIndex]).filter(cell => cell && (cell.e || cell.tr));
-                        
-                        let allWordsInCol = [];
-                        let originalCellEnglish = "";
-                        
-                        sameColCells.forEach(cell => {
-                            let eng = cell.e || cell.tr || "";
-                            if (eng) {
-                                let words = eng.split('/').map(x => x.trim());
-                                allWordsInCol.push(...words);
+                        // Look at every part of the sentence to find cells with multiple options
+                        s.details.forEach(p => {
+                            let cell = grid[p.r][p.c];
+                            if (!cell) return;
+                            
+                            let tOpts = (cell.t || "").split('/').map(x => x.trim());
+                            let eOpts = (cell.e || cell.tr || "").split('/').map(x => x.trim());
+                            
+                            // Match the chosen target word to its corresponding English word index
+                            let correctIdx = tOpts.indexOf((p.tWord || "").trim());
+                            if (correctIdx === -1) correctIdx = 0; // Fallback
+                            
+                            let correctEngWord = eOpts[correctIdx] || eOpts[0];
+                            
+                            if (correctEngWord) {
+                                // Find alternative English words IN THE EXACT SAME CELL that are different
+                                let wrongWords = eOpts.filter((w, idx) => idx !== correctIdx && w !== correctEngWord && w !== "");
                                 
-                                // If this is the exact cell used for the sentence, save its English text
-                                if (cell === grid[partToChange.r][colIndex]) {
-                                    originalCellEnglish = eng;
+                                if (wrongWords.length > 0) {
+                                    sabotageableParts.push({
+                                        correctWord: correctEngWord,
+                                        wrongWords: wrongWords
+                                    });
                                 }
                             }
                         });
                         
-                        // Identify the current English word used in the correct translation
-                        let cellOptions = originalCellEnglish.split('/').map(x => x.trim());
-                        let currentWord = partToChange.eWord || partToChange.trWord || cellOptions[0] || "";
-                        
-                        // Prioritize finding an alternative within the SAME cell (slash options)
-                        let alternatives = cellOptions.filter(w => w !== currentWord);
-                        
-                        // If no slash options in the same cell, grab an alternative from the same column
-                        if (alternatives.length === 0) {
-                            alternatives = allWordsInCol.filter(w => w !== currentWord && !cellOptions.includes(w));
-                        }
-                        
-                        if (alternatives.length > 0) {
-                            let wrongWord = alternatives[Math.floor(Math.random() * alternatives.length)];
+                        if (sabotageableParts.length > 0) {
+                            // Pick a random part that has alternatives in its cell
+                            let chosen = sabotageableParts[Math.floor(Math.random() * sabotageableParts.length)];
+                            // Pick a random incorrect alternative from that same cell
+                            let wrongWord = chosen.wrongWords[Math.floor(Math.random() * chosen.wrongWords.length)];
                             
-                            // Reassemble the English sentence with the wrong word
-                            faultyEnglish = s.details.map((p, idx) => {
-                                if (idx === partIndex) return wrongWord;
-                                // Safely fallback to grid data if eWord/trWord aren't explicitly saved
-                                let engText = p.eWord || p.trWord;
-                                if (!engText) {
-                                    let cData = grid[p.r][p.c];
-                                    engText = (cData.e || cData.tr || "").split('/')[0].trim();
-                                }
-                                return engText;
-                            }).join(' ');
+                            // Swap the correct English word for the wrong one
+                            faultyEnglish = s.tr.replace(chosen.correctWord, wrongWord);
                         }
                     }
                     
-                    // Output the correct Target sentence = the Faulty English sentence
+                    // Outputs the correct Target sentence with the FAULTY English sentence
                     activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${faultyEnglish}</span><br>__________________________________________________________________</p>`;
                     
-                    // The Answer Key gets the correct target + correct English
-                    activityAnswersHtml += `<li>${s.t} <span class="blue">(${s.tr})</span></li>`;
+                    // The Answer Key gets the correct Target and CORRECT English
+                    activityAnswersHtml += `<li>${s.t} = <span class="blue">${s.tr}</span></li>`;
                     return;
                 }
                 
