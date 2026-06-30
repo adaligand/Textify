@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedars buildecr</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2972,16 +2972,17 @@ function generateWorksheet() {
                 }
                 else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
                 
-                // --- FIXED FAULTY TRANSLATION LOGIC ---
+                // --- REPAIRED & ROBUST FAULTY TRANSLATION LOGIC ---
                 else if (type === 'faulty') {
-                    let faultyEnglish = s.tr; // Start with correct English translation
+                    let faultyEnglish = s.tr; 
                     let segments = s.parts || s.details || [];
                     
                     if (segments.length > 0) {
                         let sabotageableParts = [];
                         
                         segments.forEach(p => {
-                            let cell = grid[p.r] ? grid[p.r][p.c] : null;
+                            // CRITICAL FIX: Use getCellAt to safely unwrap merged cells
+                            let cell = getCellAt(p.r, p.c);
                             if (!cell || !cell.items) return;
                             
                             let correctEngWord = (p.tr || "").trim();
@@ -2989,10 +2990,9 @@ function generateWorksheet() {
                             
                             let wrongWords = [];
                             
-                            // Scan ONLY inside the items array of the EXACT SAME CELL (p.r, p.c)
+                            // Scan all items assigned inside this specific cell's dictionary array
                             cell.items.forEach(item => {
                                 let w = (item.tr || "").trim();
-                                // If the cell item has an alternative translation different from our chosen part
                                 if (w && w.toLowerCase() !== correctEngWord.toLowerCase()) {
                                     wrongWords.push(w);
                                 }
@@ -3007,25 +3007,22 @@ function generateWorksheet() {
                         });
                         
                         if (sabotageableParts.length > 0) {
-                            // Pick a random part from this sentence that contains internal multi-item options
+                            // Choose a random segment from this sentence to substitute
                             let chosen = sabotageableParts[Math.floor(Math.random() * sabotageableParts.length)];
-                            // Grab a random incorrect alternative option from within that specific cell
                             let wrongWord = chosen.wrongWords[Math.floor(Math.random() * chosen.wrongWords.length)];
                             
-                            // Safely substitute the correct part for the faulty internal option
-                            let partsOfSentence = faultyEnglish.split(chosen.correctWord);
-                            if (partsOfSentence.length > 1) {
-                                faultyEnglish = partsOfSentence.join(wrongWord);
-                            } else {
-                                faultyEnglish = faultyEnglish.replace(new RegExp(chosen.correctWord, 'i'), wrongWord);
-                            }
+                            // Escape characters to create a safe case-insensitive replacement Regex
+                            let escapedTarget = chosen.correctWord.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                            let replacementRegex = new RegExp(escapedTarget, 'i');
+                            
+                            faultyEnglish = faultyEnglish.replace(replacementRegex, wrongWord);
                         }
                     }
                     
-                    // Outputs correct Target sentence with the updated FAULTY English sentence
+                    // Output the accurate Target Language statement alongside the SABOTAGED English statement
                     activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${faultyEnglish}</span><br>__________________________________________________________________</p>`;
                     
-                    // Answer Key shows correct translation
+                    // The Answer Key receives the pristine Target Language statement alongside the CORRECT English translation
                     activityAnswersHtml += `<li>${s.t} = <span class="blue">${s.tr}</span></li>`;
                     return;
                 }
