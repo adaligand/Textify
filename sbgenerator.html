@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder1</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2693,28 +2693,32 @@ function emptyCell() {
         color: "#ffffff", 
         split: false // Changed from true to false
     };
-// --- WORKSHEET & PREVIEW ---
-function openPreview() {
-    const sentences = getAssembledSentences();
-    const content = sentences.map((s, i) => `<div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`).join('');
-    document.getElementById('preview-content').innerHTML = content || "No content yet.";
-    document.getElementById('preview-modal').style.display = 'block';
-    document.getElementById('overlay').style.display = 'block';
 }
+    // --- WORKSHEET & PREVIEW ---
+    function openPreview() {
+        const sentences = getAssembledSentences();
+        const content = sentences.map((s, i) => `<div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`).join('');
+        document.getElementById('preview-content').innerHTML = content || "No content yet.";
+        document.getElementById('preview-modal').style.display = 'block';
+        document.getElementById('overlay').style.display = 'block';
+    }
 
-function openActivityMenu() {
-    const list = [{id:'study', label:'Sentence Table'}, {id:'match', label:'Match up'}, {id:'nospaces', label:'No Spaces'}, {id:'jumbled', label:'Unjumble'}, {id:'gap-en', label:'Gap Fill (English)'}, {id:'gap-t', label:'Gap Fill (TL)'}, {id:'vowels', label:'Missing Vowels'}, {id:'cons', label:'Missing Consonants'}, {id:'faulty', label:'Faulty Translation'}, {id:'trans-en', label:'Translate (English)'}, {id:'trans-target', label:'Translate (TL)'}];
-    document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}" id="chk-${a.id}"><label for="chk-${a.id}" style="cursor:pointer">${a.label}</label></div>`).join('');
-    document.getElementById('activity-menu').style.display = 'block'; 
-    document.getElementById('overlay').style.display = 'block';
-}
+    function openActivityMenu() {
+        const list = [{id:'study', label:'Sentence Table'}, {id:'match', label:'Match up'}, {id:'nospaces', label:'No Spaces'}, {id:'jumbled', label:'Unjumble'}, {id:'gap-en', label:'Gap Fill (English)'}, {id:'gap-t', label:'Gap Fill (TL)'}, {id:'vowels', label:'Missing Vowels'}, {id:'cons', label:'Missing Consonants'}, {id:'faulty', label:'Faulty Translation'}, {id:'trans-en', label:'Translate (English)'}, {id:'trans-target', label:'Translate (TL)'}];
+        document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}" id="chk-${a.id}"><label for="chk-${a.id}" style="cursor:pointer">${a.label}</label></div>`).join('');
+        document.getElementById('activity-menu').style.display = 'block'; 
+        document.getElementById('overlay').style.display = 'block';
+    }
 
+/* --- 1. THE STARTING ENGINE --- */
 function getAssembledSentences() {
     let allSentences = [];
     
-    // Start a path search for every single row position in Column 0
+    // Start a path search for every row that isn't hidden by a merge
     for (let r = 0; r < grid.length; r++) {
-        allSentences = allSentences.concat(findPaths(r, 0, r));
+        if (!grid[r][0].hidden) {
+            allSentences = allSentences.concat(findPaths(r, 0));
+        }
     }
 
     // Deduplicate and filter empty strings
@@ -2730,8 +2734,10 @@ function getAssembledSentences() {
     return unique;
 }
 
-/* --- THE TRACK-BOUND PATHFINDER --- */
+/* --- THE "ROW-LOCKED" PATHFINDER --- */
+/* --- THE FIX: TRACK-LOCKED PATHFINDER --- */
 function findPaths(r, c, originalStartRow = null) {
+    // On the very first step of a sentence track, record the row index we started on
     if (originalStartRow === null) {
         originalStartRow = r;
     }
@@ -2739,17 +2745,16 @@ function findPaths(r, c, originalStartRow = null) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // 1. Current cell items (FIX: explicitly attach originRow here)
+    // 1. Current cell items
     let currentOptions = cell.items
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr.trim(),
-            originRow: originalStartRow,
             parts: [{ t: it.t, tr: it.tr, r: r, c: c }]
         }));
 
-    // Genuinely check if we reached the final absolute column boundary of the grid
+    // Check if we have genuinely reached the last column index of the grid
     if (c === grid[0].length - 1) {
         return currentOptions.filter(path => !isExcludedCombination(path.parts));
     }
@@ -2771,35 +2776,30 @@ function findPaths(r, c, originalStartRow = null) {
         while (isColumnBridge(targetCol) && targetCol < grid[0].length) targetCol++;
 
         if (targetCol < grid[0].length) {
+            // Check rows in the target column but restrict them to our tracked row alignment
             for (let tr = 0; tr < grid.length; tr++) {
-                let targetCell = getCellAt(tr, targetCol);
-                if (!targetCell) continue;
+                let targetCell = grid[tr][targetCol];
+                if (!targetCell || targetCell.hidden) continue;
 
                 const nextStart = tr;
                 const nextEnd = tr + (targetCell.rS || 1);
 
+                // Ensure the path stays strictly locked onto the starting track index
                 if (originalStartRow >= nextStart && originalStartRow < nextEnd) {
                     combinedSubPaths = combinedSubPaths.concat(findPaths(tr, targetCol, originalStartRow));
                 }
             }
         }
     } else {
-        // --- REGULAR STEP: THE TRACK LOCK ---
+        // --- REGULAR STEP: TRACK LOCK ---
         for (let tr = 0; tr < grid.length; tr++) {
-            let nextCell = getCellAt(tr, nextCol);
-            if (!nextCell) continue;
+            let nextCell = grid[tr][nextCol];
+            if (!nextCell || nextCell.hidden) continue;
 
-            let actualRowIdx = tr;
-            for (let i = tr; i >= 0; i--) {
-                if (grid[i][nextCol] === nextCell) {
-                    actualRowIdx = i;
-                    break;
-                }
-            }
+            const nextStart = tr;
+            const nextEnd = tr + (nextCell.rS || 1);
 
-            const nextStart = actualRowIdx;
-            const nextEnd = nextStart + (nextCell.rS || 1);
-
+            // Ensure the next cell physically overlaps with the row track we started on
             if (originalStartRow >= nextStart && originalStartRow < nextEnd) {
                 combinedSubPaths = combinedSubPaths.concat(findPaths(tr, nextCol, originalStartRow));
             }
@@ -2810,25 +2810,14 @@ function findPaths(r, c, originalStartRow = null) {
     if (currentOptions.length === 0) return combinedSubPaths.filter(p => !isExcludedCombination(p.parts));
     if (combinedSubPaths.length === 0) return currentOptions.filter(p => !isExcludedCombination(p.parts));
 
-    // Deduplicate branches generated at the same tracking index step
-    let seenSubTracks = new Set();
-    let uniqueSubPaths = [];
-    combinedSubPaths.forEach(p => {
-        if (!seenSubTracks.has(p.t)) {
-            uniqueSubPaths.push(p);
-            seenSubTracks.add(p.t);
-        }
-    });
-
     let finalPaths = [];
     currentOptions.forEach(curr => {
-        uniqueSubPaths.forEach(sub => {
+        combinedSubPaths.forEach(sub => {
             const combinedParts = [...curr.parts, ...sub.parts];
             if (!isExcludedCombination(combinedParts)) {
                 finalPaths.push({
                     t: (curr.t + " " + sub.t).trim(),
                     tr: (curr.tr + " " + sub.tr).trim(),
-                    originRow: originalStartRow, // Maintain tracking data across assemblies
                     parts: combinedParts
                 });
             }
@@ -2838,18 +2827,28 @@ function findPaths(r, c, originalStartRow = null) {
     return finalPaths;
 }
 
-function cartesian(args) { 
-    return args.reduce((a, b) => { 
-        let ret = []; 
-        a.forEach(a_item => { 
-            b.forEach(b_item => { 
-                ret.push(a_item.concat([b_item])); 
-            }); 
-        }); 
-        return ret; 
-    }, [[]]); 
-}
+function getAssembledSentences() {
+    let allSentences = [];
+    
+    // Start a path search for every single row position in Column 0
+    for (let r = 0; r < grid.length; r++) {
+        // We pass the index 'r' as the path's strict row track tracker
+        allSentences = allSentences.concat(findPaths(r, 0, r));
+    }
 
+    // Deduplicate and filter empty strings
+    const unique = [];
+    const seen = new Set();
+    allSentences.forEach(s => {
+        const text = s.t.trim();
+        if (text && !seen.has(text)) {
+            unique.push(s);
+            seen.add(text);
+        }
+    });
+    return unique;
+}
+    function cartesian(args) { return args.reduce((a, b) => { let ret = []; a.forEach(a_item => { b.forEach(b_item => { ret.push(a_item.concat([b_item])); }); }); return ret; }, [[]]); }
 function getCellAt(r, c) {
     if (r < 0 || r >= grid.length || c < 0 || c >= grid[0].length) return null;
     let cell = grid[r][c];
@@ -2865,7 +2864,6 @@ function getCellAt(r, c) {
     }
     return cell;
 }
-
 function generateWorksheet() {
     const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
     const selected = activityOrder.filter(id => {
@@ -2881,8 +2879,7 @@ function generateWorksheet() {
     // 1. Group sentences by their tagged origin row
     let rowBuckets = {};
     allSentences.forEach(s => {
-        // Safe fallback if originRow somehow goes missing
-        const r = s.originRow !== undefined ? s.originRow : 0;
+        const r = s.originRow;
         if (!rowBuckets[r]) rowBuckets[r] = [];
         rowBuckets[r].push(s);
     });
@@ -2919,6 +2916,7 @@ function generateWorksheet() {
 
     // 3. HTML Generation
     let contentHtml = "";
+    
     let answerKeyHtml = "<br clear='all' style='page-break-before:always' /><div><h2>Answer Key</h2>";
 
     selected.forEach(type => {
@@ -2981,8 +2979,9 @@ function generateWorksheet() {
                 }
                 else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
                 
+                // --- FIXED FAULTY TRANSLATION LOGIC ---
                 else if (type === 'faulty') {
-                    let faultyEnglish = s.tr; 
+                    let faultyEnglish = s.tr; // Start with correct English translation
                     let segments = s.parts || s.details || [];
                     
                     if (segments.length > 0) {
@@ -2997,8 +2996,10 @@ function generateWorksheet() {
                             
                             let wrongWords = [];
                             
+                            // Scan ONLY inside the items array of the EXACT SAME CELL (p.r, p.c)
                             cell.items.forEach(item => {
                                 let w = (item.tr || "").trim();
+                                // If the cell item has an alternative translation different from our chosen part
                                 if (w && w.toLowerCase() !== correctEngWord.toLowerCase()) {
                                     wrongWords.push(w);
                                 }
@@ -3013,9 +3014,12 @@ function generateWorksheet() {
                         });
                         
                         if (sabotageableParts.length > 0) {
+                            // Pick a random part from this sentence that contains internal multi-item options
                             let chosen = sabotageableParts[Math.floor(Math.random() * sabotageableParts.length)];
+                            // Grab a random incorrect alternative option from within that specific cell
                             let wrongWord = chosen.wrongWords[Math.floor(Math.random() * chosen.wrongWords.length)];
                             
+                            // Safely substitute the correct part for the faulty internal option
                             let partsOfSentence = faultyEnglish.split(chosen.correctWord);
                             if (partsOfSentence.length > 1) {
                                 faultyEnglish = partsOfSentence.join(wrongWord);
@@ -3025,7 +3029,10 @@ function generateWorksheet() {
                         }
                     }
                     
+                    // Outputs correct Target sentence with the updated FAULTY English sentence
                     activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${faultyEnglish}</span><br>__________________________________________________________________</p>`;
+                    
+                    // Answer Key shows correct translation
                     activityAnswersHtml += `<li>${s.t} = <span class="blue">${s.tr}</span></li>`;
                     return;
                 }
