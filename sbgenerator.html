@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedars buildecr</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2717,8 +2717,10 @@ function getAssembledSentences() {
     
     // Start a path search for every row from column 0
     for (let r = 0; r < grid.length; r++) {
-        // Run findPaths specifying that any paths originating from this initial loop belong natively to row `r`
-        allSentences = allSentences.concat(findPaths(r, 0, r));
+        // Start track pathing only if it's the root of a cell (not hidden by a vertical merge)
+        if (!grid[r][0].hidden) {
+            allSentences = allSentences.concat(findPaths(r, 0, r));
+        }
     }
 
     // Deduplicate and filter empty strings
@@ -2734,41 +2736,28 @@ function getAssembledSentences() {
     return unique;
 }
 
-/* --- THE "ROW-LOCKED" PATHFINDER --- */
+/* --- THE REPAIRED "ROW-LOCKED" PATHFINDER --- */
 function findPaths(r, c, originRow) {
-    // Resolve the true root cell if the current coordinate is hidden/merged
+    // Resolve the true cell coordinate
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // Calculate how many columns this cell occupies horizontally (cS or colspan)
+    // Correctly advance column boundaries based on horizontal span (colspan)
     let cellColSpan = cell.cS || 1;
-    // Determine what column index comes immediately after this cell's boundaries
-    let nextCol = c;
-    let rootCellForCurrent = grid[r][c];
-    if (rootCellForCurrent && rootCellForCurrent.hidden) {
-        // Find the column where the root cell actually starts
-        for (let i = c; i >= 0; i--) {
-            if (!grid[r][i].hidden) {
-                nextCol = i + (grid[r][i].cS || 1);
-                break;
-            }
-        }
-    } else {
-        nextCol = c + cellColSpan;
-    }
+    let nextCol = c + cellColSpan;
 
-    // 1. Fetch current cell options
-    let currentOptions = cell.items
+    // 1. Fetch current cell options and map required metadata for worksheet sub-engines
+    let currentOptions = (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr ? it.tr.trim() : "",
-            originRow: originRow, // Lock the original starting row for the worksheet round-robin
+            originRow: originRow, // Critical for worksheet balance bucket loops
             parts: [{ t: it.t, tr: it.tr || "", r: r, c: c }],
-            details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
+            details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }] // Critical for Faulty Translation engine
         }));
 
-    // If we reached or passed the end of the columns, return what options we built here
+    // If we reached or passed the end of the columns, return options we built here
     if (nextCol >= grid[0].length) {
         return currentOptions.filter(path => !isExcludedCombination(path.parts));
     }
@@ -2779,7 +2768,7 @@ function findPaths(r, c, originRow) {
         if (colIdx >= grid[0].length) return false;
         return grid.every(row => {
             const cEl = row[colIdx];
-            return !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
+            return !cEl || !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
         });
     };
 
@@ -2789,55 +2778,35 @@ function findPaths(r, c, originRow) {
         while (isColumnBridge(targetCol) && targetCol < grid[0].length) targetCol++;
 
         if (targetCol < grid[0].length) {
-            // Bridge allows row tracks to branch across columns
+            // Bridge allows row tracks to branch across columns to all tracks
             for (let tr = 0; tr < grid.length; tr++) {
                 let targetCell = grid[tr][targetCol];
-                if (!targetCell.hidden) {
+                if (targetCell && !targetCell.hidden) {
                     combinedSubPaths = combinedSubPaths.concat(findPaths(tr, targetCol, originRow));
                 }
             }
         }
     } else {
-        // --- REGULAR STEP: TRACK RE-ALIGNMENT ---
-        // Look in the next valid column. We restrict paths strictly to cells 
-        // that match our current path context (originRow).
+        // --- REGULAR STEP: VERTICAL/HORIZONTAL OVERLAP LOCK ---
+        // Establish the exact vertical boundaries covered by this current row track
+        const currentStart = r;
+        const currentEnd = r + (cell.rS || 1);
+
         for (let tr = 0; tr < grid.length; tr++) {
             let nextCell = grid[tr][nextCol];
-            if (!nextCell) continue;
+            if (!nextCell || nextCell.hidden) continue;
 
-            // Strict Vertical Lock Rule:
-            // A path should continue on the current track (tr === originRow)
-            // UNLESS it hits a vertically merged cell whose native coordinate covers our origin track.
-            let isVerticallyMergedOverTrack = false;
-            if (nextCell.hidden) {
-                let rootOfNext = getCellAt(tr, nextCol);
-                if (rootOfNext) {
-                    // Find the rows covered by the root cell
-                    let rootRowIndex = -1;
-                    // Find where this root is located
-                    for (let testR = 0; testR < grid.length; testR++) {
-                        if (grid[testR][nextCol] === rootOfNext && !grid[testR][nextCol].hidden) {
-                            rootRowIndex = testR;
-                            break;
-                        }
-                    }
-                    if (rootRowIndex !== -1) {
-                        let rSpan = rootOfNext.rS || 1;
-                        if (originRow >= rootRowIndex && originRow < (rootRowIndex + rSpan)) {
-                            isVerticallyMergedOverTrack = true;
-                        }
-                    }
-                }
-            }
+            const nextStart = tr;
+            const nextEnd = tr + (nextCell.rS || 1);
 
-            // Only proceed if it is strictly our native row track, or a merged block intersecting our track
-            if (tr === originRow || (isVerticallyMergedOverTrack && !nextCell.hidden)) {
+            // True Vertical Overlap Lock Alignment Check
+            if (nextStart < currentEnd && nextEnd > currentStart) {
                 combinedSubPaths = combinedSubPaths.concat(findPaths(tr, nextCol, originRow));
             }
         }
     }
 
-    // 3. ASSEMBLY
+    // 3. ASSEMBLY 
     if (currentOptions.length === 0) return combinedSubPaths.filter(p => !isExcludedCombination(p.parts));
     if (combinedSubPaths.length === 0) return currentOptions.filter(p => !isExcludedCombination(p.parts));
 
@@ -2851,7 +2820,7 @@ function findPaths(r, c, originRow) {
                 finalPaths.push({
                     t: (curr.t + " " + sub.t).trim(),
                     tr: (curr.tr + " " + sub.tr).trim(),
-                    originRow: originRow, // Passes down row lock integrity
+                    originRow: originRow, 
                     parts: combinedParts,
                     details: combinedDetails
                 });
@@ -2861,7 +2830,6 @@ function findPaths(r, c, originRow) {
 
     return finalPaths;
 }
-
     function cartesian(args) { return args.reduce((a, b) => { let ret = []; a.forEach(a_item => { b.forEach(b_item => { ret.push(a_item.concat([b_item])); }); }); return ret; }, [[]]); }
 function getCellAt(r, c) {
     if (r < 0 || r >= grid.length || c < 0 || c >= grid[0].length) return null;
