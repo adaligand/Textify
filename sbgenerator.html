@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder1</title>
+    <title>Cedars builder</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2735,7 +2735,13 @@ function getAssembledSentences() {
 }
 
 /* --- THE "ROW-LOCKED" PATHFINDER --- */
-function findPaths(r, c) {
+/* --- THE FIX: TRACK-LOCKED PATHFINDER --- */
+function findPaths(r, c, originalStartRow = null) {
+    // On the very first step of a sentence track, record the row index we started on
+    if (originalStartRow === null) {
+        originalStartRow = r;
+    }
+
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
@@ -2748,6 +2754,7 @@ function findPaths(r, c) {
             parts: [{ t: it.t, tr: it.tr, r: r, c: c }]
         }));
 
+    // Check if we have genuinely reached the last column index of the grid
     if (c === grid[0].length - 1) {
         return currentOptions.filter(path => !isExcludedCombination(path.parts));
     }
@@ -2763,28 +2770,28 @@ function findPaths(r, c) {
         });
     };
 
-    // Determine the "vertical range" for the LOCK
-    const currentStart = r;
-    const currentEnd = r + (cell.rS || 1);
-
     if (isColumnBridge(nextCol)) {
         // --- BRIDGE CASE: THE RESET ---
         let targetCol = nextCol + 1;
         while (isColumnBridge(targetCol) && targetCol < grid[0].length) targetCol++;
 
         if (targetCol < grid[0].length) {
-            // Because it's a bridge, we look at ALL rows in the target column.
-            // This allows Row 1 to jump to Row 2.
+            // Check rows in the target column but restrict them to our tracked row alignment
             for (let tr = 0; tr < grid.length; tr++) {
                 let targetCell = grid[tr][targetCol];
-                if (!targetCell.hidden) {
-                    combinedSubPaths = combinedSubPaths.concat(findPaths(tr, targetCol));
+                if (!targetCell || targetCell.hidden) continue;
+
+                const nextStart = tr;
+                const nextEnd = tr + (targetCell.rS || 1);
+
+                // Ensure the path stays strictly locked onto the starting track index
+                if (originalStartRow >= nextStart && originalStartRow < nextEnd) {
+                    combinedSubPaths = combinedSubPaths.concat(findPaths(tr, targetCol, originalStartRow));
                 }
             }
         }
     } else {
-        // --- REGULAR STEP: THE LOCK ---
-        // Only look in the next column for cells that OVERLAP vertically
+        // --- REGULAR STEP: TRACK LOCK ---
         for (let tr = 0; tr < grid.length; tr++) {
             let nextCell = grid[tr][nextCol];
             if (!nextCell || nextCell.hidden) continue;
@@ -2792,13 +2799,14 @@ function findPaths(r, c) {
             const nextStart = tr;
             const nextEnd = tr + (nextCell.rS || 1);
 
-            if (nextStart < currentEnd && nextEnd > currentStart) {
-                combinedSubPaths = combinedSubPaths.concat(findPaths(tr, nextCol));
+            // Ensure the next cell physically overlaps with the row track we started on
+            if (originalStartRow >= nextStart && originalStartRow < nextEnd) {
+                combinedSubPaths = combinedSubPaths.concat(findPaths(tr, nextCol, originalStartRow));
             }
         }
     }
 
-    // 3. ASSEMBLY (remains the same)
+    // 3. ASSEMBLY
     if (currentOptions.length === 0) return combinedSubPaths.filter(p => !isExcludedCombination(p.parts));
     if (combinedSubPaths.length === 0) return currentOptions.filter(p => !isExcludedCombination(p.parts));
 
@@ -2818,18 +2826,17 @@ function findPaths(r, c) {
 
     return finalPaths;
 }
-/* --- YOUR EXISTING STARTING FUNCTION (KEEP THIS) --- */
+
 function getAssembledSentences() {
     let allSentences = [];
-    // Start from every row in the first column
+    
+    // Start a path search for every single row position in Column 0
     for (let r = 0; r < grid.length; r++) {
-        if (!grid[r][0].hidden) {
-            // This starts the 'train' on every row
-            allSentences = allSentences.concat(findPaths(r, 0));
-        }
+        // We pass the index 'r' as the path's strict row track tracker
+        allSentences = allSentences.concat(findPaths(r, 0, r));
     }
 
-    // Deduplicate and filter
+    // Deduplicate and filter empty strings
     const unique = [];
     const seen = new Set();
     allSentences.forEach(s => {
