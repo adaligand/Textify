@@ -2737,9 +2737,8 @@ function getAssembledSentences() {
     return unique;
 }
 
-/* --- THE TRACK-LOCKED PATHFINDER (HANDLES HORIZONTAL MERGES + ACTIONS FIXED) --- */
+/* --- FIXED & STABILIZED PATHFINDING ENGINE --- */
 function findPaths(r, c, originalStartRow = null) {
-    // On the very first step of a sentence track, record the row index we started on
     if (originalStartRow === null) {
         originalStartRow = r;
     }
@@ -2747,7 +2746,7 @@ function findPaths(r, c, originalStartRow = null) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // 1. Current cell items (Ensures originRow property is explicitly preserved)
+    // 1. Gather choices from the current grid cell
     let currentOptions = cell.items
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
@@ -2757,43 +2756,34 @@ function findPaths(r, c, originalStartRow = null) {
             parts: [{ t: it.t, tr: it.tr, r: r, c: c }]
         }));
 
-    // Determine the true rightmost column index of this cell based on its column span (cS)
     let cellColumnSpan = cell.cS || 1;
     let endColumnOfCell = c + cellColumnSpan - 1;
 
-    // Check if we have genuinely reached the last column index of the grid
+    // Check if we are at the end boundary of our engine grid
     if (endColumnOfCell >= grid[0].length - 1) {
         return currentOptions.filter(path => !isExcludedCombination(path.parts));
     }
 
-    // The next cell to search must start right after this cell's span ends
     let nextCol = endColumnOfCell + 1;
     let combinedSubPaths = [];
 
-    // Helper to evaluate bridges
+    // Evaluate cell alignment over column gaps
     const isColumnBridge = (colIdx) => {
         if (colIdx >= grid[0].length) return false;
-
         return grid.every(row => {
             const cellAtPos = getCellAt(row, colIdx);
-
-            // If this column belongs to a merged cell that started earlier,
-            // don't treat it as containing content.
             if (cellAtPos && cellAtPos.cS > 1 && cellAtPos !== grid[row][colIdx])
                 return true;
-
-            return !grid[row][colIdx].items ||
-                   grid[row][colIdx].items.every(it => !it.t.trim());
+            return !grid[row][colIdx].items || grid[row][colIdx].items.every(it => !it.t.trim());
         });
     };
 
     if (isColumnBridge(nextCol)) {
-        // --- BRIDGE CASE: THE RESET ---
+        // --- BRIDGE SEGMENTATION ---
         let targetCol = nextCol + 1;
         while (isColumnBridge(targetCol) && targetCol < grid[0].length) targetCol++;
 
         if (targetCol < grid[0].length) {
-            // Check rows in the target column but restrict them to our tracked row alignment
             for (let tr = 0; tr < grid.length; tr++) {
                 let targetCell = grid[tr][targetCol];
                 if (!targetCell || targetCell.hidden) continue;
@@ -2801,14 +2791,13 @@ function findPaths(r, c, originalStartRow = null) {
                 const nextStart = tr;
                 const nextEnd = tr + (targetCell.rS || 1);
 
-                // Ensure the path stays strictly locked onto the starting track index
                 if (originalStartRow >= nextStart && originalStartRow < nextEnd) {
                     combinedSubPaths = combinedSubPaths.concat(findPaths(tr, targetCol, originalStartRow));
                 }
             }
         }
     } else {
-        // --- REGULAR STEP: TRACK LOCK ---
+        // --- STANDARD CHAIN CONNECTION ---
         for (let tr = 0; tr < grid.length; tr++) {
             let nextCell = getCellAt(tr, nextCol);
             if (!nextCell) continue;
@@ -2816,14 +2805,13 @@ function findPaths(r, c, originalStartRow = null) {
             const nextStart = tr;
             const nextEnd = tr + (nextCell.rS || 1);
 
-            // Ensure the next cell physically overlaps with the row track we started on
             if (originalStartRow >= nextStart && originalStartRow < nextEnd) {
                 combinedSubPaths = combinedSubPaths.concat(findPaths(tr, nextCol, originalStartRow));
             }
         }
     }
 
-    // 3. ASSEMBLY
+    // 3. ASSEMBLY (Fixes empty dead-ends by filtering valid arrays upstream)
     if (currentOptions.length === 0) return combinedSubPaths.filter(p => !isExcludedCombination(p.parts));
     if (combinedSubPaths.length === 0) return currentOptions.filter(p => !isExcludedCombination(p.parts));
 
@@ -2842,9 +2830,13 @@ function findPaths(r, c, originalStartRow = null) {
         });
     });
 
+    // Fallback protection: if combinations fail, preserve the starting option roots safely
+    if (finalPaths.length === 0) {
+        return currentOptions.filter(p => !isExcludedCombination(p.parts));
+    }
+
     return finalPaths;
 }
-
 function cartesian(args) { 
     return args.reduce((a, b) => { 
         let ret = []; 
