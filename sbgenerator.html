@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars builder</title>
+    <title>Cedars buildecr</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -2735,8 +2735,7 @@ function getAssembledSentences() {
     return unique;
 }
 
-/* --- THE "ROW-LOCKED" PATHFINDER --- */
-/* --- THE FIX: TRACK-LOCKED PATHFINDER --- */
+/* --- THE FIX: TRACK-LOCKED PATHFINDER (HANDLES HORIZONTAL MERGES) --- */
 function findPaths(r, c, originalStartRow = null) {
     // On the very first step of a sentence track, record the row index we started on
     if (originalStartRow === null) {
@@ -2755,19 +2754,32 @@ function findPaths(r, c, originalStartRow = null) {
             parts: [{ t: it.t, tr: it.tr, r: r, c: c }]
         }));
 
+    // Determine the true rightmost column index of this cell based on its column span (cS)
+    let cellColumnSpan = cell.cS || 1;
+    let endColumnOfCell = c + cellColumnSpan - 1;
+
     // Check if we have genuinely reached the last column index of the grid
-    if (c === grid[0].length - 1) {
+    if (endColumnOfCell >= grid[0].length - 1) {
         return currentOptions.filter(path => !isExcludedCombination(path.parts));
     }
 
-    let nextCol = c + 1;
+    // The next cell to search must start right after this cell's span ends
+    let nextCol = endColumnOfCell + 1;
     let combinedSubPaths = [];
 
     const isColumnBridge = (colIdx) => {
         if (colIdx >= grid[0].length) return false;
+
         return grid.every(row => {
-            const cEl = row[colIdx];
-            return !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
+            const cellAtPos = getCellAt(row, colIdx);
+
+            // If this column belongs to a merged cell that started earlier,
+            // don't treat it as containing content.
+            if (cellAtPos && cellAtPos.cS > 1 && cellAtPos !== grid[row][colIdx])
+                return true;
+
+            return !grid[row][colIdx].items ||
+                   grid[row][colIdx].items.every(it => !it.t.trim());
         });
     };
 
@@ -2794,8 +2806,8 @@ function findPaths(r, c, originalStartRow = null) {
     } else {
         // --- REGULAR STEP: TRACK LOCK ---
         for (let tr = 0; tr < grid.length; tr++) {
-            let nextCell = grid[tr][nextCol];
-            if (!nextCell || nextCell.hidden) continue;
+            let nextCell = getCellAt(tr, nextCol);
+            if (!nextCell) continue;
 
             const nextStart = tr;
             const nextEnd = tr + (nextCell.rS || 1);
