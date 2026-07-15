@@ -1008,7 +1008,110 @@
             alert("Error: " + e.message);
         }
     }
+// --- TEACHER DASHBOARD AUTO-SYNC LOGIC ---
 
+// Keep track of Firestore document IDs we have already processed during this browser session
+const syncedSubmissionIds = new Set();
+
+/**
+ * Starts a real-time Firestore listener on the submissions collection.
+ * Instantly handles incoming scores and triggers background API grade passback.
+ */
+function syncSubmissions() {
+    db.collection("submissions").onSnapshot((snapshot) => {
+        let allSubmissions = [];
+        
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            data.id = doc.id;
+            allSubmissions.push(data);
+
+            // AUTO-PASSBACK LOGIC (Option A)
+            // If the submission has Google Classroom metadata and we haven't synced it yet this session
+            if (data.courseId && data.gClassroomAssignmentId && data.score !== undefined) {
+                if (!syncedSubmissionIds.has(data.id)) {
+                    // Mark as synced immediately to prevent duplicate runs
+                    syncedSubmissionIds.add(data.id);
+                    
+                    // Trigger the silent Google Classroom writeback
+                    autoExportGradeToClassroom(
+                        data.courseId, 
+                        data.gClassroomAssignmentId, 
+                        data.studentEmail, 
+                        data.score, 
+                        data.studentName
+                    );
+                }
+            }
+        });
+        
+        // Call your dashboard's local UI render function (adjust function name to match your project)
+        if (typeof renderDynamicMetrics === "function") {
+            renderDynamicMetrics(allSubmissions);
+        }
+    }, (error) => {
+        console.error("Firestore real-time listener error: ", error);
+    });
+}
+
+/**
+ * Pushes a student's grade back into Google Classroom in the background
+ */
+async function autoExportGradeToClassroom(courseId, courseWorkId, studentEmail, scorePercentage, studentName) {
+    try {
+        console.log(`[Auto-Sync] Attempting to sync grade for ${studentName} (${scorePercentage}%)...`);
+
+        // 1. Fetch the student submissions list for this Classroom assignment
+        const response = await gapi.client.classroom.courses.courseWork.studentSubmissions.list({
+            courseId: courseId,
+            courseWorkId: courseWorkId
+        });
+
+        const submissions = response.result.studentSubmissions || [];
+        let studentSubmission = null;
+
+        // 2. Map the active Firestore submission to the correct Google Classroom submission via Email
+        for (let sub of submissions) {
+            try {
+                // Fetch student profile associated with the userId to match email
+                const profile = await gapi.client.classroom.courses.students.get({
+                    courseId: courseId,
+                    userId: sub.userId
+                });
+                
+                if (profile.result.profile.emailAddress.toLowerCase() === studentEmail.toLowerCase()) {
+                    studentSubmission = sub;
+                    break;
+                }
+            } catch (profileError) {
+                console.warn(`Could not fetch profile for user ID ${sub.userId}:`, profileError);
+            }
+        }
+
+        if (!studentSubmission) {
+            console.warn(`[Auto-Sync] Could not find a matching Classroom submission for email: ${studentEmail}`);
+            return;
+        }
+
+        // 3. Write the percentage grade directly to Google Classroom
+        // Setting both draftGrade and assignedGrade populates and updates the gradebook fully
+        await gapi.client.classroom.courses.courseWork.studentSubmissions.patch({
+            courseId: courseId,
+            courseWorkId: courseWorkId,
+            id: studentSubmission.id,
+            updateMask: "draftGrade,assignedGrade", // Must match fields updated in the body
+            resource: {
+                draftGrade: scorePercentage,
+                assignedGrade: scorePercentage
+            }
+        });
+
+        console.log(`[Auto-Sync Success] Pushed ${scorePercentage}% to Classroom for ${studentName}!`);
+
+    } catch (error) {
+        console.error(`[Auto-Sync Error] Failed to export grade for ${studentEmail}:`, error);
+    }
+}
     // Classroom Customize Mode / Edit Live Assignment
     document.getElementById('edit-assigned-task-btn').onclick = () => {
         const selectedId = filterTask.value;
