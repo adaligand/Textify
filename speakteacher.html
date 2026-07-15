@@ -38,6 +38,8 @@
         th { background-color: #f2f2f2; color: #333; }
         tr:hover { background-color: #f9f9f9; }
         .badge { background: #2ecc71; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+        .hint-badge { background: #f1c40f; color: #2c3e50; padding: 3px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-right: 4px; display: inline-block; margin-top: 4px; }
+        .hint-none { color: #95a5a6; font-style: italic; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -80,11 +82,12 @@
                     <th>Exercice</th>
                     <th>Date / Heure</th>
                     <th>Score / Précision</th>
+                    <th>Indices consultés (Clics)</th>
                 </tr>
             </thead>
             <tbody id="submissions-table-body">
                 <tr>
-                    <td colspan="4" style="text-align: center; color: #7f8c8d;">Aucun résultat enregistré pour le moment.</td>
+                    <td colspan="5" style="text-align: center; color: #7f8c8d;">Aucun résultat enregistré pour le moment.</td>
                 </tr>
             </tbody>
         </table>
@@ -159,20 +162,19 @@
         },
     });
 
-    // Save token for persistent session management (7 Days)
+    // Session management (7 Days)
     function saveTokenToLocalStorage(token, expiresInSeconds) {
-        const expiryTime = Date.now() + (7 * 24 * 60 * 60 * 1000); // Set hard expiry at 7 days
+        const expiryTime = Date.now() + (7 * 24 * 60 * 60 * 1000);
         localStorage.setItem('oauth_token', token);
         localStorage.setItem('oauth_token_expiry', expiryTime);
     }
 
-    // Attempt persistent auto-login check on page load
+    // Auto-login verify
     window.onload = () => {
         const savedToken = localStorage.getItem('oauth_token');
         const tokenExpiry = localStorage.getItem('oauth_token_expiry');
 
         if (savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry)) {
-            // Token is still valid, bypass explicit sign-in click!
             gapi.load('client', () => {
                 gapi.client.init({}).then(() => {
                     gapi.client.load('classroom', 'v1');
@@ -183,13 +185,11 @@
         }
     };
 
-    // UI Updates after successful sign-in
     function handleLoginSuccess(accessToken) {
         document.getElementById('login-card').classList.add('hidden');
         document.getElementById('auth-header').classList.remove('hidden');
         document.getElementById('submissions-section').classList.remove('hidden');
         
-        // Fetch user profile email to display
         fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
             .then(res => res.json())
             .then(data => {
@@ -203,7 +203,6 @@
         loadSubmissions();
     }
 
-    // Manual Sign Out Action
     document.getElementById('logout-btn').onclick = () => {
         localStorage.removeItem('oauth_token');
         localStorage.removeItem('oauth_token_expiry');
@@ -214,7 +213,6 @@
         tokenClient.requestAccessToken();
     };
 
-    // Load Task Bank grouped dynamically by folders
     function loadTaskBank() {
         db.collection("passages").orderBy("createdAt", "desc").onSnapshot((snapshot) => {
             const taskBank = document.getElementById('task-bank');
@@ -248,22 +246,20 @@
         });
     }
 
-    // Load Live student submissions data
+    // Load submissions with live hint summaries
     function loadSubmissions() {
-        // Step 1: Cache mapping of passage IDs to title
         const passageTitles = {};
         db.collection("passages").get().then((snapshot) => {
             snapshot.forEach(doc => {
                 passageTitles[doc.id] = doc.data().title;
             });
 
-            // Step 2: Fetch and listen for submissions
             db.collection("submissions").orderBy("timestamp", "desc").onSnapshot((subSnap) => {
                 const tbody = document.getElementById('submissions-table-body');
                 tbody.innerHTML = '';
 
                 if (subSnap.empty) {
-                    tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #7f8c8d;">Aucun résultat enregistré pour le moment.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #7f8c8d;">Aucun résultat enregistré pour le moment.</td></tr>`;
                     return;
                 }
 
@@ -272,12 +268,23 @@
                     const title = passageTitles[sub.passageId] || "Exercice Supprimé";
                     const dateStr = sub.timestamp ? new Date(sub.timestamp.seconds * 1000).toLocaleString('fr-FR') : "À l'instant";
                     
+                    // Generate clean badge HTML list for hints used
+                    let hintsHtml = '';
+                    if (sub.hintsUsed && sub.hintsUsed.length > 0) {
+                        sub.hintsUsed.forEach(word => {
+                            hintsHtml += `<span class="hint-badge">${word}</span>`;
+                        });
+                    } else {
+                        hintsHtml = `<span class="hint-none">Aucun indice</span>`;
+                    }
+
                     const row = document.createElement('tr');
                     row.innerHTML = `
                         <td><strong>${sub.studentName || 'Élève Anonyme'}</strong><br><small style="color:#7f8c8d;">${sub.studentEmail || ''}</small></td>
                         <td>${title}</td>
                         <td>${dateStr}</td>
                         <td><span class="badge">${sub.score}% Précision</span></td>
+                        <td>${hintsHtml}</td>
                     `;
                     tbody.appendChild(row);
                 });
@@ -285,7 +292,7 @@
         });
     }
 
-    // Routing Navigation
+    // Navigation Buttons
     document.getElementById('view-submissions-btn').onclick = () => {
         document.getElementById('submissions-section').classList.remove('hidden');
         document.getElementById('editor-section').classList.add('hidden');
@@ -318,7 +325,6 @@
         document.getElementById('status').innerText = "";
     }
 
-    // Save/Update Task in Firestore
     document.getElementById('save-btn').onclick = async () => {
         const title = document.getElementById('title-input').value;
         const topic = document.getElementById('topic-input').value;
@@ -367,7 +373,6 @@
         });
     }
 
-    // Create Classroom Assignment
     document.getElementById('assign-btn').onclick = () => {
         const courseId = document.getElementById('course-select').value;
         if (!courseId || !currentPassageId) return;
@@ -387,7 +392,7 @@
                 maxPoints: 100
             }
         }).then((response) => {
-            document.getElementById('status').innerText = "Devoir publié avec de succès sur Google Classroom !";
+            document.getElementById('status').innerText = "Devoir publié avec succès sur Google Classroom !";
         }).catch(err => {
             console.error(err);
             alert("Erreur lors du partage.");
