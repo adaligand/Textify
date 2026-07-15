@@ -245,6 +245,9 @@
     let allSubmissions = [];
     let allAssignments = [];
 
+    // Set to track processed submissions during this live teacher browser session
+    const syncedSubmissionIds = new Set();
+
     function gapiStart() {
         gapi.client.init({}).then(() => {
             gapi.client.load('classroom', 'v1');
@@ -361,7 +364,6 @@
         }
     }
 
-    // UPDATED: Now groups dynamically by Language -> Year Group -> Topic -> Task items
     function loadTemplateBank() {
         db.collection("passages").orderBy("yearGroup").onSnapshot((snapshot) => {
             const taskBank = document.getElementById('task-bank');
@@ -494,16 +496,97 @@
         });
     }
 
+    /**
+     * UNIFIED: Starts a real-time Firestore listener on the submissions collection.
+     * Instantly updates UI metrics and triggers background Classroom API passback.
+     */
     function syncSubmissions() {
         db.collection("submissions").onSnapshot((snapshot) => {
+            // Correctly reference and overwrite the global variable (no 'let' here)
             allSubmissions = [];
+            
             snapshot.forEach(doc => {
                 const data = doc.data();
                 data.id = doc.id;
                 allSubmissions.push(data);
+
+                // BACKGROUND AUTO-PASSBACK
+                // Syncs to Google Classroom if matching IDs are present and not already synced
+                if (data.courseId && data.gClassroomAssignmentId && data.score !== undefined) {
+                    if (!syncedSubmissionIds.has(data.id)) {
+                        syncedSubmissionIds.add(data.id);
+                        autoExportGradeToClassroom(
+                            data.courseId, 
+                            data.gClassroomAssignmentId, 
+                            data.studentEmail, 
+                            data.score, 
+                            data.studentName
+                        );
+                    }
+                }
             });
+            
             renderDynamicMetrics();
+        }, (error) => {
+            console.error("Firestore submissions listener failed:", error);
         });
+    }
+
+    /**
+     * UNIFIED: Pushes student grades directly to Google Classroom.
+     */
+    async function autoExportGradeToClassroom(courseId, courseWorkId, studentEmail, scorePercentage, studentName) {
+        try {
+            console.log(`[Auto-Sync] Attempting to sync grade for ${studentName} (${scorePercentage}%)...`);
+
+            // 1. Fetch student submission entities from Classroom
+            const response = await gapi.client.classroom.courses.courseWork.studentSubmissions.list({
+                courseId: courseId,
+                courseWorkId: courseWorkId
+            });
+
+            const submissions = response.result.studentSubmissions || [];
+            let studentSubmission = null;
+
+            // 2. Identify target Google profile mapping the email address
+            for (let sub of submissions) {
+                try {
+                    const profile = await gapi.client.classroom.courses.students.get({
+                        courseId: courseId,
+                        userId: sub.userId
+                    });
+                    
+                    if (profile.result.profile.emailAddress.toLowerCase() === studentEmail.toLowerCase()) {
+                        studentSubmission = sub;
+                        break;
+                    }
+                } catch (profileError) {
+                    console.warn(`Could not profile search user ID ${sub.userId}:`, profileError);
+                }
+            }
+
+            if (!studentSubmission) {
+                console.warn(`[Auto-Sync] No Classroom student matching email address ${studentEmail} found.`);
+                return;
+            }
+
+            // 3. Write grades to Google Classroom (Patching updates Google Classroom gradebook)
+            await gapi.client.classroom.courses.courseWork.studentSubmissions.patch({
+                courseId: courseId,
+                courseWorkId: courseWorkId,
+                id: studentSubmission.id,
+                updateMask: "draftGrade,assignedGrade",
+                resource: {
+                    draftGrade: scorePercentage,
+                    assignedGrade: scorePercentage
+                }
+            });
+
+            console.log(`[Auto-Sync Success] Pushed score (${scorePercentage}%) to Google Classroom for ${studentName}!`);
+
+        } catch (error) {
+            console.error(`[Auto-Sync Error] Failed to export grade for ${studentEmail}:`, error);
+        }
     }
 
     function loadCourses() {
@@ -961,9 +1044,42 @@
             
             const data = templateDoc.data();
             
-            // 1. Create customized assignment in Firestore linked to the Google Course
-            const assignRef = await db.collection("assignments").add({
+            // Generate standard link redirect matching our file template architecture
+            const currentDomain = window.location.origin + window.location.pathname.replace('teacher.html', 'student.html');
+
+            // 1. Post structured Assignment with Student Link to Google Classroom Feed first (generates Coursework ID)
+            const response = await gapi.client.classroom.courses.courseWork.create({
                 courseId: courseId,
+                resource: {
+                    title: `🗣️ Read Aloud Task: ${data.title}`,
+                    description: `Please click the URL below to practice your speaking and submit your recording.\n\nInstructions: Record each sentence, then click finalize to submit.`,
+                    workType: 'ASSIGNMENT',
+                    state: 'PUBLISHED'
+                }
+            });
+
+            const gClassroomAssignmentId = response.result.id; 
+            
+            // Create final deep-linked student landing URL
+            const studentUrl = `${currentDomain}?assignmentId=${gClassroomAssignmentId}&courseId=${courseId}`;
+
+            // 2. Update the Coursework in Google Classroom to append materials with our customized URL parameters
+            await gapi.client.classroom.courses.courseWork.patch({
+                courseId: courseId,
+                id: gClassroomAssignmentId,
+                updateMask: "materials",
+                resource: {
+                    materials: [
+                        { link: { url: studentUrl, title: "Speakaton Student Reading Workspace" } }
+                    ]
+                }
+            });
+
+            // 3. Save details inside Firestore linked by Google Coursework ID
+            await db.collection("assignments").doc(gClassroomAssignmentId).set({
+                id: gClassroomAssignmentId,
+                courseId: courseId,
+                gClassroomAssignmentId: gClassroomAssignmentId,
                 title: data.title,
                 text: data.text,
                 language: data.language || 'fr',
@@ -972,29 +1088,12 @@
                 timestamp: firebase.firestore.FieldValue.serverTimestamp()
             });
 
-            // Make dynamic Student application URL
-            const currentDomain = window.location.origin + window.location.pathname.replace('teacher.html', 'student.html');
-            const studentUrl = `${currentDomain}?assignmentId=${assignRef.id}`;
-
-            // 2. Post structured Assignment with Student Link to Google Classroom Feed
-            await gapi.client.classroom.courses.courseWork.create({
-                courseId: courseId,
-                resource: {
-                    title: `🗣️ Read Aloud Task: ${data.title}`,
-                    description: `Please click the URL below to practice your speaking and submit your recording.\n\nLink: ${studentUrl}`,
-                    materials: [
-                        { link: { url: studentUrl, title: "Speakaton Student Reading Workspace" } }
-                    ],
-                    workType: 'ASSIGNMENT',
-                    state: 'PUBLISHED'
-                }
-            });
-
             status.innerText = "Published successfully! It is now live in your Google Classroom feed.";
             setTimeout(() => { status.innerText = ""; }, 5000);
         } catch (e) {
             status.innerText = "";
             alert("Failed to publish to classroom: " + e.message);
+            console.error(e);
         }
     };
 
@@ -1008,110 +1107,7 @@
             alert("Error: " + e.message);
         }
     }
-// --- TEACHER DASHBOARD AUTO-SYNC LOGIC ---
 
-// Keep track of Firestore document IDs we have already processed during this browser session
-const syncedSubmissionIds = new Set();
-
-/**
- * Starts a real-time Firestore listener on the submissions collection.
- * Instantly handles incoming scores and triggers background API grade passback.
- */
-function syncSubmissions() {
-    db.collection("submissions").onSnapshot((snapshot) => {
-        let allSubmissions = [];
-        
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            data.id = doc.id;
-            allSubmissions.push(data);
-
-            // AUTO-PASSBACK LOGIC (Option A)
-            // If the submission has Google Classroom metadata and we haven't synced it yet this session
-            if (data.courseId && data.gClassroomAssignmentId && data.score !== undefined) {
-                if (!syncedSubmissionIds.has(data.id)) {
-                    // Mark as synced immediately to prevent duplicate runs
-                    syncedSubmissionIds.add(data.id);
-                    
-                    // Trigger the silent Google Classroom writeback
-                    autoExportGradeToClassroom(
-                        data.courseId, 
-                        data.gClassroomAssignmentId, 
-                        data.studentEmail, 
-                        data.score, 
-                        data.studentName
-                    );
-                }
-            }
-        });
-        
-        // Call your dashboard's local UI render function (adjust function name to match your project)
-        if (typeof renderDynamicMetrics === "function") {
-            renderDynamicMetrics(allSubmissions);
-        }
-    }, (error) => {
-        console.error("Firestore real-time listener error: ", error);
-    });
-}
-
-/**
- * Pushes a student's grade back into Google Classroom in the background
- */
-async function autoExportGradeToClassroom(courseId, courseWorkId, studentEmail, scorePercentage, studentName) {
-    try {
-        console.log(`[Auto-Sync] Attempting to sync grade for ${studentName} (${scorePercentage}%)...`);
-
-        // 1. Fetch the student submissions list for this Classroom assignment
-        const response = await gapi.client.classroom.courses.courseWork.studentSubmissions.list({
-            courseId: courseId,
-            courseWorkId: courseWorkId
-        });
-
-        const submissions = response.result.studentSubmissions || [];
-        let studentSubmission = null;
-
-        // 2. Map the active Firestore submission to the correct Google Classroom submission via Email
-        for (let sub of submissions) {
-            try {
-                // Fetch student profile associated with the userId to match email
-                const profile = await gapi.client.classroom.courses.students.get({
-                    courseId: courseId,
-                    userId: sub.userId
-                });
-                
-                if (profile.result.profile.emailAddress.toLowerCase() === studentEmail.toLowerCase()) {
-                    studentSubmission = sub;
-                    break;
-                }
-            } catch (profileError) {
-                console.warn(`Could not fetch profile for user ID ${sub.userId}:`, profileError);
-            }
-        }
-
-        if (!studentSubmission) {
-            console.warn(`[Auto-Sync] Could not find a matching Classroom submission for email: ${studentEmail}`);
-            return;
-        }
-
-        // 3. Write the percentage grade directly to Google Classroom
-        // Setting both draftGrade and assignedGrade populates and updates the gradebook fully
-        await gapi.client.classroom.courses.courseWork.studentSubmissions.patch({
-            courseId: courseId,
-            courseWorkId: courseWorkId,
-            id: studentSubmission.id,
-            updateMask: "draftGrade,assignedGrade", // Must match fields updated in the body
-            resource: {
-                draftGrade: scorePercentage,
-                assignedGrade: scorePercentage
-            }
-        });
-
-        console.log(`[Auto-Sync Success] Pushed ${scorePercentage}% to Classroom for ${studentName}!`);
-
-    } catch (error) {
-        console.error(`[Auto-Sync Error] Failed to export grade for ${studentEmail}:`, error);
-    }
-}
     // Classroom Customize Mode / Edit Live Assignment
     document.getElementById('edit-assigned-task-btn').onclick = () => {
         const selectedId = filterTask.value;
