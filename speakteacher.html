@@ -77,14 +77,41 @@
         .badge.score { background: #2ecc71; font-size: 15px; padding: 6px 12px; }
         
         .sentence-list { margin: 0; padding-left: 0; list-style-type: none; font-size: 13px; color: #2c3e50; width: 100%; }
-        .sentence-list li { margin-bottom: 10px; background: white; padding: 10px 14px; border-radius: 6px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 6px; }
-        .sentence-row { display: flex; justify-content: space-between; align-items: center; }
-        .sentence-label { color: #5a6b7c; font-weight: 600; font-size: 13px; }
-        .sentence-flow { color: #2c3e50; font-size: 13px; }
-        .attempt-count { color: #95a5a6; font-size: 11px; margin-left: 10px; font-weight: normal; background: #edf2f7; padding: 2px 6px; border-radius: 10px; }
         
-        .audio-player-container { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 2px; }
-        .audio-player-container audio { height: 28px; width: 100%; max-width: 280px; }
+        /* Updated Single Line Horizontal Layout style */
+        .sentence-list li { 
+            margin-bottom: 8px; 
+            background: white; 
+            padding: 8px 12px; 
+            border-radius: 6px; 
+            border: 1px solid #e2e8f0; 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            gap: 12px; 
+        }
+        .sentence-left-meta { display: flex; flex-direction: column; min-width: 90px; }
+        .sentence-label { color: #5a6b7c; font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .sentence-flow { color: #2c3e50; font-size: 13px; font-weight: bold; }
+        .attempt-count { color: #95a5a6; font-size: 11px; margin-top: 2px; }
+        
+        .target-sentence-reference { 
+            flex-grow: 1; 
+            font-style: italic; 
+            color: #16a085; 
+            font-size: 13px; 
+            background: #e8f8f5; 
+            padding: 6px 12px; 
+            border-radius: 4px; 
+            border-left: 3px solid #1abc9c; 
+            white-space: nowrap; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            max-width: 320px;
+        }
+        
+        .audio-player-container { display: flex; align-items: center; width: auto; margin: 0; }
+        .audio-player-container audio { height: 28px; width: 200px; }
 
         .hint-container { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
         .hint-tag { background: #fef9e7; border: 1px solid #f1c40f; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: 500; color: #d35400; }
@@ -94,6 +121,10 @@
         .btn-inline-delete:hover { background: #c0392b; }
         .btn-inline-edit { background: #f39c12; padding: 4px 10px; font-size: 11px; width: auto; margin: 0; border-radius: 3px; }
         .btn-inline-edit:hover { background: #d35400; }
+        
+        /* New Manual Sync Button styling */
+        .btn-inline-sync { background: #1abc9c; padding: 6px 12px; font-size: 12px; width: auto; margin: 0 5px 0 0; border-radius: 4px; }
+        .btn-inline-sync:hover { background: #16a085; }
 
         /* Bin list */
         .bin-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #eee; }
@@ -161,9 +192,9 @@
         <table>
             <thead>
                 <tr>
-                    <th style="width: 50%;">Student Details (Click name to expand)</th>
-                    <th style="width: 30%;">Final Accuracy</th>
-                    <th style="width: 20%;">Actions</th>
+                    <th style="width: 45%;">Student Details (Click name to expand)</th>
+                    <th style="width: 25%;">Final Accuracy</th>
+                    <th style="width: 30%;">Actions</th>
                 </tr>
             </thead>
             <tbody id="submissions-table-body">
@@ -496,13 +527,8 @@
         });
     }
 
-    /**
-     * UNIFIED: Starts a real-time Firestore listener on the submissions collection.
-     * Instantly updates UI metrics and triggers background Classroom API passback.
-     */
     function syncSubmissions() {
         db.collection("submissions").onSnapshot((snapshot) => {
-            // Correctly reference and overwrite the global variable (no 'let' here)
             allSubmissions = [];
             
             snapshot.forEach(doc => {
@@ -510,8 +536,7 @@
                 data.id = doc.id;
                 allSubmissions.push(data);
 
-                // BACKGROUND AUTO-PASSBACK
-                // Syncs to Google Classroom if matching IDs are present and not already synced
+                // BACKGROUND AUTO-PASSBACK (OPTION A)
                 if (data.courseId && data.gClassroomAssignmentId && data.score !== undefined) {
                     if (!syncedSubmissionIds.has(data.id)) {
                         syncedSubmissionIds.add(data.id);
@@ -532,14 +557,10 @@
         });
     }
 
-    /**
-     * UNIFIED: Pushes student grades directly to Google Classroom.
-     */
-    async function autoExportGradeToClassroom(courseId, courseWorkId, studentEmail, scorePercentage, studentName) {
+    async function autoExportGradeToClassroom(courseId, courseWorkId, studentEmail, scorePercentage, studentName, triggerAlert = false) {
         try {
-            console.log(`[Auto-Sync] Attempting to sync grade for ${studentName} (${scorePercentage}%)...`);
+            console.log(`[Sync] Attempting sync for ${studentName} (${scorePercentage}%)...`);
 
-            // 1. Fetch student submission entities from Classroom
             const response = await gapi.client.classroom.courses.courseWork.studentSubmissions.list({
                 courseId: courseId,
                 courseWorkId: courseWorkId
@@ -548,7 +569,6 @@
             const submissions = response.result.studentSubmissions || [];
             let studentSubmission = null;
 
-            // 2. Identify target Google profile mapping the email address
             for (let sub of submissions) {
                 try {
                     const profile = await gapi.client.classroom.courses.students.get({
@@ -561,16 +581,17 @@
                         break;
                     }
                 } catch (profileError) {
-                    console.warn(`Could not profile search user ID ${sub.userId}:`, profileError);
+                    console.warn(`Could not search user ID ${sub.userId}:`, profileError);
                 }
             }
 
             if (!studentSubmission) {
-                console.warn(`[Auto-Sync] No Classroom student matching email address ${studentEmail} found.`);
+                const msg = `No matching Google Classroom student profile found for ${studentEmail}.`;
+                console.warn(msg);
+                if (triggerAlert) alert(msg);
                 return;
             }
 
-            // 3. Write grades to Google Classroom (Patching updates Google Classroom gradebook)
             await gapi.client.classroom.courses.courseWork.studentSubmissions.patch({
                 courseId: courseId,
                 courseWorkId: courseWorkId,
@@ -582,11 +603,41 @@
                 }
             });
 
-            console.log(`[Auto-Sync Success] Pushed score (${scorePercentage}%) to Google Classroom for ${studentName}!`);
+            const successMsg = `Successfully synchronized score (${scorePercentage}%) to Google Classroom for ${studentName}!`;
+            console.log(successMsg);
+            if (triggerAlert) alert(successMsg);
 
         } catch (error) {
-            console.error(`[Auto-Sync Error] Failed to export grade for ${studentEmail}:`, error);
+            console.error(`Failed to export grade for ${studentEmail}:`, error);
+            if (triggerAlert) alert(`Sync failed: ${error.message || error}`);
         }
+    }
+
+    // Explicit manual click event handler (Option B)
+    function forceManualClassroomSync(submissionId, btnElement) {
+        const sub = allSubmissions.find(s => s.id === submissionId);
+        if (!sub) return;
+
+        if (!sub.courseId || !sub.gClassroomAssignmentId) {
+            alert("This submission is missing class link properties and cannot be synced.");
+            return;
+        }
+
+        btnElement.disabled = true;
+        const originalText = btnElement.innerText;
+        btnElement.innerText = "⏳ Syncing...";
+
+        autoExportGradeToClassroom(
+            sub.courseId,
+            sub.gClassroomAssignmentId,
+            sub.studentEmail,
+            sub.score,
+            sub.studentName,
+            true
+        ).finally(() => {
+            btnElement.disabled = false;
+            btnElement.innerText = originalText;
+        });
     }
 
     function loadCourses() {
@@ -736,16 +787,15 @@
                         `;
                     }
                     
+                    // COMPACT SINGLE-LINE HORIZONTAL LAYOUT
                     sentenceDetailsHtml += `
                         <li>
-                            <div class="sentence-row">
-                                <span class="sentence-label">Sentence ${idx + 1}:</span> 
-                                <span class="sentence-flow">
-                                    <strong>${historyStr || 'No recording'}</strong>
-                                    <span class="attempt-count">${count} ${label}</span>
-                                </span>
+                            <div class="sentence-left-meta">
+                                <span class="sentence-label">Sentence ${idx + 1}</span>
+                                <span class="sentence-flow">${historyStr || 'No recording'}</span>
+                                <span class="attempt-count">${count} ${label}</span>
                             </div>
-                            <div class="target-sentence-reference" style="font-style: italic; color: #16a085; font-size: 13px; margin: 4px 0 6px 0; background: #e8f8f5; padding: 6px 10px; border-radius: 4px; border-left: 3px solid #1abc9c;">
+                            <div class="target-sentence-reference" title="${originalSentenceText}">
                                 📖 ${originalSentenceText}
                             </div>
                             ${audioPlayerHtml}
@@ -788,6 +838,7 @@
                 </td>
                 <td><span class="badge score">${finalScore}%</span></td>
                 <td>
+                    <button class="btn-inline-sync" onclick="forceManualClassroomSync('${sub.id}', this); event.stopPropagation();">🔄 Sync with Classroom</button>
                     <button class="btn-inline-delete" onclick="deleteSubmission('${sub.id}', event)">Delete</button>
                 </td>
             `;
@@ -811,7 +862,7 @@
             `;
 
             headerRow.onclick = (e) => {
-                if (e.target.closest('.btn-inline-delete')) return;
+                if (e.target.closest('.btn-inline-delete') || e.target.closest('.btn-inline-sync')) return;
                 const active = headerRow.classList.toggle('active');
                 detailsRow.classList.toggle('hidden', !active);
                 headerRow.querySelector('.arrow-indicator').textContent = active ? '▼' : '▶';
@@ -856,7 +907,6 @@
                 
                 showSection('editor-section');
                 
-                // Set up Google Classroom publishing section below the editor card
                 document.getElementById('assign-section').classList.remove('hidden');
             }
         } catch(e) {
@@ -1023,7 +1073,6 @@
         }
     }
 
-    // Google Classroom Publish Workflow
     document.getElementById('assign-btn').onclick = async () => {
         const courseId = document.getElementById('course-select').value;
         const status = document.getElementById('status');
@@ -1043,11 +1092,8 @@
             }
             
             const data = templateDoc.data();
-            
-            // Generate standard link redirect matching our file template architecture
             const currentDomain = window.location.origin + window.location.pathname.replace('teacher.html', 'student.html');
 
-            // 1. Post structured Assignment with Student Link to Google Classroom Feed first (generates Coursework ID)
             const response = await gapi.client.classroom.courses.courseWork.create({
                 courseId: courseId,
                 resource: {
@@ -1059,11 +1105,8 @@
             });
 
             const gClassroomAssignmentId = response.result.id; 
-            
-            // Create final deep-linked student landing URL
             const studentUrl = `${currentDomain}?assignmentId=${gClassroomAssignmentId}&courseId=${courseId}`;
 
-            // 2. Update the Coursework in Google Classroom to append materials with our customized URL parameters
             await gapi.client.classroom.courses.courseWork.patch({
                 courseId: courseId,
                 id: gClassroomAssignmentId,
@@ -1075,7 +1118,6 @@
                 }
             });
 
-            // 3. Save details inside Firestore linked by Google Coursework ID
             await db.collection("assignments").doc(gClassroomAssignmentId).set({
                 id: gClassroomAssignmentId,
                 courseId: courseId,
@@ -1108,7 +1150,6 @@
         }
     }
 
-    // Classroom Customize Mode / Edit Live Assignment
     document.getElementById('edit-assigned-task-btn').onclick = () => {
         const selectedId = filterTask.value;
         const assignment = allAssignments.find(a => a.id === selectedId);
