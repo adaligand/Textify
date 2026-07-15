@@ -121,6 +121,7 @@
     let studentName = "";
     let assignmentId = "";
     let courseId = ""; 
+    let gClassroomAssignmentId = ""; // Track Google Classroom CourseWork assignment ID
     let sentences = [];
     let currentSentenceIndex = 0;
     
@@ -132,7 +133,7 @@
     let isRecording = false;
 
     // LANGUAGE LOCALE MAPPING
-    let currentLanguageCode = "fr";  // Default fallback (fr, de, or es)
+    let currentLanguageCode = "fr";  
     const languageLocales = {
         "fr": "fr-FR",
         "de": "de-DE",
@@ -140,7 +141,9 @@
     };
 
     const urlParams = new URLSearchParams(window.location.search);
+    // Extracted directly from Classroom URLs
     assignmentId = urlParams.get('assignmentId') || urlParams.get('passageId') || ""; 
+    courseId = urlParams.get('courseId') || "";
 
     tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
@@ -206,7 +209,8 @@
         if (doc.exists) {
             const data = doc.data();
             document.getElementById('passage-title').innerText = data.title;
-            courseId = data.courseId || ""; 
+            courseId = data.courseId || courseId || ""; 
+            gClassroomAssignmentId = data.gClassroomAssignmentId || "";
             
             // DYNAMICALLY EXTRACT & LOAD ASSIGNMENT LANGUAGE
             currentLanguageCode = data.language ? data.language.toLowerCase() : "fr";
@@ -254,7 +258,7 @@
         containerElement.appendChild(tempTooltip);
 
         try {
-            // Passes dynamic currentLanguageCode (es, de, or fr) as source parameter 'sl'
+            // Passes dynamic currentLanguageCode as source parameter 'sl'
             const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${currentLanguageCode}&tl=en&dt=t&q=${encodeURIComponent(cleanWord)}`);
             const data = await res.json();
             const translatedText = data[0][0][0];
@@ -412,52 +416,7 @@
             reader.readAsDataURL(blob);
         });
     }
-// --- STUDENT APP SUBMISSION LOGIC ---
 
-/**
- * Helper to retrieve query parameters from the URL
- * (e.g., https://readaloud.app/student?courseId=12345&assignmentId=67890)
- */
-function getUrlParam(paramName) {
-    const params = new URLSearchParams(window.location.search);
-    return params.get(paramName);
-}
-
-/**
- * Saves the student's score to Firestore upon clicking "Submit"
- * @param {string} studentEmail - The logged-in student's email address
- * @param {string} studentName - The logged-in student's display name
- * @param {number} accuracyScore - The final calculated accuracy (e.g. 92)
- */
-async function submitReadingTask(studentEmail, studentName, accuracyScore) {
-    // 1. Get the Google Classroom context from the active URL parameters
-    const courseId = getUrlParam("courseId");
-    const gClassroomAssignmentId = getUrlParam("assignmentId"); // The coursework ID
-
-    if (!courseId || !gClassroomAssignmentId) {
-        console.warn("⚠️ URL is missing courseId or assignmentId. The grade will save locally but won't sync to Google Classroom.");
-    }
-
-    // 2. Format the submission payload
-    const submissionData = {
-        studentEmail: studentEmail.toLowerCase(),
-        studentName: studentName,
-        score: accuracyScore,
-        submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        courseId: courseId || null,
-        gClassroomAssignmentId: gClassroomAssignmentId || null
-    };
-
-    try {
-        // 3. Save to the Firestore submissions collection
-        const docRef = await db.collection("submissions").add(submissionData);
-        console.log("Submission saved successfully with ID: ", docRef.id);
-        alert("Well done! Your reading score has been submitted.");
-    } catch (error) {
-        console.error("Error saving student submission to Firestore:", error);
-        alert("There was an issue submitting your task. Please try again.");
-    }
-}
     function calculateAccuracy(spokenText) {
         const targetText = sentences[currentSentenceIndex].toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "");
         const inputWords = spokenText.toLowerCase().split(/\s+/).map(w => w.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, ""));
@@ -500,6 +459,7 @@ async function submitReadingTask(studentEmail, studentName, accuracyScore) {
         }
     };
 
+    // UNIFIED SUBMISSION HANDLER
     document.getElementById('submit-btn').onclick = async () => {
         const unattempted = sentenceAttemptScores.findIndex(item => item.attempts.length === 0);
         if (unattempted !== -1) {
@@ -512,10 +472,12 @@ async function submitReadingTask(studentEmail, studentName, accuracyScore) {
         const finalAccuracyArray = sentenceAttemptScores.map(item => item.attempts[item.attempts.length - 1]);
         const overallAverage = Math.round(finalAccuracyArray.reduce((a, b) => a + b, 0) / sentences.length);
 
+        // Capture crucial Google Classroom details alongside student attempt details
         const payload = {
             assignmentId: assignmentId,
             passageId: assignmentId, 
             courseId: courseId,
+            gClassroomAssignmentId: gClassroomAssignmentId, // Sync link to Google Classroom coursework
             studentName: studentName,
             studentEmail: studentEmail,
             score: overallAverage,
