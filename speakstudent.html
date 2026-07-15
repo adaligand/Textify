@@ -56,18 +56,17 @@
     const db = firebase.firestore();
 
     const CLIENT_ID = '162949632188-fifdjjtug2mqu5uc80r2fdrqfacvkkrg.apps.googleusercontent.com';
-    // Needs access to coursework submissions to push grades back
-    const SCOPES = 'https://www.googleapis.com/auth/classroom.coursework.me';
+    const SCOPES = 'https://www.googleapis.com/auth/classroom.profile.emails';
 
     const urlParams = new URLSearchParams(window.location.search);
     const passageId = urlParams.get('passageId');
 
     let words = [];
     let currentWordIndex = 0;
-    let studentToken = null;
+    let studentName = "Élève";
     let studentEmail = "";
 
-    // GAPI Setup
+    // GAPI Init
     function gapiStart() {
         gapi.client.init({}).then(() => {
             gapi.client.load('classroom', 'v1');
@@ -81,10 +80,16 @@
         scope: SCOPES,
         callback: (tokenResponse) => {
             if (tokenResponse.access_token) {
-                studentToken = tokenResponse.access_token;
-                document.getElementById('student-portal').classList.remove('hidden');
-                document.getElementById('student-auth-btn').innerText = "Connecté ✓";
-                loadPassage();
+                // Fetch student info
+                fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${tokenResponse.access_token}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        studentName = data.name || "Élève";
+                        studentEmail = data.email || "";
+                        document.getElementById('student-portal').classList.remove('hidden');
+                        document.getElementById('student-auth-btn').innerText = "Connecté ✓";
+                        loadPassage();
+                    });
             }
         },
     });
@@ -179,24 +184,22 @@
             const accuracy = Math.round((currentWordIndex / words.length) * 100);
             document.getElementById('score-display').innerText = `Précision finale : ${accuracy}%`;
             
-            // Save locally in Firestore & dispatch back to Google Classroom
             recordSubmission(accuracy);
         };
     }
 
-    // Save and Grade Submission
+    // Save student work and metadata to Firestore
     async function recordSubmission(score) {
         try {
-            // 1. Save results to Firestore
             await db.collection("submissions").add({
                 passageId: passageId,
+                studentName: studentName,
+                studentEmail: studentEmail,
                 score: score,
                 timestamp: firebase.firestore.FieldValue.serverTimestamp()
             });
 
-            // 2. Submit back to Google Classroom Gradebook
-            // (Note: Since we loaded student's token, Google automatically handles identifying which course coursework is completed!)
-            alert("Votre lecture a été enregistrée et votre note a été transmise à Google Classroom !");
+            alert("Bravo ! Votre score a été enregistré et envoyé à votre enseignant.");
         } catch (err) {
             console.error("Submitting error: ", err);
         }
