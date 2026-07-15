@@ -2,38 +2,58 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Speakaton - Enseignant</title>
+    <title>Speakaton - Espace Enseignant</title>
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background-color: #fafafa; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
+        #sidebar { width: 300px; background: #2c3e50; color: white; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+        #main-content { flex: 1; padding: 30px; overflow-y: auto; }
+        .card { background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 25px; }
         textarea, input, select { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        button { background: #3498db; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; }
+        button { background: #3498db; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 10px; }
         button:hover { background: #2980b9; }
         .hidden { display: none; }
+        
+        /* Task Bank styles */
+        .folder-title { font-weight: bold; margin-top: 15px; color: #ecf0f1; border-bottom: 1px solid #34495e; padding-bottom: 5px; cursor: pointer; }
+        .task-item { padding: 8px 12px; background: #34495e; margin: 5px 0; border-radius: 4px; font-size: 14px; cursor: pointer; transition: 0.2s; }
+        .task-item:hover { background: #1abc9c; }
+        .btn-secondary { background: #7f8c8d; }
+        .btn-secondary:hover { background: #95a5a6; }
     </style>
 </head>
 <body>
 
-<div class="card">
-    <h2>1. Connexion Google Classroom</h2>
-    <button id="auth-btn">Se connecter avec Google Classroom</button>
+<div id="sidebar">
+    <h2>Ma Banque de Textes</h2>
+    <button id="new-task-btn" class="btn-secondary">+ Nouveau Texte</button>
+    <div id="task-bank">
+        <p>Connectez-vous pour voir votre banque...</p>
+    </div>
 </div>
 
-<div id="setup-section" class="card hidden">
-    <h2>2. Créer un texte de lecture (Français)</h2>
-    <input type="text" id="title-input" placeholder="Titre de l'exercice (ex: Le Petit Chat)" required>
-    <textarea id="text-input" rows="4" placeholder="Tapez le texte en français ici..." required></textarea>
-    <button id="save-btn">Enregistrer le texte</button>
-</div>
+<div id="main-content">
+    <div class="card">
+        <h2>1. Connexion Google Classroom</h2>
+        <button id="auth-btn">Se connecter avec Google Classroom</button>
+    </div>
 
-<div id="assign-section" class="card hidden">
-    <h2>3. Assigner sur Google Classroom</h2>
-    <p>Sélectionnez un cours :</p>
-    <select id="course-select">
-        <option>Chargement des cours...</option>
-    </select>
-    <button id="assign-btn">Publier l'exercice sur Classroom</button>
-    <p id="status" style="color: green; font-weight: bold; margin-top: 15px;"></p>
+    <div id="editor-section" class="card hidden">
+        <h2 id="editor-title">Créer un texte de lecture (Français)</h2>
+        <input type="text" id="title-input" placeholder="Titre de l'exercice (ex: Le Petit Chat)" required>
+        <input type="text" id="topic-input" placeholder="Dossier / Thème (ex: Animaux, Vacances)" required>
+        <textarea id="text-input" rows="5" placeholder="Tapez le texte en français ici..." required></textarea>
+        <button id="save-btn">Enregistrer dans ma banque</button>
+    </div>
+
+    <div id="assign-section" class="card hidden">
+        <h2>3. Assigner sur Google Classroom</h2>
+        <p>Sélectionnez un cours pour publier ce devoir :</p>
+        <select id="course-select">
+            <option>Chargement des cours...</option>
+        </select>
+        <button id="assign-btn">Publier l'exercice sur Classroom</button>
+        <p id="status" style="color: green; font-weight: bold; margin-top: 15px;"></p>
+    </div>
 </div>
 
 <!-- Firebase App & Firestore (v9 compat) -->
@@ -59,13 +79,13 @@
 
     // 2. GOOGLE OAUTH CONFIGURATION
     const CLIENT_ID = '162949632188-fifdjjtug2mqu5uc80r2fdrqfacvkkrg.apps.googleusercontent.com';
-    const SCOPES = 'https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.coursework.students';
+    // Extended scopes to enable creating coursework and managing submissions (grading)
+    const SCOPES = 'https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/classroom.coursework.me';
     
     let tokenClient;
     let currentPassageId = null;
     let savedTitle = "";
 
-    // Load Google API Client
     function gapiStart() {
         gapi.client.init({}).then(() => {
             gapi.client.load('classroom', 'v1');
@@ -73,15 +93,15 @@
     }
     gapi.load('client', gapiStart);
 
-    // Initialize Identity Services (OAuth)
     tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
         callback: (tokenResponse) => {
             if (tokenResponse.access_token) {
-                document.getElementById('setup-section').classList.remove('hidden');
+                document.getElementById('editor-section').classList.remove('hidden');
                 document.getElementById('auth-btn').innerText = "Connecté ✓";
                 loadCourses();
+                loadTaskBank();
             }
         },
     });
@@ -90,37 +110,105 @@
         tokenClient.requestAccessToken();
     };
 
-    // Save Passage to Firestore
+    // Load Task Bank grouped by Folders
+    function loadTaskBank() {
+        db.collection("passages").orderBy("createdAt", "desc").onSnapshot((snapshot) => {
+            const taskBank = document.getElementById('task-bank');
+            taskBank.innerHTML = '';
+            
+            const folders = {};
+
+            snapshot.forEach((doc) => {
+                const task = doc.data();
+                task.id = doc.id;
+                const folderName = task.topic || "Non classé";
+                
+                if (!folders[folderName]) {
+                    folders[folderName] = [];
+                }
+                folders[folderName].push(task);
+            });
+
+            for (const [folder, tasks] of Object.entries(folders)) {
+                const folderDiv = document.createElement('div');
+                folderDiv.className = 'folder-title';
+                folderDiv.innerText = `📂 ${folder}`;
+                taskBank.appendChild(folderDiv);
+
+                const taskListContainer = document.createElement('div');
+                tasks.forEach(task => {
+                    const item = document.createElement('div');
+                    item.className = 'task-item';
+                    item.innerText = task.title;
+                    item.onclick = () => loadTaskIntoEditor(task);
+                    taskListContainer.appendChild(item);
+                });
+                taskBank.appendChild(taskListContainer);
+            }
+        });
+    }
+
+    // Reset Editor for New Task
+    document.getElementById('new-task-btn').onclick = () => {
+        currentPassageId = null;
+        document.getElementById('editor-title').innerText = "Créer un nouveau texte";
+        document.getElementById('title-input').value = "";
+        document.getElementById('topic-input').value = "";
+        document.getElementById('text-input').value = "";
+        document.getElementById('assign-section').classList.add('hidden');
+    };
+
+    // Load existing task for editing/assigning
+    function loadTaskIntoEditor(task) {
+        currentPassageId = task.id;
+        savedTitle = task.title;
+        document.getElementById('editor-title').innerText = `Modifier / Réassigner : ${task.title}`;
+        document.getElementById('title-input').value = task.title;
+        document.getElementById('topic-input').value = task.topic || "";
+        document.getElementById('text-input').value = task.text;
+        
+        document.getElementById('assign-section').classList.remove('hidden');
+        document.getElementById('status').innerText = "";
+    }
+
+    // Save/Update Task in Firestore
     document.getElementById('save-btn').onclick = async () => {
         const title = document.getElementById('title-input').value;
+        const topic = document.getElementById('topic-input').value;
         const text = document.getElementById('text-input').value;
 
-        if (!title || !text) return alert("Veuillez remplir tous les champs");
+        if (!title || !text || !topic) return alert("Veuillez remplir tous les champs");
+
+        const payload = {
+            title: title,
+            topic: topic,
+            text: text,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
 
         try {
-            const docRef = await db.collection("passages").add({
-                title: title,
-                text: text,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            currentPassageId = docRef.id;
+            if (currentPassageId) {
+                // Update existing
+                await db.collection("passages").doc(currentPassageId).update(payload);
+                alert("Texte mis à jour !");
+            } else {
+                // Create new
+                const docRef = await db.collection("passages").add(payload);
+                currentPassageId = docRef.id;
+                alert("Nouveau texte enregistré dans votre banque !");
+            }
             savedTitle = title;
-            alert("Texte enregistré ! Vous pouvez maintenant l'assigner à votre classe.");
             document.getElementById('assign-section').classList.remove('hidden');
         } catch (error) {
-            console.error("Error saving document: ", error);
+            console.error("Error saving: ", error);
         }
     };
 
-    // Load Google Classroom Courses
     function loadCourses() {
-        gapi.client.classroom.courses.list({
-            pageSize: 15
-        }).then((response) => {
+        gapi.client.classroom.courses.list({ pageSize: 15 }).then((response) => {
             const courses = response.result.courses;
             const select = document.getElementById('course-select');
             select.innerHTML = '';
-            
             if (courses && courses.length > 0) {
                 courses.forEach(course => {
                     const opt = document.createElement('option');
@@ -139,7 +227,7 @@
         const courseId = document.getElementById('course-select').value;
         if (!courseId || !currentPassageId) return;
 
-        // Custom exact path targeted directly to your Textify repository
+        // Automatically hooks up your URLs
         const studentUrl = `https://adaligand.github.io/Textify/speakstudent.html?passageId=${currentPassageId}`;
 
         gapi.client.classroom.courses.courseWork.create({
@@ -158,7 +246,7 @@
             document.getElementById('status').innerText = "Devoir publié avec succès sur Google Classroom !";
         }).catch(err => {
             console.error(err);
-            alert("Erreur lors de la création du devoir.");
+            alert("Erreur lors du partage.");
         });
     };
 </script>
