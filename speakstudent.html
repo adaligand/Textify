@@ -2,15 +2,20 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read Aloud</title>
+    <title>Speakaton - Student Workspace</title>
+    <!-- Include Google Identity Services library for Sign-In -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; color: #2c3e50; }
         .container { max-width: 800px; margin: 40px auto; padding: 20px; }
-        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; text-align: center; }
         h1 { color: #1abc9c; margin-top: 0; }
         h2 { margin-top: 0; color: #34495e; }
+        p { color: #64748b; line-height: 1.5; }
         
-        .setup-input { width: 100%; padding: 12px; margin: 10px 0 20px 0; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 16px; box-sizing: border-box; }
+        /* Center the Google Sign-In button container */
+        .g-signin-container { display: flex; justify-content: center; margin: 30px 0 10px 0; }
+        
         .btn { background: #1abc9c; color: white; border: none; padding: 14px 24px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; width: 100%; transition: background 0.2s; }
         .btn:hover { background: #16a085; }
         .btn-secondary { background: #94a3b8; margin-top: 10px; }
@@ -18,7 +23,7 @@
         .hidden { display: none !important; }
 
         /* Reading UI Layout */
-        .sentence-card { background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 10px; padding: 25px; margin-bottom: 20px; transition: 0.3s; position: relative; }
+        .sentence-card { background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 10px; padding: 25px; margin-bottom: 20px; transition: 0.3s; position: relative; text-align: left; }
         .sentence-card.active { border-color: #1abc9c; background: #f0fdfa; box-shadow: 0 4px 12px rgba(26, 188, 156, 0.1); }
         .sentence-card.completed { border-color: #2ecc71; background: #f0fdf4; }
         
@@ -56,18 +61,16 @@
 <body>
 
 <div class="container">
-    <!-- 1. Initialization Registration Screen -->
+    <!-- 1. Authentic Google Sign-In Welcome Screen -->
     <div id="setup-card" class="card">
         <h1>🎙️ Welcome to Speakaton!</h1>
-        <p>Enter your details below to load your assigned French spoken practice exercise.</p>
+        <p>Please sign in with your school Google account to load your French reading exercise.</p>
         
-        <label for="student-name">Full Name:</label>
-        <input type="text" id="student-name" class="setup-input" placeholder="e.g., Jean-Luc Picard" required>
-
-        <label for="student-email">School Email Address:</label>
-        <input type="email" id="student-email" class="setup-input" placeholder="e.g., student@yourclass.com" required>
-
-        <button id="start-btn" class="btn">Load My Assignment</button>
+        <div class="g-signin-container">
+            <!-- Google Sign-In Render Button Target -->
+            <div id="google-signin-btn"></div>
+        </div>
+        <div id="loading-spinner" class="hidden" style="color: #1abc9c; font-weight: bold; margin-top: 15px;">Loading your assignment...</div>
     </div>
 
     <!-- 2. Interactive Spoken Practice Arena -->
@@ -124,10 +127,15 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
+    const CLIENT_ID = '162949632188-fifdjjtug2mqu5uc80r2fdrqfacvkkrg.apps.googleusercontent.com';
     let assignmentId = new URLSearchParams(window.location.search).get("assignmentId");
     let assignmentData = null;
     let sentences = [];
     let currentIdx = 0;
+
+    // Student identity (captured automatically via Google login)
+    let studentName = "";
+    let studentEmail = "";
 
     // Tracking Metrics for Student Output
     let sentenceScores = []; // Array of { attempts: [numbers], audio: base64Str }
@@ -161,17 +169,61 @@
         alert("Your browser does not fully support spoken recognition. Please open this page in Google Chrome.");
     }
 
-    // Load setup details
-    document.getElementById('start-btn').onclick = async () => {
-        const name = document.getElementById('student-name').value.trim();
-        const email = document.getElementById('student-email').value.trim();
+    // Initialize Google Sign-In flow automatically on page load
+    window.onload = function () {
+        if (!assignmentId) {
+            alert("Error: Missing assignment ID from active classroom link!");
+            return;
+        }
 
-        if (!name || !email) return alert("Please fill in both name and email fields.");
-        if (!assignmentId) return alert("Error: Missing assignment ID from active classroom link!");
+        google.accounts.id.initialize({
+            client_id: CLIENT_ID,
+            callback: handleGoogleSignInResponse
+        });
+
+        google.accounts.id.renderButton(
+            document.getElementById("google-signin-btn"),
+            { theme: "outline", size: "large", width: "240" }
+        );
+    };
+
+    // Decode Google JWT Token payload safely to extract name & email
+    function parseJwt(token) {
+        try {
+            var base64Url = token.split('.')[1];
+            var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            var jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+            return JSON.parse(jsonPayload);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Handle authentication response and automatically load the assignment
+    async function handleGoogleSignInResponse(response) {
+        const profile = parseJwt(response.credential);
+        if (!profile) {
+            alert("Login failed. Please try signing in with your school Google account again.");
+            return;
+        }
+
+        studentName = profile.name || "Unnamed Student";
+        studentEmail = profile.email || "No Email";
+
+        // Show loading spinner while loading Firestore document
+        document.getElementById('google-signin-btn').classList.add('hidden');
+        document.getElementById('loading-spinner').classList.remove('hidden');
 
         try {
             const doc = await db.collection("assignments").doc(assignmentId).get();
-            if (!doc.exists) return alert("Selected assignment could not be retrieved. Please confirm with your teacher.");
+            if (!doc.exists) {
+                alert("Selected assignment could not be retrieved. Please confirm with your teacher.");
+                document.getElementById('google-signin-btn').classList.remove('hidden');
+                document.getElementById('loading-spinner').classList.add('hidden');
+                return;
+            }
             
             assignmentData = doc.data();
             
@@ -180,10 +232,11 @@
             sentences = rawSentences.map(s => s.trim()).filter(s => s.length > 0);
 
             if (sentences.length === 0) {
-                return alert("This assignment contains no readable sentences. Try creating templates first.");
+                alert("This assignment contains no readable sentences.");
+                return;
             }
 
-            // Prepare sentence tracking indexes matching parsed components
+            // Prepare tracking structure
             sentenceScores = sentences.map(() => ({ attempts: [], audio: null }));
 
             document.getElementById('assignment-title').innerText = assignmentData.title;
@@ -193,8 +246,9 @@
             renderActiveSentence();
         } catch (error) {
             console.error("Assignment setup failed:", error);
+            alert("Error connecting to database. Please refresh and try again.");
         }
-    };
+    }
 
     // Render sentences to students, STRIPPING ALL PUNCTUATION
     function renderActiveSentence() {
@@ -314,7 +368,6 @@
         if (recognition) {
             recognition.onresult = (event) => {
                 const speechResult = event.results[0][0].transcript;
-                const confidence = event.results[0][0].confidence;
                 evaluateSpokenAccuracy(speechResult);
             };
             recognition.onerror = () => {
@@ -433,9 +486,6 @@
 
     // Build the submission object and send to Firebase
     async function submitFinalPractices() {
-        const name = document.getElementById('student-name').value.trim();
-        const email = document.getElementById('student-email').value.trim();
-
         // Calculate final average of top scores per sentence
         let scoreSum = 0;
         sentenceScores.forEach(item => {
@@ -447,8 +497,8 @@
         const submissionPayload = {
             assignmentId: assignmentId,
             courseId: assignmentData.courseId || "Direct Link",
-            studentName: name,
-            studentEmail: email,
+            studentName: studentName,
+            studentEmail: studentEmail,
             score: finalAverage,
             sentenceScores: sentenceScores, // Array holding [{ attempts, audio }]
             hintsUsed: hintsUsed,
