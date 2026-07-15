@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - Teacher Workspace</title>
+    <title>Read aloud - Teacher</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -78,7 +78,7 @@
         
         .sentence-list { margin: 0; padding-left: 0; list-style-type: none; font-size: 13px; color: #2c3e50; width: 100%; }
         
-        /* Updated Single Line Horizontal Layout style */
+        /* Single Line Horizontal Layout Style */
         .sentence-list li { 
             margin-bottom: 8px; 
             background: white; 
@@ -122,9 +122,9 @@
         .btn-inline-edit { background: #f39c12; padding: 4px 10px; font-size: 11px; width: auto; margin: 0; border-radius: 3px; }
         .btn-inline-edit:hover { background: #d35400; }
         
-        /* New Manual Sync Button styling */
-        .btn-inline-sync { background: #1abc9c; padding: 6px 12px; font-size: 12px; width: auto; margin: 0 5px 0 0; border-radius: 4px; }
-        .btn-inline-sync:hover { background: #16a085; }
+        /* New Task-Level Sync Button Styling */
+        .btn-inline-sync-task { background: #1abc9c; padding: 6px 12px; font-size: 12px; width: auto; margin: 0; border-radius: 4px; color: white; font-weight: bold; }
+        .btn-inline-sync-task:hover { background: #16a085; }
 
         /* Bin list */
         .bin-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #eee; }
@@ -178,12 +178,14 @@
             </div>
         </div>
 
+        <!-- Task Info & Core Sync Utility -->
         <div id="active-assignment-info" class="hidden" style="margin-bottom: 20px; padding: 15px; border-radius: 6px; background-color: #fdf6e2; border: 1px solid #f39c12; display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <strong style="color: #d35400;">Customized Version Active for this Class</strong>
                 <div style="font-size: 12px; color: #7f8c8d; margin-top: 3px;">Changes made here will only affect this class.</div>
             </div>
-            <div style="display: flex; gap: 8px;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button id="sync-all-classroom-grades-btn" class="btn-inline-sync-task">🔄 Sync Task Grades to Classroom</button>
                 <button id="edit-assigned-task-btn" class="btn-inline-edit">📝 Edit This Assignment</button>
                 <button id="delete-assigned-task-btn" class="btn-inline-delete">🗑️ Delete Assignment</button>
             </div>
@@ -192,9 +194,9 @@
         <table>
             <thead>
                 <tr>
-                    <th style="width: 45%;">Student Details (Click name to expand)</th>
+                    <th style="width: 50%;">Student Details (Click name to expand)</th>
                     <th style="width: 25%;">Final Accuracy</th>
-                    <th style="width: 30%;">Actions</th>
+                    <th style="width: 25%;">Actions</th>
                 </tr>
             </thead>
             <tbody id="submissions-table-body">
@@ -276,7 +278,6 @@
     let allSubmissions = [];
     let allAssignments = [];
 
-    // Set to track processed submissions during this live teacher browser session
     const syncedSubmissionIds = new Set();
 
     function gapiStart() {
@@ -317,7 +318,6 @@
             });
         }
 
-        // Sidebar Navigation click events
         document.getElementById('view-submissions-btn').onclick = () => {
             showSection('submissions-section');
         };
@@ -332,6 +332,9 @@
             showSection('submissions-section');
         };
         document.getElementById('save-btn').onclick = saveEditorChanges;
+        
+        // Connect Task-Level Sync Button
+        document.getElementById('sync-all-classroom-grades-btn').onclick = triggerClassroomTaskSync;
     };
 
     function showSection(sectionId) {
@@ -530,114 +533,106 @@
     function syncSubmissions() {
         db.collection("submissions").onSnapshot((snapshot) => {
             allSubmissions = [];
-            
             snapshot.forEach(doc => {
                 const data = doc.data();
                 data.id = doc.id;
                 allSubmissions.push(data);
-
-                // BACKGROUND AUTO-PASSBACK (OPTION A)
-                if (data.courseId && data.gClassroomAssignmentId && data.score !== undefined) {
-                    if (!syncedSubmissionIds.has(data.id)) {
-                        syncedSubmissionIds.add(data.id);
-                        autoExportGradeToClassroom(
-                            data.courseId, 
-                            data.gClassroomAssignmentId, 
-                            data.studentEmail, 
-                            data.score, 
-                            data.studentName
-                        );
-                    }
-                }
             });
-            
             renderDynamicMetrics();
         }, (error) => {
             console.error("Firestore submissions listener failed:", error);
         });
     }
 
-    async function autoExportGradeToClassroom(courseId, courseWorkId, studentEmail, scorePercentage, studentName, triggerAlert = false) {
-        try {
-            console.log(`[Sync] Attempting sync for ${studentName} (${scorePercentage}%)...`);
+    /**
+     * Option B - Unified Task Level Sync
+     * Pulls the list of ALL students registered in this Classroom Course,
+     * updates scores for those who submitted, and flags unsubmitted users as "Missing" (0%).
+     */
+    async function triggerClassroomTaskSync() {
+        const selectedCourseId = filterCourse.value;
+        const selectedAssignmentId = filterTask.value;
+        const syncBtn = document.getElementById('sync-all-classroom-grades-btn');
 
-            const response = await gapi.client.classroom.courses.courseWork.studentSubmissions.list({
-                courseId: courseId,
-                courseWorkId: courseWorkId
-            });
-
-            const submissions = response.result.studentSubmissions || [];
-            let studentSubmission = null;
-
-            for (let sub of submissions) {
-                try {
-                    const profile = await gapi.client.classroom.courses.students.get({
-                        courseId: courseId,
-                        userId: sub.userId
-                    });
-                    
-                    if (profile.result.profile.emailAddress.toLowerCase() === studentEmail.toLowerCase()) {
-                        studentSubmission = sub;
-                        break;
-                    }
-                } catch (profileError) {
-                    console.warn(`Could not search user ID ${sub.userId}:`, profileError);
-                }
-            }
-
-            if (!studentSubmission) {
-                const msg = `No matching Google Classroom student profile found for ${studentEmail}.`;
-                console.warn(msg);
-                if (triggerAlert) alert(msg);
-                return;
-            }
-
-            await gapi.client.classroom.courses.courseWork.studentSubmissions.patch({
-                courseId: courseId,
-                courseWorkId: courseWorkId,
-                id: studentSubmission.id,
-                updateMask: "draftGrade,assignedGrade",
-                resource: {
-                    draftGrade: scorePercentage,
-                    assignedGrade: scorePercentage
-                }
-            });
-
-            const successMsg = `Successfully synchronized score (${scorePercentage}%) to Google Classroom for ${studentName}!`;
-            console.log(successMsg);
-            if (triggerAlert) alert(successMsg);
-
-        } catch (error) {
-            console.error(`Failed to export grade for ${studentEmail}:`, error);
-            if (triggerAlert) alert(`Sync failed: ${error.message || error}`);
-        }
-    }
-
-    // Explicit manual click event handler (Option B)
-    function forceManualClassroomSync(submissionId, btnElement) {
-        const sub = allSubmissions.find(s => s.id === submissionId);
-        if (!sub) return;
-
-        if (!sub.courseId || !sub.gClassroomAssignmentId) {
-            alert("This submission is missing class link properties and cannot be synced.");
+        if (!selectedCourseId || !selectedAssignmentId) {
+            alert("Please select both a Course and an Assignment to synchronize.");
             return;
         }
 
-        btnElement.disabled = true;
-        const originalText = btnElement.innerText;
-        btnElement.innerText = "⏳ Syncing...";
+        syncBtn.disabled = true;
+        const originalText = syncBtn.innerText;
+        syncBtn.innerText = "⏳ Syncing Course...";
 
-        autoExportGradeToClassroom(
-            sub.courseId,
-            sub.gClassroomAssignmentId,
-            sub.studentEmail,
-            sub.score,
-            sub.studentName,
-            true
-        ).finally(() => {
-            btnElement.disabled = false;
-            btnElement.innerText = originalText;
-        });
+        try {
+            // 1. Get all Google Classroom submissions/roster items for this assignment
+            const classSubmissionsResponse = await gapi.client.classroom.courses.courseWork.studentSubmissions.list({
+                courseId: selectedCourseId,
+                courseWorkId: selectedAssignmentId
+            });
+
+            const classroomSubmissions = classSubmissionsResponse.result.studentSubmissions || [];
+            
+            // 2. Fetch our local Firebase submissions recorded for this assignment
+            const localSubsForTask = allSubmissions.filter(sub => 
+                sub.assignmentId === selectedAssignmentId && sub.courseId === selectedCourseId
+            );
+
+            let syncSuccessCount = 0;
+            let missingFlagCount = 0;
+
+            // 3. Match each student submission roster spot
+            for (let classroomSub of classroomSubmissions) {
+                try {
+                    // Resolve student profile email address
+                    const profileRes = await gapi.client.classroom.courses.students.get({
+                        courseId: selectedCourseId,
+                        userId: classroomSub.userId
+                    });
+                    
+                    const studentEmail = profileRes.result.profile.emailAddress.toLowerCase();
+                    const matchedLocalSub = localSubsForTask.find(s => s.studentEmail.toLowerCase() === studentEmail);
+
+                    let draftGradeValue = null;
+                    let assignedGradeValue = null;
+
+                    if (matchedLocalSub) {
+                        // Student completed the activity
+                        draftGradeValue = matchedLocalSub.score;
+                        assignedGradeValue = matchedLocalSub.score;
+                        syncSuccessCount++;
+                    } else {
+                        // Mark as missing in Classroom Gradebook (set to 0)
+                        draftGradeValue = 0;
+                        assignedGradeValue = 0;
+                        missingFlagCount++;
+                    }
+
+                    // Push grade back to Google Classroom API
+                    await gapi.client.classroom.courses.courseWork.studentSubmissions.patch({
+                        courseId: selectedCourseId,
+                        courseWorkId: selectedAssignmentId,
+                        id: classroomSub.id,
+                        updateMask: "draftGrade,assignedGrade",
+                        resource: {
+                            draftGrade: draftGradeValue,
+                            assignedGrade: assignedGradeValue
+                        }
+                    });
+
+                } catch (subError) {
+                    console.warn(`Could not update grade for Student ID ${classroomSub.userId}:`, subError);
+                }
+            }
+
+            alert(`🎉 Sync Complete!\nSuccessfully posted ${syncSuccessCount} student scores.\nFlagged ${missingFlagCount} unsubmitted students as Missing (0%).`);
+
+        } catch (error) {
+            console.error("Task level sync failed:", error);
+            alert(`Gradebook sync failed: ${error.message || error}`);
+        } finally {
+            syncBtn.disabled = false;
+            syncBtn.innerText = originalText;
+        }
     }
 
     function loadCourses() {
@@ -787,7 +782,7 @@
                         `;
                     }
                     
-                    // COMPACT SINGLE-LINE HORIZONTAL LAYOUT
+                    // COMPACT SINGLE-LINE HORIZONTAL LAYOUT (Sentences placed next to metadata to reduce vertical height)
                     sentenceDetailsHtml += `
                         <li>
                             <div class="sentence-left-meta">
@@ -838,7 +833,6 @@
                 </td>
                 <td><span class="badge score">${finalScore}%</span></td>
                 <td>
-                    <button class="btn-inline-sync" onclick="forceManualClassroomSync('${sub.id}', this); event.stopPropagation();">🔄 Sync with Classroom</button>
                     <button class="btn-inline-delete" onclick="deleteSubmission('${sub.id}', event)">Delete</button>
                 </td>
             `;
@@ -862,7 +856,7 @@
             `;
 
             headerRow.onclick = (e) => {
-                if (e.target.closest('.btn-inline-delete') || e.target.closest('.btn-inline-sync')) return;
+                if (e.target.closest('.btn-inline-delete')) return;
                 const active = headerRow.classList.toggle('active');
                 detailsRow.classList.toggle('hidden', !active);
                 headerRow.querySelector('.arrow-indicator').textContent = active ? '▼' : '▶';
