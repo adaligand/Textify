@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Speakaton - Student</title>
+    <title>Read aloud- Student Practice</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #f5f7fa; color: #2c3e50; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .container { max-width: 800px; width: 100%; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; margin-top: 20px; }
@@ -14,7 +14,6 @@
 
         .sentence-box { font-size: 24px; line-height: 1.6; margin: 30px 0; min-height: 80px; padding: 20px; background: #fdfefe; border-radius: 8px; border: 2px dashed #bdc3c7; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
         
-        /* Word styling with pronunciation states */
         .word { cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: 0.2s; position: relative; display: inline-block; border-bottom: 2px solid transparent; }
         .word:hover { background-color: #ffeaa7; }
         
@@ -62,7 +61,6 @@
     <button id="auth-btn" class="btn-google">Sign In with Google</button>
 </div>
 
-<!-- Already Completed View -->
 <div id="completed-card" class="status-card hidden">
     <h1 style="color: #2ecc71;">✓ Assignment Completed</h1>
     <p>You have already submitted this assignment!</p>
@@ -121,7 +119,8 @@
     let tokenClient;
     let studentEmail = "";
     let studentName = "";
-    let passageId = "";
+    let assignmentId = "";
+    let courseId = ""; 
     let sentences = [];
     let currentSentenceIndex = 0;
     
@@ -133,7 +132,8 @@
     let isRecording = false;
 
     const urlParams = new URLSearchParams(window.location.search);
-    passageId = urlParams.get('passageId') || "";
+    // Student links will now explicitly contain assignmentId
+    assignmentId = urlParams.get('assignmentId') || urlParams.get('passageId') || ""; 
 
     tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
@@ -158,47 +158,49 @@
                 document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
                 document.getElementById('auth-card').classList.add('hidden');
 
-                // Check for prior submissions matching this assignment and student
                 checkExistingSubmission();
             });
     }
 
     async function checkExistingSubmission() {
-        if (!passageId) {
-            alert("No Reading Assignment URL detected. Please log in through Google Classroom links.");
+        if (!assignmentId) {
+            alert("No Assignment URL detected. Please log in through Google Classroom links.");
             return;
         }
 
         try {
             const querySnapshot = await db.collection("submissions")
-                .where("passageId", "==", passageId)
+                .where("assignmentId", "==", assignmentId)
                 .where("studentEmail", "==", studentEmail)
                 .get();
 
             if (!querySnapshot.empty) {
-                // Prior submission exists! Lock down screen
                 const submissionData = querySnapshot.docs[0].data();
                 document.getElementById('completed-score').innerText = `${submissionData.score || 0}%`;
                 document.getElementById('completed-card').classList.remove('hidden');
                 document.getElementById('app-container').classList.add('hidden');
             } else {
-                // Fresh run, proceed to load the passage
                 document.getElementById('app-container').classList.remove('hidden');
-                loadPassage();
+                loadAssignmentData();
             }
         } catch (error) {
             console.error("Error checking submission history:", error);
-            // Default to loading passage if query fails
             document.getElementById('app-container').classList.remove('hidden');
-            loadPassage();
+            loadAssignmentData();
         }
     }
 
-    async function loadPassage() {
-        const doc = await db.collection("passages").doc(passageId).get();
+    async function loadAssignmentData() {
+        // Look up inside 'assignments' first, fallback to 'passages' template collections for legacy configurations
+        let doc = await db.collection("assignments").doc(assignmentId).get();
+        if (!doc.exists) {
+            doc = await db.collection("passages").doc(assignmentId).get();
+        }
+
         if (doc.exists) {
             const data = doc.data();
             document.getElementById('passage-title').innerText = data.title;
+            courseId = data.courseId || ""; 
             
             sentences = data.text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0);
             sentenceAttemptScores = sentences.map(() => ({ attempts: [], audio: null }));
@@ -209,7 +211,6 @@
         }
     }
 
-    // Text to Speech logic
     function speakFrenchWord(wordText) {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel(); 
@@ -405,7 +406,6 @@
         });
 
         const score = Math.round((matches / targetWords.length) * 100);
-        
         sentenceAttemptScores[currentSentenceIndex].attempts.push(score);
 
         renderSentence(inputWords);
@@ -443,7 +443,9 @@
         const overallAverage = Math.round(finalAccuracyArray.reduce((a, b) => a + b, 0) / sentences.length);
 
         const payload = {
-            passageId: passageId,
+            assignmentId: assignmentId,
+            passageId: assignmentId, // maintaining backward fallback compatibility
+            courseId: courseId,
             studentName: studentName,
             studentEmail: studentEmail,
             score: overallAverage,
@@ -455,8 +457,6 @@
         try {
             await db.collection("submissions").add(payload);
             alert("Excellent work! Your audio assignments have been saved and successfully submitted to your teacher.");
-            
-            // Redirect immediately to show the success locked page state
             checkExistingSubmission();
         } catch (error) {
             console.error("Submission error: ", error);
