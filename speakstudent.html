@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Speakaton - Espace Élève</title>
+    <title>Speakaton - Student Space</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #f3f4f6; color: #2c3e50; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); max-width: 800px; width: 100%; box-sizing: border-box; text-align: center; margin-bottom: 20px; }
@@ -19,11 +19,15 @@
         /* Sentence-by-sentence Layout */
         .sentence-box { text-align: left; background: #f8f9fa; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 15px 0; display: flex; flex-direction: column; gap: 10px; }
         
-        /* Interactive Clickable Words */
+        /* Interactive / Feedback Words */
         .sentence-text { font-size: 18px; line-height: 1.6; color: #2c3e50; font-weight: 500; }
         .word-clickable { display: inline-block; cursor: pointer; padding: 1px 3px; border-radius: 3px; transition: background-color 0.15s, color 0.15s; }
         .word-clickable:hover { background-color: #ffeaa7; color: #d35400; text-decoration: underline; }
         
+        /* Word Accuracy Feedback Colors */
+        .word-correct { color: #2ecc71; font-weight: bold; }
+        .word-incorrect { color: #e74c3c; text-decoration: line-through; }
+
         .sentence-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 5px; }
         
         .mic-btn { background: #2ecc71; padding: 8px 16px; font-size: 14px; }
@@ -34,11 +38,10 @@
         .hint-btn { background: #f1c40f; color: #2c3e50; padding: 8px 16px; font-size: 14px; }
         .hint-btn:hover { background: #f39c12; }
         
-        /* Scoring indicators */
         .score-badge { font-weight: bold; padding: 5px 10px; border-radius: 20px; font-size: 14px; background: #e2e8f0; color: #64748b; }
         .score-badge.completed { background: #2ecc71; color: white; }
+        .attempts-badge { font-size: 12px; color: #7f8c8d; margin-left: 10px; }
         
-        /* Overall Score dashboard */
         #dashboard-summary { background: #edf2f7; border-radius: 10px; padding: 20px; margin-top: 25px; }
         #global-score { font-size: 32px; font-weight: bold; color: #2c3e50; margin: 10px 0; }
         #submit-btn { background: #1abc9c; font-size: 18px; padding: 15px 30px; width: 100%; max-width: 300px; }
@@ -54,27 +57,33 @@
 <body>
 
 <div id="user-banner" class="hidden">
-    <span id="user-display">Élève : Chargement...</span>
-    <button id="logout-btn" style="background:#e74c3c; font-size:12px; padding:6px 12px; margin:0;">Déconnexion</button>
+    <span id="user-display">Student: Loading...</span>
+    <button id="logout-btn" style="background:#e74c3c; font-size:12px; padding:6px 12px; margin:0;">Log Out</button>
 </div>
 
 <div id="login-card" class="card">
-    <h1>🎯 Speakaton - Lecture Guidée</h1>
-    <p>Bonjour ! Connecte-toi avec ton compte Google Classroom pour commencer ton exercice de lecture.</p>
-    <button id="auth-btn">Se connecter avec Google</button>
+    <h1>🎯 Speakaton - Guided Reading</h1>
+    <p>Welcome! Please sign in with your Google Classroom account to begin your reading exercise.</p>
+    <button id="auth-btn">Sign in with Google</button>
+</div>
+
+<!-- Lockout Screen -->
+<div id="already-submitted-card" class="card hidden">
+    <h2>Already Submitted! 🛑</h2>
+    <p>You have already submitted this assignment. You can only submit your score once.</p>
 </div>
 
 <div id="workspace-card" class="card hidden">
-    <h2 id="passage-title">Titre du texte</h2>
-    <p style="color:#7f8c8d; font-size:14px;">👉 <strong>Astuce :</strong> Clique sur <em>n'importe quel mot individuel</em> pour l'écouter. Utilise le bouton vert pour t'enregistrer.</p>
+    <h2 id="passage-title">Reading Passage</h2>
+    <p style="color:#7f8c8d; font-size:14px;">👉 <strong>Tips:</strong> Click on <em>any word</em> to hear it pronounced in French. Record each sentence when ready. Correct words will highlight in <span style="color:#2ecc71;font-weight:bold;">green</span>, missed words in <span style="color:#e74c3c;font-weight:bold;">red</span>. You can practice each sentence as many times as you like!</p>
     
     <div id="sentences-container"></div>
 
     <div id="dashboard-summary">
-        <h3>Résultat de l'exercice</h3>
+        <h3>Assignment Result</h3>
         <div id="global-score">--%</div>
-        <p id="progress-info">Complète toutes les phrases pour valider ton travail.</p>
-        <button id="submit-btn" disabled>Envoyer mon score</button>
+        <p id="progress-info">Complete all sentences to submit your work.</p>
+        <button id="submit-btn" disabled>Submit Final Score</button>
     </div>
 </div>
 
@@ -105,24 +114,25 @@
     
     let sentences = [];
     let sentenceScores = []; 
-    let globalHintsUsed = new Set(); // Stores sentence audio helps and single-word helps!
+    let sentenceAttempts = []; 
+    let globalHintsUsed = new Set(); 
     
     const urlParams = new URLSearchParams(window.location.search);
     passageId = urlParams.get('passageId');
 
     if (!passageId) {
-        alert("Erreur : Aucun exercice spécifié.");
+        alert("Error: No reading assignment specified.");
     }
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
     if (SpeechRecognition) {
         recognition = new SpeechRecognition();
-        recognition.lang = 'fr-FR';
+        recognition.lang = 'fr-FR'; // French speech engine keeps tracking
         recognition.continuous = false;
         recognition.interimResults = false;
     } else {
-        alert("La reconnaissance vocale n'est pas supportée sur ton navigateur. Utilise Google Chrome.");
+        alert("Speech recognition is not supported on your browser. Please use Google Chrome.");
     }
 
     tokenClient = google.accounts.oauth2.initTokenClient({
@@ -157,20 +167,39 @@
             .then(res => res.json())
             .then(data => {
                 if (data.email) {
-                    studentEmail = data.email;
-                    studentName = data.name || data.email.split('@')[0];
+                    studentEmail = data.email.toLowerCase();
+                    studentName = data.name || studentEmail.split('@')[0];
                     
                     document.getElementById('login-card').classList.add('hidden');
                     document.getElementById('user-banner').classList.remove('hidden');
-                    document.getElementById('workspace-card').classList.remove('hidden');
-                    document.getElementById('user-display').innerText = `Élève : ${studentName} (${studentEmail})`;
                     
-                    loadPassage();
+                    checkIfAlreadySubmitted();
                 }
             }).catch(() => {
                 localStorage.removeItem('student_oauth_token');
                 document.getElementById('login-card').classList.remove('hidden');
             });
+    }
+
+    async function checkIfAlreadySubmitted() {
+        try {
+            const query = await db.collection("submissions")
+                .where("passageId", "==", passageId)
+                .where("studentEmail", "==", studentEmail)
+                .get();
+
+            if (!query.empty) {
+                document.getElementById('already-submitted-card').classList.remove('hidden');
+                document.getElementById('workspace-card').classList.add('hidden');
+            } else {
+                document.getElementById('workspace-card').classList.remove('hidden');
+                document.getElementById('user-display').innerText = `Student: ${studentName} (${studentEmail})`;
+                loadPassage();
+            }
+        } catch (e) {
+            console.error("Error verifying submissions", e);
+            loadPassage();
+        }
     }
 
     async function loadPassage() {
@@ -184,19 +213,19 @@
                 
                 splitAndRenderSentences(passageText);
             } else {
-                alert("Exercice introuvable.");
+                alert("Assignment not found.");
             }
         } catch (error) {
             console.error(error);
         }
     }
 
-    // Interactive sentence and word tokenizer
     function splitAndRenderSentences(text) {
         sentences = text.match(/[^.!?]+[.!?]*/g) || [text];
         sentences = sentences.map(s => s.trim()).filter(s => s.length > 0);
         
         sentenceScores = new Array(sentences.length).fill(null);
+        sentenceAttempts = new Array(sentences.length).fill(0);
         
         const container = document.getElementById('sentences-container');
         container.innerHTML = '';
@@ -206,19 +235,18 @@
             box.className = 'sentence-box';
             box.id = `box-${index}`;
             
-            // Transform normal sentence text into clickable word chunks
-            const words = sentence.split(/(\s+)/); // Preserve spaces
             const structuredTextSpan = document.createElement('div');
             structuredTextSpan.className = 'sentence-text';
+            structuredTextSpan.id = `sentence-text-${index}`;
 
+            const words = sentence.split(/(\s+)/);
             words.forEach(chunk => {
                 if (chunk.trim().length === 0) {
-                    structuredTextSpan.appendChild(document.createTextNode(chunk)); // Space node
+                    structuredTextSpan.appendChild(document.createTextNode(chunk));
                 } else {
                     const wordSpan = document.createElement('span');
                     wordSpan.className = 'word-clickable';
                     wordSpan.textContent = chunk;
-                    // Individual word clicking event
                     wordSpan.onclick = (e) => {
                         e.stopPropagation();
                         speakSingleWord(chunk);
@@ -229,13 +257,13 @@
 
             box.appendChild(structuredTextSpan);
 
-            // Action UI Buttons
             const actionsDiv = document.createElement('div');
             actionsDiv.className = 'sentence-actions';
             actionsDiv.innerHTML = `
-                <button class="mic-btn" id="record-${index}" onclick="recordSentence(${index})">🎤 Enregistrer</button>
-                <button class="hint-btn" onclick="readSentenceAloud(${index})">🔊 Écouter la phrase</button>
-                <span class="score-badge" id="score-badge-${index}">En attente...</span>
+                <button class="mic-btn" id="record-${index}" onclick="recordSentence(${index})">🎤 Record</button>
+                <button class="hint-btn" onclick="readSentenceAloud(${index})">🔊 Listen to sentence</button>
+                <span class="score-badge" id="score-badge-${index}">Pending...</span>
+                <span class="attempts-badge" id="attempts-${index}">0 attempts</span>
             `;
             box.appendChild(actionsDiv);
             container.appendChild(box);
@@ -244,33 +272,24 @@
         updateProgress();
     }
 
-    // TTS: Speak a single word
     function speakSingleWord(word) {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
-            
-            // Strip punctuation for synthesis clarity
             const cleanedWord = word.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").trim();
             const utterance = new SpeechSynthesisUtterance(cleanedWord);
-            utterance.lang = 'fr-FR';
-            
-            // Track dynamic usage of single-word helps (Prepended with "Mot: ")
-            globalHintsUsed.add(`Mot: ${cleanedWord}`);
-            
+            utterance.lang = 'fr-FR'; // Keeps French pronunciation voice assistance
+            globalHintsUsed.add(`Word: ${cleanedWord}`);
             window.speechSynthesis.speak(utterance);
         }
     }
 
-    // TTS: Speak whole sentence
     function readSentenceAloud(index) {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
             const rawSentence = sentences[index];
             const utterance = new SpeechSynthesisUtterance(rawSentence);
             utterance.lang = 'fr-FR';
-            
-            globalHintsUsed.add(`Phrase: ${rawSentence}`);
-            
+            globalHintsUsed.add(`Sentence: ${rawSentence}`);
             window.speechSynthesis.speak(utterance);
         }
     }
@@ -290,7 +309,7 @@
             recognition.stop();
             const activeBtn = document.getElementById(`record-${activeRecordingIndex}`);
             if (activeBtn) {
-                activeBtn.innerText = "🎤 Enregistrer";
+                activeBtn.innerText = "🎤 Record";
                 activeBtn.classList.remove('recording');
             }
         }
@@ -303,7 +322,12 @@
 
         recognition.onresult = (event) => {
             const transcript = event.results[0][0].transcript;
-            evaluateSentenceAccuracy(index, transcript);
+            
+            sentenceAttempts[index] += 1;
+            const attemptLabel = sentenceAttempts[index] > 1 ? 'attempts' : 'attempt';
+            document.getElementById(`attempts-${index}`).innerText = `${sentenceAttempts[index]} ${attemptLabel}`;
+            
+            evaluateSentenceAccuracyWithColors(index, transcript);
         };
 
         recognition.onerror = (event) => {
@@ -319,7 +343,7 @@
     function resetMicButton(index) {
         const btn = document.getElementById(`record-${index}`);
         if (btn) {
-            btn.innerText = "🎤 Enregistrer";
+            btn.innerText = "🎤 Record";
             btn.classList.remove('recording');
         }
         if (activeRecordingIndex === index) {
@@ -327,25 +351,49 @@
         }
     }
 
-    function evaluateSentenceAccuracy(index, spokenText) {
-        const targetText = cleanStringForComparison(sentences[index]);
+    function evaluateSentenceAccuracyWithColors(index, spokenText) {
+        const rawSentence = sentences[index];
         const cleanedSpoken = cleanStringForComparison(spokenText);
-
-        const targetWords = targetText.split(/\s+/);
         const spokenWords = cleanedSpoken.split(/\s+/);
 
+        const words = rawSentence.split(/(\s+)/);
+        const textContainer = document.getElementById(`sentence-text-${index}`);
+        textContainer.innerHTML = '';
+
+        let targetWordCount = 0;
         let matchingCount = 0;
-        targetWords.forEach(word => {
-            if (spokenWords.includes(word)) {
-                matchingCount++;
+
+        words.forEach(chunk => {
+            if (chunk.trim().length === 0) {
+                textContainer.appendChild(document.createTextNode(chunk));
+            } else {
+                targetWordCount++;
+                const wordSpan = document.createElement('span');
+                wordSpan.className = 'word-clickable';
+                wordSpan.textContent = chunk;
+
+                const cleanedWord = cleanStringForComparison(chunk);
+                
+                if (spokenWords.includes(cleanedWord)) {
+                    wordSpan.classList.add('word-correct');
+                    matchingCount++;
+                } else {
+                    wordSpan.classList.add('word-incorrect');
+                }
+
+                wordSpan.onclick = (e) => {
+                    e.stopPropagation();
+                    speakSingleWord(chunk);
+                };
+                textContainer.appendChild(wordSpan);
             }
         });
 
-        const score = Math.round((matchingCount / targetWords.length) * 100);
+        const score = Math.round((matchingCount / targetWordCount) * 100);
         sentenceScores[index] = score;
 
         const badge = document.getElementById(`score-badge-${index}`);
-        badge.innerText = `Précision : ${score}%`;
+        badge.innerText = `Accuracy: ${score}%`;
         badge.className = 'score-badge completed';
 
         updateProgress();
@@ -367,7 +415,7 @@
 
         if (validScores.length === 0) {
             globalScoreBox.innerText = "--%";
-            info.innerText = `Complète toutes les phrases pour valider ton travail (0 / ${sentences.length})`;
+            info.innerText = `Record all sentences to complete your work (0 / ${sentences.length})`;
             submitBtn.disabled = true;
             return;
         }
@@ -377,10 +425,10 @@
         globalScoreBox.innerText = `${average}%`;
 
         const completedCount = validScores.length;
-        info.innerText = `Lecture en cours : ${completedCount} sur ${sentences.length} phrases validées.`;
+        info.innerText = `In progress: ${completedCount} out of ${sentences.length} sentences recorded.`;
 
         if (completedCount === sentences.length) {
-            info.innerText = "Félicitations ! Tu as terminé toutes les phrases. Tu peux envoyer ton travail.";
+            info.innerText = "Well done! You have practiced all sentences. You can now submit your work.";
             submitBtn.disabled = false;
         } else {
             submitBtn.disabled = true;
@@ -390,7 +438,7 @@
     document.getElementById('submit-btn').onclick = async () => {
         const validScores = sentenceScores.filter(s => s !== null);
         if (validScores.length < sentences.length) {
-            alert("Termine d'abord de lire toutes les phrases !");
+            alert("Please make sure you have practiced every sentence first!");
             return;
         }
 
@@ -403,17 +451,18 @@
             studentName: studentName,
             score: finalAverage,
             sentenceScores: sentenceScores,
+            sentenceAttempts: sentenceAttempts, 
             hintsUsed: Array.from(globalHintsUsed), 
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         };
 
         try {
             await db.collection("submissions").add(payload);
-            alert("Travail envoyé avec succès !");
+            alert("Your work has been successfully submitted!");
             window.location.reload();
         } catch (error) {
             console.error(error);
-            alert("Erreur lors de l'envoi.");
+            alert("An error occurred while submitting your score.");
         }
     };
 </script>
