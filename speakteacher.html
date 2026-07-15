@@ -42,9 +42,15 @@
         .badge { background: #3498db; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; display: inline-block; }
         .badge.score { background: #2ecc71; font-size: 16px; padding: 6px 12px; }
         
-        .sentence-list { margin: 0; padding-left: 18px; font-size: 12px; color: #555; }
-        .sentence-list li { margin-bottom: 6px; }
-        .hint-text-box { font-size: 11px; background: #fef9e7; border-left: 3px solid #f1c40f; padding: 6px 10px; border-radius: 3px; margin-bottom: 4px; line-height: 1.3; }
+        /* New Compact History UI for Sentences */
+        .sentence-list { margin: 0; padding-left: 0; list-style-type: none; font-size: 13px; color: #2c3e50; }
+        .sentence-list li { margin-bottom: 8px; background: #f8f9fa; padding: 6px 10px; border-radius: 6px; border: 1px solid #e2e8f0; }
+        .sentence-label { color: #7f8c8d; font-size: 12px; margin-right: 5px; }
+        .attempt-count { color: #95a5a6; font-size: 11px; margin-left: 5px; }
+        
+        /* Horizontal Tag UI for Hints */
+        .hint-container { display: flex; flex-wrap: wrap; gap: 6px; }
+        .hint-tag { background: #fef9e7; border: 1px solid #f1c40f; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: 500; color: #d35400; }
         .hint-none { color: #95a5a6; font-style: italic; font-size: 12px; }
     </style>
 </head>
@@ -75,7 +81,7 @@
 
     <div id="submissions-section" class="card hidden">
         <h2>📊 Student Progress & Grades</h2>
-        <p>Review final reading accuracy, microphone recording efforts, and audio help clicked by students.</p>
+        <p>Review final reading accuracy, recording attempt history, and vocabulary hints clicked.</p>
         
         <div class="filter-container">
             <div class="filter-group">
@@ -89,10 +95,10 @@
         <table>
             <thead>
                 <tr>
-                    <th>Student Details</th>
-                    <th>Final Accuracy</th>
-                    <th>Sentence Diagnostics & Attempts</th>
-                    <th>Audio Support Requested (Words / Sentences)</th>
+                    <th style="width: 20%;">Student Details</th>
+                    <th style="width: 10%;">Final Accuracy</th>
+                    <th style="width: 45%;">Sentence Progression & Attempts</th>
+                    <th style="width: 25%;">Word Support Requested</th>
                 </tr>
             </thead>
             <tbody id="submissions-table-body">
@@ -342,31 +348,48 @@
             const studentEmail = sub.studentEmail || "No Email";
             const finalScore = sub.score !== undefined ? sub.score : "--";
 
-            let sentenceDetailsHtml = '<ol class="sentence-list">';
+            // 1. Render Compact Sentence History (Arrays)
+            let sentenceDetailsHtml = '<ul class="sentence-list">';
             if (sub.sentenceScores && Array.isArray(sub.sentenceScores)) {
-                sub.sentenceScores.forEach((score, idx) => {
-                    const attempts = (sub.sentenceAttempts && sub.sentenceAttempts[idx] !== undefined) ? sub.sentenceAttempts[idx] : 1;
-                    const recordingLabel = attempts > 1 ? 'recordings' : 'recording';
-                    sentenceDetailsHtml += `
-                        <li>
-                            Sentence ${idx + 1}: <strong>${score}%</strong> accuracy 
-                            <span style="color:#7f8c8d; font-size:11px;">(${attempts} ${recordingLabel})</span>
-                        </li>`;
+                sub.sentenceScores.forEach((attempts, idx) => {
+                    if (Array.isArray(attempts) && attempts.length > 0) {
+                        // Renders like: 40% ➔ 80% ➔ 100%
+                        const historyStr = attempts.map(s => `${s}%`).join(' ➔ ');
+                        const label = attempts.length > 1 ? 'attempts' : 'attempt';
+                        sentenceDetailsHtml += `
+                            <li>
+                                <span class="sentence-label">Sentence ${idx + 1}:</span> 
+                                <strong>${historyStr}</strong> 
+                                <span class="attempt-count">(${attempts.length} ${label})</span>
+                            </li>`;
+                    } else if (typeof attempts === 'number') {
+                        // Backwards compatibility for older submissions that just have a single number
+                        sentenceDetailsHtml += `<li><span class="sentence-label">Sentence ${idx + 1}:</span> <strong>${attempts}%</strong></li>`;
+                    }
                 });
             } else {
                 sentenceDetailsHtml += '<li>No sentence-by-sentence data recorded.</li>';
             }
-            sentenceDetailsHtml += '</ol>';
+            sentenceDetailsHtml += '</ul>';
 
-            let hintsHtml = '';
+            // 2. Render Horizontal Hint Tags
+            let hintsHtml = '<div class="hint-container">';
+            let validHintsFound = false;
             if (sub.hintsUsed && Array.isArray(sub.hintsUsed) && sub.hintsUsed.length > 0) {
                 sub.hintsUsed.forEach(hint => {
-                    // Prepend translation indicators dynamically for the teacher
-                    let engHint = hint.replace("Mot: ", "Word: ").replace("Phrase: ", "Sentence: ");
-                    hintsHtml += `<div class="hint-text-box">${engHint}</div>`;
+                    // Ignore old sentence hints if any exist in the database for backwards compatibility
+                    if (!hint.includes("Phrase:") && !hint.includes("Sentence:")) {
+                        validHintsFound = true;
+                        // Strip old prefixes if they exist so it's just the clean word
+                        const cleanHint = hint.replace("Mot: ", "").replace("Word: ", "").trim();
+                        hintsHtml += `<span class="hint-tag">${cleanHint}</span>`;
+                    }
                 });
-            } else {
-                hintsHtml = `<span class="hint-none">No voice supports used</span>`;
+            }
+            hintsHtml += '</div>';
+
+            if (!validHintsFound) {
+                hintsHtml = `<span class="hint-none">No word hints used</span>`;
             }
 
             const row = document.createElement('tr');
