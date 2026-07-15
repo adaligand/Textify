@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Lecture en Français</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; text-align: center; background-color: #f7f9fa; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .text-display { font-size: 24px; line-height: 1.6; margin: 30px 0; }
+        .word { display: inline-block; margin-right: 8px; color: #7f8c8d; }
+        .word.correct { color: #27ae60; font-weight: bold; }
+        .word.current { border-bottom: 3px solid #3498db; color: #2c3e50; }
+        button { background-color: #2ecc71; color: white; border: none; padding: 12px 30px; font-size: 18px; border-radius: 25px; cursor: pointer; }
+        button:hover { background-color: #27ae60; }
+        button:disabled { background-color: #bdc3c7; }
+        #score-display { margin-top: 20px; font-size: 20px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h1 id="passage-title">Chargement...</h1>
+    <p>Cliquez sur le bouton vert et lisez la phrase suivante à haute voix :</p>
+    
+    <div id="text-container" class="text-display"></div>
+
+    <button id="start-btn" disabled>Chargement du texte...</button>
+    <div id="score-display"></div>
+</div>
+
+<!-- Firebase App & Firestore (v9 compat) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<script>
+    // FIREBASE CONFIGURATION (Use same config as teacher page)
+    const firebaseConfig = {
+        apiKey: "YOUR_FIREBASE_API_KEY",
+        authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+        projectId: "YOUR_PROJECT_ID",
+        storageBucket: "YOUR_PROJECT_ID.appspot.com",
+        messagingSenderId: "YOUR_SENDER_ID",
+        appId: "YOUR_APP_ID"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // 1. Get the Firestore Passage ID from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const passageId = urlParams.get('passageId');
+
+    let words = [];
+    let currentWordIndex = 0;
+
+    if (!passageId) {
+        document.getElementById('passage-title').innerText = "Erreur";
+        document.getElementById('text-container').innerText = "Aucun identifiant d'exercice fourni.";
+    } else {
+        // Fetch passage from Firebase
+        db.collection("passages").doc(passageId).get().then((doc) => {
+            if (doc.exists) {
+                const data = doc.data();
+                document.getElementById('passage-title').innerText = data.title;
+                setupReading(data.text);
+            } else {
+                document.getElementById('text-container').innerText = "Exercice introuvable.";
+            }
+        }).catch(err => console.error(err));
+    }
+
+    function setupReading(passageText) {
+        // Prepare clean words array (no punctuation)
+        words = passageText.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").split(/\s+/);
+        
+        const textContainer = document.getElementById('text-container');
+        textContainer.innerHTML = '';
+
+        words.forEach((word, index) => {
+            const span = document.createElement('span');
+            span.textContent = word;
+            span.className = 'word';
+            span.id = `word-${index}`;
+            textContainer.appendChild(span);
+        });
+
+        // Enable UI
+        const startBtn = document.getElementById('start-btn');
+        startBtn.disabled = false;
+        startBtn.textContent = "Commencer la lecture";
+        updateWordFocus();
+    }
+
+    function updateWordFocus() {
+        document.querySelectorAll('.word').forEach((span, idx) => {
+            span.classList.remove('current');
+            if (idx === currentWordIndex) span.classList.add('current');
+        });
+    }
+
+    // Web Speech API Integration
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        alert("Reconnaissance vocale non supportée. Utilisez Google Chrome.");
+    } else {
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'fr-FR'; // Sets vocabulary check to French
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        const startBtn = document.getElementById('start-btn');
+        
+        startBtn.onclick = () => {
+            currentWordIndex = 0;
+            document.querySelectorAll('.word').forEach(span => span.className = 'word');
+            updateWordFocus();
+            document.getElementById('score-display').innerText = "";
+            recognition.start();
+            startBtn.disabled = true;
+            startBtn.textContent = "Je vous écoute...";
+        };
+
+        recognition.onresult = (event) => {
+            let transcript = "";
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                transcript += event.results[i][0].transcript;
+            }
+            
+            const spokenWords = transcript.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").trim().split(/\s+/);
+            const latestSpoken = spokenWords[spokenWords.length - 1];
+            const targetWordNormalized = words[currentWordIndex].toLowerCase();
+
+            if (latestSpoken === targetWordNormalized) {
+                document.getElementById(`word-${currentWordIndex}`).classList.add('correct');
+                currentWordIndex++;
+                if (currentWordIndex < words.length) {
+                    updateWordFocus();
+                } else {
+                    recognition.stop();
+                }
+            }
+        };
+
+        recognition.onend = () => {
+            startBtn.disabled = false;
+            startBtn.textContent = "Recommencer";
+            const accuracy = Math.round((currentWordIndex / words.length) * 100);
+            document.getElementById('score-display').innerText = `Précision finale : ${accuracy}%`;
+        };
+    }
+</script>
+</body>
+</html>
