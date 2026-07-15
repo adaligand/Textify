@@ -1067,7 +1067,7 @@
         }
     }
 
-    document.getElementById('assign-btn').onclick = async () => {
+   document.getElementById('assign-btn').onclick = async () => {
         const courseId = document.getElementById('course-select').value;
         const status = document.getElementById('status');
         
@@ -1088,15 +1088,54 @@
             const data = templateDoc.data();
             const currentDomain = window.location.origin + window.location.pathname.replace('teacher.html', 'student.html');
 
+            // 1. Create the coursework as a DRAFT first to get the Google assignment ID safely
             const response = await gapi.client.classroom.courses.courseWork.create({
                 courseId: courseId,
                 resource: {
                     title: `🗣️ Read Aloud Task: ${data.title}`,
                     description: `Please click the URL below to practice your speaking and submit your recording.\n\nInstructions: Record each sentence, then click finalize to submit.`,
                     workType: 'ASSIGNMENT',
-                    state: 'PUBLISHED'
+                    state: 'DRAFT' // Crucial: Start as draft
                 }
             });
+
+            const gClassroomAssignmentId = response.result.id; 
+            const studentUrl = `${currentDomain}?assignmentId=${gClassroomAssignmentId}&courseId=${courseId}`;
+
+            // 2. Attach the URL and publish the post to the student stream in a single API call
+            await gapi.client.classroom.courses.courseWork.patch({
+                courseId: courseId,
+                id: gClassroomAssignmentId,
+                updateMask: "materials,state", // Update both fields at the same time
+                resource: {
+                    materials: [
+                        { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
+                    ],
+                    state: 'PUBLISHED' // Flip to active/published now
+                }
+            });
+
+            // 3. Save to your local Firebase DB
+            await db.collection("assignments").doc(gClassroomAssignmentId).set({
+                id: gClassroomAssignmentId,
+                courseId: courseId,
+                gClassroomAssignmentId: gClassroomAssignmentId,
+                title: data.title,
+                text: data.text,
+                language: data.language || 'fr',
+                yearGroup: data.yearGroup,
+                topic: data.topic,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            status.innerText = "Published successfully! It is now live in your Google Classroom feed.";
+            setTimeout(() => { status.innerText = ""; }, 5000);
+        } catch (e) {
+            status.innerText = "";
+            alert("Failed to publish to classroom: " + e.message);
+            console.error(e);
+        }
+    };
 
             const gClassroomAssignmentId = response.result.id; 
             const studentUrl = `${currentDomain}?assignmentId=${gClassroomAssignmentId}&courseId=${courseId}`;
