@@ -131,6 +131,14 @@
     let audioChunks = [];
     let isRecording = false;
 
+    // LANGUAGE LOCALE MAPPING
+    let currentLanguageCode = "fr";  // Default fallback (fr, de, or es)
+    const languageLocales = {
+        "fr": "fr-FR",
+        "de": "de-DE",
+        "es": "es-ES"
+    };
+
     const urlParams = new URLSearchParams(window.location.search);
     assignmentId = urlParams.get('assignmentId') || urlParams.get('passageId') || ""; 
 
@@ -200,7 +208,14 @@
             document.getElementById('passage-title').innerText = data.title;
             courseId = data.courseId || ""; 
             
-            // Keeps punctuation marks in the loaded sentences!
+            // DYNAMICALLY EXTRACT & LOAD ASSIGNMENT LANGUAGE
+            currentLanguageCode = data.language ? data.language.toLowerCase() : "fr";
+
+            // Initialize Speech Recognition using the saved dynamic locale language
+            if (recognition) {
+                recognition.lang = languageLocales[currentLanguageCode] || "fr-FR";
+            }
+
             sentences = data.text.match(/[^.!?]+[.!?]*/g) || [data.text];
             sentences = sentences.map(s => s.trim()).filter(s => s.length > 0);
 
@@ -212,18 +227,19 @@
         }
     }
 
-    function speakFrenchWord(wordText) {
+    // Dynamic voice pronunciation matching assignment language
+    function speakTargetWord(wordText) {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel(); 
-            // Clean word before reading to avoid speech synth pronouncing punctuation marks
             const cleanWord = wordText.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "");
             const utterance = new SpeechSynthesisUtterance(cleanWord);
-            utterance.lang = 'fr-FR';
+            utterance.lang = languageLocales[currentLanguageCode] || 'fr-FR';
             utterance.rate = 0.85; 
             window.speechSynthesis.speak(utterance);
         }
     }
 
+    // Dynamic hovering translations targeting custom source language
     async function translateWord(word, cleanWord, containerElement) {
         if (containerElement.querySelector('.word-tooltip')) return;
 
@@ -238,8 +254,8 @@
         containerElement.appendChild(tempTooltip);
 
         try {
-            // Uses the clean word without punctuation so Google Translate gives an accurate fallback
-            const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=fr&tl=en&dt=t&q=${encodeURIComponent(cleanWord)}`);
+            // Passes dynamic currentLanguageCode (es, de, or fr) as source parameter 'sl'
+            const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${currentLanguageCode}&tl=en&dt=t&q=${encodeURIComponent(cleanWord)}`);
             const data = await res.json();
             const translatedText = data[0][0][0];
             tempTooltip.innerText = translatedText;
@@ -256,16 +272,15 @@
         const words = currentText.split(/\s+/);
 
         words.forEach(word => {
-            // Background cleanup for pronunciation and translation tracking, leaving the visual word intact
             const cleanWord = word.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "").toLowerCase();
             
             const span = document.createElement('span');
             span.className = 'word';
-            span.innerText = word + ' '; // Visual word still keeps its punctuation!
+            span.innerText = word + ' '; 
             
             span.onclick = (e) => {
                 e.stopPropagation();
-                speakFrenchWord(cleanWord);
+                speakTargetWord(cleanWord);
             };
 
             span.onmouseenter = () => translateWord(word, cleanWord, span);
@@ -319,7 +334,7 @@
 
     if (SpeechRecognition) {
         recognition = new SpeechRecognition();
-        recognition.lang = 'fr-FR';
+        recognition.lang = languageLocales[currentLanguageCode] || "fr-FR";
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
@@ -428,7 +443,6 @@
         }
     };
 
-    // Prevent submission without recording checking
     document.getElementById('next-btn').onclick = () => {
         const currentAttempts = sentenceAttemptScores[currentSentenceIndex].attempts;
         if (currentAttempts.length === 0) {
