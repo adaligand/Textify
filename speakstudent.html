@@ -19,12 +19,10 @@
         /* Sentence-by-sentence Layout */
         .sentence-box { text-align: left; background: #f8f9fa; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 15px 0; display: flex; flex-direction: column; gap: 10px; }
         
-        /* Interactive / Feedback Words */
         .sentence-text { font-size: 18px; line-height: 1.6; color: #2c3e50; font-weight: 500; }
         .word-clickable { display: inline-block; cursor: pointer; padding: 1px 3px; border-radius: 3px; transition: background-color 0.15s, color 0.15s; }
         .word-clickable:hover { background-color: #ffeaa7; color: #d35400; text-decoration: underline; }
         
-        /* Word Accuracy Feedback Colors */
         .word-correct { color: #2ecc71; font-weight: bold; }
         .word-incorrect { color: #e74c3c; text-decoration: line-through; }
 
@@ -67,7 +65,6 @@
     <button id="auth-btn">Sign in with Google</button>
 </div>
 
-<!-- Lockout Screen -->
 <div id="already-submitted-card" class="card hidden">
     <h2>Already Submitted! 🛑</h2>
     <p>You have already submitted this assignment. You can only submit your score once.</p>
@@ -113,8 +110,7 @@
     let passageText = "";
     
     let sentences = [];
-    let sentenceScores = []; 
-    let sentenceAttempts = []; 
+    let sentenceScores = []; // Now stores an array of score attempts per sentence
     let globalHintsUsed = new Set(); 
     
     const urlParams = new URLSearchParams(window.location.search);
@@ -128,7 +124,7 @@
     let recognition = null;
     if (SpeechRecognition) {
         recognition = new SpeechRecognition();
-        recognition.lang = 'fr-FR'; // French speech engine keeps tracking
+        recognition.lang = 'fr-FR'; 
         recognition.continuous = false;
         recognition.interimResults = false;
     } else {
@@ -224,8 +220,8 @@
         sentences = text.match(/[^.!?]+[.!?]*/g) || [text];
         sentences = sentences.map(s => s.trim()).filter(s => s.length > 0);
         
-        sentenceScores = new Array(sentences.length).fill(null);
-        sentenceAttempts = new Array(sentences.length).fill(0);
+        // Initialize an empty array for each sentence to track multiple attempts
+        sentenceScores = Array.from({length: sentences.length}, () => []);
         
         const container = document.getElementById('sentences-container');
         container.innerHTML = '';
@@ -277,8 +273,9 @@
             window.speechSynthesis.cancel();
             const cleanedWord = word.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").trim();
             const utterance = new SpeechSynthesisUtterance(cleanedWord);
-            utterance.lang = 'fr-FR'; // Keeps French pronunciation voice assistance
-            globalHintsUsed.add(`Word: ${cleanedWord}`);
+            utterance.lang = 'fr-FR'; 
+            // We only log individual words now, converting to lowercase for a cleaner teacher view
+            globalHintsUsed.add(cleanedWord.toLowerCase());
             window.speechSynthesis.speak(utterance);
         }
     }
@@ -289,7 +286,7 @@
             const rawSentence = sentences[index];
             const utterance = new SpeechSynthesisUtterance(rawSentence);
             utterance.lang = 'fr-FR';
-            globalHintsUsed.add(`Sentence: ${rawSentence}`);
+            // Listening to the full sentence is free and unrecorded!
             window.speechSynthesis.speak(utterance);
         }
     }
@@ -322,11 +319,6 @@
 
         recognition.onresult = (event) => {
             const transcript = event.results[0][0].transcript;
-            
-            sentenceAttempts[index] += 1;
-            const attemptLabel = sentenceAttempts[index] > 1 ? 'attempts' : 'attempt';
-            document.getElementById(`attempts-${index}`).innerText = `${sentenceAttempts[index]} ${attemptLabel}`;
-            
             evaluateSentenceAccuracyWithColors(index, transcript);
         };
 
@@ -390,11 +382,16 @@
         });
 
         const score = Math.round((matchingCount / targetWordCount) * 100);
-        sentenceScores[index] = score;
+        
+        // Push this attempt's score into the array for this sentence
+        sentenceScores[index].push(score);
 
         const badge = document.getElementById(`score-badge-${index}`);
         badge.innerText = `Accuracy: ${score}%`;
         badge.className = 'score-badge completed';
+        
+        const attemptLabel = sentenceScores[index].length > 1 ? 'attempts' : 'attempt';
+        document.getElementById(`attempts-${index}`).innerText = `${sentenceScores[index].length} ${attemptLabel}`;
 
         updateProgress();
     }
@@ -408,23 +405,24 @@
     }
 
     function updateProgress() {
-        const validScores = sentenceScores.filter(s => s !== null);
+        const validSentences = sentenceScores.filter(attempts => attempts.length > 0);
         const globalScoreBox = document.getElementById('global-score');
         const info = document.getElementById('progress-info');
         const submitBtn = document.getElementById('submit-btn');
 
-        if (validScores.length === 0) {
+        if (validSentences.length === 0) {
             globalScoreBox.innerText = "--%";
             info.innerText = `Record all sentences to complete your work (0 / ${sentences.length})`;
             submitBtn.disabled = true;
             return;
         }
 
-        const sum = validScores.reduce((acc, curr) => acc + curr, 0);
-        const average = Math.round(sum / validScores.length);
+        // Calculate global score based on the LATEST attempt for each valid sentence
+        const sum = validSentences.reduce((acc, attempts) => acc + attempts[attempts.length - 1], 0);
+        const average = Math.round(sum / validSentences.length);
         globalScoreBox.innerText = `${average}%`;
 
-        const completedCount = validScores.length;
+        const completedCount = validSentences.length;
         info.innerText = `In progress: ${completedCount} out of ${sentences.length} sentences recorded.`;
 
         if (completedCount === sentences.length) {
@@ -436,22 +434,21 @@
     }
 
     document.getElementById('submit-btn').onclick = async () => {
-        const validScores = sentenceScores.filter(s => s !== null);
-        if (validScores.length < sentences.length) {
+        const validSentences = sentenceScores.filter(attempts => attempts.length > 0);
+        if (validSentences.length < sentences.length) {
             alert("Please make sure you have practiced every sentence first!");
             return;
         }
 
-        const sum = validScores.reduce((acc, curr) => acc + curr, 0);
-        const finalAverage = Math.round(sum / validScores.length);
+        const sum = validSentences.reduce((acc, attempts) => acc + attempts[attempts.length - 1], 0);
+        const finalAverage = Math.round(sum / validSentences.length);
 
         const payload = {
             passageId: passageId,
             studentEmail: studentEmail,
             studentName: studentName,
             score: finalAverage,
-            sentenceScores: sentenceScores,
-            sentenceAttempts: sentenceAttempts, 
+            sentenceScores: sentenceScores, // Submits the full arrays of every attempt made!
             hintsUsed: Array.from(globalHintsUsed), 
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         };
