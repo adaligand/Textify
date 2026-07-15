@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - Teacher1</title>
+    <title>Read aloud - Teacher2</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -1064,7 +1064,7 @@
         const courseId = document.getElementById('course-select').value;
         const status = document.getElementById('status');
         
-        if (!courseId) {
+        if (!courseId || courseId.startsWith("Loading")) {
             alert("Please choose a Classroom course first!");
             return;
         }
@@ -1081,19 +1081,28 @@
             const data = templateDoc.data();
             const currentDomain = window.location.origin + window.location.pathname.replace('teacher.html', 'student.html');
 
+            // Force the GAPI client to use our active token
+            const activeToken = localStorage.getItem('oauth_token');
+            if (activeToken) {
+                gapi.client.setToken({ access_token: activeToken });
+            }
+
+            // Correct REST payload structure for coursework creation
             const response = await gapi.client.classroom.courses.courseWork.create({
                 courseId: courseId,
                 resource: {
                     title: `🗣️ Read Aloud Task: ${data.title}`,
                     description: `Please click the URL below to practice your speaking and submit your recording.\n\nInstructions: Record each sentence, then click finalize to submit.`,
                     workType: 'ASSIGNMENT',
-                    state: 'DRAFT'
+                    state: 'DRAFT',
+                    maxPoints: 100 // Required to allow grade syncing later
                 }
             });
 
             const gClassroomAssignmentId = response.result.id; 
             const studentUrl = `${currentDomain}?assignmentId=${gClassroomAssignmentId}&courseId=${courseId}`;
 
+            // Add the workspace URL and publish the Draft to the feed
             await gapi.client.classroom.courses.courseWork.patch({
                 courseId: courseId,
                 id: gClassroomAssignmentId,
@@ -1106,6 +1115,7 @@
                 }
             });
 
+            // Save details to Firebase Firestore
             await db.collection("assignments").doc(gClassroomAssignmentId).set({
                 id: gClassroomAssignmentId,
                 courseId: courseId,
@@ -1122,8 +1132,15 @@
             setTimeout(() => { status.innerText = ""; }, 5000);
         } catch (e) {
             status.innerText = "";
-            alert("Failed to publish to classroom: " + e.message);
-            console.error(e);
+            console.error("Full Google API Error:", e);
+            
+            // Extract the actual error payload returned by Google
+            let friendlyError = e.message || "Unknown Connection Error";
+            if (e.result && e.result.error && e.result.error.message) {
+                friendlyError = e.result.error.message;
+            }
+            
+            alert("Failed to publish to classroom: " + friendlyError);
         }
     };
 
