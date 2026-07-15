@@ -97,7 +97,6 @@
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="https://accounts.google.com/gsi/client"></script>
 
 <script>
     const firebaseConfig = {
@@ -114,12 +113,12 @@
     const CLIENT_ID = '162949632188-fifdjjtug2mqu5uc80r2fdrqfacvkkrg.apps.googleusercontent.com';
     const SCOPES = 'https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.profile.emails https://www.googleapis.com/auth/classroom.rosters.readonly';
 
-    let tokenClient;
+    let tokenClient = null;
     let studentEmail = "";
     let studentName = "";
     let assignmentId = "";
     let courseId = ""; 
-    let gClassroomAssignmentId = ""; // Track Google Classroom CourseWork assignment ID
+    let gClassroomAssignmentId = ""; 
     let sentences = [];
     let currentSentenceIndex = 0;
     
@@ -138,23 +137,40 @@
         "es": "es-ES"
     };
 
+    // Grab both IDs safely from the new format URL
     const urlParams = new URLSearchParams(window.location.search);
-    // Extracted directly from Classroom URLs
     assignmentId = urlParams.get('assignmentId') || urlParams.get('passageId') || ""; 
     courseId = urlParams.get('courseId') || "";
 
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: (tokenResponse) => {
-            if (tokenResponse.access_token) {
-                handleLoginSuccess(tokenResponse.access_token);
+    // 1. Safe Initialization function that executes only when the script tag loads
+    function initGoogleClient() {
+        try {
+            if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: CLIENT_ID,
+                    scope: SCOPES,
+                    callback: (tokenResponse) => {
+                        if (tokenResponse.access_token) {
+                            handleLoginSuccess(tokenResponse.access_token);
+                        }
+                    },
+                });
+                console.log("Student Google Client initialized successfully.");
             }
-        },
-    });
+        } catch (e) {
+            console.error("Google Auth Setup Failed:", e);
+        }
+    }
 
     document.getElementById('auth-btn').onclick = () => {
-        tokenClient.requestAccessToken();
+        if (!tokenClient) {
+            initGoogleClient();
+        }
+        if (tokenClient) {
+            tokenClient.requestAccessToken();
+        } else {
+            alert("Google Sign-In is still loading. Please wait a second and try again.");
+        }
     };
 
     function handleLoginSuccess(accessToken) {
@@ -172,7 +188,7 @@
 
     async function checkExistingSubmission() {
         if (!assignmentId) {
-            alert("No Assignment URL detected. Please log in through Google Classroom links.");
+            alert("No Assignment URL detected. Please access this workspace directly through Google Classroom.");
             return;
         }
 
@@ -199,37 +215,40 @@
     }
 
     async function loadAssignmentData() {
-        let doc = await db.collection("assignments").doc(assignmentId).get();
-        if (!doc.exists) {
-            doc = await db.collection("passages").doc(assignmentId).get();
-        }
-
-        if (doc.exists) {
-            const data = doc.data();
-            document.getElementById('passage-title').innerText = data.title;
-            courseId = data.courseId || courseId || ""; 
-            gClassroomAssignmentId = data.gClassroomAssignmentId || "";
-            
-            // DYNAMICALLY EXTRACT & LOAD ASSIGNMENT LANGUAGE
-            currentLanguageCode = data.language ? data.language.toLowerCase() : "fr";
-
-            // Initialize Speech Recognition using the saved dynamic locale language
-            if (recognition) {
-                recognition.lang = languageLocales[currentLanguageCode] || "fr-FR";
+        try {
+            // First search within assignments, fall back to passages if not found
+            let doc = await db.collection("assignments").doc(assignmentId).get();
+            if (!doc.exists) {
+                doc = await db.collection("passages").doc(assignmentId).get();
             }
 
-            sentences = data.text.match(/[^.!?]+[.!?]*/g) || [data.text];
-            sentences = sentences.map(s => s.trim()).filter(s => s.length > 0);
+            if (doc.exists) {
+                const data = doc.data();
+                document.getElementById('passage-title').innerText = data.title;
+                courseId = data.courseId || courseId || ""; 
+                gClassroomAssignmentId = data.gClassroomAssignmentId || "";
+                
+                currentLanguageCode = data.language ? data.language.toLowerCase() : "fr";
 
-            sentenceAttemptScores = sentences.map(() => ({ attempts: [], audio: null }));
-            
-            renderSentence();
-        } else {
-            alert("This exercise has been deleted or cannot be found.");
+                if (recognition) {
+                    recognition.lang = languageLocales[currentLanguageCode] || "fr-FR";
+                }
+
+                sentences = data.text.match(/[^.!?]+[.!?]*/g) || [data.text];
+                sentences = sentences.map(s => s.trim()).filter(s => s.length > 0);
+
+                sentenceAttemptScores = sentences.map(() => ({ attempts: [], audio: null }));
+                
+                renderSentence();
+            } else {
+                alert("This exercise has been deleted or cannot be found.");
+            }
+        } catch (err) {
+            console.error("Error loading task data: ", err);
+            alert("Failed to load assignment data.");
         }
     }
 
-    // Dynamic voice pronunciation matching assignment language
     function speakTargetWord(wordText) {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel(); 
@@ -241,7 +260,6 @@
         }
     }
 
-    // Dynamic hovering translations targeting custom source language
     async function translateWord(word, cleanWord, containerElement) {
         if (containerElement.querySelector('.word-tooltip')) return;
 
@@ -256,7 +274,6 @@
         containerElement.appendChild(tempTooltip);
 
         try {
-            // Passes dynamic currentLanguageCode as source parameter 'sl'
             const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${currentLanguageCode}&tl=en&dt=t&q=${encodeURIComponent(cleanWord)}`);
             const data = await res.json();
             const translatedText = data[0][0][0];
@@ -320,7 +337,7 @@
         const feedbackMsg = document.getElementById('feedback-msg');
         const historyMsg = document.getElementById('attempts-history-msg');
 
-        if (tracking.attempts.length > 0) {
+        if (tracking && tracking.attempts.length > 0) {
             const lastScore = tracking.attempts[tracking.attempts.length - 1];
             feedbackMsg.innerHTML = `<span class="success-text">Last recorded accuracy: ${lastScore}%</span>`;
             historyMsg.innerText = `Attempt history: ` + tracking.attempts.map(s => `${s}%`).join(' ➔ ');
@@ -457,7 +474,6 @@
         }
     };
 
-    // UNIFIED SUBMISSION HANDLER
     document.getElementById('submit-btn').onclick = async () => {
         const unattempted = sentenceAttemptScores.findIndex(item => item.attempts.length === 0);
         if (unattempted !== -1) {
@@ -470,12 +486,11 @@
         const finalAccuracyArray = sentenceAttemptScores.map(item => item.attempts[item.attempts.length - 1]);
         const overallAverage = Math.round(finalAccuracyArray.reduce((a, b) => a + b, 0) / sentences.length);
 
-        // Capture crucial Google Classroom details alongside student attempt details
         const payload = {
             assignmentId: assignmentId,
             passageId: assignmentId, 
             courseId: courseId,
-            gClassroomAssignmentId: gClassroomAssignmentId, // Sync link to Google Classroom coursework
+            gClassroomAssignmentId: gClassroomAssignmentId, 
             studentName: studentName,
             studentEmail: studentEmail,
             score: overallAverage,
@@ -494,5 +509,8 @@
         }
     };
 </script>
+
+<!-- Notice: onload will fire AFTER the library parses, perfectly preventing the crash! -->
+<script src="https://accounts.google.com/gsi/client" onload="initGoogleClient()"></script>
 </body>
 </html>
