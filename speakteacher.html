@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - Teacher1</title>
+    <title>Read aloud - Teacher</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -1095,7 +1095,7 @@
         }
     }
 
-    document.getElementById('assign-btn').onclick = async () => {
+document.getElementById('assign-btn').onclick = async () => {
         const courseId = document.getElementById('course-select').value;
         const status = document.getElementById('status');
         
@@ -1116,7 +1116,6 @@
             const data = templateDoc.data();
             
             // DYNAMIC LINK REPLACEMENT:
-            // Safely transforms whatever filename pattern is present (e.g. speakteacher.html -> speakstudent.html)
             const currentDomain = window.location.origin + window.location.pathname.toLowerCase().replace('teacher', 'student');
 
             // Force the GAPI client to use our active token
@@ -1125,36 +1124,41 @@
                 gapi.client.setToken({ access_token: activeToken });
             }
 
-            // Correct REST payload structure for coursework creation
+            // Generate a temporary ID so we can establish the URL ahead of GAPI creation
+            // (Using standard Firebase Firestore ID auto-generation trick)
+            const tempAssignmentDocRef = db.collection("assignments").doc();
+            const gClassroomAssignmentId = tempAssignmentDocRef.id; 
+
+            const studentUrl = `${currentDomain}?assignmentId=${gClassroomAssignmentId}&courseId=${courseId}`;
+
+            // STEP 1: Create the Coursework as a DRAFT, attaching the materials on initial creation
             const response = await gapi.client.classroom.courses.courseWork.create({
                 courseId: courseId,
                 resource: {
+                    id: gClassroomAssignmentId, // Direct assignment of the document ID
                     title: `🗣️ Read Aloud Task: ${data.title}`,
                     description: `Please click the URL below to practice your speaking and submit your recording.\n\nInstructions: Record each sentence, then click finalize to submit.`,
                     workType: 'ASSIGNMENT',
                     state: 'DRAFT',
-                    maxPoints: 100 // Required to allow grade syncing later
+                    maxPoints: 100,
+                    materials: [
+                        { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
+                    ]
                 }
             });
 
-            const gClassroomAssignmentId = response.result.id; 
-            const studentUrl = `${currentDomain}?assignmentId=${gClassroomAssignmentId}&courseId=${courseId}`;
-
-            // Add the workspace URL and publish the Draft to the feed
+            // STEP 2: Now patch ONLY the 'state' to PUBLISHED (a highly supported updateMask field)
             await gapi.client.classroom.courses.courseWork.patch({
                 courseId: courseId,
                 id: gClassroomAssignmentId,
-                updateMask: "materials,state",
+                updateMask: "state", // Only updating the state now!
                 resource: {
-                    materials: [
-                        { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
-                    ],
                     state: 'PUBLISHED'
                 }
             });
 
-            // Save details to Firebase Firestore
-            await db.collection("assignments").doc(gClassroomAssignmentId).set({
+            // STEP 3: Save details to Firebase Firestore
+            await tempAssignmentDocRef.set({
                 id: gClassroomAssignmentId,
                 courseId: courseId,
                 gClassroomAssignmentId: gClassroomAssignmentId,
@@ -1172,7 +1176,6 @@
             status.innerText = "";
             console.error("Full Google API Error:", e);
             
-            // Extract the actual error payload returned by Google
             let friendlyError = e.message || "Unknown Connection Error";
             if (e.result && e.result.error && e.result.error.message) {
                 friendlyError = e.result.error.message;
