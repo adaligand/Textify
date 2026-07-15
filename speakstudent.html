@@ -12,9 +12,14 @@
         .btn-google { background: #4285f4; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 15px; }
         .btn-google:hover { background: #357ae8; }
 
-        .sentence-box { font-size: 24px; line-height: 1.6; margin: 30px 0; min-height: 80px; padding: 20px; background: #fdfefe; border-radius: 8px; border: 2px dashed #bdc3c7; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
-        .word { cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: 0.2s; position: relative; display: inline-block; }
+        .sentence-box { font-size: 24px; line-height: 1.6; margin: 30px 0; min-height: 80px; padding: 20px; background: #fdfefe; border-radius: 8px; border: 2px dashed #bdc3c7; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+        
+        /* Word styling with pronunciation states */
+        .word { cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: 0.2s; position: relative; display: inline-block; border-bottom: 2px solid transparent; }
         .word:hover { background-color: #ffeaa7; }
+        
+        .word.correct { color: #2ecc71; border-bottom-color: #2ecc71; font-weight: bold; }
+        .word.incorrect { color: #e74c3c; border-bottom-color: #e74c3c; font-weight: bold; }
         
         .nav-buttons { display: flex; justify-content: space-between; gap: 15px; margin-top: 25px; }
         .btn { flex: 1; padding: 15px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
@@ -68,7 +73,7 @@
     </div>
 
     <h2 id="passage-title" style="margin-top: 0;">Reading Practice</h2>
-    <p style="color: #7f8c8d; font-size: 14px;">Stuck on a word? Hover over or tap it to reveal translation support!</p>
+    <p style="color: #7f8c8d; font-size: 14px;">🔊 Tap/Click a word to hear it pronounced. Hover to translate.</p>
 
     <div id="sentence-container" class="sentence-box"></div>
 
@@ -110,11 +115,9 @@
     let sentences = [];
     let currentSentenceIndex = 0;
     
-    // Attempt tracking
-    let sentenceAttemptScores = []; // Array of objects: { attempts: [], audio: base64Str }
+    let sentenceAttemptScores = []; 
     let hintsUsed = [];
 
-    // Audio recording variables
     let mediaRecorder = null;
     let audioChunks = [];
     let isRecording = false;
@@ -160,10 +163,7 @@
             const data = doc.data();
             document.getElementById('passage-title').innerText = data.title;
             
-            // Clean/split paragraph text into raw clean sentences
             sentences = data.text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0);
-            
-            // Initialize structures
             sentenceAttemptScores = sentences.map(() => ({ attempts: [], audio: null }));
             
             renderSentence();
@@ -172,11 +172,21 @@
         }
     }
 
-    // Dynamic Translation Helper
+    // Text to Speech logic
+    function speakFrenchWord(wordText) {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel(); // Stop any currently speaking word
+            const cleanWord = wordText.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "");
+            const utterance = new SpeechSynthesisUtterance(cleanWord);
+            utterance.lang = 'fr-FR';
+            utterance.rate = 0.85; // Slightly slower for better learning pronunciation
+            window.speechSynthesis.speak(utterance);
+        }
+    }
+
     async function translateWord(word, cleanWord, containerElement) {
         if (containerElement.querySelector('.word-tooltip')) return;
 
-        // Track standard user metric
         const trackingKey = `Word: ${cleanWord}`;
         if (!hintsUsed.includes(trackingKey)) {
             hintsUsed.push(trackingKey);
@@ -197,7 +207,7 @@
         }
     }
 
-    function renderSentence() {
+    function renderSentence(lastSpokenWords = null) {
         const container = document.getElementById('sentence-container');
         container.innerHTML = '';
 
@@ -210,13 +220,28 @@
             span.className = 'word';
             span.innerText = word + ' ';
             
+            // Text to speech when clicked
+            span.onclick = (e) => {
+                e.stopPropagation();
+                speakFrenchWord(cleanWord);
+            };
+
+            // Translation support on hover
             span.onmouseenter = () => translateWord(word, cleanWord, span);
             span.ontouchstart = () => translateWord(word, cleanWord, span);
+
+            // Apply color classes if we just analyzed an audio recording
+            if (lastSpokenWords) {
+                if (lastSpokenWords.includes(cleanWord)) {
+                    span.classList.add('correct');
+                } else {
+                    span.classList.add('incorrect');
+                }
+            }
 
             container.appendChild(span);
         });
 
-        // Update Nav UI Indicators
         document.getElementById('step-indicator').innerText = `Sentence ${currentSentenceIndex + 1} of ${sentences.length}`;
         const pct = ((currentSentenceIndex + 1) / sentences.length) * 100;
         document.getElementById('progress-fill').style.width = `${pct}%`;
@@ -224,10 +249,8 @@
         document.getElementById('prev-btn').disabled = (currentSentenceIndex === 0);
         document.getElementById('next-btn').disabled = (currentSentenceIndex === sentences.length - 1);
 
-        // Display results history for current sentence
         updateAttemptsHistoryMessage();
 
-        // Show submit button on last screen
         if (currentSentenceIndex === sentences.length - 1) {
             document.getElementById('submit-btn').classList.remove('hidden');
         } else {
@@ -240,8 +263,6 @@
         const feedbackMsg = document.getElementById('feedback-msg');
         const historyMsg = document.getElementById('attempts-history-msg');
 
-        feedbackMsg.innerHTML = ""; // Clear current live feedback on navigation
-
         if (tracking.attempts.length > 0) {
             const lastScore = tracking.attempts[tracking.attempts.length - 1];
             feedbackMsg.innerHTML = `<span class="success-text">Last recorded accuracy: ${lastScore}%</span>`;
@@ -252,7 +273,6 @@
         }
     }
 
-    // Capture audio and process Speech Recognition API simultaneously
     const recordBtn = document.getElementById('record-btn');
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition;
@@ -284,7 +304,6 @@
 
     recordBtn.onclick = async () => {
         if (!isRecording) {
-            // Start recording
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
@@ -297,11 +316,8 @@
                 };
 
                 mediaRecorder.onstop = async () => {
-                    // Convert audio chunks into a single Blob, then to Base64
                     const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                     const base64Audio = await convertBlobToBase64(audioBlob);
-                    
-                    // Save the audio string to the current sentence's progress record
                     sentenceAttemptScores[currentSentenceIndex].audio = base64Audio;
                 };
 
@@ -344,7 +360,7 @@
 
     function calculateAccuracy(spokenText) {
         const targetText = sentences[currentSentenceIndex].toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "");
-        const inputWords = spokenText.toLowerCase().split(/\s+/);
+        const inputWords = spokenText.toLowerCase().split(/\s+/).map(w => w.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, ""));
         const targetWords = targetText.split(/\s+/);
 
         let matches = 0;
@@ -356,10 +372,11 @@
 
         const score = Math.round((matches / targetWords.length) * 100);
         
-        // Track the attempts inside this specific sentence index
         sentenceAttemptScores[currentSentenceIndex].attempts.push(score);
 
-        // UI Feedback updates
+        // Render the sentence with word highlighting!
+        renderSentence(inputWords);
+
         const feedbackMsg = document.getElementById('feedback-msg');
         feedbackMsg.innerHTML = `<span class="success-text">Spoken text analyzed! Accuracy: ${score}%</span>`;
         
@@ -381,7 +398,6 @@
     };
 
     document.getElementById('submit-btn').onclick = async () => {
-        // Validation: Verify student attempted all sentences
         const unattempted = sentenceAttemptScores.findIndex(item => item.attempts.length === 0);
         if (unattempted !== -1) {
             alert(`Please attempt recording all sentences before submitting. You skipped Sentence ${unattempted + 1}.`);
@@ -390,7 +406,6 @@
             return;
         }
 
-        // Calculate average accuracy of final attempt for each sentence
         const finalAccuracyArray = sentenceAttemptScores.map(item => item.attempts[item.attempts.length - 1]);
         const overallAverage = Math.round(finalAccuracyArray.reduce((a, b) => a + b, 0) / sentences.length);
 
@@ -399,7 +414,7 @@
             studentName: studentName,
             studentEmail: studentEmail,
             score: overallAverage,
-            sentenceScores: sentenceAttemptScores, // Submits full tracking metadata { attempts: [x,y], audio: base64 }
+            sentenceScores: sentenceAttemptScores, 
             hintsUsed: hintsUsed,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         };
