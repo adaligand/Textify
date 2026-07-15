@@ -223,10 +223,10 @@
         
         <div id="meta-fields">
            <select id="language-input" required>
-    <option value="fr">French [FR]</option>
-    <option value="de">German [DE]</option>
-    <option value="es">Spanish [ES]</option>
-</select>
+                <option value="fr">French [FR]</option>
+                <option value="de">German [DE]</option>
+                <option value="es">Spanish [ES]</option>
+            </select>
             <input type="text" id="year-input" placeholder="Year Group (e.g. Year 10)" required>
             <input type="text" id="topic-input" placeholder="Topic (e.g. Holiday)" required>
         </div>
@@ -252,7 +252,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://apis.google.com/js/api.js"></script>
-<script src="https://accounts.google.com/gsi/client"></script>
+<script src="https://accounts.google.com/gsi/client" onload="gisInit()"></script>
 
 <script>
     const firebaseConfig = {
@@ -287,16 +287,19 @@
     }
     gapi.load('client', gapiStart);
 
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: (tokenResponse) => {
-            if (tokenResponse.access_token) {
-                saveTokenToLocalStorage(tokenResponse.access_token, tokenResponse.expires_in);
-                handleLoginSuccess(tokenResponse.access_token);
-            }
-        },
-    });
+    // Initialized safely once the Identity library fully loads
+    function gisInit() {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: CLIENT_ID,
+            scope: SCOPES,
+            callback: (tokenResponse) => {
+                if (tokenResponse.access_token) {
+                    saveTokenToLocalStorage(tokenResponse.access_token, tokenResponse.expires_in);
+                    handleLoginSuccess(tokenResponse.access_token);
+                }
+            },
+        });
+    }
 
     function saveTokenToLocalStorage(token, expiresInSeconds) {
         const expiryTime = Date.now() + (7 * 24 * 60 * 60 * 1000);
@@ -386,7 +389,11 @@
     };
 
     document.getElementById('auth-btn').onclick = () => {
-        tokenClient.requestAccessToken();
+        if (tokenClient) {
+            tokenClient.requestAccessToken();
+        } else {
+            alert("Google login client still loading. Please wait a moment and try again.");
+        }
     };
 
    function getLanguageName(code) {
@@ -544,11 +551,6 @@
         });
     }
 
-    /**
-     * Option B - Unified Task Level Sync
-     * Pulls the list of ALL students registered in this Classroom Course,
-     * updates scores for those who submitted, and flags unsubmitted users as "Missing" (0%).
-     */
     async function triggerClassroomTaskSync() {
         const selectedCourseId = filterCourse.value;
         const selectedAssignmentId = filterTask.value;
@@ -564,15 +566,12 @@
         syncBtn.innerText = "⏳ Syncing Course...";
 
         try {
-            // 1. Get all Google Classroom submissions/roster items for this assignment
             const classSubmissionsResponse = await gapi.client.classroom.courses.courseWork.studentSubmissions.list({
                 courseId: selectedCourseId,
                 courseWorkId: selectedAssignmentId
             });
 
             const classroomSubmissions = classSubmissionsResponse.result.studentSubmissions || [];
-            
-            // 2. Fetch our local Firebase submissions recorded for this assignment
             const localSubsForTask = allSubmissions.filter(sub => 
                 sub.assignmentId === selectedAssignmentId && sub.courseId === selectedCourseId
             );
@@ -580,10 +579,8 @@
             let syncSuccessCount = 0;
             let missingFlagCount = 0;
 
-            // 3. Match each student submission roster spot
             for (let classroomSub of classroomSubmissions) {
                 try {
-                    // Resolve student profile email address
                     const profileRes = await gapi.client.classroom.courses.students.get({
                         courseId: selectedCourseId,
                         userId: classroomSub.userId
@@ -596,18 +593,15 @@
                     let assignedGradeValue = null;
 
                     if (matchedLocalSub) {
-                        // Student completed the activity
                         draftGradeValue = matchedLocalSub.score;
                         assignedGradeValue = matchedLocalSub.score;
                         syncSuccessCount++;
                     } else {
-                        // Mark as missing in Classroom Gradebook (set to 0)
                         draftGradeValue = 0;
                         assignedGradeValue = 0;
                         missingFlagCount++;
                     }
 
-                    // Push grade back to Google Classroom API
                     await gapi.client.classroom.courses.courseWork.studentSubmissions.patch({
                         courseId: selectedCourseId,
                         courseWorkId: selectedAssignmentId,
@@ -782,7 +776,6 @@
                         `;
                     }
                     
-                    // COMPACT SINGLE-LINE HORIZONTAL LAYOUT (Sentences placed next to metadata to reduce vertical height)
                     sentenceDetailsHtml += `
                         <li>
                             <div class="sentence-left-meta">
@@ -1067,7 +1060,7 @@
         }
     }
 
-   document.getElementById('assign-btn').onclick = async () => {
+    document.getElementById('assign-btn').onclick = async () => {
         const courseId = document.getElementById('course-select').value;
         const status = document.getElementById('status');
         
@@ -1088,66 +1081,28 @@
             const data = templateDoc.data();
             const currentDomain = window.location.origin + window.location.pathname.replace('teacher.html', 'student.html');
 
-            // 1. Create the coursework as a DRAFT first to get the Google assignment ID safely
             const response = await gapi.client.classroom.courses.courseWork.create({
                 courseId: courseId,
                 resource: {
                     title: `🗣️ Read Aloud Task: ${data.title}`,
                     description: `Please click the URL below to practice your speaking and submit your recording.\n\nInstructions: Record each sentence, then click finalize to submit.`,
                     workType: 'ASSIGNMENT',
-                    state: 'DRAFT' // Crucial: Start as draft
+                    state: 'DRAFT'
                 }
             });
 
             const gClassroomAssignmentId = response.result.id; 
             const studentUrl = `${currentDomain}?assignmentId=${gClassroomAssignmentId}&courseId=${courseId}`;
 
-            // 2. Attach the URL and publish the post to the student stream in a single API call
             await gapi.client.classroom.courses.courseWork.patch({
                 courseId: courseId,
                 id: gClassroomAssignmentId,
-                updateMask: "materials,state", // Update both fields at the same time
+                updateMask: "materials,state",
                 resource: {
                     materials: [
                         { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
                     ],
-                    state: 'PUBLISHED' // Flip to active/published now
-                }
-            });
-
-            // 3. Save to your local Firebase DB
-            await db.collection("assignments").doc(gClassroomAssignmentId).set({
-                id: gClassroomAssignmentId,
-                courseId: courseId,
-                gClassroomAssignmentId: gClassroomAssignmentId,
-                title: data.title,
-                text: data.text,
-                language: data.language || 'fr',
-                yearGroup: data.yearGroup,
-                topic: data.topic,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            status.innerText = "Published successfully! It is now live in your Google Classroom feed.";
-            setTimeout(() => { status.innerText = ""; }, 5000);
-        } catch (e) {
-            status.innerText = "";
-            alert("Failed to publish to classroom: " + e.message);
-            console.error(e);
-        }
-    };
-
-            const gClassroomAssignmentId = response.result.id; 
-            const studentUrl = `${currentDomain}?assignmentId=${gClassroomAssignmentId}&courseId=${courseId}`;
-
-            await gapi.client.classroom.courses.courseWork.patch({
-                courseId: courseId,
-                id: gClassroomAssignmentId,
-                updateMask: "materials",
-                resource: {
-                    materials: [
-                        { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
-                    ]
+                    state: 'PUBLISHED'
                 }
             });
 
