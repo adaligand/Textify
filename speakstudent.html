@@ -8,7 +8,7 @@
         .container { max-width: 800px; width: 100%; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; margin-top: 20px; }
         h1 { color: #1abc9c; margin-bottom: 20px; }
         
-        #auth-card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; max-width: 450px; width: 100%; margin-top: 50px; }
+        #auth-card, .status-card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; max-width: 450px; width: 100%; margin-top: 50px; }
         .btn-google { background: #4285f4; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 15px; }
         .btn-google:hover { background: #357ae8; }
 
@@ -60,6 +60,16 @@
     <h1>Speakaton</h1>
     <p>Please log in using your student school account to begin this assignment.</p>
     <button id="auth-btn" class="btn-google">Sign In with Google</button>
+</div>
+
+<!-- Already Completed View -->
+<div id="completed-card" class="status-card hidden">
+    <h1 style="color: #2ecc71;">✓ Assignment Completed</h1>
+    <p>You have already submitted this assignment!</p>
+    <div style="font-size: 24px; margin: 20px 0; font-weight: bold; color: #2c3e50;">
+        Your Score: <span id="completed-score" style="color: #2ecc71;">--%</span>
+    </div>
+    <p style="color: #7f8c8d; font-size: 14px;">If you need to make changes, please speak directly with your teacher.</p>
 </div>
 
 <div id="app-container" class="container hidden">
@@ -142,22 +152,49 @@
     function handleLoginSuccess(accessToken) {
         fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
             .then(res => res.json())
-            .then(data => {
-                studentEmail = data.email;
+            .then(async (data) => {
+                studentEmail = data.email.toLowerCase();
                 studentName = data.name || data.email.split('@')[0];
                 document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
                 document.getElementById('auth-card').classList.add('hidden');
-                document.getElementById('app-container').classList.remove('hidden');
-                loadPassage();
+
+                // Check for prior submissions matching this assignment and student
+                checkExistingSubmission();
             });
     }
 
-    async function loadPassage() {
+    async function checkExistingSubmission() {
         if (!passageId) {
             alert("No Reading Assignment URL detected. Please log in through Google Classroom links.");
             return;
         }
 
+        try {
+            const querySnapshot = await db.collection("submissions")
+                .where("passageId", "==", passageId)
+                .where("studentEmail", "==", studentEmail)
+                .get();
+
+            if (!querySnapshot.empty) {
+                // Prior submission exists! Lock down screen
+                const submissionData = querySnapshot.docs[0].data();
+                document.getElementById('completed-score').innerText = `${submissionData.score || 0}%`;
+                document.getElementById('completed-card').classList.remove('hidden');
+                document.getElementById('app-container').classList.add('hidden');
+            } else {
+                // Fresh run, proceed to load the passage
+                document.getElementById('app-container').classList.remove('hidden');
+                loadPassage();
+            }
+        } catch (error) {
+            console.error("Error checking submission history:", error);
+            // Default to loading passage if query fails
+            document.getElementById('app-container').classList.remove('hidden');
+            loadPassage();
+        }
+    }
+
+    async function loadPassage() {
         const doc = await db.collection("passages").doc(passageId).get();
         if (doc.exists) {
             const data = doc.data();
@@ -175,11 +212,11 @@
     // Text to Speech logic
     function speakFrenchWord(wordText) {
         if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel(); // Stop any currently speaking word
+            window.speechSynthesis.cancel(); 
             const cleanWord = wordText.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "");
             const utterance = new SpeechSynthesisUtterance(cleanWord);
             utterance.lang = 'fr-FR';
-            utterance.rate = 0.85; // Slightly slower for better learning pronunciation
+            utterance.rate = 0.85; 
             window.speechSynthesis.speak(utterance);
         }
     }
@@ -220,17 +257,14 @@
             span.className = 'word';
             span.innerText = word + ' ';
             
-            // Text to speech when clicked
             span.onclick = (e) => {
                 e.stopPropagation();
                 speakFrenchWord(cleanWord);
             };
 
-            // Translation support on hover
             span.onmouseenter = () => translateWord(word, cleanWord, span);
             span.ontouchstart = () => translateWord(word, cleanWord, span);
 
-            // Apply color classes if we just analyzed an audio recording
             if (lastSpokenWords) {
                 if (lastSpokenWords.includes(cleanWord)) {
                     span.classList.add('correct');
@@ -374,7 +408,6 @@
         
         sentenceAttemptScores[currentSentenceIndex].attempts.push(score);
 
-        // Render the sentence with word highlighting!
         renderSentence(inputWords);
 
         const feedbackMsg = document.getElementById('feedback-msg');
@@ -422,7 +455,9 @@
         try {
             await db.collection("submissions").add(payload);
             alert("Excellent work! Your audio assignments have been saved and successfully submitted to your teacher.");
-            window.close();
+            
+            // Redirect immediately to show the success locked page state
+            checkExistingSubmission();
         } catch (error) {
             console.error("Submission error: ", error);
             alert("Something went wrong saving your work. Please try again.");
