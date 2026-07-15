@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - Teacher</title>
+    <title>Read aloud - Teacher1</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -279,14 +279,7 @@
 
     const syncedSubmissionIds = new Set();
 
-    function gapiStart() {
-        gapi.client.init({}).then(() => {
-            gapi.client.load('classroom', 'v1');
-        });
-    }
-    gapi.load('client', gapiStart);
-
-    // Initialized safely once the Identity library fully loads
+    // 1. Safe Google Identity Services (GIS) Initialization
     function gisInit() {
         try {
             if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
@@ -294,6 +287,10 @@
                     client_id: CLIENT_ID,
                     scope: SCOPES,
                     callback: (tokenResponse) => {
+                        if (tokenResponse.error) {
+                            alert("Google Auth Error: " + tokenResponse.error);
+                            return;
+                        }
                         if (tokenResponse.access_token) {
                             saveTokenToLocalStorage(tokenResponse.access_token, tokenResponse.expires_in);
                             handleLoginSuccess(tokenResponse.access_token);
@@ -301,10 +298,24 @@
                     },
                 });
                 console.log("Google Identity Client initialized successfully.");
+            } else {
+                console.warn("Google libraries are not fully loaded yet.");
             }
         } catch (e) {
             console.error("Error initializing GIS client:", e);
+            alert("Failed to initialize Google Sign-In: " + e.message);
         }
+    }
+
+    // 2. Safe Google API Client (GAPI) Initialization
+    function gapiStart() {
+        gapi.client.init({}).then(() => {
+            gapi.client.load('classroom', 'v1').then(() => {
+                console.log("GAPI Classroom library loaded.");
+            });
+        }).catch(err => {
+            console.error("GAPI init error:", err);
+        });
     }
 
     function saveTokenToLocalStorage(token, expiresInSeconds) {
@@ -314,19 +325,47 @@
     }
 
     window.onload = () => {
-        const savedToken = localStorage.getItem('oauth_token');
-        const tokenExpiry = localStorage.getItem('oauth_token_expiry');
+        // Load GAPI and try to restore session
+        gapi.load('client', () => {
+            gapiStart();
+            
+            const savedToken = localStorage.getItem('oauth_token');
+            const tokenExpiry = localStorage.getItem('oauth_token_expiry');
 
-        if (savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry)) {
-            gapi.load('client', () => {
+            if (savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry)) {
                 gapi.client.init({}).then(() => {
-                    gapi.client.load('classroom', 'v1');
-                    gapi.client.setToken({ access_token: savedToken });
-                    handleLoginSuccess(savedToken);
+                    gapi.client.load('classroom', 'v1').then(() => {
+                        gapi.client.setToken({ access_token: savedToken });
+                        handleLoginSuccess(savedToken);
+                    });
                 });
-            });
-        }
+            }
+        });
 
+        // Setup manual login click handler with active error feedback
+        document.getElementById('auth-btn').onclick = () => {
+            if (typeof google === 'undefined') {
+                alert("The Google Sign-In service failed to load. Please check your internet connection or disable ad-blockers/privacy shields (like Brave Shields) and refresh.");
+                return;
+            }
+
+            if (!tokenClient) {
+                gisInit();
+            }
+
+            if (tokenClient) {
+                try {
+                    // Triggers the Google Sign-In popup
+                    tokenClient.requestAccessToken({ prompt: 'consent' });
+                } catch (err) {
+                    alert("Popup blocked or failed to open: " + err.message + "\n\nPlease ensure pop-ups are allowed for this site.");
+                }
+            } else {
+                alert("Failed to build Google Sign-In client. Please refresh and try again.");
+            }
+        };
+
+        // UI Button Assignments
         document.getElementById('view-submissions-btn').onclick = () => {
             showSection('submissions-section');
         };
@@ -341,8 +380,6 @@
             showSection('submissions-section');
         };
         document.getElementById('save-btn').onclick = saveEditorChanges;
-        
-        // Connect Task-Level Sync Button
         document.getElementById('sync-all-classroom-grades-btn').onclick = triggerClassroomTaskSync;
     };
 
@@ -394,28 +431,14 @@
         forceLogout();
     };
 
-    document.getElementById('auth-btn').onclick = () => {
-        if (tokenClient) {
-            tokenClient.requestAccessToken();
-        } else {
-            // Re-attempting manual initialization if Google script took too long
-            gisInit();
-            if (tokenClient) {
-                tokenClient.requestAccessToken();
-            } else {
-                alert("Google login client is still loading. Please wait a moment and try again.");
-            }
+    function getLanguageName(code) {
+        switch(code) {
+            case 'fr': return 'French [FR]';
+            case 'de': return 'German [DE]';
+            case 'es': return 'Spanish [ES]';
+            default: return 'French [FR]';
         }
-    };
-
-   function getLanguageName(code) {
-    switch(code) {
-        case 'fr': return 'French [FR]';
-        case 'de': return 'German [DE]';
-        case 'es': return 'Spanish [ES]';
-        default: return 'French [FR]';
     }
-}
 
     function loadTemplateBank() {
         db.collection("passages").orderBy("yearGroup").onSnapshot((snapshot) => {
@@ -1207,7 +1230,7 @@
     };
 </script>
 
-<!-- The Google Script is placed at the absolute end, loading dynamically and referencing gisInit safely -->
-<script src="https://accounts.google.com/gsi/client" onload="gisInit()" async defer></script>
+<!-- Cleaned up Google Client Loading (Loads GIS dynamically first, then calls gisInit instantly once parsed) -->
+<script src="https://accounts.google.com/gsi/client" onload="gisInit()"></script>
 </body>
 </html>
