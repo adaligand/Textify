@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Enseignant - Créer et Assigner</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background-color: #fafafa; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        textarea, input, select { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background: #3498db; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; }
+        button:hover { background: #2980b9; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>1. Connexion Google</h2>
+    <button id="auth-btn">Se connecter avec Google</button>
+</div>
+
+<div id="setup-section" class="card hidden">
+    <h2>2. Créer un texte de lecture</h2>
+    <input type="text" id="title-input" placeholder="Titre de l'exercice (ex: Le Petit Chat)" required>
+    <textarea id="text-input" rows="4" placeholder="Tapez le texte en français ici..." required></textarea>
+    <button id="save-btn">Enregistrer le texte</button>
+</div>
+
+<div id="assign-section" class="card hidden">
+    <h2>3. Assigner sur Google Classroom</h2>
+    <p>Sélectionnez un cours :</p>
+    <select id="course-select">
+        <option>Chargement des cours...</option>
+    </select>
+    <button id="assign-btn">Publier l'exercice sur Classroom</button>
+    <p id="status" style="color: green; font-weight: bold;"></p>
+</div>
+
+<!-- Firebase App & Firestore (v9 compat) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<!-- Google API client for Classroom API -->
+<script src="https://apis.google.com/js/api.js"></script>
+<script src="https://accounts.google.com/gsi/client"></script>
+
+<script>
+    // 1. YOUR FIREBASE CONFIGURATION
+    const firebaseConfig = {
+        apiKey: "YOUR_FIREBASE_API_KEY",
+        authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+        projectId: "YOUR_PROJECT_ID",
+        storageBucket: "YOUR_PROJECT_ID.appspot.com",
+        messagingSenderId: "YOUR_SENDER_ID",
+        appId: "YOUR_APP_ID"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // 2. GOOGLE OAUTH CONFIGURATION (For Classroom API)
+    const CLIENT_ID = 'YOUR_GOOGLE_OAUTH_CLIENT_ID';
+    const SCOPES = 'https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.coursework.students';
+    
+    let tokenClient;
+    let currentPassageId = null;
+    let savedTitle = "";
+
+    // Load Google API Client
+    function gapiStart() {
+        gapi.client.init({
+            // No API key needed for simple Classroom calls if token is valid
+        }).then(() => {
+            gapi.client.load('classroom', 'v1');
+        });
+    }
+    gapi.load('client', gapiStart);
+
+    // Initialize Identity Services (OAuth)
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: (tokenResponse) => {
+            if (tokenResponse.access_token) {
+                document.getElementById('setup-section').classList.remove('hidden');
+                document.getElementById('auth-btn').innerText = "Connecté ✓";
+                loadCourses();
+            }
+        },
+    });
+
+    document.getElementById('auth-btn').onclick = () => {
+        tokenClient.requestAccessToken();
+    };
+
+    // Save Passage to Firestore
+    document.getElementById('save-btn').onclick = async () => {
+        const title = document.getElementById('title-input').value;
+        const text = document.getElementById('text-input').value;
+
+        if (!title || !text) return alert("Veuillez remplir tous les champs");
+
+        try {
+            const docRef = await db.collection("passages").add({
+                title: title,
+                text: text,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            currentPassageId = docRef.id;
+            savedTitle = title;
+            alert("Texte enregistré ! Vous pouvez maintenant l'assigner à votre classe.");
+            document.getElementById('assign-section').classList.remove('hidden');
+        } catch (error) {
+            console.error("Error saving document: ", error);
+        }
+    };
+
+    // Load Google Classroom Courses
+    function loadCourses() {
+        gapi.client.classroom.courses.list({
+            pageSize: 10
+        }).then((response) => {
+            const courses = response.result.courses;
+            const select = document.getElementById('course-select');
+            select.innerHTML = '';
+            
+            if (courses && courses.length > 0) {
+                courses.forEach(course => {
+                    const opt = document.createElement('option');
+                    opt.value = course.id;
+                    opt.textContent = course.name;
+                    select.appendChild(opt);
+                });
+            } else {
+                select.innerHTML = '<option>Aucun cours trouvé</option>';
+            }
+        });
+    }
+
+    // Create Classroom Assignment
+    document.getElementById('assign-btn').onclick = () => {
+        const courseId = document.getElementById('course-select').value;
+        if (!courseId || !currentPassageId) return;
+
+        // Construct student URL targeting this passage's Firestore ID
+        const studentUrl = `https://YOUR_GITHUB_USERNAME.github.io/YOUR_REPO_NAME/student.html?passageId=${currentPassageId}`;
+
+        gapi.client.classroom.courses.courseWork.create({
+            courseId: courseId,
+            resource: {
+                title: `Lecture : ${savedTitle}`,
+                description: "Cliquez sur le lien pour vous entraîner à lire ce texte en français à haute voix.",
+                materials: [
+                    { link: { url: studentUrl, title: "Commencer l'exercice" } }
+                ],
+                workType: 'ASSIGNMENT',
+                state: 'PUBLISHED',
+                maxPoints: 100
+            }
+        }).then((response) => {
+            document.getElementById('status').innerText = "Devoir publié avec succès sur Google Classroom !";
+        }).catch(err => {
+            console.error(err);
+            alert("Erreur lors de la création du devoir.");
+        });
+    };
+</script>
+</body>
+</html>
