@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - Teacher</title>
+    <title>Read aloud - Teacher1</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -1095,96 +1095,56 @@
         }
     }
 
-document.getElementById('assign-btn').onclick = async () => {
-        const courseId = document.getElementById('course-select').value;
-        const status = document.getElementById('status');
-        
-        if (!courseId || courseId.startsWith("Loading")) {
-            alert("Please choose a Classroom course first!");
-            return;
-        }
-        
-        status.innerText = "Publishing assignment. Please wait...";
-        
-        try {
-            const templateDoc = await db.collection("passages").doc(currentTemplateId).get();
-            if (!templateDoc.exists) {
-                alert("Master template not found.");
-                return;
+assign-btn.onclick = async () => {
+    try {
+        // 1. Generate a Firestore document reference first (does not write to DB yet)
+        const tempAssignmentDocRef = db.collection("assignments").doc();
+        const firestoreAssignmentId = tempAssignmentDocRef.id; // Use this for the URL!
+
+        // 2. Build the student URL using the Firestore ID
+        const studentUrl = `${currentDomain}?assignmentId=${firestoreAssignmentId}&courseId=${courseId}`;
+
+        // 3. Create the Google Classroom assignment
+        const response = await gapi.client.classroom.courses.courseWork.create({
+            courseId: courseId,
+            resource: {
+                // Do NOT include the "id" field here; Classroom will generate it
+                title: `🗣️ Read Aloud Task: ${data.title}`,
+                description: `Please click the URL below to practice your speaking and submit your recording.\n\nInstructions: Record each sentence, then click finalize to submit.`,
+                workType: 'ASSIGNMENT',
+                state: 'DRAFT', // Or 'PUBLISHED'
+                maxPoints: 100,
+                materials: [
+                    {
+                        link: {
+                            url: studentUrl,
+                            title: `Speak - ${data.title}`
+                        }
+                    }
+                ]
             }
-            
-            const data = templateDoc.data();
-            
-            // DYNAMIC LINK REPLACEMENT:
-            const currentDomain = window.location.origin + window.location.pathname.toLowerCase().replace('teacher', 'student');
+        });
 
-            // Force the GAPI client to use our active token
-            const activeToken = localStorage.getItem('oauth_token');
-            if (activeToken) {
-                gapi.client.setToken({ access_token: activeToken });
-            }
+        // 4. Retrieve the actual Google Classroom Assignment ID
+        const gClassroomAssignmentId = response.result.id; 
 
-            // Generate a temporary ID so we can establish the URL ahead of GAPI creation
-            // (Using standard Firebase Firestore ID auto-generation trick)
-            const tempAssignmentDocRef = db.collection("assignments").doc();
-            const gClassroomAssignmentId = tempAssignmentDocRef.id; 
+        // 5. Save the mapping and task data to Firestore
+        await tempAssignmentDocRef.set({
+            firestoreId: firestoreAssignmentId,
+            gClassroomAssignmentId: gClassroomAssignmentId, // Linked for grade sync later
+            courseId: courseId,
+            title: data.title,
+            sentences: data.sentences,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
 
-            const studentUrl = `${currentDomain}?assignmentId=${gClassroomAssignmentId}&courseId=${courseId}`;
+        alert("Assignment successfully draft-published to Google Classroom!");
 
-            // STEP 1: Create the Coursework as a DRAFT, attaching the materials on initial creation
-            const response = await gapi.client.classroom.courses.courseWork.create({
-                courseId: courseId,
-                resource: {
-                    id: gClassroomAssignmentId, // Direct assignment of the document ID
-                    title: `🗣️ Read Aloud Task: ${data.title}`,
-                    description: `Please click the URL below to practice your speaking and submit your recording.\n\nInstructions: Record each sentence, then click finalize to submit.`,
-                    workType: 'ASSIGNMENT',
-                    state: 'DRAFT',
-                    maxPoints: 100,
-                    materials: [
-                        { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
-                    ]
-                }
-            });
-
-            // STEP 2: Now patch ONLY the 'state' to PUBLISHED (a highly supported updateMask field)
-            await gapi.client.classroom.courses.courseWork.patch({
-                courseId: courseId,
-                id: gClassroomAssignmentId,
-                updateMask: "state", // Only updating the state now!
-                resource: {
-                    state: 'PUBLISHED'
-                }
-            });
-
-            // STEP 3: Save details to Firebase Firestore
-            await tempAssignmentDocRef.set({
-                id: gClassroomAssignmentId,
-                courseId: courseId,
-                gClassroomAssignmentId: gClassroomAssignmentId,
-                title: data.title,
-                text: data.text,
-                language: data.language || 'fr',
-                yearGroup: data.yearGroup,
-                topic: data.topic,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            status.innerText = "Published successfully! It is now live in your Google Classroom feed.";
-            setTimeout(() => { status.innerText = ""; }, 5000);
-        } catch (e) {
-            status.innerText = "";
-            console.error("Full Google API Error:", e);
-            
-            let friendlyError = e.message || "Unknown Connection Error";
-            if (e.result && e.result.error && e.result.error.message) {
-                friendlyError = e.result.error.message;
-            }
-            
-            alert("Failed to publish to classroom: " + friendlyError);
-        }
-    };
-
+    } catch (error) {
+        console.error("Detailed Error:", error);
+        alert("Failed to publish to classroom: " + (error.result?.error?.message || error.message));
+    }
+};
     async function deleteSubmission(id, event) {
         event.stopPropagation();
         if (!confirm("Are you sure you want to delete this student's grade submission?")) return;
