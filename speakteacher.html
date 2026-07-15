@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - Teacher1</title>
+    <title>Read aloud - Teacher2</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -1095,56 +1095,98 @@
         }
     }
 
-assign-btn.onclick = async () => {
-    try {
-        // 1. Generate a Firestore document reference first (does not write to DB yet)
-        const tempAssignmentDocRef = db.collection("assignments").doc();
-        const firestoreAssignmentId = tempAssignmentDocRef.id; // Use this for the URL!
-
-        // 2. Build the student URL using the Firestore ID
-        const studentUrl = `${currentDomain}?assignmentId=${firestoreAssignmentId}&courseId=${courseId}`;
-
-        // 3. Create the Google Classroom assignment
-        const response = await gapi.client.classroom.courses.courseWork.create({
-            courseId: courseId,
-            resource: {
-                // Do NOT include the "id" field here; Classroom will generate it
-                title: `🗣️ Read Aloud Task: ${data.title}`,
-                description: `Please click the URL below to practice your speaking and submit your recording.\n\nInstructions: Record each sentence, then click finalize to submit.`,
-                workType: 'ASSIGNMENT',
-                state: 'DRAFT', // Or 'PUBLISHED'
-                maxPoints: 100,
-                materials: [
-                    {
-                        link: {
-                            url: studentUrl,
-                            title: `Speak - ${data.title}`
-                        }
-                    }
-                ]
+document.getElementById('assign-btn').onclick = async () => {
+        const courseId = document.getElementById('course-select').value;
+        const status = document.getElementById('status');
+        
+        if (!courseId || courseId.startsWith("Loading")) {
+            alert("Please choose a Classroom course first!");
+            return;
+        }
+        
+        status.innerText = "Publishing assignment. Please wait...";
+        
+        try {
+            const templateDoc = await db.collection("passages").doc(currentTemplateId).get();
+            if (!templateDoc.exists) {
+                alert("Master template not found.");
+                return;
             }
-        });
+            
+            const data = templateDoc.data();
+            
+            // DYNAMIC LINK REPLACEMENT:
+            const currentDomain = window.location.origin + window.location.pathname.toLowerCase().replace('teacher', 'student');
 
-        // 4. Retrieve the actual Google Classroom Assignment ID
-        const gClassroomAssignmentId = response.result.id; 
+            // Force the GAPI client to use our active token
+            const activeToken = localStorage.getItem('oauth_token');
+            if (activeToken) {
+                gapi.client.setToken({ access_token: activeToken });
+            }
 
-        // 5. Save the mapping and task data to Firestore
-        await tempAssignmentDocRef.set({
-            firestoreId: firestoreAssignmentId,
-            gClassroomAssignmentId: gClassroomAssignmentId, // Linked for grade sync later
-            courseId: courseId,
-            title: data.title,
-            sentences: data.sentences,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+            // 1. Pre-generate a Firestore document reference & ID (this becomes our immutable lookup ID)
+            const tempAssignmentDocRef = db.collection("assignments").doc();
+            const firestoreAssignmentId = tempAssignmentDocRef.id; 
 
-        alert("Assignment successfully draft-published to Google Classroom!");
+            // 2. Build the Student URL using the Firestore ID instead of the Google-assigned ID
+            const studentUrl = `${currentDomain}?assignmentId=${firestoreAssignmentId}&courseId=${courseId}`;
 
-    } catch (error) {
-        console.error("Detailed Error:", error);
-        alert("Failed to publish to classroom: " + (error.result?.error?.message || error.message));
-    }
-};
+            // 3. Create the Coursework as a DRAFT (with the student link attached as an initial material)
+            // Notice: We completely removed the forbidden 'id' parameter here so Google generates its own.
+            const response = await gapi.client.classroom.courses.courseWork.create({
+                courseId: courseId,
+                resource: {
+                    title: `🗣️ Read Aloud Task: ${data.title}`,
+                    description: `Please click the URL below to practice your speaking and submit your recording.\n\nInstructions: Record each sentence, then click finalize to submit.`,
+                    workType: 'ASSIGNMENT',
+                    state: 'DRAFT',
+                    maxPoints: 100,
+                    materials: [
+                        { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
+                    ]
+                }
+            });
+
+            // Retrieve Google's internally-generated Assignment ID
+            const gClassroomAssignmentId = response.result.id;
+
+            // 4. Patch ONLY the 'state' to PUBLISHED (this avoids the updateMask error)
+            await gapi.client.classroom.courses.courseWork.patch({
+                courseId: courseId,
+                id: gClassroomAssignmentId,
+                updateMask: "state",
+                resource: {
+                    state: 'PUBLISHED'
+                }
+            });
+
+            // 5. Save all metadata safely inside Firestore under our pre-generated ID
+            await tempAssignmentDocRef.set({
+                id: firestoreAssignmentId,             // The Firestore ID matching the student's ?assignmentId
+                gClassroomAssignmentId: gClassroomAssignmentId, // The Google ID used for grades syncing
+                courseId: courseId,
+                title: data.title,
+                text: data.text,
+                language: data.language || 'fr',
+                yearGroup: data.yearGroup,
+                topic: data.topic,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            status.innerText = "Published successfully! It is now live in your Google Classroom feed.";
+            setTimeout(() => { status.innerText = ""; }, 5000);
+        } catch (e) {
+            status.innerText = "";
+            console.error("Full Google API Error:", e);
+            
+            let friendlyError = e.message || "Unknown Connection Error";
+            if (e.result && e.result.error && e.result.error.message) {
+                friendlyError = e.result.error.message;
+            }
+            
+            alert("Failed to publish to classroom: " + friendlyError);
+        }
+    };
     async function deleteSubmission(id, event) {
         event.stopPropagation();
         if (!confirm("Are you sure you want to delete this student's grade submission?")) return;
