@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - Teacher</title>
+    <title>Read aloud - Teacher Workspace</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -51,7 +51,7 @@
         .filter-group { flex: 1; text-align: left; }
         .filter-group label { font-weight: bold; font-size: 14px; color: #34495e; display: block; margin-bottom: 5px; }
 
-        /* Submissions Table with Collapsible Rows */
+        /* Submissions Table with Collapsible Accordion Rows */
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; vertical-align: middle; }
         th { background-color: #f2f2f2; color: #333; }
@@ -297,7 +297,7 @@
                     loadTemplateBank();
                     syncLiveAssignments();
                     syncSubmissions();
-                    cleanOldRecycleBinItems(); // Clean elements older than 30 days
+                    cleanOldRecycleBinItems(); // Run dynamic 30 days expiration cleanup
                 }
             }).catch(() => {
                 forceLogout();
@@ -318,7 +318,6 @@
         tokenClient.requestAccessToken();
     };
 
-    // Load templates alphabetically with hierarchy Folders
     function loadTemplateBank() {
         db.collection("passages").orderBy("yearGroup").onSnapshot((snapshot) => {
             const taskBank = document.getElementById('task-bank');
@@ -512,7 +511,7 @@
         });
     }
 
-    // Dynamic submissions rendering with Accordion Toggles
+    // Dynamic submissions rendering with Accordion Toggles & Target Sentences Reference
     function renderDynamicMetrics() {
         const selectedCourseId = filterCourse.value;
         const selectedAssignmentId = filterTask.value;
@@ -529,6 +528,13 @@
         }
 
         document.getElementById('active-assignment-info').classList.remove('hidden');
+
+        // Retrieve reference sentence array from target assignment
+        const activeAssignment = allAssignments.find(a => a.id === selectedAssignmentId);
+        let originalSentences = [];
+        if (activeAssignment && activeAssignment.text) {
+            originalSentences = activeAssignment.text.match(/[^.!?]+[.!?]*/g) || [activeAssignment.text];
+        }
 
         const filteredSubs = allSubmissions.filter(sub => 
             sub.assignmentId === selectedAssignmentId && sub.courseId === selectedCourseId
@@ -566,6 +572,9 @@
                     const count = attempts.length;
                     const label = count === 1 ? 'attempt' : 'attempts';
                     
+                    // Fetch index reference target sentence matching indices
+                    const originalSentenceText = originalSentences[idx] ? originalSentences[idx].trim() : "Sentence text not found";
+                    
                     let audioPlayerHtml = '';
                     if (latestAudioBase64) {
                         audioPlayerHtml = `
@@ -583,6 +592,10 @@
                                     <strong>${historyStr || 'No recording'}</strong>
                                     <span class="attempt-count">${count} ${label}</span>
                                 </span>
+                            </div>
+                            <!-- Live target reference French sentence displays here -->
+                            <div class="target-sentence-reference" style="font-style: italic; color: #16a085; font-size: 13px; margin: 4px 0 6px 0; background: #e8f8f5; padding: 6px 10px; border-radius: 4px; border-left: 3px solid #1abc9c;">
+                                📖 ${originalSentenceText}
                             </div>
                             ${audioPlayerHtml}
                         </li>`;
@@ -647,9 +660,7 @@
                 </td>
             `;
 
-            // Toggle logic when clicking the headers
             headerRow.onclick = (e) => {
-                // Prevent trigger if clicking on the action button
                 if (e.target.closest('.btn-inline-delete')) return;
                 
                 headerRow.classList.toggle('active');
@@ -668,7 +679,6 @@
         });
     }
 
-    // Load templates safely
     async function loadTemplateIntoEditor(id) {
         const doc = await db.collection("passages").doc(id).get();
         if (!doc.exists) return;
@@ -690,7 +700,6 @@
         showEditorView();
     }
 
-    // Duplicate logic
     async function duplicateTemplate(id, e) {
         e.stopPropagation();
         const doc = await db.collection("passages").doc(id).get();
@@ -722,7 +731,6 @@
             deletedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
-        // Write to deleted_templates, delete from active passages
         await db.collection("deleted_templates").add(binItem);
         await db.collection("passages").doc(id).delete();
         alert("Moved to Recycle Bin.");
@@ -772,7 +780,6 @@
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
 
-        // Write back to passages, clean from deleted_templates
         await db.collection("passages").add(activePayload);
         await db.collection("deleted_templates").doc(binDocId).delete();
         alert("Template successfully restored!");
@@ -784,7 +791,7 @@
         alert("Permanently deleted.");
     }
 
-    // Auto cleanup logic: items older than 30 days are wiped
+    // Auto cleanup logic: items older than 30 days are swept from Firestore
     async function cleanOldRecycleBinItems() {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -800,14 +807,13 @@
                     batch.delete(doc.ref);
                 });
                 await batch.commit();
-                console.log("Recycle Bin maintenance run: Old deleted items expired successfully.");
+                console.log("Recycle Bin maintenance run: Expired templates cleared.");
             }
         } catch (error) {
             console.error("Maintenance run failed:", error);
         }
     }
 
-    // Edit live assignments independently
     async function editLiveClassAssignment() {
         const selectedAssignmentId = filterTask.value;
         if (!selectedAssignmentId) return;
@@ -830,7 +836,6 @@
         showEditorView();
     }
 
-    // Delete assigned task
     async function deleteAssignedTask() {
         const assignmentId = filterTask.value;
         if (!assignmentId) return;
@@ -851,7 +856,6 @@
         renderDynamicMetrics();
     }
 
-    // Delete student submissions
     async function deleteSubmission(submissionId, e) {
         if (e) e.stopPropagation();
         if (!confirm("Are you sure you want to delete this specific student recording evaluation? This action cannot be undone.")) return;
@@ -860,7 +864,6 @@
         renderDynamicMetrics();
     }
 
-    // Screen views transitions
     function showEditorView() {
         document.getElementById('submissions-section').classList.add('hidden');
         document.getElementById('editor-section').classList.remove('hidden');
@@ -911,7 +914,6 @@
     document.getElementById('edit-assigned-task-btn').onclick = editLiveClassAssignment;
     document.getElementById('delete-assigned-task-btn').onclick = deleteAssignedTask;
 
-    // Save Logic
     document.getElementById('save-btn').onclick = async () => {
         const title = document.getElementById('title-input').value.trim();
         const text = document.getElementById('text-input').value.trim();
@@ -948,7 +950,6 @@
         }
     };
 
-    // Publishing a Template Copy to Class
     document.getElementById('assign-btn').onclick = async () => {
         const courseId = document.getElementById('course-select').value;
         const selectedCourse = allCourses.find(c => c.id === courseId);
@@ -975,7 +976,7 @@
         gapi.client.classroom.courses.courseWork.create({
             courseId: courseId,
             resource: {
-                title: `Read Aloud: ${template.title}`,
+                title: `Speakaton: ${template.title}`,
                 description: "Open the link below to practice reading this French assignment aloud.",
                 materials: [
                     { link: { url: studentUrl, title: "Start Reading Practice" } }
