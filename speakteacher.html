@@ -252,7 +252,6 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://apis.google.com/js/api.js"></script>
-<script src="https://accounts.google.com/gsi/client" onload="gisInit()"></script>
 
 <script>
     const firebaseConfig = {
@@ -269,7 +268,7 @@
     const CLIENT_ID = '162949632188-fifdjjtug2mqu5uc80r2fdrqfacvkkrg.apps.googleusercontent.com';
     const SCOPES = 'https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/classroom.profile.emails https://www.googleapis.com/auth/classroom.rosters.readonly';
     
-    let tokenClient;
+    let tokenClient = null;
     let currentTemplateId = null;     
     let currentAssignmentId = null;   
     let activeEditorMode = "template"; 
@@ -289,16 +288,23 @@
 
     // Initialized safely once the Identity library fully loads
     function gisInit() {
-        tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: CLIENT_ID,
-            scope: SCOPES,
-            callback: (tokenResponse) => {
-                if (tokenResponse.access_token) {
-                    saveTokenToLocalStorage(tokenResponse.access_token, tokenResponse.expires_in);
-                    handleLoginSuccess(tokenResponse.access_token);
-                }
-            },
-        });
+        try {
+            if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: CLIENT_ID,
+                    scope: SCOPES,
+                    callback: (tokenResponse) => {
+                        if (tokenResponse.access_token) {
+                            saveTokenToLocalStorage(tokenResponse.access_token, tokenResponse.expires_in);
+                            handleLoginSuccess(tokenResponse.access_token);
+                        }
+                    },
+                });
+                console.log("Google Identity Client initialized successfully.");
+            }
+        } catch (e) {
+            console.error("Error initializing GIS client:", e);
+        }
     }
 
     function saveTokenToLocalStorage(token, expiresInSeconds) {
@@ -392,7 +398,13 @@
         if (tokenClient) {
             tokenClient.requestAccessToken();
         } else {
-            alert("Google login client still loading. Please wait a moment and try again.");
+            // Re-attempting manual initialization if Google script took too long
+            gisInit();
+            if (tokenClient) {
+                tokenClient.requestAccessToken();
+            } else {
+                alert("Google login client is still loading. Please wait a moment and try again.");
+            }
         }
     };
 
@@ -1079,7 +1091,10 @@
             }
             
             const data = templateDoc.data();
-            const currentDomain = window.location.origin + window.location.pathname.replace('teacher.html', 'student.html');
+            
+            // DYNAMIC LINK REPLACEMENT:
+            // Safely transforms whatever filename pattern is present (e.g. speakteacher.html -> speakstudent.html)
+            const currentDomain = window.location.origin + window.location.pathname.toLowerCase().replace('teacher', 'student');
 
             // Force the GAPI client to use our active token
             const activeToken = localStorage.getItem('oauth_token');
@@ -1191,5 +1206,8 @@
         }
     };
 </script>
+
+<!-- The Google Script is placed at the absolute end, loading dynamically and referencing gisInit safely -->
+<script src="https://accounts.google.com/gsi/client" onload="gisInit()" async defer></script>
 </body>
 </html>
