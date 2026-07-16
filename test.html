@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - tc</title>
+    <title>Read aloud - txxc</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -1252,27 +1252,63 @@
         }, 50);
     }
 
-    function openNewTemplateEditor() {
-        activeEditorMode = "template";
-        currentTemplateId = null;
-        document.getElementById('editor-title').innerText = "Create Template Passage";
-        document.getElementById('editor-mode-indicator').innerText = "Creating a Master Template";
-        
-        document.getElementById('language-input').value = 'fr';
-        document.getElementById('tier-input').value = 'foundation';
-        document.getElementById('year-input').value = '';
-        document.getElementById('topic-input').value = '';
-        document.getElementById('title-input').value = '';
-        document.getElementById('text-input').value = '';
+function openNewTemplateEditor() {
+    activeEditorMode = "template";
+    currentTemplateId = null;
+    document.getElementById('editor-title').innerText = "Create Template Passage";
+    document.getElementById('editor-mode-indicator').innerText = "Creating a Master Template";
+    
+    document.getElementById('language-input').value = 'fr';
+    document.getElementById('tier-input').value = 'foundation';
+    document.getElementById('year-input').value = '';
+    document.getElementById('topic-input').value = '';
+    document.getElementById('title-input').value = '';
+    document.getElementById('text-input').value = '';
 
-        document.getElementById('unseen-1-title').value = '';
-        document.getElementById('unseen-2-title').value = '';
-        
-        showSection('editor-section');
-        // Hide publish options for unsaved templates
-        document.getElementById('assign-section').classList.add('hidden');
+    document.getElementById('unseen-1-title').value = '';
+    document.getElementById('unseen-2-title').value = '';
+    
+    showSection('editor-section');
+    
+    // CHANGE: Keep this visible so teachers can publish instantly!
+    document.getElementById('assign-section').classList.remove('hidden');
+}
+async function saveTemplateData() {
+    const language = document.getElementById('language-input').value;
+    const tier = document.getElementById('tier-input').value;
+    const yearGroup = document.getElementById('year-input').value.trim();
+    const topic = document.getElementById('topic-input').value.trim();
+    const title = document.getElementById('title-input').value.trim();
+    const text = document.getElementById('text-input').value.trim();
+    const unseenQ1Title = document.getElementById('unseen-1-title').value.trim();
+    const unseenQ2Title = document.getElementById('unseen-2-title').value.trim();
+
+    if (!yearGroup || !topic || !title || !text) {
+        alert("Please fill in all standard text fields before saving/publishing.");
+        return null;
     }
 
+    const payload = {
+        language,
+        tier,
+        yearGroup,
+        topic,
+        title,
+        text,
+        unseenQ1Title,
+        unseenQ2Title,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (currentTemplateId) {
+        await db.collection("passages").doc(currentTemplateId).update(payload);
+        return currentTemplateId;
+    } else {
+        const docRef = await db.collection("passages").add(payload);
+        currentTemplateId = docRef.id; // Update our global ID tracking
+        return docRef.id;
+    }
+}
     async function loadTemplateIntoEditor(id) {
         try {
             const doc = await db.collection("passages").doc(id).get();
@@ -1304,52 +1340,36 @@
     }
 
     async function saveEditorChanges() {
-        const language = document.getElementById('language-input').value;
-        const tier = document.getElementById('tier-input').value;
-        const yearGroup = document.getElementById('year-input').value.trim();
-        const topic = document.getElementById('topic-input').value.trim();
-        const title = document.getElementById('title-input').value.trim();
-        const text = document.getElementById('text-input').value.trim();
+    try {
+        if (activeEditorMode === "template") {
+            const savedId = await saveTemplateData();
+            if (!savedId) return; // Stop if validation failed
+            alert("Master template saved successfully!");
+        } else if (activeEditorMode === "assignment" && currentAssignmentId) {
+            // Assignment mode is class-specific, update as normal
+            const language = document.getElementById('language-input').value;
+            const tier = document.getElementById('tier-input').value;
+            const yearGroup = document.getElementById('year-input').value.trim();
+            const topic = document.getElementById('topic-input').value.trim();
+            const title = document.getElementById('title-input').value.trim();
+            const text = document.getElementById('text-input').value.trim();
+            const unseenQ1Title = document.getElementById('unseen-1-title').value.trim();
+            const unseenQ2Title = document.getElementById('unseen-2-title').value.trim();
 
-        const unseenQ1Title = document.getElementById('unseen-1-title').value.trim();
-        const unseenQ2Title = document.getElementById('unseen-2-title').value.trim();
-
-        if (!yearGroup || !topic || !title || !text) {
-            alert("Please fill in all standard text fields before saving.");
-            return;
-        }
-
-        const payload = {
-            language,
-            tier,
-            yearGroup,
-            topic,
-            title,
-            text,
-            unseenQ1Title,
-            unseenQ2Title,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-
-        try {
-            if (activeEditorMode === "template") {
-                if (currentTemplateId) {
-                    await db.collection("passages").doc(currentTemplateId).update(payload);
-                    alert("Master template updated successfully!");
-                } else {
-                    await db.collection("passages").add(payload);
-                    alert("Master template created successfully!");
-                }
-            } else if (activeEditorMode === "assignment" && currentAssignmentId) {
-                await db.collection("assignments").doc(currentAssignmentId).update(payload);
-                alert("This class's assignment has been customized successfully!");
+            if (!yearGroup || !topic || !title || !text) {
+                alert("Please fill in all standard text fields before saving.");
+                return;
             }
-            showSection('submissions-section');
-        } catch (e) {
-            alert("Error saving: " + e.message);
-        }
-    }
 
+            const payload = { language, tier, yearGroup, topic, title, text, unseenQ1Title, unseenQ2Title, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            await db.collection("assignments").doc(currentAssignmentId).update(payload);
+            alert("This class's assignment has been customized successfully!");
+        }
+        showSection('submissions-section');
+    } catch (e) {
+        alert("Error saving: " + e.message);
+    }
+}
     async function duplicateTemplate(id, event) {
         event.stopPropagation();
         try {
@@ -1462,116 +1482,134 @@
         }
     }
 
-   document.getElementById('assign-btn').onclick = async () => {
-        const courseId = document.getElementById('course-select').value;
-        const status = document.getElementById('status');
-        const dueDateVal = document.getElementById('due-date-input').value;
-        
-        if (!courseId || courseId.startsWith("Loading")) {
-            alert("Please choose a Classroom course first!");
-            return;
+  document.getElementById('assign-btn').onclick = async () => {
+    const courseId = document.getElementById('course-select').value;
+    const status = document.getElementById('status');
+    const dueDateVal = document.getElementById('due-date-input').value;
+    
+    if (!courseId || courseId.startsWith("Loading")) {
+        alert("Please choose a Classroom course first!");
+        return;
+    }
+    
+    status.innerText = "Publishing assignment. Please wait...";
+    
+    try {
+        // CHANGE: Auto-save if this is a brand new template
+        if (!currentTemplateId) {
+            status.innerText = "Saving new template...";
+            const savedId = await saveTemplateData();
+            if (!savedId) {
+                status.innerText = "";
+                return; // Stop if validation failed
+            }
         }
         
         status.innerText = "Publishing assignment. Please wait...";
         
-        try {
-            const templateDoc = await db.collection("passages").doc(currentTemplateId).get();
-            if (!templateDoc.exists) {
-                alert("Master template not found.");
-                return;
-            }
-            
-            const data = templateDoc.data();
-            const currentDomain = window.location.origin + window.location.pathname.replace(/test/i, 'starter4');
-
-            const activeToken = localStorage.getItem('oauth_token');
-            if (activeToken) {
-                gapi.client.setToken({ access_token: activeToken });
-            }
-
-            const tempAssignmentDocRef = db.collection("assignments").doc();
-            const firestoreAssignmentId = tempAssignmentDocRef.id; 
-
-            const studentUrl = `${currentDomain}?assignmentId=${firestoreAssignmentId}&courseId=${courseId}`;
-
-            let gcDueDate = null;
-            let gcDueTime = null;
-
-            if (dueDateVal) {
-                const dateObj = new Date(dueDateVal);
-                gcDueDate = {
-                    year: dateObj.getFullYear(),
-                    month: dateObj.getMonth() + 1, 
-                    day: dateObj.getDate()
-                };
-                gcDueTime = {
-                    hours: dateObj.getHours(),
-                    minutes: dateObj.getMinutes(),
-                    seconds: 0,
-                    nanos: 0
-                };
-            }
-
-            const courseWorkResource = {
-                title: `🗣️ Reading & Listening Speaking Task: ${data.title}`,
-                description: `Practice your reading aloud and complete the live unseen questions at the end of the assignment.\n\nTask details:\n- Standard passage: Out of 100% accuracy.\n- Final speaking score & unseen responses: Out of 12 (Graded by your teacher).`,
-                workType: 'ASSIGNMENT',
-                state: 'DRAFT',
-                maxPoints: 12, 
-                materials: [
-                    { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
-                ]
-            };
-
-            if (gcDueDate && gcDueTime) {
-                courseWorkResource.dueDate = gcDueDate;
-                courseWorkResource.dueTime = gcDueTime;
-                courseWorkResource.submissionModificationMode = 'MODIFIABLE_UNTIL_DUE_DATE';
-            }
-
-            const response = await gapi.client.classroom.courses.courseWork.create({
-                courseId: courseId,
-                resource: courseWorkResource
-            });
-
-            const gClassroomAssignmentId = response.result.id;
-
-            await gapi.client.classroom.courses.courseWork.patch({
-                courseId: courseId,
-                id: gClassroomAssignmentId,
-                updateMask: "state",
-                resource: { state: 'PUBLISHED' }
-            });
-
-            await tempAssignmentDocRef.set({
-                id: firestoreAssignmentId,             
-                gClassroomAssignmentId: gClassroomAssignmentId, 
-                courseId: courseId,
-                title: data.title,
-                text: data.text,
-                language: data.language || 'fr',
-                tier: data.tier || 'foundation',
-                yearGroup: data.yearGroup,
-                topic: data.topic,
-                dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null, 
-                unseenQ1Title: data.unseenQ1Title || '',
-                unseenQ2Title: data.unseenQ2Title || '',
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            status.innerText = "Published successfully! It is now live in your Google Classroom feed.";
-            document.getElementById('due-date-input').value = "";
-            setTimeout(() => { status.innerText = ""; }, 5000);
-        } catch (e) {
-            status.innerText = "";
-            console.error("Full Google API Error:", e);
-            let friendlyError = e.message || "Unknown Connection Error";
-            if (e.result && e.result.error && e.result.error.message) {
-                friendlyError = e.result.error.message;
-            }
-            alert("Failed to publish to classroom: " + friendlyError);
+        const templateDoc = await db.collection("passages").doc(currentTemplateId).get();
+        if (!templateDoc.exists) {
+            alert("Master template not found.");
+            return;
         }
-   };
+        
+        const data = templateDoc.data();
+        const currentDomain = window.location.origin + window.location.pathname.replace(/test/i, 'starter4');
+
+        const activeToken = localStorage.getItem('oauth_token');
+        if (activeToken) {
+            gapi.client.setToken({ access_token: activeToken });
+        }
+
+        const tempAssignmentDocRef = db.collection("assignments").doc();
+        const firestoreAssignmentId = tempAssignmentDocRef.id; 
+
+        const studentUrl = `${currentDomain}?assignmentId=${firestoreAssignmentId}&courseId=${courseId}`;
+
+        let gcDueDate = null;
+        let gcDueTime = null;
+
+        if (dueDateVal) {
+            const dateObj = new Date(dueDateVal);
+            gcDueDate = {
+                year: dateObj.getFullYear(),
+                month: dateObj.getMonth() + 1, 
+                day: dateObj.getDate()
+            };
+            gcDueTime = {
+                hours: dateObj.getHours(),
+                minutes: dateObj.getMinutes(),
+                seconds: 0,
+                nanos: 0
+            };
+        }
+
+        const courseWorkResource = {
+            title: `🗣️ Reading & Listening Speaking Task: ${data.title}`,
+            description: `Practice your reading aloud and complete the live unseen questions at the end of the assignment.\n\nTask details:\n- Standard passage: Out of 100% accuracy.\n- Final speaking score & unseen responses: Out of 12 (Graded by your teacher).`,
+            workType: 'ASSIGNMENT',
+            state: 'DRAFT',
+            maxPoints: 12, 
+            materials: [
+                { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
+            ]
+        };
+
+        if (gcDueDate && gcDueTime) {
+            courseWorkResource.dueDate = gcDueDate;
+            courseWorkResource.dueTime = gcDueTime;
+            courseWorkResource.submissionModificationMode = 'MODIFIABLE_UNTIL_DUE_DATE';
+        }
+
+        const response = await gapi.client.classroom.courses.courseWork.create({
+            courseId: courseId,
+            resource: courseWorkResource
+        });
+
+        const gClassroomAssignmentId = response.result.id;
+
+        await gapi.client.classroom.courses.courseWork.patch({
+            courseId: courseId,
+            id: gClassroomAssignmentId,
+            updateMask: "state",
+            resource: { state: 'PUBLISHED' }
+        });
+
+        await tempAssignmentDocRef.set({
+            id: firestoreAssignmentId,             
+            gClassroomAssignmentId: gClassroomAssignmentId, 
+            courseId: courseId,
+            title: data.title,
+            text: data.text,
+            language: data.language || 'fr',
+            tier: data.tier || 'foundation',
+            yearGroup: data.yearGroup,
+            topic: data.topic,
+            dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null, 
+            unseenQ1Title: data.unseenQ1Title || '',
+            unseenQ2Title: data.unseenQ2Title || '',
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        status.innerText = "Published successfully! It is now live in your Google Classroom feed.";
+        document.getElementById('due-date-input').value = "";
+        
+        // CHANGE: Auto-redirect to dashboard after 3 seconds so the teacher doesn't have to click cancel
+        setTimeout(() => { 
+            status.innerText = ""; 
+            showSection('submissions-section');
+        }, 3000);
+        
+    } catch (e) {
+        status.innerText = "";
+        console.error("Full Google API Error:", e);
+        let friendlyError = e.message || "Unknown Connection Error";
+        if (e.result && e.result.error && e.result.error.message) {
+            friendlyError = e.result.error.message;
+        }
+        alert("Failed to publish to classroom: " + friendlyError);
+    }
+};
 
     async function deleteSubmission(id, event) {
         event.stopPropagation();
