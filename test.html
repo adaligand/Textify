@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - jt</title>
+    <title>Read aloud - t</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -1017,241 +1017,224 @@ async function syncSingleStudentToClassroom(subId) {
     }
 
 function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody) {
-    const activeAssignment = allAssignments.find(a => a.id === selectedAssignmentId);
-    let originalSentences = [];
-    let tierLabel = "Foundation";
-    let tierValue = "foundation";
-    let unseenQ1Name = "Unseen Q1";
-    let unseenQ2Name = "Unseen Q2";
+        const activeAssignment = allAssignments.find(a => a.id === selectedAssignmentId);
+        let originalSentences = [];
+        let tierLabel = "Foundation";
+        let tierValue = "foundation";
+        let unseenQ1Name = "Unseen Q1";
+        let unseenQ2Name = "Unseen Q2";
 
-    if (activeAssignment) {
-        tierValue = activeAssignment.tier || "foundation";
-        tierLabel = tierValue.toUpperCase();
-        document.getElementById('active-task-metadata').innerHTML = `<strong>Tier:</strong> ${tierLabel} | <strong>Total Max Points:</strong> 12`;
-        
-        if (activeAssignment.text) {
-            originalSentences = activeAssignment.text.match(/[^.!?]+[.!?]*/g) || [activeAssignment.text];
-        }
-        if (activeAssignment.unseenQ1Title) unseenQ1Name = activeAssignment.unseenQ1Title;
-        if (activeAssignment.unseenQ2Title) unseenQ2Name = activeAssignment.unseenQ2Title;
-    }
-
-    const filteredSubs = allSubmissions.filter(sub => 
-        sub.assignmentId === selectedAssignmentId && sub.courseId === selectedCourseId
-    );
-
-    tbody.innerHTML = '';
-
-    if (filteredSubs.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #7f8c8d;">No student submissions found.</td></tr>`;
-        return;
-    }
-
-    filteredSubs.forEach(sub => {
-        const studentName = sub.studentName || "Unnamed Student";
-        const studentEmail = sub.studentEmail || "No Email";
-        
-        const accuracyPercentage = sub.score !== undefined ? sub.score : 0;
-        const displayOverallGrade = sub.overallGrade !== undefined ? `${sub.overallGrade} / 12` : "-- / 12";
-
-        let unseenReviewHtml = '';
-        
-        const u1Audio = (sub.unseenResponses && sub.unseenResponses.length > 0 && sub.unseenResponses[0]) 
-            ? sub.unseenResponses[0].audio 
-            : null;
+        if (activeAssignment) {
+            tierValue = activeAssignment.tier || "foundation";
+            tierLabel = tierValue.toUpperCase();
+            document.getElementById('active-task-metadata').innerHTML = `<strong>Tier:</strong> ${tierLabel} | <strong>Total Max Points:</strong> 12`;
             
-        const u2Audio = (sub.unseenResponses && sub.unseenResponses.length > 1 && sub.unseenResponses[1]) 
-            ? sub.unseenResponses[1].audio 
-            : null;
-
-        unseenReviewHtml += `<div class="unseen-audio-review"><strong>🔍 Question 1: ${unseenQ1Name}</strong><br>`;
-        if(u1Audio) {
-            unseenReviewHtml += `<audio controls src="${u1Audio}" style="height:25px; margin-top:5px; width:100%;"></audio>`;
-        } else {
-            unseenReviewHtml += `<span style="color:#e74c3c; font-style:italic;">No recording submitted by student.</span>`;
-        }
-        unseenReviewHtml += `</div>`;
-
-        unseenReviewHtml += `<div class="unseen-audio-review" style="margin-bottom:0;"><strong>🔍 Question 2: ${unseenQ2Name}</strong><br>`;
-        if(u2Audio) {
-            unseenReviewHtml += `<audio controls src="${u2Audio}" style="height:25px; margin-top:5px; width:100%;"></audio>`;
-        } else {
-            unseenReviewHtml += `<span style="color:#e74c3c; font-style:italic;">No recording submitted by student.</span>`;
-        }
-        unseenReviewHtml += `</div>`;
-
-        const savedRubric = sub.rubricGrade !== undefined ? sub.rubricGrade : 0;
-        const savedU1 = sub.unseen1Grade !== undefined ? sub.unseen1Grade : 0;
-        const savedU2 = sub.unseen2Grade !== undefined ? sub.unseen2Grade : 0;
-        const computedOverall = savedRubric + savedU1 + savedU2;
-        const computedPercentage = Math.round((computedOverall / 12) * 100);
-
-        const headerRow = document.createElement('tr');
-        headerRow.className = 'student-header-row';
-        headerRow.id = `header-${sub.id}`;
-        headerRow.innerHTML = `
-            <td>
-                <div class="student-name-container">
-                    <span class="arrow-indicator">▶</span>
-                    <div>
-                        <strong>${studentName}</strong><span class="badge tier">${tierValue}</span><br>
-                        <small style="color:#7f8c8d;">${studentEmail}</small>
-                    </div>
-                </div>
-            </td>
-            <td><span class="badge score" style="background:#7f8c8d;">${accuracyPercentage}%</span></td>
-            <td><strong id="assigned-col-${sub.id}" style="color:#2ecc71; font-size:16px;">${displayOverallGrade}</strong></td>
-            <td>
-                <button class="btn-inline-delete" onclick="deleteSubmission('${sub.id}', event)">Delete</button>
-            </td>
-        `;
-
-        const studentSentences = sub.sentence || sub.sentences || sub.sentenceScores || [];
-
-        const sentenceDetailsHtml = studentSentences.map((sent, index) => {
-            const sentenceAccuracy = (sent.attempts && sent.attempts.length > 0) 
-                ? sent.attempts[sent.attempts.length - 1] 
-                : 0;
-            const attemptCount = sent.attempts ? sent.attempts.length : 0;
-            const sentenceText = originalSentences[index] || "Sentence text not found";
-
-            const relevantHints = sub.hintsUsed 
-                ? sub.hintsUsed.filter(h => {
-                    const cleanHint = h.replace(/^Word:\s*/i, '').toLowerCase();
-                    return sentenceText.toLowerCase().includes(cleanHint);
-                }) 
-                : [];
-            
-            let hintsHtml = '';
-            if (relevantHints.length > 0) {
-                hintsHtml = `
-                    <div class="sentence-hints" style="margin-top: 8px; font-size: 12px; color: #7f8c8d; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                        <span>💡 Hints used:</span>
-                        ${relevantHints.map(word => {
-                            const displayWord = word.replace(/^Word:\s*/i, '');
-                            return `<span class="hint-tag" style="background: #fef9e7; border: 1px solid #f9e79f; color: #b7950b; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;">${displayWord}</span>`;
-                        }).join(' ')}
-                    </div>`;
-            } else {
-                hintsHtml = `
-                    <div class="sentence-hints" style="margin-top: 8px; font-size: 11px; color: #bdc3c7; display: flex; align-items: center; gap: 4px;">
-                        <span>💡 No word support hints used</span>
-                    </div>`;
+            if (activeAssignment.text) {
+                originalSentences = activeAssignment.text.match(/[^.!?]+[.!?]*/g) || [activeAssignment.text];
             }
+            if (activeAssignment.unseenQ1Title) unseenQ1Name = activeAssignment.unseenQ1Title;
+            if (activeAssignment.unseenQ2Title) unseenQ2Name = activeAssignment.unseenQ2Title;
+        }
 
-            const audioSource = sent.audio || sent.audioUrl || "";
+        const filteredSubs = allSubmissions.filter(sub => 
+            sub.assignmentId === selectedAssignmentId && sub.courseId === selectedCourseId
+        );
 
-            return `
-                <div class="sentence-item" style="background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
-                        <div style="min-width: 120px;">
-                            <span style="font-weight: bold; font-size: 11px; color: #7f8c8d; text-transform: uppercase;">Sentence ${index + 1}</span>
-                            <div style="font-weight: bold; color: #2ecc71; margin-top: 2px;">${sentenceAccuracy}%</div>
-                            <div style="font-size: 11px; color: #bdc3c7;">${attemptCount} attempts</div>
-                        </div>
-                        <div style="flex-grow: 1; background: #f4fbf7; border-left: 3px solid #2ecc71; padding: 8px 12px; border-radius: 4px; font-style: italic;">
-                            "${sentenceText}"
-                        </div>
-                        <div>
-                            ${audioSource ? `<audio controls src="${audioSource}" style="height: 32px; width: 220px;"></audio>` : `<span style="color:#e74c3c; font-size:11px; font-style:italic;">No recording</span>`}
-                        </div>
-                    </div>
-                    ${hintsHtml}
-                </div>
-            `;
-        }).join('');
+        tbody.innerHTML = '';
 
-        const detailsRow = document.createElement('tr');
-        detailsRow.className = 'details-row hidden';
-        detailsRow.id = `details-${sub.id}`;
-        detailsRow.innerHTML = `
-            <td colspan="4">
-                <div class="details-container" style="display: grid; grid-template-columns: 1.8fr 1fr; gap: 20px; padding: 15px; background: #f8fafc;">
-                    
-                    <!-- LEFT COLUMN: Student Work Panel -->
-                    <div class="details-block-left" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px;">
-                        <h4 style="margin: 0 0 15px 0; color: #2c3e50; font-size: 15px; border-bottom: 2px solid #edf2f7; padding-bottom: 8px;">🎤 Sentence Submissions & Playback</h4>
-                        ${sentenceDetailsHtml}
+        if (filteredSubs.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #7f8c8d;">No student submissions found.</td></tr>`;
+            return;
+        }
 
-                        <div class="unseen-section" style="margin-top: 25px;">
-                            <h4 style="margin: 0 0 15px 0; color: #2c3e50; font-size: 15px; border-bottom: 2px solid #edf2f7; padding-bottom: 8px;">👂 Unseen Question Submissions</h4>
-                            ${unseenReviewHtml}
-                        </div>
-                    </div>
-
-                    <!-- RIGHT COLUMN: Teacher Grading Panel -->
-                    <div class="details-block-right" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; align-self: start;">
-                        <div class="grading-section">
-                            <h4 style="margin: 0 0 15px 0; color: #9b59b6; font-size: 15px; border-bottom: 2px solid #edf2f7; padding-bottom: 8px;">📝 Teacher Grading Panel</h4>
-                            
-                            <!-- Read Aloud Dropdown with Live Trigger -->
-                            <div class="scoring-row" style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px;">
-                                <span class="scoring-label" style="font-weight: 600; font-size: 13px; color: #34495e;">Mark Scheme (/8):</span>
-                                <select id="rubric-${sub.id}" class="score-selector" style="padding: 6px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 13px;" onchange="updateRubricFeedbackText('${sub.id}', '${tierValue}')">
-                                    ${[0,1,2,3,4,5,6,7,8].map(v => `<option value="${v}" ${v === savedRubric ? 'selected' : ''}>${v} Marks</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="rubric-descriptor" id="rubric-descriptor-${sub.id}" style="font-size: 11px; color: #7f8c8d; font-style: italic; line-height: 1.4; margin-bottom: 15px;">Retrieving feedback...</div>
-                            
-                            <hr style="border: none; border-top: 1px dashed #e2e8f0; margin: 15px 0;">
-
-                            <!-- Unseen Q1 Dropdown with Live Trigger -->
-                            <div class="scoring-row" style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px;">
-                                <span class="scoring-label" style="font-weight: 600; font-size: 13px; color: #34495e;">Unseen Q1 Mark (/2):</span>
-                                <select id="unseen1-${sub.id}" class="score-selector data-unseen" style="padding: 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 13px;" onchange="updateRubricFeedbackText('${sub.id}', '${tierValue}')">
-                                    <option value="0" ${savedU1===0?'selected':''}>0 - No rewardable communication.</option>
-                                    <option value="1" ${savedU1===1?'selected':''}>1 - Response partially communicated, some ambiguity.</option>
-                                    <option value="2" ${savedU1===2?'selected':''}>2 - Response fully communicated.</option>
-                                </select>
-                            </div>
-
-                            <!-- Unseen Q2 Dropdown with Live Trigger -->
-                            <div class="scoring-row" style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 15px;">
-                                <span class="scoring-label" style="font-weight: 600; font-size: 13px; color: #34495e;">Unseen Q2 Mark (/2):</span>
-                                <select id="unseen2-${sub.id}" class="score-selector data-unseen" style="padding: 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 13px;" onchange="updateRubricFeedbackText('${sub.id}', '${tierValue}')">
-                                    <option value="0" ${savedU2===0?'selected':''}>0 - No rewardable communication.</option>
-                                    <option value="1" ${savedU2===1?'selected':''}>1 - Response partially communicated, some ambiguity.</option>
-                                    <option value="2" ${savedU2===2?'selected':''}>2 - Response fully communicated.</option>
-                                </select>
-                            </div>
-
-                            <hr style="border: none; border-top: 1px dashed #e2e8f0; margin: 15px 0;">
-
-                            <!-- Beautiful Read-Only Combined Auto-Generated Feedback -->
-                            <div class="scoring-row" style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 15px;">
-                                <span class="scoring-label" style="font-weight: 600; font-size: 13px; color: #34495e;">Auto-Generated Combined Feedback:</span>
-                                <textarea id="feedback-${sub.id}" rows="5" style="padding: 10px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 13px; width: 100%; box-sizing: border-box; background-color: #f8fafc; color: #475569; resize: none; line-height: 1.45;" readonly placeholder="Dynamic feedback compiles automatically...">${sub.teacherComment || ''}</textarea>
-                            </div>
-
-                            <div style="margin-top: 20px; padding: 12px; background: #f1f5f9; border-radius: 6px; font-weight: bold; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
-                                <span style="color: #475569;">Computed Grade: <span id="total-grade-view-${sub.id}" style="color: #1e293b; font-size: 14px;">${computedOverall} / 12</span></span>
-                                <span style="color: #64748b; font-size: 12px;">(<span id="total-pct-view-${sub.id}">${computedPercentage}%</span>)</span>
-                            </div>
-
-                            <!-- Click handlers configured to save and sync successfully -->
-                            <button id="save-btn-${sub.id}" onclick="saveLiveGrades('${sub.id}')" style="background: #2ecc71; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 12px; padding: 10px; font-size: 13px; width: 100%; transition: background 0.2s;">💾 Save Local Changes</button>
-                            <button id="sync-btn-${sub.id}" onclick="syncSingleStudentToClassroom('${sub.id}')" style="background: #9b59b6; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 8px; padding: 10px; font-size: 13px; width: 100%; transition: background 0.2s;">🚀 Sync Grade & Post Comment</button>
-                        </div>
-                    </div>
-                </div>
-            </td>
-        `;
-
-        tbody.appendChild(headerRow);
-        tbody.appendChild(detailsRow);
-    });
-
-    // 🚀 Dynamic Auto-initialization:
-    // This loops over the freshly rendered submissions and instantly populates the read-only comment box 
-    // with your dynamic strings upon opening the assignment view.
-    setTimeout(() => {
         filteredSubs.forEach(sub => {
-            updateRubricFeedbackText(sub.id, tierValue);
-        });
-    }, 50);
-}
+            const studentName = sub.studentName || "Unnamed Student";
+            const studentEmail = sub.studentEmail || "No Email";
+            
+            const accuracyPercentage = sub.score !== undefined ? sub.score : 0;
+            const displayOverallGrade = sub.overallGrade !== undefined ? `${sub.overallGrade} / 12` : "-- / 12";
 
- 
+            let unseenReviewHtml = '';
+            
+            const u1Audio = (sub.unseenResponses && sub.unseenResponses.length > 0 && sub.unseenResponses[0]) 
+                ? sub.unseenResponses[0].audio 
+                : null;
+                
+            const u2Audio = (sub.unseenResponses && sub.unseenResponses.length > 1 && sub.unseenResponses[1]) 
+                ? sub.unseenResponses[1].audio 
+                : null;
+
+            unseenReviewHtml += `<div class="unseen-audio-review"><strong>🔍 Question 1: ${unseenQ1Name}</strong><br>`;
+            if(u1Audio) {
+                unseenReviewHtml += `<audio controls src="${u1Audio}" style="height:25px; margin-top:5px; width:100%;"></audio>`;
+            } else {
+                unseenReviewHtml += `<span style="color:#e74c3c; font-style:italic;">No recording submitted by student.</span>`;
+            }
+            unseenReviewHtml += `</div>`;
+
+            unseenReviewHtml += `<div class="unseen-audio-review" style="margin-bottom:0;"><strong>🔍 Question 2: ${unseenQ2Name}</strong><br>`;
+            if(u2Audio) {
+                unseenReviewHtml += `<audio controls src="${u2Audio}" style="height:25px; margin-top:5px; width:100%;"></audio>`;
+            } else {
+                unseenReviewHtml += `<span style="color:#e74c3c; font-style:italic;">No recording submitted by student.</span>`;
+            }
+            unseenReviewHtml += `</div>`;
+
+            const savedRubric = sub.rubricGrade !== undefined ? sub.rubricGrade : 0;
+            const savedU1 = sub.unseen1Grade !== undefined ? sub.unseen1Grade : 0;
+            const savedU2 = sub.unseen2Grade !== undefined ? sub.unseen2Grade : 0;
+            const computedOverall = savedRubric + savedU1 + savedU2;
+            const computedPercentage = Math.round((computedOverall / 12) * 100);
+
+            const headerRow = document.createElement('tr');
+            headerRow.className = 'student-header-row';
+            headerRow.id = `header-${sub.id}`;
+            headerRow.innerHTML = `
+                <td>
+                    <div class="student-name-container">
+                        <span class="arrow-indicator">▶</span>
+                        <div>
+                            <strong>${studentName}</strong><span class="badge tier">${tierValue}</span><br>
+                            <small style="color:#7f8c8d;">${studentEmail}</small>
+                        </div>
+                    </div>
+                </td>
+                <td><span class="badge score" style="background:#7f8c8d;">${accuracyPercentage}%</span></td>
+                <td><strong id="assigned-col-${sub.id}" style="color:#2ecc71; font-size:16px;">${displayOverallGrade}</strong></td>
+                <td>
+                    <button class="btn-inline-delete">Delete</button>
+                </td>
+            `;
+
+            const studentSentences = sub.sentence || sub.sentences || sub.sentenceScores || [];
+
+            const sentenceDetailsHtml = studentSentences.map((sent, index) => {
+                const sentenceAccuracy = (sent.attempts && sent.attempts.length > 0) 
+                    ? sent.attempts[sent.attempts.length - 1] 
+                    : 0;
+                const attemptCount = sent.attempts ? sent.attempts.length : 0;
+                const sentenceText = originalSentences[index] || "Sentence text not found";
+
+                const relevantHints = sub.hintsUsed 
+                    ? sub.hintsUsed.filter(h => {
+                        const cleanHint = h.replace(/^Word:\s*/i, '').toLowerCase();
+                        return sentenceText.toLowerCase().includes(cleanHint);
+                    }) 
+                    : [];
+                
+                let hintsHtml = '';
+                if (relevantHints.length > 0) {
+                    hintsHtml = `
+                        <div class="sentence-hints" style="margin-top: 8px; font-size: 12px; color: #7f8c8d; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            <span>💡 Hints used:</span>
+                            ${relevantHints.map(word => {
+                                const displayWord = word.replace(/^Word:\s*/i, '');
+                                return `<span class="hint-tag" style="background: #fef9e7; border: 1px solid #f9e79f; color: #b7950b; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;">${displayWord}</span>`;
+                            }).join(' ')}
+                        </div>`;
+                } else {
+                    hintsHtml = `
+                        <div class="sentence-hints" style="margin-top: 8px; font-size: 11px; color: #bdc3c7; display: flex; align-items: center; gap: 4px;">
+                            <span>💡 No word support hints used</span>
+                        </div>`;
+                }
+
+                const audioSource = sent.audio || sent.audioUrl || "";
+
+                return `
+                    <div class="sentence-item" style="background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
+                            <div style="min-width: 120px;">
+                                <span style="font-weight: bold; font-size: 11px; color: #7f8c8d; text-transform: uppercase;">Sentence ${index + 1}</span>
+                                <div style="font-weight: bold; color: #2ecc71; margin-top: 2px;">${sentenceAccuracy}%</div>
+                                <div style="font-size: 11px; color: #bdc3c7;">${attemptCount} attempts</div>
+                            </div>
+                            <div style="flex-grow: 1; background: #f4fbf7; border-left: 3px solid #2ecc71; padding: 8px 12px; border-radius: 4px; font-style: italic;">
+                                "${sentenceText}"
+                            </div>
+                            <div>
+                                ${audioSource ? `<audio controls src="${audioSource}" style="height: 32px; width: 220px;"></audio>` : `<span style="color:#e74c3c; font-size:11px; font-style:italic;">No recording</span>`}
+                            </div>
+                        </div>
+                        ${hintsHtml}
+                    </div>
+                `;
+            }).join('');
+
+            const detailsRow = document.createElement('tr');
+            detailsRow.className = 'details-row hidden';
+            detailsRow.id = `details-${sub.id}`;
+            detailsRow.innerHTML = `
+                <td colspan="4">
+                    <div class="details-container" style="display: grid; grid-template-columns: 1.8fr 1fr; gap: 20px; padding: 15px; background: #f8fafc;">
+                        
+                        <!-- LEFT COLUMN: Student Work Panel -->
+                        <div class="details-block-left" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px;">
+                            <h4 style="margin: 0 0 15px 0; color: #2c3e50; font-size: 15px; border-bottom: 2px solid #edf2f7; padding-bottom: 8px;">🎤 Sentence Submissions & Playback</h4>
+                            ${sentenceDetailsHtml}
+
+                            <div class="unseen-section" style="margin-top: 25px;">
+                                <h4 style="margin: 0 0 15px 0; color: #2c3e50; font-size: 15px; border-bottom: 2px solid #edf2f7; padding-bottom: 8px;">👂 Unseen Question Submissions</h4>
+                                ${unseenReviewHtml}
+                            </div>
+                        </div>
+
+                        <!-- RIGHT COLUMN: Teacher Grading Panel -->
+                        <div class="details-block-right" style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; align-self: start;">
+                            <div class="grading-section">
+                                <h4 style="margin: 0 0 15px 0; color: #9b59b6; font-size: 15px; border-bottom: 2px solid #edf2f7; padding-bottom: 8px;">📝 Teacher Grading Panel</h4>
+                                
+                                <!-- Read Aloud Dropdown -->
+                                <div class="scoring-row" style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px;">
+                                    <span class="scoring-label" style="font-weight: 600; font-size: 13px; color: #34495e;">Mark Scheme (/8):</span>
+                                    <select id="rubric-${sub.id}" class="score-selector" style="padding: 6px; border-radius: 4px; border: 1px solid #cbd5e1; outline: none; font-size: 13px;">
+                                        ${[0,1,2,3,4,5,6,7,8].map(v => `<option value="${v}" ${v === savedRubric ? 'selected' : ''}>${v} Marks</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div class="rubric-descriptor" id="rubric-descriptor-${sub.id}" style="font-size: 11px; color: #7f8c8d; font-style: italic; line-height: 1.4; margin-bottom: 15px;">Retrieving feedback...</div>
+                                
+                                <hr style="border: none; border-top: 1px dashed #e2e8f0; margin: 15px 0;">
+
+                                <!-- Unseen Q1 Dropdown -->
+                                <div class="scoring-row" style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px;">
+                                    <span class="scoring-label" style="font-weight: 600; font-size: 13px; color: #34495e;">Unseen Q1 Mark (/2):</span>
+                                    <select id="unseen1-${sub.id}" class="score-selector data-unseen" style="padding: 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 13px;">
+                                        <option value="0" ${savedU1===0?'selected':''}>0 - No rewardable communication.</option>
+                                        <option value="1" ${savedU1===1?'selected':''}>1 - Response partially communicated, some ambiguity.</option>
+                                        <option value="2" ${savedU1===2?'selected':''}>2 - Response fully communicated.</option>
+                                    </select>
+                                </div>
+
+                                <!-- Unseen Q2 Dropdown -->
+                                <div class="scoring-row" style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 15px;">
+                                    <span class="scoring-label" style="font-weight: 600; font-size: 13px; color: #34495e;">Unseen Q2 Mark (/2):</span>
+                                    <select id="unseen2-${sub.id}" class="score-selector data-unseen" style="padding: 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 13px;">
+                                        <option value="0" ${savedU2===0?'selected':''}>0 - No rewardable communication.</option>
+                                        <option value="1" ${savedU2===1?'selected':''}>1 - Response partially communicated, some ambiguity.</option>
+                                        <option value="2" ${savedU2===2?'selected':''}>2 - Response fully communicated.</option>
+                                    </select>
+                                </div>
+
+                                <hr style="border: none; border-top: 1px dashed #e2e8f0; margin: 15px 0;">
+
+                                <!-- Beautiful Read-Only Combined Auto-Generated Feedback -->
+                                <div class="scoring-row" style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 15px;">
+                                    <span class="scoring-label" style="font-weight: 600; font-size: 13px; color: #34495e;">Auto-Generated Combined Feedback:</span>
+                                    <textarea id="feedback-${sub.id}" rows="5" style="padding: 10px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 13px; width: 100%; box-sizing: border-box; background-color: #f8fafc; color: #475569; resize: none; line-height: 1.45;" readonly placeholder="Dynamic feedback compiles automatically...">${sub.teacherComment || ''}</textarea>
+                                </div>
+
+                                <div style="margin-top: 20px; padding: 12px; background: #f1f5f9; border-radius: 6px; font-weight: bold; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="color: #475569;">Computed Grade: <span id="total-grade-view-${sub.id}" style="color: #1e293b; font-size: 14px;">${computedOverall} / 12</span></span>
+                                    <span style="color: #64748b; font-size: 12px;">(<span id="total-pct-view-${sub.id}">${computedPercentage}%</span>)</span>
+                                </div>
+
+                                <button id="save-btn-${sub.id}" style="background: #2ecc71; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 12px; padding: 10px; font-size: 13px; width: 100%; transition: background 0.2s;">💾 Save Local Changes</button>
+                                <button id="sync-btn-${sub.id}" style="background: #9b59b6; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 8px; padding: 10px; font-size: 13px; width: 100%; transition: background 0.2s;">🚀 Sync Grade & Post Comment</button>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            `;
 
             // Programmatic Event Bindings
             const rubricSelect = detailsRow.querySelector(`#rubric-${sub.id}`);
@@ -1260,7 +1243,9 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
             });
 
             detailsRow.querySelectorAll('.data-unseen').forEach(select => {
-                select.addEventListener('change', () => recalculateTotals(sub.id));
+                select.addEventListener('change', () => {
+                    updateRubricFeedbackText(sub.id, tierValue);
+                });
             });
 
             const saveBtn = detailsRow.querySelector(`#save-btn-${sub.id}`);
@@ -1268,6 +1253,12 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
 
             const syncStudentBtn = detailsRow.querySelector(`#sync-btn-${sub.id}`);
             syncStudentBtn.addEventListener('click', () => syncSingleStudentToClassroom(sub.id));
+
+            const deleteBtn = headerRow.querySelector('.btn-inline-delete');
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteSubmission(sub.id, e);
+            });
 
             headerRow.onclick = (e) => {
                 if (e.target.closest('.btn-inline-delete') || e.target.closest('button') || e.target.closest('select')) return;
@@ -1284,6 +1275,13 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
             tbody.appendChild(headerRow);
             tbody.appendChild(detailsRow);
         });
+
+        // Dynamic Auto-initialization
+        setTimeout(() => {
+            filteredSubs.forEach(sub => {
+                updateRubricFeedbackText(sub.id, tierValue);
+            });
+        }, 50);
     }
 
     function openNewTemplateEditor() {
