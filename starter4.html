@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read Aloud stude</title>
+    <title>Read Aloud stud</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #f5f7fa; color: #2c3e50; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .container { max-width: 800px; width: 100%; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; margin-top: 20px; }
@@ -429,12 +429,17 @@ function renderUnseenQuestion() {
         const feedbackEl = document.getElementById('unseen-feedback');
         const instructionContainer = document.querySelector('.unseen-instruction');
 
-        // FIX: Display audio controls if audio exists, otherwise display the text prompt
+        // Always hide the text for unseen questions and show the play button
+        playBtn.classList.remove('hidden');
+        playBtn.innerText = "▶ Play Audio Question";
+        instructionContainer.innerHTML = `<h3>👂 Unseen Listening Question</h3><p>Listen closely to the question below, then record your oral response immediately.</p>`;
+
+        // Clear any previous click listeners
+        playBtn.onclick = null;
+
         if (currentUnseen.audio) {
+            // If the teacher uploaded an actual audio file, play it
             audioEl.src = currentUnseen.audio;
-            playBtn.classList.remove('hidden');
-            playBtn.innerText = "▶ Play Audio Question";
-            instructionContainer.innerHTML = `<h3>👂 Unseen Listening Question</h3><p>Listen closely to your teacher's question below, then record your oral response immediately.</p>`;
             
             playBtn.onclick = () => {
                 audioEl.play();
@@ -445,8 +450,20 @@ function renderUnseenQuestion() {
                 playBtn.innerText = "▶ Play Again";
             };
         } else {
-            playBtn.classList.add('hidden');
-            instructionContainer.innerHTML = `<h3>👀 Unseen Question</h3><p style="font-size:18px; font-weight:bold; color:#e74c3c; background:#fef9e7; padding:15px; border-radius:6px; border:1px dashed #e74c3c;">${currentUnseen.title}</p><p>Read the question above and record your oral response immediately.</p>`;
+            // If there's only text, use Text-to-Speech to read it out loud
+            playBtn.onclick = () => {
+                playBtn.innerText = "🔊 Playing Audio...";
+                const utterance = new SpeechSynthesisUtterance(currentUnseen.title);
+                
+                // Try to match the language of the assignment
+                utterance.lang = currentLanguageCode === 'fr' ? 'fr-FR' : (currentLanguageCode === 'es' ? 'es-ES' : 'en-US'); 
+                
+                utterance.onend = () => {
+                    playBtn.innerText = "▶ Play Again";
+                };
+                
+                window.speechSynthesis.speak(utterance);
+            };
         }
 
         feedbackEl.innerText = "";
@@ -476,27 +493,30 @@ function renderUnseenQuestion() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition;
 
-    if (SpeechRecognition) {
+if (SpeechRecognition) {
         recognition = new SpeechRecognition();
         recognition.lang = languageLocales[currentLanguageCode] || "fr-FR";
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
         recognition.onresult = (event) => {
+            // Only calculate accuracy if it's a standard sentence
             if (currentStepIndex < sentences.length) {
                 const transcript = event.results[0][0].transcript;
                 calculateAccuracy(transcript);
             }
         };
 
-        recognition.onerror = () => {
+        recognition.onerror = (event) => {
             stopRecordingProcess();
-            if (currentStepIndex < sentences.length) {
+            // Suppress the error if the API just detected silence ('no-speech')
+            if (event.error !== 'no-speech' && currentStepIndex < sentences.length) {
                 document.getElementById('feedback-msg').innerHTML = `<span class="error-text">Speech recognition error. Please retry.</span>`;
             }
         };
 
         recognition.onend = () => {
+            // This is the magic that auto-stops the recording when they stop speaking!
             if (isRecording) stopRecordingProcess();
         };
     }
@@ -526,12 +546,14 @@ function renderUnseenQuestion() {
                 };
 
                 mediaRecorder.start();
-                if (currentStepIndex < sentences.length && recognition) {
-                    recognition.start();
+                
+                // FIX: Start speech recognition for ALL steps so it acts as an auto-stop silence detector
+                if (recognition) {
+                    try { recognition.start(); } catch(e) { console.log(e); }
                 }
                 
                 isRecording = true;
-                recordBtn.innerText = "🛑 Stop & Process...";
+                recordBtn.innerText = "🎙️ Listening... (Stops automatically)";
                 recordBtn.classList.add('recording');
                 document.getElementById('feedback-msg').innerText = "Listening...";
             } catch (err) {
