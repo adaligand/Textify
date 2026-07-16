@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - t</title>
+    <title>Read aloud - t4</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -246,20 +246,12 @@
         <div style="background:#f9f9f9; padding:15px; border-radius: 6px; border: 1px solid #e2e8f0; margin-bottom: 15px;">
             <strong>Unseen Question 1 Reference Name:</strong>
             <input type="text" id="unseen-1-title" placeholder="e.g., Question 1: What do you do in summer?">
-            <strong>Unseen Question 1 Base64 Audio File:</strong>
-            <input type="file" id="unseen-1-file" accept="audio/*" onchange="encodeAudioFile(this, 'unseen-1-audio')">
-            <input type="hidden" id="unseen-1-audio">
-            <audio id="preview-unseen-1" controls class="hidden" style="margin-top:5px; height: 30px;"></audio>
         </div>
 
         <div style="background:#f9f9f9; padding:15px; border-radius: 6px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
             <strong>Unseen Question 2 Reference Name:</strong>
             <input type="text" id="unseen-2-title" placeholder="e.g., Question 2: Where did you go last year?">
-            <strong>Unseen Question 2 Base64 Audio File:</strong>
-            <input type="file" id="unseen-2-file" accept="audio/*" onchange="encodeAudioFile(this, 'unseen-2-audio')">
-            <input type="hidden" id="unseen-2-audio">
-            <audio id="preview-unseen-2" controls class="hidden" style="margin-top:5px; height: 30px;"></audio>
-        </div>
+                   </div>
 
         <button id="save-btn">Save changes</button>
         <button id="cancel-editor-btn" class="btn-secondary" style="margin-top: 5px;">Cancel</button>
@@ -269,9 +261,26 @@
     <div id="assign-section" class="card hidden">
         <h2>Publish on Google Classroom</h2>
         <p>Choose a class to assign this task:</p>
-        <select id="course-select">
+        <select id="course-select" style="margin-bottom: 15px;">
             <option>Loading your classes...</option>
         </select>
+
+        <!-- NEW DUE DATE / TIME PICKER MODULE -->
+        <div style="background: #f9f9f9; padding: 15px; border-radius: 6px; border: 1px solid #e2e8f0; margin-bottom: 15px;">
+            <strong style="display: block; margin-bottom: 5px; color: #2c3e50;">⏰ Due Date & Time (Optional)</strong>
+            <p style="color:#7f8c8d; font-size: 12px; margin-top:0; margin-bottom: 10px;">If set, the due date is recorded in Google Classroom, and submissions will close automatically after this time.</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div>
+                    <label for="due-date-input" style="font-size: 12px; font-weight: bold; color: #34495e;">Due Date:</label>
+                    <input type="date" id="due-date-input" style="margin-top: 5px;">
+                </div>
+                <div>
+                    <label for="due-time-input" style="font-size: 12px; font-weight: bold; color: #34495e;">Due Time:</label>
+                    <input type="time" id="due-time-input" style="margin-top: 5px;">
+                </div>
+            </div>
+        </div>
+
         <button id="assign-btn">Post Assignment to Classroom</button>
         <p id="status" style="color: #27ae60; font-weight: bold; margin-top: 15px;"></p>
     </div>
@@ -1306,6 +1315,10 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
         document.getElementById('unseen-2-audio').value = '';
         document.getElementById('unseen-2-file').value = '';
         document.getElementById('preview-unseen-2').classList.add('hidden');
+
+        // Reset Due Date Inputs
+        document.getElementById('due-date-input').value = '';
+        document.getElementById('due-time-input').value = '';
         
         showSection('editor-section');
     }
@@ -1347,6 +1360,10 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
                 } else {
                     document.getElementById('preview-unseen-2').classList.add('hidden');
                 }
+
+                // Reset Due Date Inputs
+                document.getElementById('due-date-input').value = '';
+                document.getElementById('due-time-input').value = '';
                 
                 showSection('editor-section');
                 document.getElementById('assign-section').classList.remove('hidden');
@@ -1550,18 +1567,43 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
 
             const studentUrl = `${currentDomain}?assignmentId=${firestoreAssignmentId}&courseId=${courseId}`;
 
+            // Parse optional due date and time fields
+            const dueDateValue = document.getElementById('due-date-input').value;
+            const dueTimeValue = document.getElementById('due-time-input').value;
+
+            const classroomPayload = {
+                title: `🗣️ Reading & Listening Speaking Task: ${data.title}`,
+                description: `Practice your reading aloud and complete the live unseen questions at the end of the assignment.\n\nTask details:\n- Standard passage: Out of 100% accuracy.\n- Final speaking score & unseen responses: Out of 12 (Graded by your teacher).`,
+                workType: 'ASSIGNMENT',
+                state: 'DRAFT',
+                maxPoints: 12, 
+                materials: [
+                    { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
+                ]
+            };
+
+            let dueDateTimestamp = null;
+            if (dueDateValue) {
+                const [year, month, day] = dueDateValue.split('-').map(Number);
+                classroomPayload.dueDate = { year, month, day };
+                
+                let hours = 23;
+                let minutes = 59;
+                if (dueTimeValue) {
+                    const [h, m] = dueTimeValue.split(':').map(Number);
+                    hours = h;
+                    minutes = m;
+                }
+                classroomPayload.dueTime = { hours, minutes, seconds: 0, nanos: 0 };
+                
+                // Safe browser-neutral Date construction using local parts
+                const localDate = new Date(year, month - 1, day, hours, minutes, 0);
+                dueDateTimestamp = firebase.firestore.Timestamp.fromDate(localDate);
+            }
+
             const response = await gapi.client.classroom.courses.courseWork.create({
                 courseId: courseId,
-                resource: {
-                    title: `🗣️ Reading & Listening Speaking Task: ${data.title}`,
-                    description: `Practice your reading aloud and complete the live unseen questions at the end of the assignment.\n\nTask details:\n- Standard passage: Out of 100% accuracy.\n- Final speaking score & unseen responses: Out of 12 (Graded by your teacher).`,
-                    workType: 'ASSIGNMENT',
-                    state: 'DRAFT',
-                    maxPoints: 12, 
-                    materials: [
-                        { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
-                    ]
-                }
+                resource: classroomPayload
             });
 
             const gClassroomAssignmentId = response.result.id;
@@ -1587,6 +1629,7 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
                 unseenQ1Audio: data.unseenQ1Audio || '',
                 unseenQ2Title: data.unseenQ2Title || '',
                 unseenQ2Audio: data.unseenQ2Audio || '',
+                dueDate: dueDateTimestamp, // Firebase timestamp safely recorded in assignments schema
                 timestamp: firebase.firestore.FieldValue.serverTimestamp()
             });
 
