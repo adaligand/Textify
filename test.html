@@ -799,7 +799,100 @@
             alert("Error updating database grade: " + e.message);
         }
     }
+function generatePrivateCommentText(readAloudGrade, teacherComment, unseen1Grade, unseen2Grade) {
+    const totalGrade = Number(readAloudGrade) + Number(unseen1Grade) + Number(unseen2Grade);
+    
+    return `★ Reading Aloud Assessment Feedback ★\n` +
+           `----------------------------------------\n` +
+           `• Read Aloud Accuracy: ${readAloudGrade} / 8\n` +
+           `• Feedback: "${teacherComment}"\n\n` +
+           `• Unseen Question 1: ${unseen1Grade} / 2\n` +
+           `• Unseen Question 2: ${unseen2Grade} / 2\n` +
+           `----------------------------------------\n` +
+           `Overall Grade: ${totalGrade} / 12`;
+}
+    async function postPrivateCommentToClassroom(courseId, gClassroomAssignmentId, studentSubmissionId, commentText, accessToken) {
+    const url = `https://classroom.googleapis.com/v1/courses/${courseId}/assignments/${gClassroomAssignmentId}/studentSubmissions/${studentSubmissionId}/comments`;
+    
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                commentText: commentText
+            })
+        });
 
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error("Failed to post private comment:", errorData);
+            throw new Error("Could not sync private comment to Google Classroom.");
+        }
+        
+        console.log("Private comment synced successfully!");
+        return true;
+    } catch (error) {
+        console.error("Error posting comment:", error);
+        return false;
+    }
+}
+    async function syncGradesAndFeedback(studentSubmission) {
+    // 1. Gather values from your dashboard grading form inputs
+    const readAloudGrade = document.getElementById('read-aloud-grade-input').value; // e.g., 6
+    const teacherCommentText = document.getElementById('teacher-comment-dropdown').value; // e.g., "Great pronunciation, watch your vowels!"
+    const unseen1Grade = document.getElementById('unseen1-grade-input').value; // e.g., 2
+    const unseen2Grade = document.getElementById('unseen2-grade-input').value; // e.g., 1
+    
+    // Calculate final grade out of 12
+    const finalScore = Number(readAloudGrade) + Number(unseen1Grade) + Number(unseen2Grade);
+
+    // Retrieve references needed for Classroom routing
+    const courseId = studentSubmission.courseId;
+    const gClassroomAssignmentId = studentSubmission.gClassroomAssignmentId;
+    const studentSubmissionId = studentSubmission.gClassroomSubmissionId; // Ensure you save this ID when fetching submissions!
+    const accessToken = gapi.auth.getToken().access_token; // Or your active Google token variable
+
+    try {
+        // Step A: Patch the numerical grade to Google Classroom
+        const patchUrl = `https://classroom.googleapis.com/v1/courses/${courseId}/assignments/${gClassroomAssignmentId}/studentSubmissions/${studentSubmissionId}?updateMask=assignedGrade`;
+        
+        const gradeResponse = await fetch(patchUrl, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                assignedGrade: finalScore
+            })
+        });
+
+        if (!gradeResponse.ok) throw new Error("Failed to sync numerical grade.");
+
+        // Step B: Generate structured text & post it as a private comment
+        const structuredFeedback = generatePrivateCommentText(readAloudGrade, teacherCommentText, unseen1Grade, unseen2Grade);
+        await postPrivateCommentToClassroom(courseId, gClassroomAssignmentId, studentSubmissionId, structuredFeedback, accessToken);
+
+        // Step C: Update Firebase to store these finalized marks
+        await db.collection("submissions").doc(studentSubmission.id).update({
+            readAloudGrade: Number(readAloudGrade),
+            teacherComment: teacherCommentText,
+            unseen1Grade: Number(unseen1Grade),
+            unseen2Grade: Number(unseen2Grade),
+            overallGrade: finalScore,
+            syncedToClassroom: true
+        });
+
+        alert("🎉 Student assessment has been fully graded, private comments posted, and synced with Google Classroom!");
+        
+    } catch (error) {
+        console.error("Sync workflow failed:", error);
+        alert("Failed to fully sync data with Google Classroom. Please check teacher permissions.");
+    }
+}
 /**
  * Reads UI filters and triggers the submission renderer.
  */
