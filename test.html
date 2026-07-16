@@ -258,18 +258,22 @@
         <button id="cancel-editor-btn" class="btn-secondary" style="margin-top: 5px;">Cancel</button>
     </div>
 
-    <!-- Live Publish Screen -->
-    <div id="assign-section" class="card hidden">
-        <h2>Publish on Google Classroom</h2>
-        <p>Choose a class to assign this task:</p>
-        <select id="course-select">
-            <option>Loading your classes...</option>
-        </select>
-        <button id="assign-btn">Post Assignment to Classroom</button>
-        <p id="status" style="color: #27ae60; font-weight: bold; margin-top: 15px;"></p>
-    </div>
+<!-- Live Publish Screen -->
+<div id="assign-section" class="card hidden">
+    <h2>Publish on Google Classroom</h2>
+    <p>Choose a class to assign this task:</p>
+    <select id="course-select">
+        <option>Loading your classes...</option>
+    </select>
+    
+    <!-- ADDED: Due Date and Time Input Field -->
+    <label for="due-date-input" style="font-weight: bold; font-size: 14px; color: #34495e; display: block; margin-top: 15px; margin-bottom: 5px;">Set Due Date & Time (Optional):</label>
+    <input type="datetime-local" id="due-date-input" style="margin-bottom: 15px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; width: 100%;">
+    
+    <button id="assign-btn">Post Assignment to Classroom</button>
+    <p id="status" style="color: #27ae60; font-weight: bold; margin-top: 15px;"></p>
 </div>
-
+</div>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://apis.google.com/js/api.js"></script>
@@ -1512,9 +1516,10 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
         }
     }
 
-    document.getElementById('assign-btn').onclick = async () => {
+   document.getElementById('assign-btn').onclick = async () => {
         const courseId = document.getElementById('course-select').value;
         const status = document.getElementById('status');
+        const dueDateVal = document.getElementById('due-date-input').value; // Get the chosen due date
         
         if (!courseId || courseId.startsWith("Loading")) {
             alert("Please choose a Classroom course first!");
@@ -1543,18 +1548,49 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
 
             const studentUrl = `${currentDomain}?assignmentId=${firestoreAssignmentId}&courseId=${courseId}`;
 
+            // --- ADDED: Google Classroom Due Date Conversion ---
+            let gcDueDate = null;
+            let gcDueTime = null;
+
+            if (dueDateVal) {
+                const dateObj = new Date(dueDateVal);
+                gcDueDate = {
+                    year: dateObj.getFullYear(),
+                    month: dateObj.getMonth() + 1, // JS months are 0-indexed
+                    day: dateObj.getDate()
+                };
+                gcDueTime = {
+                    hours: dateObj.getHours(),
+                    minutes: dateObj.getMinutes(),
+                    seconds: 0,
+                    nanos: 0
+                };
+            }
+            // ---------------------------------------------------
+
+            // Create the payload for Google Classroom coursework
+            const courseWorkResource = {
+                title: `🗣️ Reading & Listening Speaking Task: ${data.title}`,
+                description: `Practice your reading aloud and complete the live unseen questions at the end of the assignment.\n\nTask details:\n- Standard passage: Out of 100% accuracy.\n- Final speaking score & unseen responses: Out of 12 (Graded by your teacher).`,
+                workType: 'ASSIGNMENT',
+                state: 'DRAFT',
+                maxPoints: 12, 
+                materials: [
+                    { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
+                ]
+            };
+
+            // ADDED: Inject Due Date configurations to restrict student modifications/submissions
+            if (gcDueDate && gcDueTime) {
+                courseWorkResource.dueDate = gcDueDate;
+                courseWorkResource.dueTime = gcDueTime;
+                // Classroom API locks un-submissions or editing after this date:
+                courseWorkResource.submissionModificationMode = 'MODIFIABLE_UNTIL_DUE_DATE';
+            }
+
             const response = await gapi.client.classroom.courses.courseWork.create({
                 courseId: courseId,
-                resource: {
-                    title: `🗣️ Reading & Listening Speaking Task: ${data.title}`,
-                    description: `Practice your reading aloud and complete the live unseen questions at the end of the assignment.\n\nTask details:\n- Standard passage: Out of 100% accuracy.\n- Final speaking score & unseen responses: Out of 12 (Graded by your teacher).`,
-                    workType: 'ASSIGNMENT',
-                    state: 'DRAFT',
-                    maxPoints: 12, 
-                    materials: [
-                        { link: { url: studentUrl, title: "Read Aloud Student Reading Workspace" } }
-                    ]
-                }
+                resource: courseWorkResource
             });
 
             const gClassroomAssignmentId = response.result.id;
@@ -1566,6 +1602,7 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
                 resource: { state: 'PUBLISHED' }
             });
 
+            // ADDED: Also save 'dueDate' string locally in the assignments document
             await tempAssignmentDocRef.set({
                 id: firestoreAssignmentId,             
                 gClassroomAssignmentId: gClassroomAssignmentId, 
@@ -1576,6 +1613,7 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
                 tier: data.tier || 'foundation',
                 yearGroup: data.yearGroup,
                 topic: data.topic,
+                dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null, // Stored as ISO string
                 unseenQ1Title: data.unseenQ1Title || '',
                 unseenQ1Audio: data.unseenQ1Audio || '',
                 unseenQ2Title: data.unseenQ2Title || '',
@@ -1584,6 +1622,8 @@ function renderStudentSubmissions(selectedCourseId, selectedAssignmentId, tbody)
             });
 
             status.innerText = "Published successfully! It is now live in your Google Classroom feed.";
+            // Reset input form
+            document.getElementById('due-date-input').value = "";
             setTimeout(() => { status.innerText = ""; }, 5000);
         } catch (e) {
             status.innerText = "";
