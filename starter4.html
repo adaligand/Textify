@@ -254,7 +254,7 @@
 
             if (doc.exists) {
                 const data = doc.data();
-                document.getElementById('passage-title').innerText = data.title;
+                document.getElementById('passage-title').innerText = data.title || "Reading Practice";
                 courseId = data.courseId || courseId || ""; 
                 gClassroomAssignmentId = data.gClassroomAssignmentId || "";
                 
@@ -269,11 +269,31 @@
 
                 unseenQuestions = [];
                 
-                // --- FIX: First attempt to load from 'unseenResponses' array if present in database ---
-                if (data.unseenResponses && Array.isArray(data.unseenResponses)) {
+                // Helper to search keys case-insensitively in Firestore object data
+                const getCaseInsensitiveProp = (obj, propName) => {
+                    const lowerProp = propName.toLowerCase();
+                    const matchedKey = Object.keys(obj).find(key => key.toLowerCase() === lowerProp);
+                    return matchedKey ? obj[matchedKey] : "";
+                };
+
+                // Safely extract from Flat Properties first (which is how assignments are stored in db)
+                const q1Audio = getCaseInsensitiveProp(data, 'unseenQ1Audio');
+                const q1Title = getCaseInsensitiveProp(data, 'unseenQ1Title') || 'Unseen Question 1';
+                const q2Audio = getCaseInsensitiveProp(data, 'unseenQ2Audio');
+                const q2Title = getCaseInsensitiveProp(data, 'unseenQ2Title') || 'Unseen Question 2';
+
+                if (q1Audio) {
+                    unseenQuestions.push({ id: 'unseen_1', title: q1Title, audio: q1Audio });
+                }
+                if (q2Audio) {
+                    unseenQuestions.push({ id: 'unseen_2', title: q2Title, audio: q2Audio });
+                }
+
+                // Fallback attempt to load from 'unseenResponses' array if the structure changes
+                if (unseenQuestions.length === 0 && data.unseenResponses && Array.isArray(data.unseenResponses)) {
                     data.unseenResponses.forEach((q, idx) => {
-                        const audio = q.audio || q.unseenQ1Audio || q.unseenQ2Audio || q.unseenAudio || "";
-                        const title = q.title || q.unseenQ1Title || q.unseenQ2Title || q.unseenTitle || `Unseen Question ${idx + 1}`;
+                        const audio = q.audio || q.unseenQ1Audio || q.unseenQ2Audio || "";
+                        const title = q.title || q.unseenQ1Title || q.unseenQ2Title || `Unseen Question ${idx + 1}`;
                         if (audio) {
                             unseenQuestions.push({
                                 id: q.id || `unseen_${idx + 1}`,
@@ -284,27 +304,12 @@
                     });
                 }
 
-                // --- Fallback: If array is empty, load using traditional flat properties ---
-                if (unseenQuestions.length === 0) {
-                    const q1Audio = data.unseenQ1Audio || data.unseenq1audio || data.unseenQ1audio || "";
-                    const q1Title = data.unseenQ1Title || data.unseenq1title || data.unseenQ1title || 'Unseen Question 1';
-                    
-                    const q2Audio = data.unseenQ2Audio || data.unseenq2audio || data.unseenQ2audio || "";
-                    const q2Title = data.unseenQ2Title || data.unseenq2title || data.unseenQ2title || 'Unseen Question 2';
-
-                    if (q1Audio) {
-                        unseenQuestions.push({ id: 'unseen_1', title: q1Title, audio: q1Audio });
-                    }
-                    if (q2Audio) {
-                        unseenQuestions.push({ id: 'unseen_2', title: q2Title, audio: q2Audio });
-                    }
-                }
-
                 totalSteps = sentences.length + unseenQuestions.length;
                 sentenceAttemptScores = sentences.map(() => ({ attempts: [], audio: null }));
                 unseenResponses = unseenQuestions.map(q => ({ questionId: q.id, audio: null }));
 
                 console.log("Steps calculated successfully: ", totalSteps);
+                console.log("Unseen Questions loaded: ", unseenQuestions);
 
                 renderStep();
             } else {
