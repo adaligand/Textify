@@ -245,7 +245,7 @@
         }
     }
 
- async function loadAssignmentData() {
+async function loadAssignmentData() {
         try {
             let doc = await db.collection("assignments").doc(assignmentId).get();
             if (!doc.exists) {
@@ -269,32 +269,32 @@
 
                 unseenQuestions = [];
                 
-                // Direct Case Mapping & Helper
-                const getProp = (obj, key) => {
-                    if (!obj) return "";
-                    const lowerKey = key.toLowerCase();
-                    const foundKey = Object.keys(obj).find(k => k.toLowerCase() === lowerKey);
-                    return foundKey ? obj[foundKey] : "";
+                const getCaseInsensitiveProp = (obj, propName) => {
+                    const lowerProp = propName.toLowerCase();
+                    const matchedKey = Object.keys(obj).find(key => key.toLowerCase() === lowerProp);
+                    return matchedKey ? obj[matchedKey] : "";
                 };
 
-                // Extract unseen audio & titles safely
-                const q1Audio = getProp(data, 'unseenQ1Audio') || data.unseenQ1Audio || "";
-                const q1Title = getProp(data, 'unseenQ1Title') || data.unseenQ1Title || 'Unseen Question 1';
-                const q2Audio = getProp(data, 'unseenQ2Audio') || data.unseenQ2Audio || "";
-                const q2Title = getProp(data, 'unseenQ2Title') || data.unseenQ2Title || 'Unseen Question 2';
+                // FIX: Safely extract raw titles to check if the teacher typed text without audio
+                const rawQ1Title = getCaseInsensitiveProp(data, 'unseenQ1Title');
+                const q1Audio = getCaseInsensitiveProp(data, 'unseenQ1Audio');
+                const rawQ2Title = getCaseInsensitiveProp(data, 'unseenQ2Title');
+                const q2Audio = getCaseInsensitiveProp(data, 'unseenQ2Audio');
 
-                if (q1Audio) {
-                    unseenQuestions.push({ id: 'unseen_1', title: q1Title, audio: q1Audio });
+                // Push if EITHER the teacher typed a specific title OR provided audio
+                if (rawQ1Title || q1Audio) {
+                    unseenQuestions.push({ id: 'unseen_1', title: rawQ1Title || 'Unseen Question 1', audio: q1Audio || "" });
                 }
-                if (q2Audio) {
-                    unseenQuestions.push({ id: 'unseen_2', title: q2Title, audio: q2Audio });
+                
+                if (rawQ2Title || q2Audio) {
+                    unseenQuestions.push({ id: 'unseen_2', title: rawQ2Title || 'Unseen Question 2', audio: q2Audio || "" });
                 }
 
-                // Array fallback structure
+                // Fallback attempt to load from 'unseenResponses' array if the structure changes
                 if (unseenQuestions.length === 0 && data.unseenResponses && Array.isArray(data.unseenResponses)) {
                     data.unseenResponses.forEach((q, idx) => {
-                        const audio = q.audio || getProp(q, 'unseenQ1Audio') || getProp(q, 'unseenQ2Audio') || "";
-                        const title = q.title || getProp(q, 'unseenQ1Title') || getProp(q, 'unseenQ2Title') || `Unseen Question ${idx + 1}`;
+                        const audio = q.audio || q.unseenQ1Audio || q.unseenQ2Audio || "";
+                        const title = q.title || q.unseenQ1Title || q.unseenQ2Title || `Unseen Question ${idx + 1}`;
                         if (audio) {
                             unseenQuestions.push({
                                 id: q.id || `unseen_${idx + 1}`,
@@ -308,9 +308,6 @@
                 totalSteps = sentences.length + unseenQuestions.length;
                 sentenceAttemptScores = sentences.map(() => ({ attempts: [], audio: null }));
                 unseenResponses = unseenQuestions.map(q => ({ questionId: q.id, audio: null }));
-
-                console.log("Steps calculated successfully: ", totalSteps);
-                console.log("Unseen Questions loaded: ", unseenQuestions);
 
                 renderStep();
             } else {
@@ -420,7 +417,7 @@
         updateAttemptsHistoryMessage();
     }
 
-    function renderUnseenQuestion() {
+function renderUnseenQuestion() {
         const unseenIndex = currentStepIndex - sentences.length;
         const currentUnseen = unseenQuestions[unseenIndex];
 
@@ -430,26 +427,35 @@
         const playBtn = document.getElementById('unseen-play-btn');
         const audioEl = document.getElementById('unseen-audio-source');
         const feedbackEl = document.getElementById('unseen-feedback');
+        const instructionContainer = document.querySelector('.unseen-instruction');
 
-        audioEl.src = currentUnseen.audio;
-        playBtn.innerText = "▶ Play Audio Question";
+        // FIX: Display audio controls if audio exists, otherwise display the text prompt
+        if (currentUnseen.audio) {
+            audioEl.src = currentUnseen.audio;
+            playBtn.classList.remove('hidden');
+            playBtn.innerText = "▶ Play Audio Question";
+            instructionContainer.innerHTML = `<h3>👂 Unseen Listening Question</h3><p>Listen closely to your teacher's question below, then record your oral response immediately.</p>`;
+            
+            playBtn.onclick = () => {
+                audioEl.play();
+                playBtn.innerText = "🔊 Playing Audio...";
+            };
+
+            audioEl.onended = () => {
+                playBtn.innerText = "▶ Play Again";
+            };
+        } else {
+            playBtn.classList.add('hidden');
+            instructionContainer.innerHTML = `<h3>👀 Unseen Question</h3><p style="font-size:18px; font-weight:bold; color:#e74c3c; background:#fef9e7; padding:15px; border-radius:6px; border:1px dashed #e74c3c;">${currentUnseen.title}</p><p>Read the question above and record your oral response immediately.</p>`;
+        }
+
         feedbackEl.innerText = "";
-
-        playBtn.onclick = () => {
-            audioEl.play();
-            playBtn.innerText = "🔊 Playing Audio...";
-        };
-
-        audioEl.onended = () => {
-            playBtn.innerText = "▶ Play Again";
-        };
 
         const responseObj = unseenResponses[unseenIndex];
         if (responseObj && responseObj.audio) {
             feedbackEl.innerText = "✓ Your oral response has been recorded.";
         }
     }
-
     function updateAttemptsHistoryMessage() {
         if (currentStepIndex >= sentences.length) return;
         const tracking = sentenceAttemptScores[currentStepIndex];
