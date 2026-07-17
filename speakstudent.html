@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read Aloudcs</title>
+    <title>Read Aloudcsppp</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #f5f7fa; color: #2c3e50; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .container { max-width: 800px; width: 100%; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; margin-top: 20px; }
@@ -689,39 +689,43 @@
         }
     }
 function renderUnseenQuestion() {
+function renderUnseenQuestion() {
         const unseenIndex = currentStepIndex - sentences.length;
         const currentQuestion = unseenQuestions[unseenIndex];
         
+        // 1. KEEP IT UNSEEN: Do NOT put the actual question text into the heading.
         const textHeading = document.querySelector('#unseen-questions-workspace h3');
         if (textHeading && currentQuestion) {
-            textHeading.innerText = `👂 ${currentQuestion.title}`;
+            // Only display a generic title so the student doesn't see the text!
+            textHeading.innerText = `👂 Unseen Question ${unseenIndex + 1}`;
         }
         
-        const audioSource = document.getElementById('unseen-audio-source');
-        if (audioSource && currentQuestion) {
-            console.log(`Loading audio for ${currentQuestion.title}:`, currentQuestion.audio);
-            
-            if (currentQuestion.audio) {
-                audioSource.src = currentQuestion.audio;
-                audioSource.load(); // Forces browser to load the fresh question source path
-            } else {
-                console.error(`Missing audio source track metadata for: ${currentQuestion.title}`);
-            }
-        }
-
+        // 2. TTS BACKUP OR AUDIO PLAYBACK TRIGGER
         const playBtn = document.getElementById('unseen-play-btn');
-        if (playBtn && audioSource) {
-            // Remove any old event listeners by cloning the button node completely
+        if (playBtn && currentQuestion) {
+            // Clone the button to wipe out stale click event listeners
             const newPlayBtn = playBtn.cloneNode(true);
             playBtn.parentNode.replaceChild(newPlayBtn, playBtn);
             
-            // Bind a fresh, isolated click event to the new button instance
             newPlayBtn.onclick = (e) => {
                 e.preventDefault();
-                audioSource.play().catch(err => {
-                    console.error("Audio playback interrupted or failed:", err);
-                    alert("Playback failed. Please ensure your teacher uploaded a valid audio file format.");
-                });
+                
+                // Case A: If there is a real audio file uploaded, play it
+                if (currentQuestion.audio && currentQuestion.audio.trim() !== "") {
+                    const audioSource = document.getElementById('unseen-audio-source');
+                    if (audioSource) {
+                        audioSource.src = currentQuestion.audio;
+                        audioSource.load();
+                        audioSource.play().catch(err => {
+                            console.warn("Audio file failed, falling back to TTS:", err);
+                            speakUnseenWithTTS(currentQuestion.title);
+                        });
+                    }
+                } 
+                // Case B: If no audio file exists, use the multilingual TTS engine to speak the question
+                else if (currentQuestion.title) {
+                    speakUnseenWithTTS(currentQuestion.title);
+                }
             };
         }
 
@@ -733,6 +737,25 @@ function renderUnseenQuestion() {
             } else {
                 feedbackMsg.innerText = "";
             }
+        }
+    }
+
+    // Helper function to read the unseen question text without exposing it on screen
+    function speakUnseenWithTTS(textToSpeak) {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel(); // Stop any overlapping audio
+            
+            // Strip out markdown or brackets if any exist
+            const cleanText = textToSpeak.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "");
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            
+            // Set the correct target language (FR, DE, ES) dynamically
+            utterance.lang = languageLocales[currentLanguageCode] || 'fr-FR';
+            utterance.rate = 0.85; // Slightly slower speed for better listening comprehension
+            
+            window.speechSynthesis.speak(utterance);
+        } else {
+            alert("Your web browser does not support speech synthesis.");
         }
     }
 
