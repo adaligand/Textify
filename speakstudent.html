@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read Aloudscct</title>
+    <title>Read Alouds</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #f5f7fa; color: #2c3e50; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .container { max-width: 800px; width: 100%; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; margin-top: 20px; }
@@ -314,7 +314,6 @@
     courseId = urlParams.get('courseId') || "";
 
     // INITIALIZE GOOGLE CLIENT
-   // INITIALIZE GOOGLE CLIENT
     function initGoogleClient() {
         try {
             if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
@@ -362,6 +361,55 @@
             alert("Google Sign-In is still loading. Please wait 2-3 seconds and try again.");
         }
     };
+
+    // UNIQUE LOGIN SUCCESS HANDLER WITH BOTH SAFETY & DOMAIN CHECKS
+    function handleLoginSuccess(accessToken) {
+        fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
+            .then(res => {
+                if (!res.ok) throw new Error("Failed to contact Google API");
+                return res.json();
+            })
+            .then(async (data) => {
+                if (!data || !data.email) {
+                    alert("Login Error: Your school account is blocking access to your profile info. Please contact your IT administrator to approve this app.");
+                    return;
+                }
+
+                const emailLower = data.email.toLowerCase();
+
+                // HARD SECURITY CHECK: Block entry if the email doesn't end with your school domain
+                if (!emailLower.endsWith('@cedarsupper.co.uk')) {
+                    alert("⚠️ Access Denied: You must sign in using your official school email account (@cedarsupper.co.uk). Personal accounts are not permitted.");
+                    
+                    if (window.google && google.accounts && google.accounts.oauth2) {
+                        google.accounts.oauth2.revoke(accessToken, () => {
+                            console.log("Unauthenticated session revoked.");
+                        });
+                    }
+                    return;
+                }
+
+                studentEmail = emailLower;
+                studentName = data.name || data.email.split('@')[0];
+                
+                const studentNameEl = document.getElementById('student-name');
+                const authCardEl = document.getElementById('auth-card');
+                
+                if (studentNameEl) studentNameEl.innerText = `Logged in: ${studentName}`;
+                if (authCardEl) authCardEl.classList.add('hidden');
+                
+                if (typeof checkExistingSubmission === "function") {
+                    checkExistingSubmission();
+                } else {
+                    console.warn("checkExistingSubmission function is not defined.");
+                }
+            })
+            .catch(err => {
+                console.error("Profile fetch error:", err);
+                alert("Failed to retrieve user profile information.");
+            });
+    }
+
     async function checkExistingSubmission() {
         if (!assignmentId) {
             alert("No assignment parameters detected. Navigate from Classroom.");
@@ -641,7 +689,38 @@
         }
     }
 
-function renderUnseenQuestion()
+    // FIXED: Corrected open/close blocks and logic for unseen questions
+    function renderUnseenQuestion() {
+        const unseenIndex = currentStepIndex - sentences.length;
+        const currentQuestion = unseenQuestions[unseenIndex];
+        
+        const textHeading = document.querySelector('#unseen-questions-workspace h3');
+        if (textHeading && currentQuestion) {
+            textHeading.innerText = `👂 ${currentQuestion.title}`;
+        }
+        
+        const audioSource = document.getElementById('unseen-audio-source');
+        if (audioSource && currentQuestion && currentQuestion.audio) {
+            audioSource.src = currentQuestion.audio;
+        }
+
+        const playBtn = document.getElementById('unseen-play-btn');
+        if (playBtn && audioSource) {
+            playBtn.onclick = () => {
+                audioSource.play();
+            };
+        }
+
+        const feedbackMsg = document.getElementById('unseen-feedback');
+        if (feedbackMsg) {
+            const currentResponse = unseenResponses[unseenIndex];
+            if (currentResponse && currentResponse.audio) {
+                feedbackMsg.innerText = "✓ Your response has been recorded.";
+            } else {
+                feedbackMsg.innerText = "";
+            }
+        }
+    }
 
     function updateAttemptsHistoryMessage() {
         if (currentStepIndex >= sentences.length) return;
