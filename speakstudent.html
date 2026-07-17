@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read Aloudst</title>
+    <title>Read Aloudscct</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #f5f7fa; color: #2c3e50; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .container { max-width: 800px; width: 100%; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; margin-top: 20px; }
@@ -314,85 +314,54 @@
     courseId = urlParams.get('courseId') || "";
 
     // INITIALIZE GOOGLE CLIENT
+   // INITIALIZE GOOGLE CLIENT
     function initGoogleClient() {
         try {
             if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
-                tokenClient = google.accounts.oauth2.initTokenClient({
-                    client_id: CLIENT_ID,
-                    scope: SCOPES,
-                    hd: 'cedarsupper.co.uk', 
-                    callback: (tokenResponse) => {
-                        if (tokenResponse.access_token) {
-                            handleLoginSuccess(tokenResponse.access_token);
-                        }
-                    },
-                });
+                // Only initialize if we haven't already
+                if (!tokenClient) {
+                    tokenClient = google.accounts.oauth2.initTokenClient({
+                        client_id: CLIENT_ID,
+                        scope: SCOPES,
+                        hd: 'cedarsupper.co.uk', 
+                        callback: (tokenResponse) => {
+                            if (tokenResponse.access_token) {
+                                handleLoginSuccess(tokenResponse.access_token);
+                            }
+                        },
+                    });
+                }
+                return tokenClient;
             } else {
                 console.warn("Google Identity Services SDK is not loaded yet.");
+                return null;
             }
         } catch (e) {
             console.error("Google Auth Setup Failed:", e);
+            return null;
         }
     }
 
-    // RESTORED: Click handler to trigger the Google Sign-in flow when clicking the button
+    // FIXED: Corrected button handler to ensure the request triggers properly on subsequent clicks
     document.getElementById('auth-btn').onclick = () => {
-        if (!tokenClient) initGoogleClient();
-        if (tokenClient) {
-            tokenClient.requestAccessToken();
+        // Try to get or initialize the token client
+        const client = tokenClient || initGoogleClient();
+        
+        if (client) {
+            try {
+                // Request the token flow
+                client.requestAccessToken({ prompt: 'select_account' }); 
+            } catch (err) {
+                console.error("Token request failed, re-initializing client...", err);
+                // If the client object became stale/errored, nullify and retry once
+                tokenClient = null;
+                const retryClient = initGoogleClient();
+                if (retryClient) retryClient.requestAccessToken({ prompt: 'select_account' });
+            }
         } else {
-            alert("Please wait a moment while components finish loading.");
+            alert("Google Sign-In is still loading. Please wait 2-3 seconds and try again.");
         }
     };
-
-    // UNIQUE LOGIN SUCCESS HANDLER WITH BOTH SAFETY & DOMAIN CHECKS
-    function handleLoginSuccess(accessToken) {
-        fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
-            .then(res => {
-                if (!res.ok) throw new Error("Failed to contact Google API");
-                return res.json();
-            })
-            .then(async (data) => {
-                if (!data || !data.email) {
-                    alert("Login Error: Your school account is blocking access to your profile info. Please contact your IT administrator to approve this app.");
-                    return;
-                }
-
-                const emailLower = data.email.toLowerCase();
-
-                // HARD SECURITY CHECK: Block entry if the email doesn't end with your school domain
-                if (!emailLower.endsWith('@cedarsupper.co.uk')) {
-                    alert("⚠️ Access Denied: You must sign in using your official school email account (@cedarsupper.co.uk). Personal accounts are not permitted.");
-                    
-                    if (window.google && google.accounts && google.accounts.oauth2) {
-                        google.accounts.oauth2.revoke(accessToken, () => {
-                            console.log("Unauthenticated session revoked.");
-                        });
-                    }
-                    return;
-                }
-
-                studentEmail = emailLower;
-                studentName = data.name || data.email.split('@')[0];
-                
-                const studentNameEl = document.getElementById('student-name');
-                const authCardEl = document.getElementById('auth-card');
-                
-                if (studentNameEl) studentNameEl.innerText = `Logged in: ${studentName}`;
-                if (authCardEl) authCardEl.classList.add('hidden');
-                
-                if (typeof checkExistingSubmission === "function") {
-                    checkExistingSubmission();
-                } else {
-                    console.warn("checkExistingSubmission function is not defined.");
-                }
-            })
-            .catch(err => {
-                console.error("Profile fetch error:", err);
-                alert("Failed to retrieve user profile information.");
-            });
-    }
-
     async function checkExistingSubmission() {
         if (!assignmentId) {
             alert("No assignment parameters detected. Navigate from Classroom.");
