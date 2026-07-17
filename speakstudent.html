@@ -346,12 +346,14 @@ function handleLoginSuccess(accessToken) {
     assignmentId = urlParams.get('assignmentId') || urlParams.get('passageId') || ""; 
     courseId = urlParams.get('courseId') || "";
 
-    function initGoogleClient() {
+   function initGoogleClient() {
         try {
             if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
                 tokenClient = google.accounts.oauth2.initTokenClient({
                     client_id: CLIENT_ID,
                     scope: SCOPES,
+                    // OPTIMIZATION: Tells Google to prioritize and show ONLY accounts on this domain
+                    hosted_domain: 'cedarsupper.co.uk', 
                     callback: (tokenResponse) => {
                         if (tokenResponse.access_token) {
                             handleLoginSuccess(tokenResponse.access_token);
@@ -364,24 +366,37 @@ function handleLoginSuccess(accessToken) {
         }
     }
 
-    document.getElementById('auth-btn').onclick = () => {
-        if (!tokenClient) initGoogleClient();
-        if (tokenClient) {
-            tokenClient.requestAccessToken();
-        } else {
-            alert("Please wait a moment while components finish loading.");
-        }
-    };
-
     function handleLoginSuccess(accessToken) {
         fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
             .then(res => res.json())
             .then(async (data) => {
-                studentEmail = data.email.toLowerCase();
+                if (!data || !data.email) {
+                    alert("Login Error: Unable to read profile data. Please authorize this app.");
+                    return;
+                }
+
+                const emailLower = data.email.toLowerCase();
+
+                // HARD SECURITY CHECK: Block entry if the email doesn't end with your school domain
+                if (!emailLower.endsWith('@cedarsupper.co.uk')) {
+                    alert("⚠️ Access Denied: You must sign in using your official school email account (@cedarsupper.co.uk). Personal accounts are not permitted.");
+                    // Reset the token so they aren't stuck logged into the wrong account
+                    if (google && google.accounts && google.accounts.oauth2) {
+                        google.accounts.oauth2.revoke(accessToken, () => {});
+                    }
+                    return;
+                }
+
+                // Proceed with loading app data safely
+                studentEmail = emailLower;
                 studentName = data.name || data.email.split('@')[0];
                 document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
                 document.getElementById('auth-card').classList.add('hidden');
                 checkExistingSubmission();
+            })
+            .catch(err => {
+                console.error("Profile fetch error:", err);
+                alert("Failed to retrieve user profile information.");
             });
     }
 
