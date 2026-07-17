@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read Aloud stent</title>
+    <title>Read Aloud setent</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #f5f7fa; color: #2c3e50; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .container { max-width: 800px; width: 100%; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; margin-top: 20px; }
@@ -274,7 +274,6 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-<!-- REPLACE THE SCRIPT PORTION IN YOUR STARTER4 FILE WITH THIS CORRECTED CODE -->
 <script>
     const firebaseConfig = {
         apiKey: "AIzaSyDnfndrVR5reVNxLc7pGwxp6910_0L5P98",
@@ -288,32 +287,8 @@
     const db = firebase.firestore();
 
     const CLIENT_ID = '162949632188-fifdjjtug2mqu5uc80r2fdrqfacvkkrg.apps.googleusercontent.com';
-   // 1. CHANGE THE SCOPES TO STANDARD OPENID PROFILE SCOPES
-// School domains usually permit these standard identity scopes automatically.
-const SCOPES = 'openid email profile';
+    const SCOPES = 'openid email profile';
 
-// 2. ADD SAFETY CHECKS TO THE LOGIN FUNCTION
-function handleLoginSuccess(accessToken) {
-    fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
-        .then(res => res.json())
-        .then(async (data) => {
-            // Check if Google actually returned the email
-            if (!data || !data.email) {
-                alert("Login Error: Your school account is blocking access to your profile info. Please contact your IT administrator to approve this app.");
-                return;
-            }
-
-            studentEmail = data.email.toLowerCase();
-            studentName = data.name || data.email.split('@')[0];
-            document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
-            document.getElementById('auth-card').classList.add('hidden');
-            checkExistingSubmission();
-        })
-        .catch(err => {
-            console.error("Profile fetch error:", err);
-            alert("Failed to retrieve user profile information.");
-        });
-}
     let tokenClient = null;
     let studentEmail = "";
     let studentName = "";
@@ -346,53 +321,74 @@ function handleLoginSuccess(accessToken) {
     assignmentId = urlParams.get('assignmentId') || urlParams.get('passageId') || ""; 
     courseId = urlParams.get('courseId') || "";
 
-   function initGoogleClient() {
+    // INITIALIZE GOOGLE CLIENT
+    function initGoogleClient() {
         try {
             if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
                 tokenClient = google.accounts.oauth2.initTokenClient({
                     client_id: CLIENT_ID,
                     scope: SCOPES,
-                    // OPTIMIZATION: Tells Google to prioritize and show ONLY accounts on this domain
-                    hosted_domain: 'cedarsupper.co.uk', 
+                    // CORRECTED: GIS uses 'hd' instead of 'hosted_domain'
+                    hd: 'cedarsupper.co.uk', 
                     callback: (tokenResponse) => {
                         if (tokenResponse.access_token) {
                             handleLoginSuccess(tokenResponse.access_token);
                         }
                     },
                 });
+            } else {
+                console.warn("Google Identity Services SDK is not loaded yet.");
             }
         } catch (e) {
             console.error("Google Auth Setup Failed:", e);
         }
     }
 
+    // UNIQUE LOGIN SUCCESS HANDLER WITH BOTH SAFETY & DOMAIN CHECKS
     function handleLoginSuccess(accessToken) {
         fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error("Failed to contact Google API");
+                return res.json();
+            })
             .then(async (data) => {
+                // Safety check 1: Ensure Google returned email data
                 if (!data || !data.email) {
-                    alert("Login Error: Unable to read profile data. Please authorize this app.");
+                    alert("Login Error: Your school account is blocking access to your profile info. Please contact your IT administrator to approve this app.");
                     return;
                 }
 
                 const emailLower = data.email.toLowerCase();
 
-                // HARD SECURITY CHECK: Block entry if the email doesn't end with your school domain
+                // Safety check 2: Restrict entry strictly to school domain
                 if (!emailLower.endsWith('@cedarsupper.co.uk')) {
                     alert("⚠️ Access Denied: You must sign in using your official school email account (@cedarsupper.co.uk). Personal accounts are not permitted.");
-                    // Reset the token so they aren't stuck logged into the wrong account
-                    if (google && google.accounts && google.accounts.oauth2) {
-                        google.accounts.oauth2.revoke(accessToken, () => {});
+                    
+                    // Revoke token immediately so they aren't stuck logged in
+                    if (window.google && google.accounts && google.accounts.oauth2) {
+                        google.accounts.oauth2.revoke(accessToken, () => {
+                            console.log("Unauthenticated session revoked.");
+                        });
                     }
                     return;
                 }
 
-                // Proceed with loading app data safely
+                // Proceed safely once verified
                 studentEmail = emailLower;
                 studentName = data.name || data.email.split('@')[0];
-                document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
-                document.getElementById('auth-card').classList.add('hidden');
-                checkExistingSubmission();
+                
+                const studentNameEl = document.getElementById('student-name');
+                const authCardEl = document.getElementById('auth-card');
+                
+                if (studentNameEl) studentNameEl.innerText = `Logged in: ${studentName}`;
+                if (authCardEl) authCardEl.classList.add('hidden');
+                
+                // Trigger subsequent page actions
+                if (typeof checkExistingSubmission === "function") {
+                    checkExistingSubmission();
+                } else {
+                    console.warn("checkExistingSubmission function is not defined.");
+                }
             })
             .catch(err => {
                 console.error("Profile fetch error:", err);
