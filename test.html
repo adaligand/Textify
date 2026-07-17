@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Read aloud - tccc</title>
+    <title>Read aloud -teachtccc</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; height: 100vh; }
         
@@ -573,9 +573,9 @@
         });
     }
 
-    async function triggerClassroomTaskSync() {
+   async function triggerClassroomTaskSync() {
         const selectedCourseId = filterCourse.value;
-        const selectedAssignmentId = filterTask.value;
+        const selectedAssignmentId = filterTask.value; // Firestore Assignment ID
         const syncBtn = document.getElementById('sync-all-classroom-grades-btn');
 
         if (!selectedCourseId || !selectedAssignmentId) {
@@ -583,17 +583,28 @@
             return;
         }
 
+        // Find the matched local assignment to retrieve the Google Classroom CourseWork ID
+        const activeAssignment = allAssignments.find(a => a.id === selectedAssignmentId);
+        if (!activeAssignment || !activeAssignment.gClassroomAssignmentId) {
+            alert("No linked Google Classroom assignment found for this database task.");
+            return;
+        }
+        const courseWorkId = activeAssignment.gClassroomAssignmentId;
+
         syncBtn.disabled = true;
         const originalText = syncBtn.innerText;
         syncBtn.innerText = "⏳ Syncing Course...";
 
         try {
+            // Use the verified Google Classroom courseWorkId here
             const classSubmissionsResponse = await gapi.client.classroom.courses.courseWork.studentSubmissions.list({
                 courseId: selectedCourseId,
-                courseWorkId: selectedAssignmentId
+                courseWorkId: courseWorkId
             });
 
             const classroomSubmissions = classSubmissionsResponse.result.studentSubmissions || [];
+            
+            // localSubsForTask correctly uses the Firestore ID (selectedAssignmentId)
             const localSubsForTask = allSubmissions.filter(sub => 
                 sub.assignmentId === selectedAssignmentId && sub.courseId === selectedCourseId
             );
@@ -623,9 +634,10 @@
                         missingFlagCount++;
                     }
 
+                    // Use courseWorkId here as well
                     await gapi.client.classroom.courses.courseWork.studentSubmissions.patch({
                         courseId: selectedCourseId,
-                        courseWorkId: selectedAssignmentId,
+                        courseWorkId: courseWorkId,
                         id: classroomSub.id,
                         updateMask: "draftGrade,assignedGrade",
                         resource: {
