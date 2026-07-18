@@ -555,7 +555,7 @@
                     document.getElementById('app-container').classList.remove('hidden');
                     
                     totalSteps = sentences.length + unseenQuestions.length + roleplayTurns.length;
-                    sentenceAttemptScores = sentences.map(() => ({ attempts: [], audio: null }));
+                   sentenceAttemptScores = sentences.map(() => ({ attempts: [], audio: null, hintsUsed: [] }));
                     unseenResponses = unseenQuestions.map(q => ({ questionId: q.id, audio: null }));
                     roleplayResponses = roleplayTurns.map((turn, idx) => ({ turnIndex: idx, audio: null }));
 
@@ -649,19 +649,56 @@
         const currentText = sentences[currentStepIndex];
         const words = currentText.split(/\s+/);
 
-        words.forEach(word => {
+words.forEach(word => {
             const cleanWord = word.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "").toLowerCase();
             const span = document.createElement('span');
             span.className = 'word';
             span.innerText = word + ' '; 
             
+            // Handle Clicking for Audio Pronunciation
             span.onclick = (e) => {
                 e.stopPropagation();
                 speakTargetWord(cleanWord);
+                
+                // Track pronunciation requests as hints for THIS sentence
+                if (currentStepIndex < sentences.length) {
+                    const trackingKey = `Word: ${cleanWord}`;
+                    if (!sentenceAttemptScores[currentStepIndex].hintsUsed.includes(trackingKey)) {
+                        sentenceAttemptScores[currentStepIndex].hintsUsed.push(trackingKey);
+                    }
+                }
             };
 
-            span.onmouseenter = () => translateWord(word, cleanWord, span);
-            span.ontouchstart = () => translateWord(word, cleanWord, span);
+            // Intentional Dwell Tracking (Prevents tracking accidental mouse sweeps)
+            let hoverTimer;
+
+            span.onmouseenter = () => {
+                hoverTimer = setTimeout(() => {
+                    translateWord(word, cleanWord, span);
+                    
+                    // Track translation requests as hints for THIS sentence
+                    if (currentStepIndex < sentences.length) {
+                        const trackingKey = `Word: ${cleanWord}`;
+                        if (!sentenceAttemptScores[currentStepIndex].hintsUsed.includes(trackingKey)) {
+                            sentenceAttemptScores[currentStepIndex].hintsUsed.push(trackingKey);
+                        }
+                    }
+                }, 300); // Must hover for 300ms to count as an intentional hint
+            };
+
+            span.onmouseleave = () => {
+                clearTimeout(hoverTimer);
+            };
+
+            span.ontouchstart = () => {
+                translateWord(word, cleanWord, span);
+                if (currentStepIndex < sentences.length) {
+                    const trackingKey = `Word: ${cleanWord}`;
+                    if (!sentenceAttemptScores[currentStepIndex].hintsUsed.includes(trackingKey)) {
+                        sentenceAttemptScores[currentStepIndex].hintsUsed.push(trackingKey);
+                    }
+                }
+            };
 
             if (lastSpokenWords) {
                 if (lastSpokenWords.includes(cleanWord)) {
