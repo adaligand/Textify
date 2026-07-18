@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -185,9 +184,12 @@
 <div id="completed-card" class="status-card hidden">
     <h1 style="color: #2ecc71;">✓ Assignment Completed</h1>
     <p>You have already submitted this assignment!</p>
-    <div style="font-size: 16px; margin-bottom: 20px; color: #7f8c8d;">
+    
+    <!-- Accuracy stats row container (Will be hidden for pure Role Plays) -->
+    <div id="accuracy-stats-row" style="font-size: 16px; margin-bottom: 20px; color: #7f8c8d;">
         Your average accuracy was: <span id="completed-accuracy" style="font-weight: bold; color: #1abc9c;">--%</span>
     </div>
+    
     <div style="font-size: 24px; margin: 20px 0; font-weight: bold; color: #2c3e50;">
         Overall Grade: <span id="completed-score" style="color: #2ecc71;">-- / 12</span>
     </div>
@@ -197,13 +199,13 @@
         <h3 class="feedback-title">📋 Teacher Feedback & Score Breakdown</h3>
         
         <div class="breakdown-grid">
-            <div class="breakdown-item">
+            <div id="rubric-feedback-block" class="breakdown-item">
                 <span class="breakdown-label">🗣️ Pronunciation & Fluency Accuracy</span>
                 <span id="student-rubric-grade" class="breakdown-score">-- / 8</span>
                 <p id="student-rubric-comment" class="breakdown-comment">No written feedback provided yet.</p>
             </div>
             
-            <div class="breakdown-row">
+            <div id="unseen-feedback-row" class="breakdown-row">
                 <div class="breakdown-item half">
                     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                         <span class="breakdown-label">🎧 Question/Turn 1</span>
@@ -265,8 +267,10 @@
             <h4 style="margin-top: 0; color: #34495e;" id="roleplay-turn-title">Turn 1</h4>
             
             <div style="margin-bottom: 15px;">
-                <span style="font-weight: bold; color: #7f8c8d; display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Your Partner Says:</span>
-                <p id="roleplay-prompt-text" style="font-size: 18px; margin: 5px 0; font-weight: 600; color: #2c3e50;"></p>
+                <!-- Set to display: none inline to permanently keep text invisible to students -->
+                <span id="roleplay-prompt-label" style="font-weight: bold; color: #7f8c8d; display: none; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Your Partner Says:</span>
+                <p id="roleplay-prompt-text" style="font-size: 18px; margin: 5px 0; font-weight: 600; color: #2c3e50; display: none;"></p>
+                
                 <button id="roleplay-play-btn" class="audio-playback-trigger" style="margin-top: 8px; padding: 8px 16px; font-size: 14px;">▶ Play Prompt Audio</button>
                 <audio id="roleplay-audio-source" style="display:none;"></audio>
             </div>
@@ -417,7 +421,7 @@
                 document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
                 document.getElementById('auth-card').classList.add('hidden');
                 
-                checkExistingSubmission();
+                loadAssignmentAndCheckStatus();
             })
             .catch(err => {
                 console.error("Profile fetch error:", err);
@@ -425,42 +429,13 @@
             });
     }
 
-    async function checkExistingSubmission() {
+    // Unified initialization sequence ensures assignment metadata loads before rendering completion cards
+    async function loadAssignmentAndCheckStatus() {
         if (!assignmentId) {
             alert("No assignment parameters detected. Navigate from Classroom.");
             return;
         }
 
-        try {
-            const querySnapshot = await db.collection("submissions")
-                .where("assignmentId", "==", assignmentId)
-                .where("studentEmail", "==", studentEmail)
-                .get();
-
-            if (!querySnapshot.empty) {
-                const subData = querySnapshot.docs[0].data();
-                document.getElementById('completed-accuracy').innerText = `${subData.score || 0}%`;
-                
-                if (subData.overallGrade !== undefined) {
-                    document.getElementById('completed-score').innerText = `${subData.overallGrade} / 12`;
-                } else {
-                    document.getElementById('completed-score').innerText = `Pending Grading`;
-                }
-                showStudentFeedbackBreakdown(subData);
-                document.getElementById('completed-card').classList.remove('hidden');
-                document.getElementById('app-container').classList.add('hidden');
-            } else {
-                document.getElementById('app-container').classList.remove('hidden');
-                loadAssignmentData();
-            }
-        } catch (error) {
-            console.error(error);
-            document.getElementById('app-container').classList.remove('hidden');
-            loadAssignmentData();
-        }
-    }
-
-    async function loadAssignmentData() {
         try {
             let doc = await db.collection("assignments").doc(assignmentId).get();
             if (!doc.exists) {
@@ -508,40 +483,78 @@
 
                 // Parse Role Play System Data
                 roleplayScenario = data.roleplayScenario || "";
+                if (Array.isArray(data.rolePlayPrompts)) {
+                    roleplayTurns = data.rolePlayPrompts.map(item => ({
+                        prompt: item.teacher || "",
+                        cue: item.student || "",
+                        audio: item.audio || ""
+                    }));
+                } else if (Array.isArray(data.roleplayTurns)) {
+                    roleplayTurns = data.roleplayTurns;
+                } else {
+                    roleplayTurns = [];
+                }
 
-if (Array.isArray(data.rolePlayPrompts)) {
+                // Check assignment track type 
+                const isRolePlayOnly = roleplayTurns.length > 0 && sentences.length === 0;
 
-    roleplayTurns = data.rolePlayPrompts.map(item => ({
-        prompt: item.teacher || "",
-        cue: item.student || "",
-        audio: ""
-    }));
+                // Check for existing submissions
+                const querySnapshot = await db.collection("submissions")
+                    .where("assignmentId", "==", assignmentId)
+                    .where("studentEmail", "==", studentEmail)
+                    .get();
 
-} else if (Array.isArray(data.roleplayTurns)) {
+                if (!querySnapshot.empty) {
+                    const subData = querySnapshot.docs[0].data();
+                    
+                    if (isRolePlayOnly) {
+                        // Completely hide accuracy percentage row for pure Role Play assignments
+                        document.getElementById('accuracy-stats-row').classList.add('hidden');
+                        
+                        // Fix grade denominator from /12 to /10
+                        if (subData.overallGrade !== undefined) {
+                            document.getElementById('completed-score').innerText = `${subData.overallGrade} / 10`;
+                        } else {
+                            document.getElementById('completed-score').innerText = `Pending Grading`;
+                        }
+                    } else {
+                        // Standard Read Aloud flow visibility 
+                        document.getElementById('accuracy-stats-row').classList.remove('hidden');
+                        document.getElementById('completed-accuracy').innerText = `${subData.score || 0}%`;
+                        
+                        if (subData.overallGrade !== undefined) {
+                            document.getElementById('completed-score').innerText = `${subData.overallGrade} / 12`;
+                        } else {
+                            document.getElementById('completed-score').innerText = `Pending Grading`;
+                        }
+                    }
 
-    roleplayTurns = data.roleplayTurns;
+                    showStudentFeedbackBreakdown(subData, isRolePlayOnly);
+                    document.getElementById('completed-card').classList.remove('hidden');
+                    document.getElementById('app-container').classList.add('hidden');
+                } else {
+                    // Start active dynamic workspace sequence
+                    document.getElementById('app-container').classList.remove('hidden');
+                    
+                    totalSteps = sentences.length + unseenQuestions.length + roleplayTurns.length;
+                    sentenceAttemptScores = sentences.map(() => ({ attempts: [], audio: null }));
+                    unseenResponses = unseenQuestions.map(q => ({ questionId: q.id, audio: null }));
+                    roleplayResponses = roleplayTurns.map((turn, idx) => ({ turnIndex: idx, audio: null }));
 
-} else {
-
-    roleplayTurns = [];
-
-}
-
-                // Re-evaluate complete sequence size mapping
-                totalSteps = sentences.length + unseenQuestions.length + roleplayTurns.length;
-                
-                sentenceAttemptScores = sentences.map(() => ({ attempts: [], audio: null }));
-                unseenResponses = unseenQuestions.map(q => ({ questionId: q.id, audio: null }));
-                roleplayResponses = roleplayTurns.map((turn, idx) => ({ turnIndex: idx, audio: null }));
-
-                renderStep();
+                    renderStep();
+                }
             } else {
                 alert("This exercise was not found or has been deleted.");
             }
         } catch (err) {
-            console.error(err);
+            console.error("Initialization error: ", err);
             alert("Failed to load assignment data.");
         }
+    }
+
+    // Retained backwards compatible wrapper link for submissions workflow redirections
+    async function checkExistingSubmission() {
+        await loadAssignmentAndCheckStatus();
     }
 
     function speakTargetWord(wordText) {
@@ -685,22 +698,15 @@ if (Array.isArray(data.rolePlayPrompts)) {
 
     function renderRoleplayTurn() {
         const roleplayIndex = currentStepIndex - (sentences.length + unseenQuestions.length);
+        const currentTurn = roleplayTurns[roleplayIndex];
 
-const currentTurn = roleplayTurns[roleplayIndex];
-
-if (!currentTurn) {
-    console.error("Role play turn missing.", {
-        roleplayIndex,
-        roleplayTurns
-    });
-
-    document.getElementById('roleplay-scenario').innerText =
-        "No role play data found.";
-
-    return;
-}
+        if (!currentTurn) {
+            console.error("Role play turn missing.", { roleplayIndex, roleplayTurns });
+            document.getElementById('roleplay-scenario').innerText = "No role play data found.";
+            return;
+        }
         
-        document.getElementById('roleplay-scenario').innerText =roleplayScenario ||"Respond naturally to each teacher prompt.";
+        document.getElementById('roleplay-scenario').innerText = roleplayScenario || "Respond naturally to each teacher prompt.";
         document.getElementById('roleplay-turn-title').innerText = `Turn ${roleplayIndex + 1} of ${roleplayTurns.length}`;
         document.getElementById('roleplay-prompt-text').innerText = currentTurn.prompt || "Listen to the target prompt structure.";
         document.getElementById('roleplay-cue-text').innerText = currentTurn.cue || currentTurn.instruction || "Respond appropriately using vocabulary options.";
@@ -959,57 +965,73 @@ if (!currentTurn) {
         try {
             await db.collection("submissions").add(payload);
             alert("Excellent work! Your speaking assessment has been successfully submitted to your teacher.");
-            checkExistingSubmission();
+            loadAssignmentAndCheckStatus();
         } catch (error) {
             console.error("Submission error: ", error);
             alert("Failed to submit assignment. Please try again.");
         }
     };
 
-    function showStudentFeedbackBreakdown(submissionDocData) {
+    function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
         const data = submissionDocData;
-        if (data.overallGrade !== undefined) {
-            document.getElementById('student-rubric-grade').innerText = `${data.rubricGrade ?? 0} / 8`;
-            document.getElementById('student-unseen1-grade').innerText = `${data.unseen1Grade ?? 0} / 2`;
-            document.getElementById('student-unseen2-grade').innerText = `${data.unseen2Grade ?? 0} / 2`;
+        
+        if (isRolePlay) {
+            // Adaptive interface overhaul for Role Plays
+            document.getElementById('student-rubric-grade').classList.add('hidden');
+            document.querySelector('#rubric-feedback-block .breakdown-label').innerText = "🎭 Role Play Assessment Feedback";
+            document.getElementById('unseen-feedback-row').classList.add('hidden');
             
             let mainComment = data.teacherComment || "";
-            let u1Comment = data.unseen1Comment || data.unseen1Feedback || "";
-            let u2Comment = data.unseen2Comment || data.unseen2Feedback || "";
-
-            const q1Regex = /Unseen\s*(?:Q|Question)?\s*1\s*:/i;
-            const q2Regex = /Unseen\s*(?:Q|Question)?\s*2\s*:/i;
-
-            const q1Match = mainComment.match(q1Regex);
-            const q2Match = mainComment.match(q2Regex);
-
-            if (q1Match) {
-                const q1Index = q1Match.index;
-                const cleanMain = mainComment.substring(0, q1Index).trim();
-                if (q2Match) {
-                    const q2Index = q2Match.index;
-                    let q1Text = mainComment.substring(q1Index, q2Index).replace(q1Regex, "").trim();
-                    let q2Text = mainComment.substring(q2Index).replace(q2Regex, "").trim();
-                    u1Comment = q1Text;
-                    u2Comment = q2Text;
-                } else {
-                    u1Comment = mainComment.substring(q1Index).replace(q1Regex, "").trim();
-                }
-                mainComment = cleanMain;
-            }
-
-            document.getElementById('student-rubric-comment').innerText = mainComment ? `"${mainComment}"` : "No rubric feedback text selected yet.";
-
-            const u1CommentElement = document.getElementById('student-unseen1-comment');
-            if (u1Comment) { u1CommentElement.innerText = `"${u1Comment}"`; u1CommentElement.style.display = 'block'; }
-            else { u1CommentElement.style.display = 'none'; }
-
-            const u2CommentElement = document.getElementById('student-unseen2-comment');
-            if (u2Comment) { u2CommentElement.innerText = `"${u2Comment}"`; u2CommentElement.style.display = 'block'; }
-            else { u2CommentElement.style.display = 'none'; }
-
-            document.getElementById('completed-score').innerText = `${data.overallGrade} / 12`;
+            document.getElementById('student-rubric-comment').innerText = mainComment ? mainComment : "No written feedback provided yet.";
             document.getElementById('feedback-card').classList.remove('hidden');
+        } else {
+            // Standard Read Aloud flow visibility configurations
+            document.getElementById('student-rubric-grade').classList.remove('hidden');
+            document.querySelector('#rubric-feedback-block .breakdown-label').innerText = "🗣️ Pronunciation & Fluency Accuracy";
+            document.getElementById('unseen-feedback-row').classList.remove('hidden');
+
+            if (data.overallGrade !== undefined) {
+                document.getElementById('student-rubric-grade').innerText = `${data.rubricGrade ?? 0} / 8`;
+                document.getElementById('student-unseen1-grade').innerText = `${data.unseen1Grade ?? 0} / 2`;
+                document.getElementById('student-unseen2-grade').innerText = `${data.unseen2Grade ?? 0} / 2`;
+                
+                let mainComment = data.teacherComment || "";
+                let u1Comment = data.unseen1Comment || data.unseen1Feedback || "";
+                let u2Comment = data.unseen2Comment || data.unseen2Feedback || "";
+
+                const q1Regex = /Unseen\s*(?:Q|Question)?\s*1\s*:/i;
+                const q2Regex = /Unseen\s*(?:Q|Question)?\s*2\s*:/i;
+
+                const q1Match = mainComment.match(q1Regex);
+                const q2Match = mainComment.match(q2Regex);
+
+                if (q1Match) {
+                    const q1Index = q1Match.index;
+                    const cleanMain = mainComment.substring(0, q1Index).trim();
+                    if (q2Match) {
+                        const q2Index = q2Match.index;
+                        let q1Text = mainComment.substring(q1Index, q2Index).replace(q1Regex, "").trim();
+                        let q2Text = mainComment.substring(q2Index).replace(q2Regex, "").trim();
+                        u1Comment = q1Text;
+                        u2Comment = q2Text;
+                    } else {
+                        u1Comment = mainComment.substring(q1Index).replace(q1Regex, "").trim();
+                    }
+                    mainComment = cleanMain;
+                }
+
+                document.getElementById('student-rubric-comment').innerText = mainComment ? mainComment : "No rubric feedback text selected yet.";
+
+                const u1CommentElement = document.getElementById('student-unseen1-comment');
+                if (u1Comment) { u1CommentElement.innerText = `"${u1Comment}"`; u1CommentElement.style.display = 'block'; }
+                else { u1CommentElement.style.display = 'none'; }
+
+                const u2CommentElement = document.getElementById('student-unseen2-comment');
+                if (u2Comment) { u2CommentElement.innerText = `"${u2Comment}"`; u2CommentElement.style.display = 'block'; }
+                else { u2CommentElement.style.display = 'none'; }
+
+                document.getElementById('feedback-card').classList.remove('hidden');
+            }
         }
     }
 </script>
