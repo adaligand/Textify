@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Speakcnccig</title>
+    <title>Speakig</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; flex-direction: column; min-height: 100vh; }
         
@@ -374,6 +374,13 @@
                 <select id="course-select" style="margin: 0 0 15px 0;">
                     <option>Loading your classes...</option>
                 </select>
+
+                <label style="font-weight: bold; font-size: 13px; color: #34495e; display: block; margin-bottom: 5px;">Google Classroom Topic:</label>
+                <select id="gc-topic-select" style="margin: 0 0 15px 0;">
+                    <option value="">-- No Topic --</option>
+                    <option value="__NEW__">➕ Create new topic</option>
+                </select>
+                <input type="text" id="gc-topic-input" class="hidden" placeholder="New GC Topic Name" style="margin: 0 0 15px 0;">
                 
                 <label for="due-date-input" style="font-weight: bold; font-size: 13px; color: #34495e; display: block; margin-bottom: 5px;">Set Due Date & Time (Optional):</label>
                 <input type="datetime-local" id="due-date-input" style="margin: 0 0 20px 0; padding: 10px;">
@@ -402,7 +409,7 @@
     const db = firebase.firestore();
 
     const CLIENT_ID = '162949632188-fifdjjtug2mqu5uc80r2fdrqfacvkkrg.apps.googleusercontent.com';
-    const SCOPES = 'https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/classroom.profile.emails https://www.googleapis.com/auth/classroom.rosters.readonly';
+    const SCOPES = 'https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/classroom.profile.emails https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.topics';
     
     let tokenClient = null;
     let gapiLoaded = false;
@@ -567,6 +574,24 @@ function attemptTokenRefresh(forceInteractive = false) {
             }
         };
 
+        document.getElementById('course-select').onchange = (e) => {
+            const courseId = e.target.value;
+            if (courseId && !courseId.startsWith("Loading")) {
+                loadGoogleClassroomTopics(courseId);
+            }
+        };
+
+        document.getElementById('gc-topic-select').onchange = (e) => {
+            const gcTopicInput = document.getElementById('gc-topic-input');
+            if (e.target.value === '__NEW__') {
+                gcTopicInput.classList.remove('hidden');
+                gcTopicInput.value = '';
+            } else {
+                gcTopicInput.classList.add('hidden');
+                gcTopicInput.value = '';
+            }
+        };
+
         document.getElementById('header-home-btn').onclick = () => showSection('main-menu-section');
         document.getElementById('header-ra-bank-btn').onclick = () => showSection('read-aloud-bank-section');
         document.getElementById('header-rp-bank-btn').onclick = () => showSection('role-play-bank-section');
@@ -592,6 +617,31 @@ function attemptTokenRefresh(forceInteractive = false) {
         } else {
             document.getElementById('read-aloud-inputs-container').classList.remove('hidden');
             document.getElementById('role-play-inputs-container').classList.add('hidden');
+        }
+    }
+
+    async function loadGoogleClassroomTopics(courseId) {
+        const gcTopicSelect = document.getElementById('gc-topic-select');
+        const gcTopicInput = document.getElementById('gc-topic-input');
+        
+        gcTopicSelect.innerHTML = '<option value="">Loading topics...</option>';
+        gcTopicInput.classList.add('hidden');
+        gcTopicInput.value = '';
+
+        try {
+            const response = await gapi.client.classroom.courses.topics.list({ courseId: courseId });
+            const topics = response.result.topic || [];
+            
+            gcTopicSelect.innerHTML = '<option value="">-- No Topic --</option><option value="__NEW__">➕ Create new topic</option>';
+            topics.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.topicId;
+                opt.textContent = t.name;
+                gcTopicSelect.appendChild(opt);
+            });
+        } catch (err) {
+            console.error("Error matching Google Classroom topics:", err);
+            gcTopicSelect.innerHTML = '<option value="">-- No Topic (Failed to fetch) --</option><option value="__NEW__">➕ Create new topic</option>';
         }
     }
 
@@ -1095,6 +1145,11 @@ function attemptTokenRefresh(forceInteractive = false) {
                 opt.textContent = course.name;
                 select.appendChild(opt);
             });
+
+            if (sortedCourses.length > 0) {
+                select.value = sortedCourses[0].id;
+                loadGoogleClassroomTopics(sortedCourses[0].id);
+            }
         });
     }
 
@@ -1878,6 +1933,8 @@ function attemptTokenRefresh(forceInteractive = false) {
         const courseId = document.getElementById('course-select').value;
         const status = document.getElementById('status');
         const dueDateVal = document.getElementById('due-date-input').value;
+        const gcTopicSelect = document.getElementById('gc-topic-select');
+        const gcTopicInput = document.getElementById('gc-topic-input');
         
         if (!courseId || courseId.startsWith("Loading")) {
             alert("Select standard classroom feed courses first.");
@@ -1900,6 +1957,27 @@ function attemptTokenRefresh(forceInteractive = false) {
             const currentDomain = window.location.origin + window.location.pathname.replace(/teacher/i, 'student');
             const activeToken = localStorage.getItem('oauth_token');
             if (activeToken) gapi.client.setToken({ access_token: activeToken });
+
+            // Handle Topic Pipeline Architecture
+            let finalGCTopicId = null;
+            if (gcTopicSelect.value === '__NEW__') {
+                const newTopicName = gcTopicInput.value.trim();
+                if (!newTopicName) {
+                    alert("Please provide a name for the new Google Classroom topic.");
+                    status.innerText = "";
+                    return;
+                }
+                status.innerText = "Creating new topic in Google Classroom...";
+                const topicResponse = await gapi.client.classroom.courses.topics.create({
+                    courseId: courseId,
+                    resource: { name: newTopicName }
+                });
+                finalGCTopicId = topicResponse.result.topicId;
+            } else if (gcTopicSelect.value) {
+                finalGCTopicId = gcTopicSelect.value;
+            }
+
+            status.innerText = "Publishing coursework structure...";
 
             const tempAssignmentDocRef = db.collection("assignments").doc();
             const firestoreAssignmentId = tempAssignmentDocRef.id; 
@@ -1926,6 +2004,10 @@ function attemptTokenRefresh(forceInteractive = false) {
             if (gcDueDate && gcDueTime) {
                 courseWorkResource.dueDate = gcDueDate;
                 courseWorkResource.dueTime = gcDueTime;
+            }
+
+            if (finalGCTopicId) {
+                courseWorkResource.topicId = finalGCTopicId;
             }
 
             const response = await gapi.client.classroom.courses.courseWork.create({ courseId: courseId, resource: courseWorkResource });
