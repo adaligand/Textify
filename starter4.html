@@ -231,7 +231,7 @@
         <div id="progress-fill" class="progress-fill"></div>
     </div>
 
-    <h2 id="passage-title" style="margin-top: 0;">Practice Assignment</h2>
+    <h2 id="passage-title" style="margin-top: 0; color: #2c3e50;">Practice Assignment</h2>
     
     <!-- Workspace A: Read Aloud Sentences -->
     <div id="standard-sentences-workspace">
@@ -242,7 +242,6 @@
     <!-- Workspace B: Unseen Listening Questions -->
     <div id="unseen-questions-workspace" class="hidden">
         <div class="unseen-instruction">
-            <h3>👂 Unseen Listening Question</h3>
             <p>Listen closely to your teacher's question below, then record your oral response immediately.</p>
         </div>
         <div>
@@ -255,7 +254,6 @@
     <!-- Workspace C: Interactive Role Play Cards -->
     <div id="roleplay-workspace" class="hidden">
         <div class="unseen-instruction">
-            <h3>🎭 Role Play Assessment</h3>
             <p id="roleplay-scenario" style="font-style: italic; background: #ebf5fb; padding: 12px; border-left: 4px solid #3498db; border-radius: 6px; color: #2c3e50; text-align: left; margin-bottom: 20px;"></p>
         </div>
         <div style="background: white; border: 1px solid #e2e8f0; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); text-align: left; margin-bottom: 20px;">
@@ -312,6 +310,7 @@
     let studentEmail = "";
     let studentName = "";
     let assignmentId = "";
+    let assignmentTitle = ""; 
     let courseId = ""; 
     let gClassroomAssignmentId = ""; 
     
@@ -359,6 +358,8 @@
                         },
                     });
                 }
+                // Check if a valid session already exists in localStorage to avoid redundant logins
+                checkStoredSession();
                 return tokenClient;
             } else {
                 console.warn("Google Identity Services SDK is not loaded yet.");
@@ -367,6 +368,34 @@
         } catch (e) {
             console.error("Google Auth Setup Failed:", e);
             return null;
+        }
+    }
+
+    // STAY LOGGED IN FOR A WEEK SYSTEM
+    function checkStoredSession() {
+        const cachedEmail = localStorage.getItem('studentEmail');
+        const cachedName = localStorage.getItem('studentName');
+        const sessionExpiresAt = localStorage.getItem('sessionExpiresAt');
+
+        if (cachedEmail && cachedName && sessionExpiresAt && Date.now() < parseInt(sessionExpiresAt)) {
+            studentEmail = cachedEmail;
+            studentName = cachedName;
+            
+            document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
+            document.getElementById('auth-card').classList.add('hidden');
+            
+            loadAssignmentAndCheckStatus();
+
+            // Run silent background token authentication refresh after load completes
+            setTimeout(() => {
+                if (tokenClient) {
+                    try {
+                        tokenClient.requestAccessToken({ prompt: 'none' });
+                    } catch (e) {
+                        console.warn("Invisible background token refresh skipped:", e);
+                    }
+                }
+            }, 2000);
         }
     }
 
@@ -413,18 +442,24 @@
                 studentEmail = emailLower;
                 studentName = data.name || data.email.split('@')[0];
                 
+                // Set the local caching window to keep them active for 7 days
+                localStorage.setItem('studentEmail', studentEmail);
+                localStorage.setItem('studentName', studentName);
+                localStorage.setItem('sessionExpiresAt', (Date.now() + 7 * 24 * 60 * 60 * 1000).toString());
+
                 document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
                 document.getElementById('auth-card').classList.add('hidden');
                 
-                loadAssignmentAndCheckStatus();
+                if (document.getElementById('app-container').classList.contains('hidden') && 
+                    document.getElementById('completed-card').classList.contains('hidden')) {
+                    loadAssignmentAndCheckStatus();
+                }
             })
             .catch(err => {
                 console.error("Profile fetch error:", err);
-                alert("Failed to retrieve user profile information.");
             });
     }
 
-    // Unified initialization sequence ensures assignment metadata loads before rendering completion cards
     async function loadAssignmentAndCheckStatus() {
         if (!assignmentId) {
             alert("No assignment parameters detected. Navigate from Classroom.");
@@ -439,7 +474,7 @@
 
             if (doc.exists) {
                 const data = doc.data();
-                document.getElementById('passage-title').innerText = data.title || "Practice Assignment";
+                assignmentTitle = data.title || "Practice Assignment";
                 courseId = data.courseId || courseId || ""; 
                 gClassroomAssignmentId = data.gClassroomAssignmentId || "";
                 currentLanguageCode = data.language ? data.language.toLowerCase() : "fr";
@@ -490,7 +525,6 @@
                     roleplayTurns = [];
                 }
 
-                // Check assignment track type 
                 const isRolePlayOnly = roleplayTurns.length > 0 && sentences.length === 0;
 
                 // Check for existing submissions
@@ -503,17 +537,13 @@
                     const subData = querySnapshot.docs[0].data();
                     
                     if (isRolePlayOnly) {
-                        // Completely hide accuracy percentage row for pure Role Play assignments
                         document.getElementById('accuracy-stats-row').classList.add('hidden');
-                        
-                        // Fix grade denominator from /12 to /10
                         if (subData.overallGrade !== undefined) {
                             document.getElementById('completed-score').innerText = `${subData.overallGrade} / 10`;
                         } else {
                             document.getElementById('completed-score').innerText = `Pending Grading`;
                         }
                     } else {
-                        // Standard Read Aloud flow visibility 
                         document.getElementById('accuracy-stats-row').classList.remove('hidden');
                         document.getElementById('completed-accuracy').innerText = `${subData.score || 0}%`;
                         
@@ -528,7 +558,6 @@
                     document.getElementById('completed-card').classList.remove('hidden');
                     document.getElementById('app-container').classList.add('hidden');
                 } else {
-                    // Start active dynamic workspace sequence
                     document.getElementById('app-container').classList.remove('hidden');
                     
                     totalSteps = sentences.length + unseenQuestions.length + roleplayTurns.length;
@@ -547,7 +576,6 @@
         }
     }
 
-    // Retained backwards compatible wrapper link for submissions workflow redirections
     async function checkExistingSubmission() {
         await loadAssignmentAndCheckStatus();
     }
@@ -583,6 +611,7 @@
         }
     }
 
+    // ROLE : TASK TITLE DYNAMIC HEADER COMPLIANCE
     function renderStep(lastSpokenWords = null) {
         document.getElementById('step-indicator').innerText = `Step ${currentStepIndex + 1} of ${totalSteps}`;
         const pct = ((currentStepIndex + 1) / totalSteps) * 100;
@@ -599,18 +628,21 @@
             document.getElementById('submit-btn').classList.add('hidden');
         }
 
-        // Context Router for Layout Workspaces
+        // Context Router layout switcher mapping headers into Role: Title format
         if (currentStepIndex < sentences.length) {
+            document.getElementById('passage-title').innerText = `Read Aloud : ${assignmentTitle}`;
             document.getElementById('standard-sentences-workspace').classList.remove('hidden');
             document.getElementById('unseen-questions-workspace').classList.add('hidden');
             document.getElementById('roleplay-workspace').classList.add('hidden');
             renderStandardSentence(lastSpokenWords);
         } else if (currentStepIndex < sentences.length + unseenQuestions.length) {
+            document.getElementById('passage-title').innerText = `Unseen Listening : ${assignmentTitle}`;
             document.getElementById('standard-sentences-workspace').classList.add('hidden');
             document.getElementById('unseen-questions-workspace').classList.remove('hidden');
             document.getElementById('roleplay-workspace').classList.add('hidden');
             renderUnseenQuestion();
         } else {
+            document.getElementById('passage-title').innerText = `Role Play Assessment : ${assignmentTitle}`;
             document.getElementById('standard-sentences-workspace').classList.add('hidden');
             document.getElementById('unseen-questions-workspace').classList.add('hidden');
             document.getElementById('roleplay-workspace').classList.remove('hidden');
@@ -655,11 +687,6 @@
     function renderUnseenQuestion() {
         const unseenIndex = currentStepIndex - sentences.length;
         const currentQuestion = unseenQuestions[unseenIndex];
-        
-        const textHeading = document.querySelector('#unseen-questions-workspace h3');
-        if (textHeading && currentQuestion) {
-            textHeading.innerText = `👂 Unseen Question ${unseenIndex + 1}`;
-        }
         
         const playBtn = document.getElementById('unseen-play-btn');
         if (playBtn && currentQuestion) {
@@ -973,12 +1000,10 @@
         const commentElement = document.getElementById('student-rubric-comment');
         
         if (isRolePlay) {
-            // Adaptive interface overhaul for Role Plays
             document.getElementById('student-rubric-grade').classList.add('hidden');
             document.querySelector('#rubric-feedback-block .breakdown-label').classList.add('hidden');
             document.getElementById('unseen-feedback-row').classList.add('hidden');
             
-            // Clean out main container defaults so dynamic child cards look crisp
             rubricBlock.style.background = 'transparent';
             rubricBlock.style.border = 'none';
             rubricBlock.style.boxShadow = 'none';
@@ -1001,7 +1026,6 @@
             } else {
                 const lines = mainComment.split('\n').map(l => l.trim()).filter(l => l.length > 0);
                 
-                // Dynamic clean grid wrapper matching your dashboard architecture
                 const cardsGrid = document.createElement('div');
                 cardsGrid.style.display = 'grid';
                 cardsGrid.style.gridTemplateColumns = '1fr';
@@ -1011,7 +1035,6 @@
                 let introductionHeadingText = "";
                 
                 lines.forEach(line => {
-                    // Regex catches optional bullets and safely parses: Name + Score + Text Comment strings
                     const match = line.match(/(?:•|\*|-)?\s*(Statement Prompt \d+|Turn \d+|Prompt \d+):\s*([0-9./\s]+Marks?)\s*-\s*(.*)/i);
                     
                     if (match) {
@@ -1019,11 +1042,9 @@
                         const promptScore = match[2].trim();
                         const promptFeedback = match[3].trim();
                         
-                        // Simplify title format (e.g. Statement Prompt 1 -> Prompt 1)
                         const numMatch = promptTitle.match(/\d+/);
                         const cleanTitle = numMatch ? `Prompt ${numMatch[0]}` : promptTitle;
                         
-                        // Lookup written task context dynamically
                         let cueText = "";
                         if (numMatch) {
                             const turnIdx = parseInt(numMatch[0]) - 1;
@@ -1032,7 +1053,6 @@
                             }
                         }
 
-                        // Construct individual white card element structure
                         const subCard = document.createElement('div');
                         subCard.className = 'breakdown-item';
                         subCard.style.background = 'white';
@@ -1070,7 +1090,6 @@
                         
                         cardsGrid.appendChild(subCard);
                     } else {
-                        // Omit system markdown rule accents and duplicate summary scores
                         if (!line.includes('-----') && !line.toLowerCase().includes('overall score') && !line.includes('★')) {
                             introductionHeadingText += line + " ";
                         }
@@ -1090,7 +1109,6 @@
                 if (cardsGrid.children.length > 0) {
                     commentElement.appendChild(cardsGrid);
                 } else {
-                    // Fallback to absolute raw block text structural defaults
                     rubricBlock.style.background = 'white';
                     rubricBlock.style.border = '1px solid #e2e8f0';
                     rubricBlock.style.padding = '15px';
@@ -1100,7 +1118,6 @@
             }
             document.getElementById('feedback-card').classList.remove('hidden');
         } else {
-            // Restore native configurations dynamically for alternate workflows
             rubricBlock.style.background = 'white';
             rubricBlock.style.border = '1px solid #e2e8f0';
             rubricBlock.style.padding = '15px';
