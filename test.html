@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Speaking</title>
+    <title>Speakinxg</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; flex-direction: column; min-height: 100vh; }
         
@@ -248,7 +248,7 @@
     <div id="bin-section" class="card hidden">
         <h2>🗑️ Template Recycle Bin</h2>
         <p style="color: #7f8c8d; font-size: 14px;">Deleted master templates are stored here. Items in the Recycle Bin are auto-deleted after 30 days.</p>
-        <div id="bin-list" style="margin-top: 15px; border: 1px solid #ddd; border-radius: 6px; background: white;"></div>
+        <div id="bin-list" style="margin-top: 15px;"></div>
     </div>
 
     <div id="editor-section" class="card hidden">
@@ -1904,22 +1904,80 @@
         binList.innerHTML = '<div style="padding:15px; text-align:center;">Loading Recycle Bin...</div>';
         try {
             const snapshot = await db.collection("recycle_bin").get();
-            if (snapshot.empty) { binList.innerHTML = '<div style="padding:20px; text-align:center; color:#7f8c8d;">Recycle Bin empty.</div>'; return; }
+            if (snapshot.empty) { 
+                binList.innerHTML = '<div style="padding:20px; text-align:center; color:#7f8c8d;">Recycle Bin empty.</div>'; 
+                return; 
+            }
+            
             binList.innerHTML = '';
+            
+            // Build temporary organized dictionary structure
+            let binStructure = {};
             snapshot.forEach(doc => {
                 const data = doc.data();
-                const div = document.createElement('div');
-                div.className = 'bin-item';
-                div.innerHTML = `
-                    <div><strong>${data.title}</strong> <small>(${data.yearGroup} - ${data.topic})</small></div>
-                    <div>
-                        <button class="btn-inline-edit" onclick="restoreTemplate('${doc.id}')">Restore</button>
-                        <button class="btn-inline-delete" onclick="permanentlyDeleteTemplate('${doc.id}')">Purge Forever</button>
-                    </div>
-                `;
-                binList.appendChild(div);
+                data.id = doc.id;
+                const lang = data.language || 'fr';
+                const year = data.yearGroup || 'Year 9';
+                
+                if (!binStructure[lang]) binStructure[lang] = {};
+                if (!binStructure[lang][year]) binStructure[lang][year] = [];
+                binStructure[lang][year].push(data);
             });
-        } catch (e) { binList.innerHTML = `<div style="padding:15px; color:red;">Error: ${e.message}</div>`; }
+
+            // Map and safely mount the structured dictionary items
+            for (const lang of Object.keys(binStructure).sort()) {
+                const langHeader = document.createElement('div');
+                langHeader.style.cssText = "background: #fde8e8; border-left: 5px solid #e74c3c; padding: 12px 20px; font-size: 20px; font-weight: bold; color: #c0392b; border-radius: 4px; margin-top: 25px; margin-bottom: 15px;";
+                langHeader.textContent = getLanguageName(lang);
+                binList.appendChild(langHeader);
+
+                for (const year of Object.keys(binStructure[lang]).sort((a,b) => a.localeCompare(b, undefined, {numeric: true}))) {
+                    const yearHeader = document.createElement('div');
+                    yearHeader.style.cssText = "font-weight: bold; font-size: 14px; color: #e74c3c; margin: 15px 0 10px 5px; display: flex; align-items: center; gap: 6px; text-transform: uppercase;";
+                    yearHeader.innerHTML = `📅 ${year}`;
+                    binList.appendChild(yearHeader);
+
+                    const gridContainer = document.createElement('div');
+                    gridContainer.className = 'tasks-display-container';
+                    gridContainer.style.cssText = "display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;";
+                    binList.appendChild(gridContainer);
+
+                    binStructure[lang][year].sort((a,b) => a.title.localeCompare(b.title)).forEach(data => {
+                        const card = document.createElement('div');
+                        card.className = 'bank-task-card'; 
+                        card.style.cssText = "width: 300px; box-sizing: border-box; background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; display: inline-flex; align-items: center; justify-content: space-between; gap: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);";
+                        
+                        const tierLetter = (data.tier === 'higher') ? 'H' : 'F';
+                        const activityIcon = (data.activityType === 'role_play') ? '🎭' : '📖';
+                        
+                        let deletedDateStr = '';
+                        if (data.deletedAt) {
+                            const d = data.deletedAt.toDate ? data.deletedAt.toDate() : new Date(data.deletedAt.seconds * 1000);
+                            deletedDateStr = d.toLocaleDateString('en-GB');
+                        }
+
+                        card.innerHTML = `
+                            <div style="min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px;">
+                                <div style="font-weight: bold; color: #1e293b; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px;">
+                                    <span style="font-size: 14px;" title="${data.activityType === 'role_play' ? 'Role Play':'Read Aloud'}">${activityIcon}</span>
+                                    <span class="badge tier" style="margin: 0; padding: 2px 6px; background: #9b59b6; font-size: 11px;">${tierLetter}</span>
+                                    <span title="${data.title}">${data.title}</span>
+                                </div>
+                                <div style="font-size: 12px; color: #7f8c8d; font-weight: 500;">Topic: ${data.topic}</div>
+                                ${deletedDateStr ? `<div style="font-size: 11px; color: #94a3b8;">Deleted: ${deletedDateStr}</div>` : ''}
+                            </div>
+                            <div class="task-actions" style="display: flex; gap: 8px; flex-shrink: 0; align-items: center;">
+                                <button class="task-action-btn" title="Restore template" onclick="restoreTemplate('${data.id}')" style="background: transparent; border: none; cursor: pointer; font-size: 18px; padding: 4px; display: inline-flex; align-items: center; justify-content: center; margin: 0; width: auto;">🔄</button>
+                                <button class="task-action-btn" title="Purge Forever" onclick="permanentlyDeleteTemplate('${data.id}')" style="background: transparent; border: none; cursor: pointer; font-size: 18px; padding: 4px; display: inline-flex; align-items: center; justify-content: center; margin: 0; width: auto;">❌</button>
+                            </div>
+                        `;
+                        gridContainer.appendChild(card);
+                    });
+                }
+            }
+        } catch (e) { 
+            binList.innerHTML = `<div style="padding:15px; color:red;">Error loading Recycle Bin elements: ${e.message}</div>`; 
+        }
     }
 
     async function restoreTemplate(id) {
@@ -1930,13 +1988,18 @@
                 delete data.deletedAt; delete data.originalId;
                 await db.collection("passages").doc(id).set(data);
                 await db.collection("recycle_bin").doc(id).delete();
+                alert("Template restored successfully!");
+                loadRecycleBin();
             }
         } catch (e) { alert("Error: " + e.message); }
     }
 
     async function permanentlyDeleteTemplate(id) {
         if (!confirm("Purge tracking database configurations forever?")) return;
-        try { await db.collection("recycle_bin").doc(id).delete(); loadRecycleBin(); } catch (e) { alert("Error: " + e.message); }
+        try { 
+            await db.collection("recycle_bin").doc(id).delete(); 
+            loadRecycleBin(); 
+        } catch (e) { alert("Error: " + e.message); }
     }
 
     async function cleanOldRecycleBinItems() {
@@ -2020,11 +2083,9 @@ document.getElementById('delete-assigned-task-btn').onclick = async () => {
     if (!selectedId || !confirm("Are you sure you want to delete this assignment from BOTH the Dashboard and Google Classroom?")) return;
     
     try {
-        // 1. Locate the cached assignment metrics to pull out target IDs
         const assignment = allAssignments.find(a => a.id === selectedId);
         
         if (assignment && assignment.courseId && assignment.gClassroomAssignmentId) {
-            // 2. Instruct Google Classroom API to delete the active post
             await gapi.client.classroom.courses.courseWork.delete({
                 courseId: assignment.courseId,
                 id: assignment.gClassroomAssignmentId
@@ -2034,10 +2095,8 @@ document.getElementById('delete-assigned-task-btn').onclick = async () => {
             console.warn("Could not find matching Google Classroom IDs; deleting local record only.");
         }
 
-        // 3. Clean up the local Firestore record
         await db.collection("assignments").doc(selectedId).delete();
         
-        // 4. Reset UI dropdown states
         filterTask.value = "";
         updateClassroomDropdownFilters();
         renderDynamicMetrics();
