@@ -405,6 +405,8 @@
     const SCOPES = 'https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.coursework.students https://www.googleapis.com/auth/classroom.profile.emails https://www.googleapis.com/auth/classroom.rosters.readonly';
     
     let tokenClient = null;
+    let gapiLoaded = false;
+    let refreshTimeoutId = null;
     let currentTemplateId = null;     
     let currentAssignmentId = null;   
     let activeEditorMode = "template"; 
@@ -427,15 +429,27 @@
                     scope: SCOPES,
                     callback: (tokenResponse) => {
                         if (tokenResponse.error) {
+                            if (tokenResponse.error === 'immediate_failed' || tokenResponse.error === 'consent_required') {
+                                document.getElementById('login-card').classList.remove('hidden');
+                                document.getElementById('auth-header').classList.add('hidden');
+                                return;
+                            }
                             alert("Google Auth Error: " + tokenResponse.error);
                             return;
                         }
                         if (tokenResponse.access_token) {
                             saveTokenToLocalStorage(tokenResponse.access_token, tokenResponse.expires_in);
+                            if (typeof gapi !== 'undefined' && gapi.client) {
+                                gapi.client.setToken({ access_token: tokenResponse.access_token });
+                            }
                             handleLoginSuccess(tokenResponse.access_token);
                         }
                     },
                 });
+
+                if (gapiLoaded) {
+                    checkAuthAndLoad();
+                }
             }
         } catch (e) {
             console.error("Error initializing GIS client:", e);
@@ -444,29 +458,69 @@
 
     function gapiStart() {
         gapi.client.init({}).then(() => {
-            gapi.client.load('classroom', 'v1');
+            gapi.client.load('classroom', 'v1').then(() => {
+                gapiLoaded = true;
+                if (tokenClient) {
+                    checkAuthAndLoad();
+                }
+            });
         });
     }
 
     function saveTokenToLocalStorage(token, expiresInSeconds) {
-        const expiryTime = Date.now() + (7 * 24 * 60 * 60 * 1000);
+        const seconds = parseInt(expiresInSeconds) || 3600;
+        const expiryTime = Date.now() + (seconds * 1000);
         localStorage.setItem('oauth_token', token);
         localStorage.setItem('oauth_token_expiry', expiryTime);
+
+        if (refreshTimeoutId) clearTimeout(refreshTimeoutId);
+        const delay = (seconds - 300) * 1000; // Trigger quiet renewal 5 minutes before exhaustion
+        if (delay > 0) {
+            refreshTimeoutId = setTimeout(attemptTokenRefresh, delay);
+        }
+    }
+
+    function checkAuthAndLoad() {
+        const savedToken = localStorage.getItem('oauth_token');
+        const tokenExpiry = localStorage.getItem('oauth_token_expiry');
+
+        if (savedToken && tokenExpiry) {
+            const remainingTime = parseInt(tokenExpiry) - Date.now();
+            if (remainingTime > 60000) { // Token is operational
+                gapi.client.setToken({ access_token: savedToken });
+                handleLoginSuccess(savedToken);
+                
+                if (refreshTimeoutId) clearTimeout(refreshTimeoutId);
+                const delay = remainingTime - 300000; 
+                if (delay > 0) {
+                    refreshTimeoutId = setTimeout(attemptTokenRefresh, delay);
+                } else {
+                    attemptTokenRefresh();
+                }
+            } else {
+                attemptTokenRefresh();
+            }
+        } else {
+            document.getElementById('login-card').classList.remove('hidden');
+        }
+    }
+
+    function attemptTokenRefresh() {
+        if (tokenClient) {
+            try {
+                // prompt: 'none' executes a quiet silent token request if session cookie exists
+                tokenClient.requestAccessToken({ prompt: 'none' });
+            } catch (err) {
+                console.warn("Silent token refresh initiation drop:", err);
+                document.getElementById('login-card').classList.remove('hidden');
+                document.getElementById('auth-header').classList.add('hidden');
+            }
+        }
     }
 
     window.onload = () => {
         gapi.load('client', () => {
             gapiStart();
-            const savedToken = localStorage.getItem('oauth_token');
-            const tokenExpiry = localStorage.getItem('oauth_token_expiry');
-            if (savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry)) {
-                gapi.client.init({}).then(() => {
-                    gapi.client.load('classroom', 'v1').then(() => {
-                        gapi.client.setToken({ access_token: savedToken });
-                        handleLoginSuccess(savedToken);
-                    });
-                });
-            }
         });
 
         document.getElementById('auth-btn').onclick = () => {
@@ -476,7 +530,7 @@
             }
             if (!tokenClient) gisInit();
             if (tokenClient) {
-                try { tokenClient.requestAccessToken(); } catch (err) { alert(err.message); }
+                try { tokenClient.requestAccessToken({ prompt: 'select_account' }); } catch (err) { alert(err.message); }
             }
         };
 
@@ -567,7 +621,10 @@
 
     function handleLoginSuccess(accessToken) {
         fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
-            .then(res => res.json())
+            .then(res => {
+                if (!res.ok) throw new Error("Unauthorized");
+                return res.json();
+            })
             .then(data => {
                 if (data.email) {
                     const email = data.email.toLowerCase();
@@ -589,10 +646,11 @@
                     syncSubmissions();
                     cleanOldRecycleBinItems(); 
                 }
-            }).catch(() => forceLogout());
+            }).catch(() => attemptTokenRefresh());
     }
 
     function forceLogout() {
+        if (refreshTimeoutId) clearTimeout(refreshTimeoutId);
         localStorage.removeItem('oauth_token');
         localStorage.removeItem('oauth_token_expiry');
         window.location.reload();
@@ -1458,26 +1516,21 @@
                 const finalPct = sentenceAccuracy;
                 const attemptsCount = sent.attempts ? sent.attempts.length : 0;
 
-               let hintWordsArray = [];
-if (sub && sub.hintsUsed) { 
-    const rawHints = Array.isArray(sub.hintsUsed) ? sub.hintsUsed : [];
-    
-    rawHints.forEach(h => {
-        // 1. Clean the word up right away by removing "Word: "
-        const cleanHint = h.replace(/^Word:\s*/i, "").trim();
-        
-        // 2. Only add it if it belongs to this sentence
-        if (sentenceText.toLowerCase().includes(cleanHint.toLowerCase())) {
-            hintWordsArray.push(cleanHint); // Saves just the pure word (e.g., "llamo")
-        }
-    });
-}
+                let hintWordsArray = [];
+                if (sub && sub.hintsUsed) { 
+                    const rawHints = Array.isArray(sub.hintsUsed) ? sub.hintsUsed : [];
+                    rawHints.forEach(h => {
+                        const cleanHint = h.replace(/^Word:\s*/i, "").trim();
+                        if (sentenceText.toLowerCase().includes(cleanHint.toLowerCase())) {
+                            hintWordsArray.push(cleanHint);
+                        }
+                    });
+                }
 
-const hintWords = hintWordsArray.length > 0 ? 
-    hintWordsArray.map(h => `<span style="background: #fffbe6; border: 1px solid #ffe58f; padding: 2px 5px; border-radius: 4px; font-size: 11px; color: #d46b08; font-weight: 600; display: inline-block;">${h}</span>`).join(' ') : 
-    '<span style="color: #a0aec0; font-style: italic;">None</span>';
+                const hintWords = hintWordsArray.length > 0 ? 
+                    hintWordsArray.map(h => `<span style="background: #fffbe6; border: 1px solid #ffe58f; padding: 2px 5px; border-radius: 4px; font-size: 11px; color: #d46b08; font-weight: 600; display: inline-block;">${h}</span>`).join(' ') : 
+                    '<span style="color: #a0aec0; font-style: italic;">None</span>';
 
-                // FIXED: Removed the secondary duplicate block that was sitting underneath this statement
                 return `
                     <div class="sentence-item" style="background:#fff; border:1px solid #e2e8f0; padding:10px; border-radius:6px; margin-bottom:8px;">
                         <div style="font-size:12px; background:#f4fbf7; padding:6px 10px; border-left:3px solid #2ecc71; margin-bottom:6px; font-weight: 500;">"${sentenceText}"</div>
@@ -2117,7 +2170,6 @@ document.getElementById('delete-assigned-task-btn').onclick = async () => {
     const selectedId = filterTask.value;
     if (!selectedId || !confirm("Are you sure you want to delete this assignment from BOTH the Dashboard and Google Classroom?")) return;
     
-    // 1. Explicitly patch active OAuth credentials into GAPI client state
     const activeToken = localStorage.getItem('oauth_token');
     if (activeToken && gapi.client) {
         gapi.client.setToken({ access_token: activeToken });
@@ -2134,20 +2186,16 @@ document.getElementById('delete-assigned-task-btn').onclick = async () => {
                 });
                 console.log("Successfully deleted assignment from Google Classroom.");
             } catch (gcError) {
-                // Safely extract hidden messaging out of the Google API error payload
                 const gcErrorMsg = gcError.message || 
                                    (gcError.result && gcError.result.error && gcError.result.error.message) || 
                                    JSON.stringify(gcError);
                 console.warn("Google Classroom deletion skipped/failed: ", gcErrorMsg);
-                
-                // Alert the teacher but do NOT stop execution; let them clean up the dashboard
                 alert(`Notice: Could not sync drop from Google Classroom (${gcErrorMsg}). Force-removing from local dashboard...`);
             }
         } else {
             console.warn("Could not find matching Google Classroom IDs; deleting local record only.");
         }
 
-        // 2. Local cleanup isolated out of the remote block to prevent dashboard lockouts
         await db.collection("assignments").doc(selectedId).delete();
         
         filterTask.value = "";
