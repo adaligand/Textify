@@ -2110,28 +2110,47 @@ document.getElementById('delete-assigned-task-btn').onclick = async () => {
     const selectedId = filterTask.value;
     if (!selectedId || !confirm("Are you sure you want to delete this assignment from BOTH the Dashboard and Google Classroom?")) return;
     
+    // 1. Explicitly patch active OAuth credentials into GAPI client state
+    const activeToken = localStorage.getItem('oauth_token');
+    if (activeToken && gapi.client) {
+        gapi.client.setToken({ access_token: activeToken });
+    }
+
     try {
         const assignment = allAssignments.find(a => a.id === selectedId);
         
         if (assignment && assignment.courseId && assignment.gClassroomAssignmentId) {
-            await gapi.client.classroom.courses.courseWork.delete({
-                courseId: assignment.courseId,
-                id: assignment.gClassroomAssignmentId
-            });
-            console.log("Successfully deleted assignment from Google Classroom.");
+            try {
+                await gapi.client.classroom.courses.courseWork.delete({
+                    courseId: assignment.courseId,
+                    id: assignment.gClassroomAssignmentId
+                });
+                console.log("Successfully deleted assignment from Google Classroom.");
+            } catch (gcError) {
+                // Safely extract hidden messaging out of the Google API error payload
+                const gcErrorMsg = gcError.message || 
+                                   (gcError.result && gcError.result.error && gcError.result.error.message) || 
+                                   JSON.stringify(gcError);
+                console.warn("Google Classroom deletion skipped/failed: ", gcErrorMsg);
+                
+                // Alert the teacher but do NOT stop execution; let them clean up the dashboard
+                alert(`Notice: Could not sync drop from Google Classroom (${gcErrorMsg}). Force-removing from local dashboard...`);
+            }
         } else {
             console.warn("Could not find matching Google Classroom IDs; deleting local record only.");
         }
 
+        // 2. Local cleanup isolated out of the remote block to prevent dashboard lockouts
         await db.collection("assignments").doc(selectedId).delete();
         
         filterTask.value = "";
         updateClassroomDropdownFilters();
         renderDynamicMetrics();
         
-        alert("Assignment successfully deleted from both systems!");
+        alert("Assignment successfully removed from the dashboard!");
     } catch (e) { 
-        alert("Error during dual deletion process: " + (e.message || e)); 
+        const finalErrorMsg = e.message || (e.result && e.result.error && e.result.error.message) || JSON.stringify(e);
+        alert("Error during database deletion process: " + finalErrorMsg); 
     }
 };
 </script>
