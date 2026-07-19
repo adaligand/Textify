@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>No vxowels</title>
+<title>No vowels</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
     body {
@@ -68,7 +68,7 @@
         <button id="nextButton" onclick="nextText()">Next</button>
     </div>
 
-    <!-- Leaderboard Container Set to Top 5 UI display -->
+    <!-- Leaderboard Container -->
     <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
         <h3>🏆 Top 5 Leaderboard 🏆</h3>
         <ol id="leaderboardList" class="leaderboard-list"></ol>
@@ -88,7 +88,7 @@ const GAME_NAME = "No_Vowels";
 let startTime;
 
 const params = new URLSearchParams(window.location.search);
-const sheetUrl = params.get('sheet'); //[cite: 1]
+const sheetUrl = params.get('sheet'); 
 
 function getSpreadsheetId(url) {
     const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
@@ -130,17 +130,15 @@ function generateExercise(){
         document.getElementById('wordCounter').textContent = "";
         if(document.getElementById('keyboardContainer')) document.getElementById('keyboardContainer').style.display = "none";
 
-        // NEW FLOW: Scan database to figure out the exact rank BEFORE asking for their name
+        // Scan database to figure out the exact rank BEFORE asking for their name
         fetch(`${LEADERBOARD_API_URL}?topicId=${encodeURIComponent(topicId)}&game=${encodeURIComponent(GAME_NAME)}`)
         .then(res => res.json())
         .then(existingScores => {
-            // Find where this student fits among existing historical runs
             let calculatedRank = existingScores.findIndex(entry => parseFloat(timeTaken) < parseFloat(entry.time)) + 1;
             if (calculatedRank === 0) {
                 calculatedRank = existingScores.length + 1;
             }
 
-            // Prompt box displaying congratulations text with rank tracking included
             setTimeout(() => {
                 let studentName = prompt(`Congrats! You're number ${calculatedRank} on the leaderboard!\n\nEnter your name:`);
                 if(!studentName) studentName = "Anonymous";
@@ -171,7 +169,7 @@ function generateExercise(){
             input.dataset.index = i;
             input.addEventListener('input', validateInput);
             input.addEventListener('focus', () => { lastFocusedInput = input; });
-            input.addEventListener('keydown', handleBackspace);
+            input.addEventListener('keydown', handleKeydown); // Swapped to generic keydown handler
             wordDiv.appendChild(input);
         } else {
             const span = document.createElement('span');
@@ -183,6 +181,15 @@ function generateExercise(){
     document.getElementById('feedback').style.display="none";
     document.getElementById('nextButton').style.display="none";
     document.getElementById('wordCounter').textContent = `${currentIndex+1} / ${exerciseWords.length}`;
+
+    // FEATURE: Instantly focus the cursor into the first vowel container input box
+    const firstInput = wordDiv.querySelector('.missing-word');
+    if(firstInput) {
+        setTimeout(() => {
+            firstInput.focus();
+            lastFocusedInput = firstInput;
+        }, 50);
+    }
 }
 
 function validateInput(e){
@@ -216,7 +223,8 @@ function validateInput(e){
     }
 }
 
-function handleBackspace(e){
+// Combined handler managing both Backspace mechanics and Enter key submission paths
+function handleKeydown(e){
     if(e.key === "Backspace"){
         e.preventDefault(); 
         const input = e.target;
@@ -231,6 +239,17 @@ function handleBackspace(e){
             prevInput.focus();
             prevInput.value = '';
             prevInput.classList.remove('correct', 'incorrect');
+        }
+    } 
+    // FEATURE: Allow moving forward by pressing Enter key if text is entirely correct
+    else if(e.key === "Enter"){
+        const allInputs = document.querySelectorAll('.missing-word');
+        let allCorrect = true;
+        allInputs.forEach(inp => { if(!inp.classList.contains('correct')) allCorrect = false; });
+        
+        if(allCorrect){
+            e.preventDefault();
+            nextText();
         }
     }
 }
@@ -304,7 +323,6 @@ function submitAndLoadLeaderboard(name, time) {
         }
         rankHeader.textContent = `🎯 Final Status: Rank #${studentRank} out of ${data.length} entries!`;
 
-        // Isolates and renders exactly the Top 5 entries requested
         const topFive = data.slice(0, 5);
         topFive.forEach((entry, index) => {
             const li = document.createElement('li');
