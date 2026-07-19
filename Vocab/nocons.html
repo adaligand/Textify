@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>No consonants</title>
+<title>Noc consonants</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
     body {
@@ -38,12 +38,16 @@
     .keyboard-button:hover { background-color: #A9A9A9; transform: translateY(-4px); }
     .feedback { font-weight: bold; font-size: 24px; display: flex; gap: 10px; justify-content: center; align-items: center; margin-top: 10px; }
     #nextButton { padding: 10px 20px; border-radius: 10px; border: 2px solid #ccc; background: #f9f9f9; cursor: pointer; display: none; font-size: 24px;}
+    
+    /* Leaderboard Layout Extensions */
+    .leaderboard-box { margin-top: 25px; text-align: center; border-top: 2px solid #eee; padding-top: 20px; }
+    .leaderboard-list { display: inline-block; text-align: left; font-size: 18px; padding-left: 20px; line-height: 1.6; }
 </style>
 </head>
 <body>
 <div class="container">
     <div class="title">No consonants</div>
-    <div class="subtitle">Fill in the missing consonants</div>
+    <div class="subtitle" id="gameSubtitle">Fill in the missing consonants</div>
     <div class="counter" id="sentenceCounter"></div>
     <div class="english-sentence" id="englishSentence"></div>
     <div class="french-sentence" id="frenchSentence"></div>
@@ -51,6 +55,12 @@
     <div id="feedback" class="feedback" style="display:none;">
         <span>Correct ✅</span>
         <button id="nextButton">Next</button>
+    </div>
+
+    <!-- Leaderboard Container -->
+    <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
+        <h3>🏆 Top 5 Leaderboard 🏆</h3>
+        <ol id="leaderboardList" class="leaderboard-list"></ol>
     </div>
 </div>
 
@@ -62,9 +72,25 @@ let lastFocusedInput = null;
 
 const consonants = /[bcdfghjklmnpqrstvwxyzßçñBCDFGHJKLMNPQRSTVWXYZ]/;
 
+// --- LEADERBOARD CONFIGURATION ---
+const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwALbtkSM3Q5dWjKSBaGTC6wdVxi8h0wWsZYsK0Ww0yhmQOqJndgV7CuJ-7PJXwIr9kVQ/exec"; 
+const GAME_NAME = "No_Consonants"; 
+let startTime;
+
 // Get CSV URL from query string
 const params = new URLSearchParams(window.location.search);
 const csvUrl = params.get('sheet');
+
+function getSpreadsheetId(url) {
+    if (!url) return null;
+    if (url.includes('/d/e/')) {
+        const matches = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+        return matches ? matches[1] : url;
+    }
+    const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    return matches ? matches[1] : url;
+}
+const topicId = csvUrl ? getSpreadsheetId(csvUrl) : null;
 
 if(!csvUrl){
     document.getElementById('englishSentence').textContent = "⚠️ No CSV URL provided in query string.";
@@ -89,7 +115,8 @@ Papa.parse(csvUrl, {
         exerciseSentences = sentencePairs.sort(() => 0.5 - Math.random()).slice(0,10);
         currentIndex = 0;
         generateSentence();
-        generateKeyboard(); // Updated: No longer needs an argument
+        generateKeyboard(); 
+        startTime = Date.now();
     },
     error: function(err){
         console.error(err);
@@ -100,10 +127,27 @@ Papa.parse(csvUrl, {
 // Generate current sentence
 function generateSentence(){
     if(currentIndex >= exerciseSentences.length){
-        document.getElementById('frenchSentence').textContent = "🎉 Completed all phrases!";
-        document.getElementById('englishSentence').textContent = "";
-        document.getElementById('sentenceCounter').textContent = "";
+        const endTime = Date.now();
+        const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
+
+        // Display results text
+        document.getElementById('frenchSentence').textContent = `🎉 Completed in ${timeTaken}s!`;
+        
+        // Completely hide layout elements to clean up display screen
+        document.getElementById('gameSubtitle').style.display = "none";
+        document.getElementById('englishSentence').style.display = "none";
+        document.getElementById('sentenceCounter').style.display = "none";
         document.getElementById('feedback').style.display = "none";
+        if(document.getElementById('keyboardContainer')) {
+            document.getElementById('keyboardContainer').style.display = "none";
+        }
+
+        // Fire instant name prompt allocation entry
+        setTimeout(() => {
+            let studentName = prompt("Superb job! Enter your name for the leaderboard:");
+            if(!studentName) studentName = "Anonymous";
+            submitAndLoadLeaderboard(studentName, timeTaken);
+        }, 50);
         return;
     }
 
@@ -133,6 +177,14 @@ function generateSentence(){
 
     document.getElementById('sentenceCounter').textContent = ` ${currentIndex+1} / ${exerciseSentences.length}`;
     document.getElementById('feedback').style.display = "none";
+    
+    const firstInput = sentenceDiv.querySelector('.missing-word');
+    if(firstInput) {
+        setTimeout(() => {
+            firstInput.focus();
+            lastFocusedInput = firstInput;
+        }, 50);
+    }
 }
 
 // Validate input
@@ -218,7 +270,54 @@ function generateKeyboard(){
     });
 }
 
-// Event listener for dropdown has been removed
+function submitAndLoadLeaderboard(name, time) {
+    const list = document.getElementById('leaderboardList');
+    const section = document.getElementById('leaderboardSection');
+    
+    list.innerHTML = "<li>Uploading score... ⏳</li>";
+    section.style.display = "block";
+
+    fetch(LEADERBOARD_API_URL, {
+        method: "POST",
+        body: JSON.stringify({
+            topicId: topicId,
+            game: GAME_NAME,
+            name: name,
+            time: parseFloat(time)
+        })
+    })
+    .then(res => res.json()) 
+    .then(data => {
+        list.innerHTML = "";
+        
+        let studentRank = data.findIndex(entry => entry.name === name && entry.time === parseFloat(time)) + 1;
+        
+        let rankHeader = document.getElementById('personalRankTitle');
+        if(!rankHeader) {
+            rankHeader = document.createElement('h4');
+            rankHeader.id = 'personalRankTitle';
+            rankHeader.style.color = '#2ecc71';
+            rankHeader.style.fontSize = '22px';
+            section.insertBefore(rankHeader, list);
+        }
+        rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
+
+        data.forEach((entry, index) => {
+            const li = document.createElement('li');
+            li.innerHTML = `<strong>${entry.name}</strong> — ${entry.time}s`;
+            if (entry.name === name && entry.time === parseFloat(time)) {
+                li.style.backgroundColor = '#cef4ce';
+                li.style.padding = '2px 5px';
+                li.style.borderRadius = '5px';
+            }
+            list.appendChild(li);
+        });
+    })
+    .catch(err => {
+        console.error("Leaderboard transmission error:", err);
+        list.innerHTML = "<li>Error connecting to records database.</li>";
+    });
+}
 </script>
 </body>
 </html>
