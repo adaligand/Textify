@@ -97,7 +97,7 @@
       font-weight: bold;
       font-size: 24px;
       color: #555;
-      margin-top: 0; /* Margin is now on the parent container */
+      margin-top: 0;
     }
     #textInput {
       border-radius: 12px;
@@ -129,8 +129,12 @@
       font-size: 20px;
       margin-top: 10px;
       width: 100%;
-      min-height: 24px; /* Added to prevent layout shift */
+      min-height: 24px;
     }
+
+    /* Leaderboard Styling Extensions */
+    .leaderboard-box { margin-top: 25px; text-align: center; border-top: 2px solid #eee; padding-top: 20px; }
+    .leaderboard-list { display: inline-block; text-align: left; font-size: 18px; padding-left: 20px; line-height: 1.6; }
   </style>
 </head>
 <body>
@@ -152,7 +156,7 @@
     <div class="input-container flex-container">
         <button id="resetButton" class="hide" onclick="resetExercise()">Reset</button>
     </div>
-    <div class="input-container flex-container">
+    <div class="input-container flex-container" id="controlsContainer">
       <select id="languageSelect" onchange="updateKeyboard()">
         <option value="french">French</option>
         <option value="german">German</option>
@@ -164,15 +168,36 @@
     </div>
     <div class="keyboard-container"></div>
     
+    <!-- Leaderboard Container -->
+    <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
+        <h3>🏆 Top 5 Leaderboard 🏆</h3>
+        <ol id="leaderboardList" class="leaderboard-list"></ol>
+    </div>
+  </div>
+
 <script>
     let currentPhraseIndex = 0;
     let exercisePhrases = [];
-    let allPhrases = []; // To store all phrases from the sheet
+    let allPhrases = [];
     let totalPhrases = 10;
     
-    // --- DATA LOADING FROM GOOGLE SHEET ---
+    // --- LEADERBOARD CONFIGURATION ---
+    const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwALbtkSM3Q5dWjKSBaGTC6wdVxi8h0wWsZYsK0Ww0yhmQOqJndgV7CuJ-7PJXwIr9kVQ/exec"; 
+    const GAME_NAME = "Listen"; 
+
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
+
+    function getSpreadsheetId(url) {
+        if (!url) return null;
+        if (url.includes('/d/e/')) {
+            const matches = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+            return matches ? matches[1] : url;
+        }
+        const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        return matches ? matches[1] : url;
+    }
+    const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
 
     if (!sheetUrl) {
         document.querySelector('.on-screen-title').textContent = "⚠️ No CSV URL provided.";
@@ -288,27 +313,36 @@
         
         if (!userInput) return;
 
-        // Normalize both strings to use a standard straight apostrophe for comparison
         const normalizedUserInput = normalizeApostrophes(userInput).toLowerCase();
         const normalizedCorrectAnswer = normalizeApostrophes(correctAnswer).toLowerCase();
 
-        // Compare the normalized versions
         if (normalizedUserInput === normalizedCorrectAnswer) {
             feedbackEl.textContent = 'Correct!';
             feedbackEl.style.color = 'green';
             textInput.disabled = true;
             document.getElementById('checkButton').classList.add('hide');
+            
             if (currentPhraseIndex < totalPhrases - 1) {
                 document.getElementById('nextButton').classList.remove('hide');
             } else {
-                document.getElementById('resetButton').classList.remove('hide');
                 stopTimer();
+                const endTime = new Date().getTime();
+                const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
+
+                // Clean game interface elements on completion
+                document.querySelector('.on-screen-title').textContent = `🎉 Completed in ${timeTaken}s!`;
+                textInput.classList.add('hide');
+                feedbackEl.classList.add('hide');
+                document.querySelector('.stats-container').style.display = 'none';
+                document.querySelector('.keyboard-container').style.display = 'none';
+                document.getElementById('controlsContainer').style.display = 'none';
+
+                checkQualificationAndLoad(timeTaken);
             }
         } else {
             feedbackEl.style.color = 'darkorange';
             
             let correctPrefixLength = 0;
-            // The hint logic also uses the normalized strings
             for (let i = 0; i < normalizedUserInput.length; i++) {
                 if (i < normalizedCorrectAnswer.length && normalizedUserInput[i] === normalizedCorrectAnswer[i]) {
                     correctPrefixLength++;
@@ -317,7 +351,6 @@
                 }
             }
 
-            // The hint is created from the original correct answer string
             const hint = correctAnswer.substring(0, correctPrefixLength + 1);
             feedbackEl.textContent = `Not quite! Hint: ${hint}...`;
         }
@@ -400,7 +433,87 @@
         const selectedLanguage = document.getElementById('languageSelect').value;
         generateKeyboard(selectedLanguage);
     }
+
+    // Smart qualification validation background logic
+    function checkQualificationAndLoad(time) {
+        const list = document.getElementById('leaderboardList');
+        const section = document.getElementById('leaderboardSection');
+        
+        list.innerHTML = "<li>Loading board profiles... ⏳</li>";
+        section.style.display = "block";
+
+        // Quietly check current placement positions
+        fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
+        .then(res => res.json())
+        .then(data => {
+            // Evaluates true if list has open rooms (< 5 logs) OR performance clears the 5th place
+            let qualifies = data.length < 5 || parseFloat(time) < data[data.length - 1].time;
+            
+            if (qualifies) {
+                let studentName = prompt("🏆 Outstanding! You made the Top 5! Enter your name:");
+                if (!studentName) studentName = "Anonymous";
+                
+                list.innerHTML = "<li>Saving your spot... ⏳</li>";
+                
+                // Fire POST updates
+                fetch(LEADERBOARD_API_URL, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        topicId: topicId,
+                        game: GAME_NAME,
+                        name: studentName,
+                        time: parseFloat(time)
+                    })
+                })
+                .then(res => res.json())
+                .then(updatedData => {
+                    renderLeaderboardRows(updatedData, studentName, time);
+                });
+            } else {
+                // Instantly skips input fields if performance falls to 6th rank+
+                renderLeaderboardRows(data, null, null);
+            }
+        })
+        .catch(err => {
+            console.error("Leaderboard loading failure:", err);
+            list.innerHTML = "<li>Error connecting to records database.</li>";
+        });
+    }
+
+    function renderLeaderboardRows(data, highlightName, highlightTime) {
+        const list = document.getElementById('leaderboardList');
+        const section = document.getElementById('leaderboardSection');
+        list.innerHTML = "";
+        
+        let rankHeader = document.getElementById('personalRankTitle');
+        if(!rankHeader) {
+            rankHeader = document.createElement('h4');
+            rankHeader.id = 'personalRankTitle';
+            rankHeader.style.fontSize = '22px';
+            rankHeader.style.textAlign = 'center';
+            section.insertBefore(rankHeader, list);
+        }
+
+        if (highlightName) {
+            let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime)) + 1;
+            rankHeader.style.color = '#2ecc71';
+            rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
+        } else {
+            rankHeader.style.color = '#e67e22';
+            rankHeader.textContent = `🏁 Good effort! Try again to break into the Top 5.`;
+        }
+
+        data.forEach((entry) => {
+            const li = document.createElement('li');
+            li.innerHTML = `<strong>${entry.name}</strong> — ${entry.time}s`;
+            if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime)) {
+                li.style.backgroundColor = '#cef4ce';
+                li.style.padding = '2px 5px';
+                li.style.borderRadius = '5px';
+            }
+            list.appendChild(li);
+        });
+    }
 </script>
-  </div>
 </body>
 </html>
