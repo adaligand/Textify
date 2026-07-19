@@ -544,40 +544,75 @@
     let selRaLang = null, selRaYear = null, selRaTopic = null;
     let selRpLang = null, selRpYear = null, selRpTopic = null;
 
-    function gisInit() {
-        try {
-            if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
-                tokenClient = google.accounts.oauth2.initTokenClient({
-                    client_id: CLIENT_ID,
-                    scope: SCOPES,
-                    callback: (tokenResponse) => {
-                        if (tokenResponse.error) {
-                            if (tokenResponse.error === 'immediate_failed' || tokenResponse.error === 'consent_required') {
-                                document.getElementById('login-card').classList.remove('hidden');
-                                document.getElementById('auth-header').classList.add('hidden');
-                                return;
-                            }
-                            alert("Google Auth Error: " + tokenResponse.error);
+function gisInit() {
+    try {
+        if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES, // Ensure 'https://www.googleapis.com/auth/userinfo.email' is in your SCOPES
+                callback: (tokenResponse) => {
+                    if (tokenResponse.error) {
+                        if (tokenResponse.error === 'immediate_failed' || tokenResponse.error === 'consent_required') {
+                            document.getElementById('login-card').classList.remove('hidden');
+                            document.getElementById('auth-header').classList.add('hidden');
                             return;
                         }
-                        if (tokenResponse.access_token) {
-                            saveTokenToLocalStorage(tokenResponse.access_token, tokenResponse.expires_in);
-                            if (typeof gapi !== 'undefined' && gapi.client) {
-                                gapi.client.setToken({ access_token: tokenResponse.access_token });
-                            }
-                            handleLoginSuccess(tokenResponse.access_token);
+                        alert("Google Auth Error: " + tokenResponse.error);
+                        return;
+                    }
+                    
+                    if (tokenResponse.access_token) {
+                        // 1. Save token and set up GAPI client
+                        saveTokenToLocalStorage(tokenResponse.access_token, tokenResponse.expires_in);
+                        if (typeof gapi !== 'undefined' && gapi.client) {
+                            gapi.client.setToken({ access_token: tokenResponse.access_token });
                         }
-                    },
-                });
+                        
+                        // 2. Fetch the user's email to perform security checks
+                        fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                            headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+                        })
+                        .then(res => res.json())
+                        .then(userInfo => {
+                            if (userInfo && userInfo.email) {
+                                const email = userInfo.email.toLowerCase();
+                                
+                                // BLOCK STEP A: Check if the email starts with a number (Student Account)
+                                if (/^\d/.test(email)) {
+                                    alert("Access Denied. Student accounts are not authorized to access the teacher dashboard.");
+                                    if (typeof forceLogout === 'function') forceLogout(); 
+                                    return;
+                                }
+                                
+                                // BLOCK STEP B: Double-check the school domain
+                                if (!email.endsWith("@cedarsupper.co.uk")) {
+                                    alert("Access Denied. Only @cedarsupper.co.uk teacher accounts are authorized.");
+                                    if (typeof forceLogout === 'function') forceLogout();
+                                    return;
+                                }
+                                
+                                // 3. If it passes both checks, proceed to dashboard
+                                handleLoginSuccess(tokenResponse.access_token);
+                            } else {
+                                alert("Security Error: Could not verify your email address.");
+                            }
+                        })
+                        .catch(err => {
+                            console.error("Error verifying user identity:", err);
+                            alert("Authentication failed during security verification.");
+                        });
+                    }
+                },
+            });
 
-                if (gapiLoaded) {
-                    checkAuthAndLoad();
-                }
+            if (gapiLoaded) {
+                checkAuthAndLoad();
             }
-        } catch (e) {
-            console.error("Error initializing GIS client:", e);
         }
+    } catch (e) {
+        console.error("Error initializing GIS client:", e);
     }
+}
 
     function gapiStart() {
         gapi.client.init({}).then(() => {
