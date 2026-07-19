@@ -105,10 +105,8 @@ function generateExercise(){
         const endTime = Date.now();
         const timeTaken = ((endTime - startTime) / 1000).toFixed(2); 
 
-        // Display results text
         document.getElementById('frenchWord').textContent = `🎉 Completed in ${timeTaken}s!`;
         
-        // Completely hide the unnecessary UI elements
         document.getElementById('gameSubtitle').style.display = "none";
         document.getElementById('englishWord').style.display = "none";
         document.getElementById('languageSelect').style.display = "none";
@@ -118,12 +116,7 @@ function generateExercise(){
             document.getElementById('keyboardContainer').style.display = "none";
         }
 
-        // Prompt pops up instantly without making a slow pre-fetch web call
-        setTimeout(() => {
-            let studentName = prompt("Superb job! Enter your name for the leaderboard:");
-            if(!studentName) studentName = "Anonymous";
-            submitAndLoadLeaderboard(studentName, timeTaken);
-        }, 50);
+        checkQualificationAndLoad(timeTaken);
         return;
     }
 
@@ -261,52 +254,83 @@ document.getElementById('languageSelect').addEventListener('change', (e) => {
     generateKeyboard(e.target.value);
 });
 
-function submitAndLoadLeaderboard(name, time) {
+// Smart validation loader
+function checkQualificationAndLoad(time) {
     const list = document.getElementById('leaderboardList');
     const section = document.getElementById('leaderboardSection');
     
-    list.innerHTML = "<li>Uploading score... ⏳</li>";
+    list.innerHTML = "<li>Loading board profiles... ⏳</li>";
     section.style.display = "block";
 
-    fetch(LEADERBOARD_API_URL, {
-        method: "POST",
-        body: JSON.stringify({
-            topicId: topicId,
-            game: GAME_NAME,
-            name: name,
-            time: parseFloat(time)
-        })
-    })
-    .then(res => res.json()) 
+    // Call GET endpoint to check existing data first
+    fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
+    .then(res => res.json())
     .then(data => {
-        list.innerHTML = "";
+        // Qualifies if leaderboard isn't full (< 5 records) OR current score beats the worst time on it
+        let qualifies = data.length < 5 || parseFloat(time) < data[data.length - 1].time;
         
-        let studentRank = data.findIndex(entry => entry.name === name && entry.time === parseFloat(time)) + 1;
-        
-        let rankHeader = document.getElementById('personalRankTitle');
-        if(!rankHeader) {
-            rankHeader = document.createElement('h4');
-            rankHeader.id = 'personalRankTitle';
-            rankHeader.style.color = '#2ecc71';
-            rankHeader.style.fontSize = '22px';
-            section.insertBefore(rankHeader, list);
+        if (qualifies) {
+            let studentName = prompt("🏆 Outstanding! You made the Top 5! Enter your name:");
+            if (!studentName) studentName = "Anonymous";
+            
+            list.innerHTML = "<li>Saving your spot... ⏳</li>";
+            
+            // Post new score record
+            fetch(LEADERBOARD_API_URL, {
+                method: "POST",
+                body: JSON.stringify({
+                    topicId: topicId,
+                    game: GAME_NAME,
+                    name: studentName,
+                    time: parseFloat(time)
+                })
+            })
+            .then(res => res.json())
+            .then(updatedData => {
+                renderLeaderboardRows(updatedData, studentName, time);
+            });
+        } else {
+            // Skips input field popups completely if they place 6th+
+            renderLeaderboardRows(data, null, null);
         }
-        rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
-
-        data.forEach((entry, index) => {
-            const li = document.createElement('li');
-            li.innerHTML = `<strong>${entry.name}</strong> — ${entry.time}s`;
-            if (entry.name === name && entry.time === parseFloat(time)) {
-                li.style.backgroundColor = '#cef4ce';
-                li.style.padding = '2px 5px';
-                li.style.borderRadius = '5px';
-            }
-            list.appendChild(li);
-        });
     })
     .catch(err => {
-        console.error("Leaderboard transmission error:", err);
+        console.error("Leaderboard loading failure:", err);
         list.innerHTML = "<li>Error connecting to records database.</li>";
+    });
+}
+
+function renderLeaderboardRows(data, highlightName, highlightTime) {
+    const list = document.getElementById('leaderboardList');
+    const section = document.getElementById('leaderboardSection');
+    list.innerHTML = "";
+    
+    let rankHeader = document.getElementById('personalRankTitle');
+    if(!rankHeader) {
+        rankHeader = document.createElement('h4');
+        rankHeader.id = 'personalRankTitle';
+        rankHeader.style.fontSize = '22px';
+        section.insertBefore(rankHeader, list);
+    }
+
+    if (highlightName) {
+        let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime)) + 1;
+        rankHeader.style.color = '#2ecc71';
+        rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
+    } else {
+        rankHeader.style.color = '#e67e22';
+        rankHeader.textContent = `🏁 Good effort! Try again to break into the Top 5.`;
+    }
+
+    data.forEach((entry) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<strong>${entry.name}</strong> — ${entry.time}s`;
+        if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime)) {
+            li.style.backgroundColor = '#cef4ce';
+            li.style.padding = '2px 5px';
+            li.style.borderRadius = '5px';
+        }
+        list.appendChild(li);
     });
 }
 </script>
