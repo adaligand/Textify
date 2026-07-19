@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>No xvowels</title>
+<title>No vowels</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
     body {
@@ -82,14 +82,20 @@ let lastFocusedInput = null;
 const vowels = ['a','e','i','o','u','à','â','ä','é','è','ê','ë','î','ï','ô','ö','ù','ü','û','á','é','í','ó','ú'];
 
 // --- LEADERBOARD CONFIGURATION ---
-const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbxp1mBewvDX4OIi21rULTQ3qM5Pt1Hi4Svdh0wb21hk2FOSqjnT6fRTDYKKBacrD1wj-g/exec"; 
+const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbyuZnWEMcISUKHdNqM3fp8VU1HgaH7RHWlPgGS3AXaAkUhKZ1_Dm-eWcj5jLv1JDS1pwQ/exec"; 
 const GAME_NAME = "No_Vowels"; 
 let startTime;
 
 const params = new URLSearchParams(window.location.search);
 const sheetUrl = params.get('sheet'); 
 
+// FIXED: Advanced URL parser to safely handle web-published links containing "/d/e/"
 function getSpreadsheetId(url) {
+    if (!url) return null;
+    if (url.includes('/d/e/')) {
+        const matches = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+        return matches ? matches[1] : url;
+    }
     const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
     return matches ? matches[1] : url;
 }
@@ -124,12 +130,11 @@ function generateExercise(){
         const timeTaken = ((endTime - startTime) / 1000).toFixed(2); 
 
         document.getElementById('frenchWord').textContent = `🎉 Completed in ${timeTaken}s!`;
-        document.getElementById('englishWord').textContent = "";
+        document.getElementById('englishWord').textContent = "Calculating your leaderboard rank... ⏳";
         document.getElementById('feedback').style.display="none";
         document.getElementById('wordCounter').textContent = "";
         if(document.getElementById('keyboardContainer')) document.getElementById('keyboardContainer').style.display = "none";
 
-        // Scan database to figure out the exact rank BEFORE asking for their name
         fetch(`${LEADERBOARD_API_URL}?topicId=${encodeURIComponent(topicId)}&game=${encodeURIComponent(GAME_NAME)}`)
         .then(res => res.json())
         .then(existingScores => {
@@ -137,15 +142,18 @@ function generateExercise(){
             if (calculatedRank === 0) {
                 calculatedRank = existingScores.length + 1;
             }
+            
+            document.getElementById('englishWord').textContent = ""; 
 
             setTimeout(() => {
                 let studentName = prompt(`Congrats! You're number ${calculatedRank} on the leaderboard!\n\nEnter your name:`);
                 if(!studentName) studentName = "Anonymous";
                 submitAndLoadLeaderboard(studentName, timeTaken);
-            }, 300);
+            }, 100);
         })
         .catch(err => {
-            console.error("Rank pre-calculation fetch error:", err);
+            console.error("Rank calculation fetch error:", err);
+            document.getElementById('englishWord').textContent = "";
             let studentName = prompt("Enter your name for the leaderboard:");
             if(!studentName) studentName = "Anonymous";
             submitAndLoadLeaderboard(studentName, timeTaken);
@@ -288,6 +296,12 @@ document.getElementById('languageSelect').addEventListener('change', (e) => {
 });
 
 function submitAndLoadLeaderboard(name, time) {
+    const list = document.getElementById('leaderboardList');
+    const section = document.getElementById('leaderboardSection');
+    
+    list.innerHTML = "<li>Uploading score and updating records... ⏳</li>";
+    section.style.display = "block";
+
     fetch(LEADERBOARD_API_URL, {
         method: "POST",
         body: JSON.stringify({
@@ -297,13 +311,8 @@ function submitAndLoadLeaderboard(name, time) {
             time: parseFloat(time)
         })
     })
-    .then(() => {
-        return fetch(`${LEADERBOARD_API_URL}?topicId=${encodeURIComponent(topicId)}&game=${encodeURIComponent(GAME_NAME)}`);
-    })
-    .then(res => res.json())
+    .then(res => res.json()) 
     .then(data => {
-        const list = document.getElementById('leaderboardList');
-        const section = document.getElementById('leaderboardSection');
         list.innerHTML = "";
         
         let studentRank = data.findIndex(entry => entry.name === name && entry.time === parseFloat(time)) + 1;
@@ -331,11 +340,10 @@ function submitAndLoadLeaderboard(name, time) {
             }
             list.appendChild(li);
         });
-        
-        section.style.display = "block";
     })
     .catch(err => {
         console.error("Leaderboard transmission error:", err);
+        list.innerHTML = "<li>Error connecting to records database.</li>";
     });
 }
 </script>
