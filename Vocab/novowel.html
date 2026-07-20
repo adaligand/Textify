@@ -58,9 +58,12 @@ let currentIndex = 0;
 let lastFocusedInput = null;
 const vowels = ['a','e','i','o','u','à','â','ä','é','è','ê','ë','î','ï','ô','ö','ù','ü','û','á','é','í','ó','ú'];
 
+let totalVowelsCount = 0;
+let totalInputAttempts = 0;
+
 // --- LEADERBOARD CONFIGURATION ---
 const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwkxF_dLYp8k1YTs6rkk3Icfpj9WVM4SL5yPCyUVuLh-RlMitzW_9lz8wb6lYa4PoiWtg/exec"; 
-const GAME_NAME = "No_Vowels"; 
+const GAME_NAME = "No Vowels"; 
 let startTime;
 
 const params = new URLSearchParams(window.location.search);
@@ -77,7 +80,9 @@ function getSpreadsheetId(url) {
 }
 const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
 
-if(!sheetUrl){ alert("No sheet URL provided!"); }
+if(!sheetUrl){
+    document.getElementById('englishWord').textContent = "⚠️ No CSV URL provided in query string.";
+}
 
 Papa.parse(sheetUrl, {
     download: true,
@@ -89,23 +94,37 @@ Papa.parse(sheetUrl, {
                 vocabList.push({ french: row.French.trim(), english: row.English.trim() });
             }
         });
-        if(vocabList.length === 0){ alert("No items found in columns A/B!"); return; }
+        if(vocabList.length === 0){
+            document.getElementById('englishWord').textContent = "⚠️ No items found in columns A/B!";
+            return;
+        }
 
         exerciseWords = vocabList.sort(() => 0.5 - Math.random()).slice(0,10);
         currentIndex = 0;
+        totalVowelsCount = 0;
+        totalInputAttempts = 0;
         generateExercise();
         generateKeyboard('french');
         startTime = Date.now(); 
     },
-    error: function(err){ console.error(err); alert("CSV load error: " + err); }
+    error: function(err){
+        console.error(err);
+        document.getElementById('englishWord').textContent = "⚠️ CSV load error: " + err;
+    }
 });
 
 function generateExercise(){
     if(currentIndex >= exerciseWords.length){
-        const endTime = Date.now();
-        const timeTaken = ((endTime - startTime) / 1000).toFixed(2); 
+        const totalSeconds = Math.round((Date.now() - startTime) / 1000);
+        const totalMinutes = parseFloat((totalSeconds / 60).toFixed(2));
+        
+        const displayMins = Math.floor(totalSeconds / 60);
+        const displaySecs = totalSeconds % 60;
+        const formattedTimeText = `${displayMins}m ${displaySecs}s`;
+        
+        const accuracy = Math.min(100, Math.round((totalVowelsCount / Math.max(totalVowelsCount, totalInputAttempts)) * 100));
 
-        document.getElementById('frenchWord').textContent = `🎉 Completed in ${timeTaken}s!`;
+        document.getElementById('frenchWord').textContent = `🎉 Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
         
         document.getElementById('gameSubtitle').style.display = "none";
         document.getElementById('englishWord').style.display = "none";
@@ -116,7 +135,7 @@ function generateExercise(){
             document.getElementById('keyboardContainer').style.display = "none";
         }
 
-        checkQualificationAndLoad(timeTaken);
+        checkQualificationAndLoad(totalMinutes, accuracy);
         return;
     }
 
@@ -128,6 +147,7 @@ function generateExercise(){
     for(let i=0; i<word.length; i++){
         const char = word[i];
         if(vowels.includes(char.toLowerCase())){
+            totalVowelsCount++;
             const input = document.createElement('input');
             input.type = 'text';
             input.maxLength = 1;
@@ -162,6 +182,10 @@ function validateInput(e){
     const word = exerciseWords[currentIndex].french;
     const correctChar = word[input.dataset.index].toLowerCase();
 
+    if (input.value !== '') {
+        totalInputAttempts++;
+    }
+
     if(input.value.toLowerCase() === correctChar){
         input.classList.add('correct');
         input.classList.remove('incorrect');
@@ -190,19 +214,18 @@ function validateInput(e){
 
 function handleKeydown(e){
     if(e.key === "Backspace"){
-        e.preventDefault(); 
         const input = e.target;
-        input.value = '';
-        input.classList.remove('correct', 'incorrect');
-
-        let prevInput = input.previousElementSibling;
-        while(prevInput && !prevInput.classList.contains('missing-word')){
-            prevInput = prevInput.previousElementSibling;
-        }
-        if(prevInput){
-            prevInput.focus();
-            prevInput.value = '';
-            prevInput.classList.remove('correct', 'incorrect');
+        if(input.value === ''){
+            e.preventDefault(); 
+            let prevInput = input.previousElementSibling;
+            while(prevInput && !prevInput.classList.contains('missing-word')){
+                prevInput = prevInput.previousElementSibling;
+            }
+            if(prevInput){
+                prevInput.focus();
+                prevInput.value = '';
+                prevInput.classList.remove('correct', 'incorrect');
+            }
         }
     } 
     else if(e.key === "Enter"){
@@ -254,44 +277,53 @@ document.getElementById('languageSelect').addEventListener('change', (e) => {
     generateKeyboard(e.target.value);
 });
 
-// Smart validation loader
-function checkQualificationAndLoad(time) {
+function formatTimeDisplay(minutesVal) {
+    if (minutesVal === undefined || minutesVal === null) return "";
+    const totalSecs = Math.round(parseFloat(minutesVal) * 60);
+    const m = Math.floor(totalSecs / 60);
+    const s = totalSecs % 60;
+    return `${m}m ${s}s`;
+}
+
+function checkQualificationAndLoad(timeMinutes, accuracy) {
     const list = document.getElementById('leaderboardList');
     const section = document.getElementById('leaderboardSection');
     
     list.innerHTML = "<li>Loading board profiles... ⏳</li>";
     section.style.display = "block";
 
-    // Call GET endpoint to check existing data first
     fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
     .then(res => res.json())
     .then(data => {
-        // Qualifies if leaderboard isn't full (< 5 records) OR current score beats the worst time on it
-        let qualifies = data.length < 5 || parseFloat(time) < data[data.length - 1].time;
+        let tempBoard = [...data];
+        let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
+        tempBoard.push(newAttempt);
+        tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
         
-        if (qualifies) {
-            let studentName = prompt("🏆 Outstanding! You made the Top 5! Enter your name:");
+        let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
+
+        if (playerRank <= 5) {
+            let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
             if (!studentName) studentName = "Anonymous";
             
             list.innerHTML = "<li>Saving your spot... ⏳</li>";
             
-            // Post new score record
             fetch(LEADERBOARD_API_URL, {
                 method: "POST",
                 body: JSON.stringify({
                     topicId: topicId,
                     game: GAME_NAME,
                     name: studentName,
-                    time: parseFloat(time)
+                    time: parseFloat(timeMinutes),
+                    accuracy: parseFloat(accuracy)
                 })
             })
             .then(res => res.json())
             .then(updatedData => {
-                renderLeaderboardRows(updatedData, studentName, time);
+                renderLeaderboardRows(updatedData, studentName, timeMinutes, accuracy);
             });
         } else {
-            // Skips input field popups completely if they place 6th+
-            renderLeaderboardRows(data, null, null);
+            renderLeaderboardRows(data, null, null, null);
         }
     })
     .catch(err => {
@@ -300,7 +332,7 @@ function checkQualificationAndLoad(time) {
     });
 }
 
-function renderLeaderboardRows(data, highlightName, highlightTime) {
+function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc) {
     const list = document.getElementById('leaderboardList');
     const section = document.getElementById('leaderboardSection');
     list.innerHTML = "";
@@ -314,7 +346,7 @@ function renderLeaderboardRows(data, highlightName, highlightTime) {
     }
 
     if (highlightName) {
-        let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime)) + 1;
+        let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) + 1;
         rankHeader.style.color = '#2ecc71';
         rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
     } else {
@@ -324,8 +356,11 @@ function renderLeaderboardRows(data, highlightName, highlightTime) {
 
     data.forEach((entry) => {
         const li = document.createElement('li');
-        li.innerHTML = `<strong>${entry.name}</strong> — ${entry.time}s`;
-        if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime)) {
+        const accVal = entry.accuracy !== undefined ? entry.accuracy : 100;
+        const timeFormatted = formatTimeDisplay(entry.time);
+        
+        li.innerHTML = `<strong>${entry.name}</strong> — ${accVal}% Accuracy | ${timeFormatted}`;
+        if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) {
             li.style.backgroundColor = '#cef4ce';
             li.style.padding = '2px 5px';
             li.style.borderRadius = '5px';
