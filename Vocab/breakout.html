@@ -128,6 +128,7 @@
             border-radius: 10px;
             cursor: pointer;
             margin: 0;
+            transition: all 0.2s ease;
         }
         button:hover {
             background-color: #A9A9A9;
@@ -153,9 +154,56 @@
             border: 2px solid #ddd;
         }
 
-        /* Leaderboard Styling Extensions */
-        .leaderboard-box { margin-top: 25px; text-align: center; border-top: 2px solid #eee; padding-top: 20px; }
-        .leaderboard-list { display: inline-block; text-align: left; font-size: 18px; padding-left: 20px; line-height: 1.6; }
+        /* Enhanced Leaderboard & Restart Styling */
+        .leaderboard-box { 
+            margin-top: 25px; 
+            text-align: center; 
+            border-top: 2px solid #eee; 
+            padding-top: 20px; 
+        }
+        .leaderboard-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 16px;
+            background-color: #fafafa;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        .leaderboard-table th, .leaderboard-table td {
+            padding: 12px 15px;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+        }
+        .leaderboard-table th {
+            background-color: #f1f3f5;
+            color: #333;
+            font-weight: bold;
+        }
+        .leaderboard-table tr:last-child td {
+            border-bottom: none;
+        }
+        .leaderboard-table tr.highlight-row {
+            background-color: #d4edda !important;
+            font-weight: bold;
+        }
+        .restart-btn {
+            margin-top: 25px;
+            padding: 12px 28px;
+            font-size: 20px;
+            font-weight: bold;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .restart-btn:hover {
+            background-color: #218838;
+            transform: translateY(-2px);
+        }
   </style>
 </head>
 <body>
@@ -192,7 +240,19 @@
         <!-- Leaderboard Container -->
         <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
             <h3>🏆 Top 5 Leaderboard 🏆</h3>
-            <ol id="leaderboardList" class="leaderboard-list"></ol>
+            <div id="leaderboardStatus"></div>
+            <table class="leaderboard-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Player</th>
+                        <th>Accuracy</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody id="leaderboardBody"></tbody>
+            </table>
+            <button id="restartButton" class="restart-btn hide" onclick="restartGame()">🔄 Play Again</button>
         </div>
     </div>
 
@@ -440,10 +500,10 @@
     }
 
     function checkQualificationAndLoad(timeMinutes, accuracy) {
-        const list = document.getElementById('leaderboardList');
+        const tbody = document.getElementById('leaderboardBody');
         const section = document.getElementById('leaderboardSection');
         
-        list.innerHTML = "<li>Loading board profiles... ⏳</li>";
+        tbody.innerHTML = '<tr><td colspan="4">Loading board profiles... ⏳</td></tr>';
         section.style.display = "block";
 
         fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
@@ -460,7 +520,7 @@
                 let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
                 if (!studentName) studentName = "Anonymous";
                 
-                list.innerHTML = "<li>Saving your spot... ⏳</li>";
+                tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
                 
                 fetch(LEADERBOARD_API_URL, {
                     method: "POST",
@@ -482,21 +542,23 @@
         })
         .catch(err => {
             console.error("Leaderboard loading failure:", err);
-            list.innerHTML = "<li>Error connecting to records database.</li>";
+            tbody.innerHTML = '<tr><td colspan="4">Error connecting to records database.</td></tr>';
+            document.getElementById('restartButton').classList.remove('hide');
         });
     }
 
     function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc) {
-        const list = document.getElementById('leaderboardList');
-        const section = document.getElementById('leaderboardSection');
-        list.innerHTML = "";
+        const tbody = document.getElementById('leaderboardBody');
+        const statusDiv = document.getElementById('leaderboardStatus');
+        tbody.innerHTML = "";
         
         let rankHeader = document.getElementById('personalRankTitle');
         if(!rankHeader) {
             rankHeader = document.createElement('h4');
             rankHeader.id = 'personalRankTitle';
-            rankHeader.style.fontSize = '22px';
-            section.insertBefore(rankHeader, list);
+            rankHeader.style.fontSize = '20px';
+            rankHeader.style.margin = '10px 0';
+            statusDiv.appendChild(rankHeader);
         }
 
         if (highlightName) {
@@ -508,19 +570,41 @@
             rankHeader.textContent = `🏁 Good effort! Try again to break into the Top 5.`;
         }
 
-        data.forEach((entry) => {
-            const li = document.createElement('li');
+        const medals = ['🥇 1', '🥈 2', '🥉 3'];
+
+        data.forEach((entry, index) => {
+            const tr = document.createElement('tr');
             const accVal = entry.accuracy !== undefined ? entry.accuracy : 100;
             const timeFormatted = formatTimeDisplay(entry.time);
+            const rankDisplay = medals[index] || `#${index + 1}`;
             
-            li.innerHTML = `<strong>${entry.name}</strong> — ${accVal}% Accuracy | ${timeFormatted}`;
             if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) {
-                li.style.backgroundColor = '#cef4ce';
-                li.style.padding = '2px 5px';
-                li.style.borderRadius = '5px';
+                tr.className = 'highlight-row';
             }
-            list.appendChild(li);
+
+            tr.innerHTML = `
+                <td><strong>${rankDisplay}</strong></td>
+                <td><strong>${entry.name}</strong></td>
+                <td>${accVal}%</td>
+                <td>${timeFormatted}</td>
+            `;
+            tbody.appendChild(tr);
         });
+
+        // Display Restart Button
+        document.getElementById('restartButton').classList.remove('hide');
+    }
+
+    function restartGame() {
+        // Reset UI elements
+        document.getElementById('leaderboardSection').style.display = 'none';
+        document.getElementById('restartButton').classList.add('hide');
+        
+        document.querySelector('.input-row').classList.remove('hide');
+        document.querySelector('.keyboard-controls').classList.remove('hide');
+
+        // Restart core game state
+        initialize();
     }
 
     document.getElementById('checkButton').addEventListener('click', checkAnswer);
