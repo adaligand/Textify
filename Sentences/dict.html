@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dictatioxn</title>
+  <title>Dictation</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     body {
@@ -56,16 +56,12 @@
       transform: translateY(-2px);
       box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
     }
-    #nextButton,
-    #checkButton,
     #actionButton {
       background-color: #007bff;
       color: white;
       border-color: #007bff;
       white-space: nowrap;
     }
-    #nextButton:hover,
-    #checkButton:hover,
     #actionButton:hover {
       background-color: #0056b3;
       border-color: #0056b3;
@@ -193,10 +189,10 @@
 </head>
 <body>
   <div class="container">
-    <div class="title">Dictation Activity</div>
+    <div class="title" id="gameTitle">Dictation Activity</div>
     <div id="counter">Loading...</div>
 
-    <div class="top-controls">
+    <div class="top-controls" id="topControls">
       <button id="playButton" onclick="playAudio()">▶️ Play Audio</button>
       <select id="languageSelect" onchange="onLanguageChange()">
         <option value="french" selected>French</option>
@@ -205,7 +201,7 @@
       </select>
     </div>
 
-    <div class="input-group">
+    <div class="input-group" id="inputGroup">
       <input
         type="text"
         id="answerInput"
@@ -218,13 +214,14 @@
 
     <div id="feedback"></div>
 
-    <div class="keyboard-area">
+    <div class="keyboard-area" id="keyboardArea">
       <div id="keyboardContainer"></div>
     </div>
 
+    <div id="scoreDisplay" style="font-size: 28px; font-weight: bold; margin: 20px 0; color: #333; padding: 15px; background-color: #f8f9fa; border-radius: 12px; display: none;"></div>
+
     <!-- Leaderboard Container -->
     <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
-        <div id="summaryOutput" style="font-size: 24px; font-weight: bold; margin-bottom: 15px; color: #333;"></div>
         <h3 style="margin: 5px 0;">🏆 Top 5 Leaderboard 🏆</h3>
         <div id="leaderboardStatus"></div>
         <table class="leaderboard-table">
@@ -249,13 +246,16 @@
     let voices = [];
     let voiceMap = {};
     let currentLanguage = "french";
-    let isAnsweredCorrectly = false;
+
     let totalAttempts = 0;
     let startTime;
 
     // --- LEADERBOARD CONFIGURATION ---
     const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwoSxSMnLX2NFBBsp61a3qcWkohu0VjJjZ-GFbS9SvD5WBWqVKO7gL71TFw7WvobtkPhA/exec"; 
-    const GAME_NAME = "Sent_Dictation"; 
+    const GAME_NAME = "Dictation"; 
+
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get("sheet");
 
     function getSpreadsheetId(url) {
         if (!url) return null;
@@ -266,15 +266,11 @@
         const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
         return matches ? matches[1] : url;
     }
-
-    const params = new URLSearchParams(window.location.search);
-    const sheetUrl = params.get("sheet");
     const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
 
     if (!sheetUrl) {
       document.querySelector(".title").textContent = "⚠️ Error";
-      document.getElementById("counter").textContent =
-        "No Google Sheet URL was provided.";
+      document.getElementById("counter").textContent = "No Google Sheet URL was provided.";
     } else {
       Papa.parse(sheetUrl, {
         download: true,
@@ -288,16 +284,14 @@
           });
           if (allSentences.length === 0) {
             document.querySelector(".title").textContent = "⚠️ Error";
-            document.getElementById("counter").textContent =
-              "No sentences found.";
+            document.getElementById("counter").textContent = "No sentences found.";
             return;
           }
           restartGame();
         },
         error: function (err) {
           document.querySelector(".title").textContent = "⚠️ Error";
-          document.getElementById("counter").textContent =
-            "Error loading data.";
+          document.getElementById("counter").textContent = "Error loading data.";
           console.error(err);
         },
       });
@@ -327,43 +321,43 @@
     if (speechSynthesis.getVoices().length) loadVoices();
 
     function restartGame() {
-        document.querySelector('.title').style.display = "block";
-        document.querySelector('.title').textContent = "Dictation Activity";
-        document.getElementById('counter').style.display = "block";
-        document.querySelector('.top-controls').style.display = "flex";
-        document.querySelector('.input-group').style.display = "flex";
-        document.getElementById('feedback').style.display = "block";
-        document.querySelector('.keyboard-area').style.display = "block";
-        document.getElementById('leaderboardSection').style.display = "none";
+        document.getElementById("gameTitle").style.display = "block";
+        document.getElementById("gameTitle").textContent = "Dictation Activity";
+        document.getElementById("counter").style.display = "block";
+        document.getElementById("topControls").style.display = "flex";
+        document.getElementById("inputGroup").style.display = "flex";
+        document.getElementById("feedback").style.display = "block";
+        document.getElementById("keyboardArea").style.display = "block";
+        document.getElementById("scoreDisplay").style.display = "none";
+        document.getElementById("leaderboardSection").style.display = "none";
 
         initialize();
     }
 
     function initialize() {
-      allSentences.sort(() => Math.random() - 0.5);
-      exerciseSentences = allSentences.slice(0, Math.min(10, allSentences.length));
+      let shuffled = [...allSentences].sort(() => Math.random() - 0.5);
+      exerciseSentences = shuffled.slice(0, Math.min(10, shuffled.length));
       currentIndex = 0;
       totalAttempts = 0;
-      startTime = Date.now();
       updateUI();
       generateKeyboard();
-      playAudio();
+      startTime = Date.now();
     }
 
     function updateUI() {
       const total = exerciseSentences.length;
-      document.getElementById(
-        "counter"
-      ).textContent = `Sentence ${currentIndex + 1} / ${total}`;
+      document.getElementById("counter").textContent = `Sentence ${currentIndex + 1} / ${total}`;
+      
       const answerInput = document.getElementById("answerInput");
       answerInput.value = "";
-      answerInput.disabled = false;
+      answerInput.readOnly = false;
       answerInput.focus();
+      
       document.getElementById("feedback").textContent = "";
       const btn = document.getElementById("actionButton");
       btn.textContent = "Check";
       btn.onclick = checkAnswer;
-      isAnsweredCorrectly = false;
+      
       playAudio();
     }
 
@@ -374,9 +368,7 @@
 
     function playAudio() {
       if (!exerciseSentences[currentIndex]) return;
-      const utterance = new SpeechSynthesisUtterance(
-        exerciseSentences[currentIndex]
-      );
+      const utterance = new SpeechSynthesisUtterance(exerciseSentences[currentIndex]);
       const voice = voiceMap[currentLanguage];
       if (voice) utterance.voice = voice;
 
@@ -403,26 +395,28 @@
       const feedbackEl = document.getElementById("feedback");
       const userAnswer = answerInput.value.trim();
       const correctAnswer = exerciseSentences[currentIndex];
+      
       if (!userAnswer) {
         feedbackEl.textContent = "Please type your answer.";
         feedbackEl.style.color = "orange";
         return;
       }
+      
       const punctuationRegex = /[.,?!;:"-]/g;
-      const normalize = (t) =>
-        t.replace(/’/g, "'").replace(punctuationRegex, "").toLowerCase().trim();
+      const normalize = (t) => t.replace(/’/g, "'").replace(punctuationRegex, "").toLowerCase().trim();
+      
       if (normalize(userAnswer) === normalize(correctAnswer)) {
         feedbackEl.textContent = "✅ Correct!";
         feedbackEl.style.color = "green";
-        answerInput.disabled = true;
-        isAnsweredCorrectly = true;
+        answerInput.readOnly = true;
         
+        const btn = document.getElementById("actionButton");
         if (currentIndex < exerciseSentences.length - 1) {
-          const btn = document.getElementById("actionButton");
           btn.textContent = "Next ▶️";
           btn.onclick = nextSentence;
         } else {
-          finishGame();
+          btn.textContent = "🎉 See Score";
+          btn.onclick = finishGame;
         }
       } else {
         feedbackEl.style.color = "darkorange";
@@ -439,40 +433,43 @@
       }
     }
 
+    function nextSentence() {
+      currentIndex++;
+      if (currentIndex < exerciseSentences.length) {
+        updateUI();
+      }
+    }
+
     function finishGame() {
       const totalSeconds = Math.round((Date.now() - startTime) / 1000);
       const displayMins = Math.floor(totalSeconds / 60);
       const displaySecs = totalSeconds % 60;
+
       const clockFormattedTime = parseFloat(`${displayMins}.${displaySecs < 10 ? '0' : ''}${displaySecs}`);
       const formattedTimeText = `${displayMins}m ${displaySecs}s`;
       const accuracy = Math.min(100, Math.round((exerciseSentences.length / Math.max(exerciseSentences.length, totalAttempts)) * 100));
 
-      document.querySelector('.title').style.display = "none";
-      document.getElementById('counter').style.display = "none";
-      document.querySelector('.top-controls').style.display = "none";
-      document.querySelector('.input-group').style.display = "none";
-      document.getElementById('feedback').style.display = "none";
-      document.querySelector('.keyboard-area').style.display = "none";
+      const scoreDisplay = document.getElementById("scoreDisplay");
+      scoreDisplay.textContent = `🎉 Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
+      scoreDisplay.style.display = "block";
 
-      document.getElementById('summaryOutput').textContent = `🎉 Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
+      document.getElementById("gameTitle").style.display = "none";
+      document.getElementById("counter").style.display = "none";
+      document.getElementById("topControls").style.display = "none";
+      document.getElementById("inputGroup").style.display = "none";
+      document.getElementById("feedback").style.display = "none";
+      document.getElementById("keyboardArea").style.display = "none";
 
       checkQualificationAndLoad(clockFormattedTime, accuracy);
     }
 
-    function nextSentence() {
-      currentIndex++;
-      updateUI();
-    }
-
-    document
-      .getElementById("answerInput")
-      .addEventListener("keypress", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          const btn = document.getElementById("actionButton");
-          btn.click();
-        }
-      });
+    document.getElementById("answerInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const btn = document.getElementById("actionButton");
+        btn.click();
+      }
+    });
 
     function generateKeyboard() {
       const keyboardContainer = document.getElementById("keyboardContainer");
@@ -480,22 +477,7 @@
       let specialChars = [];
       switch (currentLanguage) {
         case "french":
-          specialChars = [
-            "à",
-            "â",
-            "é",
-            "è",
-            "ê",
-            "ë",
-            "î",
-            "ï",
-            "ô",
-            "ö",
-            "ù",
-            "ü",
-            "û",
-            "ç",
-          ];
+          specialChars = ["à", "â", "é", "è", "ê", "ë", "î", "ï", "ô", "ö", "ù", "ü", "û", "ç"];
           break;
         case "german":
           specialChars = ["ä", "ö", "ü", "ß"];
@@ -515,16 +497,15 @@
 
     function insertLetter(letter) {
       const input = document.getElementById("answerInput");
+      if (input.readOnly) return;
       const start = input.selectionStart;
       const end = input.selectionEnd;
-      input.value =
-        input.value.substring(0, start) +
-        letter +
-        input.value.substring(end);
+      input.value = input.value.substring(0, start) + letter + input.value.substring(end);
       input.selectionStart = input.selectionEnd = start + 1;
       input.focus();
     }
 
+    // Converts M.SS stored numbers back into text ("Xm Ys") for display
     function formatTimeDisplay(minutesVal) {
         if (minutesVal === undefined || minutesVal === null || isNaN(minutesVal)) return "";
         const num = parseFloat(minutesVal);
