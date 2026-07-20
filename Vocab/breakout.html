@@ -142,9 +142,9 @@
         .keyboard-controls {
             margin-top: 20px;
         }
-       .keyboard-container { text-align: center; margin-top: 20px; }
-    .keyboard-button { font-size: 18px; padding: 10px 15px; margin: 2px; border: none; border-radius: 10px; background-color: #eee; cursor: pointer; }
-    .keyboard-button:hover { background-color: #A9A9A9; transform: translateY(-4px); }
+        .keyboard-container { text-align: center; margin-top: 20px; }
+        .keyboard-button { font-size: 18px; padding: 10px 15px; margin: 2px; border: none; border-radius: 10px; background-color: #eee; cursor: pointer; }
+        .keyboard-button:hover { background-color: #A9A9A9; transform: translateY(-4px); }
         #languageSelect {
             padding: 5px 10px;
             border-radius: 12px;
@@ -152,11 +152,15 @@
             font-size: 16px;
             border: 2px solid #ddd;
         }
+
+        /* Leaderboard Styling Extensions */
+        .leaderboard-box { margin-top: 25px; text-align: center; border-top: 2px solid #eee; padding-top: 20px; }
+        .leaderboard-list { display: inline-block; text-align: left; font-size: 18px; padding-left: 20px; line-height: 1.6; }
   </style>
 </head>
 <body>
     <div class="container">
-        <div class="title">Vocabulary Quiz</div>
+        <div class="title" id="gameTitle">Vocabulary Quiz</div>
         <div class="subtitle" id="subtitle">Select a lock to reveal a question.</div>
         
         <div id="lockScreen"></div>
@@ -184,6 +188,12 @@
                 <div id="keyboardContainer"></div>
             </div>
         </div>
+
+        <!-- Leaderboard Container -->
+        <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
+            <h3>🏆 Top 5 Leaderboard 🏆</h3>
+            <ol id="leaderboardList" class="leaderboard-list"></ol>
+        </div>
     </div>
 
 <script>
@@ -191,9 +201,26 @@
     let currentQuestions = [];
     let lockStates = [];
     let currentIndex = 0;
+    let totalAttempts = 0;
+
+    // --- LEADERBOARD CONFIGURATION ---
+    const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwkxF_dLYp8k1YTs6rkk3Icfpj9WVM4SL5yPCyUVuLh-RlMitzW_9lz8wb6lYa4PoiWtg/exec"; 
+    const GAME_NAME = "Breakout"; 
+    let startTime;
 
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
+
+    function getSpreadsheetId(url) {
+        if (!url) return null;
+        if (url.includes('/d/e/')) {
+            const matches = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+            return matches ? matches[1] : url;
+        }
+        const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        return matches ? matches[1] : url;
+    }
+    const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
 
     if (!sheetUrl) {
         document.getElementById('subtitle').textContent = "⚠️ No sheet URL provided.";
@@ -235,9 +262,11 @@
         allQuestions.sort(() => Math.random() - 0.5);
         currentQuestions = allQuestions.slice(0, 10);
         lockStates = Array(currentQuestions.length).fill(false);
+        totalAttempts = 0;
         
         renderLockScreen();
         generateKeyboard('french');
+        startTime = Date.now();
     }
 
     function renderLockScreen() {
@@ -306,6 +335,7 @@
     }
 
     function checkAnswer() {
+        totalAttempts++;
         const answerInput = document.getElementById('answerInput');
         const feedbackEl = document.getElementById('feedback');
         
@@ -326,10 +356,23 @@
             lockStates[currentIndex] = true;
 
             if (lockStates.every(state => state === true)) {
-                document.getElementById('question').textContent = '🎉 All Locks Opened!';
+                const totalSeconds = Math.round((Date.now() - startTime) / 1000);
+                const totalMinutes = parseFloat((totalSeconds / 60).toFixed(2));
+
+                const displayMins = Math.floor(totalSeconds / 60);
+                const displaySecs = totalSeconds % 60;
+                const formattedTimeText = `${displayMins}m ${displaySecs}s`;
+
+                const accuracy = Math.min(100, Math.round((currentQuestions.length / Math.max(currentQuestions.length, totalAttempts)) * 100));
+
+                document.getElementById('question').textContent = `🎉 Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
                 document.getElementById('backButton').classList.add('hide');
                 document.getElementById('feedback').classList.add('hide');
                 document.getElementById('counter').classList.add('hide');
+                document.querySelector('.input-row').style.display = 'none';
+                document.querySelector('.keyboard-controls').style.display = 'none';
+
+                checkQualificationAndLoad(totalMinutes, accuracy);
             }
 
         } else {
@@ -368,13 +411,106 @@
 
     function insertLetter(letter) {
         const input = document.getElementById('answerInput');
+        if (input.disabled) return;
         const start = input.selectionStart;
         const end = input.selectionEnd;
         input.value = input.value.substring(0, start) + letter + input.value.substring(end);
         input.selectionStart = input.selectionEnd = start + 1;
         input.focus();
     }
-    
+
+    function formatTimeDisplay(minutesVal) {
+        if (minutesVal === undefined || minutesVal === null) return "";
+        const totalSecs = Math.round(parseFloat(minutesVal) * 60);
+        const m = Math.floor(totalSecs / 60);
+        const s = totalSecs % 60;
+        return `${m}m ${s}s`;
+    }
+
+    function checkQualificationAndLoad(timeMinutes, accuracy) {
+        const list = document.getElementById('leaderboardList');
+        const section = document.getElementById('leaderboardSection');
+        
+        list.innerHTML = "<li>Loading board profiles... ⏳</li>";
+        section.style.display = "block";
+
+        fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
+        .then(res => res.json())
+        .then(data => {
+            let tempBoard = [...data];
+            let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
+            tempBoard.push(newAttempt);
+            tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
+            
+            let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
+
+            if (playerRank <= 5) {
+                let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+                if (!studentName) studentName = "Anonymous";
+                
+                list.innerHTML = "<li>Saving your spot... ⏳</li>";
+                
+                fetch(LEADERBOARD_API_URL, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        topicId: topicId,
+                        game: GAME_NAME,
+                        name: studentName,
+                        time: parseFloat(timeMinutes),
+                        accuracy: parseFloat(accuracy)
+                    })
+                })
+                .then(res => res.json())
+                .then(updatedData => {
+                    renderLeaderboardRows(updatedData, studentName, timeMinutes, accuracy);
+                });
+            } else {
+                renderLeaderboardRows(data, null, null, null);
+            }
+        })
+        .catch(err => {
+            console.error("Leaderboard loading failure:", err);
+            list.innerHTML = "<li>Error connecting to records database.</li>";
+        });
+    }
+
+    function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc) {
+        const list = document.getElementById('leaderboardList');
+        const section = document.getElementById('leaderboardSection');
+        list.innerHTML = "";
+        
+        let rankHeader = document.getElementById('personalRankTitle');
+        if(!rankHeader) {
+            rankHeader = document.createElement('h4');
+            rankHeader.id = 'personalRankTitle';
+            rankHeader.style.fontSize = '22px';
+            section.insertBefore(rankHeader, list);
+        }
+
+        if (highlightName) {
+            let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) + 1;
+            rankHeader.style.color = '#2ecc71';
+            rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
+        } else {
+            rankHeader.style.color = '#e67e22';
+            rankHeader.textContent = `🏁 Good effort! Try again to break into the Top 5.`;
+        }
+
+        data.forEach((entry) => {
+            const li = document.createElement('li');
+            const accVal = entry.accuracy !== undefined ? entry.accuracy : 100;
+            const timeFormatted = formatTimeDisplay(entry.time);
+            
+            li.innerHTML = `<strong>${entry.name}</strong> — ${accVal}% Accuracy | ${timeFormatted}`;
+            if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) {
+                li.style.backgroundColor = '#cef4ce';
+                li.style.padding = '2px 5px';
+                li.style.borderRadius = '5px';
+            }
+            list.appendChild(li);
+        });
+    }
+
     document.getElementById('checkButton').addEventListener('click', checkAnswer);
     document.getElementById('backButton').addEventListener('click', renderLockScreen);
     document.getElementById('answerInput').addEventListener('keypress', function(event) {
