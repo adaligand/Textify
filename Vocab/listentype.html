@@ -185,10 +185,10 @@
     let exercisePhrases = [];
     let allPhrases = []; 
     let totalPhrases = 10;
+    let totalAttempts = 0; // TRACKS TOTAL SUBMISSION ATTEMPTS
     
-    // --- LEADERBOARD CONFIGURATION ---
-    const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwkxF_dLYp8k1YTs6rkk3Icfpj9WVM4SL5yPCyUVuLh-RlMitzW_9lz8wb6lYa4PoiWtg/exec"; 
-    const GAME_NAME = "Listen"; 
+    const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycby8I9yeTO54J_xwgJVysVdEJi93Ghx42bETlC2DYmZqo71IVJujYD0zyVYLZX4MFs-i0A/exec"; 
+    const GAME_NAME = "Dictation"; 
     let timerInterval;
     let startTime;
 
@@ -211,36 +211,28 @@
     } else {
         document.getElementById('gameMainTitle').textContent = "Loading vocabulary...";
         
-        // FIX: Removed the buggy proxyUrl wrapper entirely so PapaParse downloads directly via standard CORS
         Papa.parse(sheetUrl, {
             download: true,
             header: true,
             skipEmptyLines: true,
             complete: function(results) {
                 if (results.errors.length) {
-                    document.getElementById('gameMainTitle').textContent = "⚠️ Error parsing the CSV file.";
-                    console.error("PapaParse Errors:", results.errors);
+                    document.getElementById('gameMainTitle').textContent = "⚠️ Error parsing CSV.";
                     return;
                 }
 
                 results.data.forEach(row => {
                     const word = row["French"] || row["English"] || "";
-                    if (word.trim()) {
-                        allPhrases.push(word.trim());
-                    }
+                    if (word.trim()) allPhrases.push(word.trim());
                 });
 
                 if (allPhrases.length === 0) {
-                    document.getElementById('gameMainTitle').textContent = "⚠️ No data found. Check your sheet has a 'French' or 'English' column.";
+                    document.getElementById('gameMainTitle').textContent = "⚠️ No data found in sheet.";
                     return;
                 }
 
                 document.getElementById('gameMainTitle').textContent = "Type what you hear";
                 initialize();
-            },
-            error: function(err) {
-                document.getElementById('gameMainTitle').textContent = "⚠️ Error loading the CSV file.";
-                console.error("Network Fetch Error:", err);
             }
         });
     }
@@ -251,6 +243,7 @@
     }
 
     function initialize() {
+        totalAttempts = 0; // Reset counter
         generateExercisePhrases();
         startTimer();
         updateCounter();
@@ -264,15 +257,9 @@
         keyboardContainer.innerHTML = '';
         let specialChars = [];
         switch (language) {
-          case 'french':
-            specialChars = ['à', 'â', 'ä', 'é', 'è', 'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'ù', 'ü', 'û', 'ç'];
-            break;
-          case 'german':
-            specialChars = ['ä', 'ö', 'ü', 'ß'];
-            break;
-          case 'spanish':
-            specialChars = ['á', 'é', 'í', 'ó', 'ú', 'ñ'];
-            break;
+          case 'french': specialChars = ['à', 'â', 'ä', 'é', 'è', 'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'ù', 'ü', 'û', 'ç']; break;
+          case 'german': specialChars = ['ä', 'ö', 'ü', 'ß']; break;
+          case 'spanish': specialChars = ['á', 'é', 'í', 'ó', 'ú', 'ñ']; break;
         }
         specialChars.forEach(function (char) {
             const button = document.createElement('button');
@@ -302,7 +289,7 @@
     function generateExercise() {
         const textInput = document.getElementById('textInput');
         textInput.value = '';
-        textInput.readOnly = false; // Reset readOnly state for new round
+        textInput.readOnly = false;
         textInput.classList.remove('hide');
         document.getElementById('checkButton').classList.remove('hide');
         document.getElementById('nextButton').classList.add('hide');
@@ -319,6 +306,8 @@
         
         if (!userInput) return;
 
+        totalAttempts++; // INCREMENT EVERY CHECK ATTEMPT
+
         const normalizedUserInput = normalizeApostrophes(userInput).toLowerCase();
         const normalizedCorrectAnswer = normalizeApostrophes(correctAnswer).toLowerCase();
 
@@ -326,7 +315,6 @@
             feedbackEl.textContent = 'Correct!';
             feedbackEl.style.color = 'green';
             
-            // FIX: Changed disabled to readOnly so element keeps focus for the next Enter keypress
             textInput.readOnly = true; 
             document.getElementById('checkButton').classList.add('hide');
             
@@ -336,19 +324,19 @@
             } else {
                 stopTimer();
                 
-                // Final game clock extraction
                 const totalDuration = ((new Date().getTime() - startTime) / 1000).toFixed(2);
+                // Calculate accuracy percentage
+                const accuracy = Math.min(100, Math.round((totalPhrases / totalAttempts) * 100));
                 
-                document.getElementById('gameMainTitle').textContent = `🎉 Performance: Completed in ${totalDuration}s!`;
+                document.getElementById('gameMainTitle').textContent = `🎉 Score: ${accuracy}% Accuracy in ${totalDuration}s!`;
                 
-                // Interface sanitation
                 document.getElementById('statsWrapper').style.display = "none";
                 document.getElementById('textInputWrapper').style.display = "none";
                 document.getElementById('feedbackWrapper').style.display = "none";
                 document.getElementById('controlButtonsWrapper').style.display = "none";
                 document.getElementById('virtualKeyboardWrapper').style.display = "none";
 
-                checkQualificationAndLoad(totalDuration);
+                checkQualificationAndLoad(totalDuration, accuracy);
             }
         } else {
             feedbackEl.style.color = 'darkorange';
@@ -391,6 +379,7 @@
 
     function resetExercise() {
         currentPhraseIndex = 0;
+        totalAttempts = 0;
         generateExercisePhrases();
         generateExercise();
         document.getElementById('resetButton').classList.add('hide');
@@ -399,8 +388,7 @@
     }
 
     function updateCounter() {
-        const counterElement = document.getElementById('counter');
-        counterElement.textContent = `${currentPhraseIndex + 1} / ${totalPhrases}`;
+        document.getElementById('counter').textContent = `${currentPhraseIndex + 1} / ${totalPhrases}`;
     }
 
     function startTimer() {
@@ -415,8 +403,7 @@
     }
     
     function updateTimer() {
-        const currentTime = new Date().getTime();
-        const elapsedTime = currentTime - startTime;
+        const elapsedTime = new Date().getTime() - startTime;
         const minutes = Math.floor(elapsedTime / (1000 * 60));
         const seconds = Math.floor((elapsedTime % (1000 * 60)) / 1000);
         document.getElementById("timer").textContent = `${minutes}m ${seconds}s`;
@@ -441,12 +428,17 @@
     }
     
     function updateKeyboard() {
-        const selectedLanguage = document.getElementById('languageSelect').value;
-        generateKeyboard(selectedLanguage);
+        generateKeyboard(document.getElementById('languageSelect').value);
     }
 
-    // Leaderboard qualification evaluation background processes
-    function checkQualificationAndLoad(time) {
+    // Helper comparison function: Accuracy first, Time second
+    function isScoreBetter(acc1, time1, acc2, time2) {
+        if (acc1 > acc2) return true;
+        if (acc1 === acc2 && time1 < time2) return true;
+        return false;
+    }
+
+    function checkQualificationAndLoad(time, accuracy) {
         const list = document.getElementById('leaderboardList');
         const section = document.getElementById('leaderboardSection');
         
@@ -456,7 +448,10 @@
         fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
         .then(res => res.json())
         .then(data => {
-            let qualifies = data.length < 5 || parseFloat(time) < data[data.length - 1].time;
+            let lastPlace = data[data.length - 1];
+            
+            // Check qualification using both Accuracy and Time
+            let qualifies = data.length < 5 || (lastPlace && isScoreBetter(parseFloat(accuracy), parseFloat(time), parseFloat(lastPlace.accuracy), parseFloat(lastPlace.time)));
             
             if (qualifies) {
                 let studentName = prompt("🏆 Outstanding! You made the Top 5! Enter your name:");
@@ -470,15 +465,16 @@
                         topicId: topicId,
                         game: GAME_NAME,
                         name: studentName,
-                        time: parseFloat(time)
+                        time: parseFloat(time),
+                        accuracy: parseFloat(accuracy) // SENDS ACCURACY TO APPS SCRIPT
                     })
                 })
                 .then(res => res.json())
                 .then(updatedData => {
-                    renderLeaderboardRows(updatedData, studentName, time);
+                    renderLeaderboardRows(updatedData, studentName, time, accuracy);
                 });
             } else {
-                renderLeaderboardRows(data, null, null);
+                renderLeaderboardRows(data, null, null, null);
             }
         })
         .catch(err => {
@@ -487,7 +483,7 @@
         });
     }
 
-    function renderLeaderboardRows(data, highlightName, highlightTime) {
+    function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc) {
         const list = document.getElementById('leaderboardList');
         const section = document.getElementById('leaderboardSection');
         list.innerHTML = "";
@@ -501,7 +497,7 @@
         }
 
         if (highlightName) {
-            let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime)) + 1;
+            let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) + 1;
             rankHeader.style.color = '#2ecc71';
             rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
         } else {
@@ -511,8 +507,12 @@
 
         data.forEach((entry) => {
             const li = document.createElement('li');
-            li.innerHTML = `<strong>${entry.name}</strong> — ${entry.time}s`;
-            if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime)) {
+            const accVal = entry.accuracy !== undefined ? entry.accuracy : 100;
+            
+            // Displays both Accuracy and Time on the Leaderboard
+            li.innerHTML = `<strong>${entry.name}</strong> — ${accVal}% Accuracy | ${entry.time}s`;
+            
+            if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) {
                 li.style.backgroundColor = '#cef4ce';
                 li.style.padding = '2px 5px';
                 li.style.borderRadius = '5px';
@@ -521,6 +521,5 @@
         });
     }
 </script>
-  </div>
 </body>
 </html>
