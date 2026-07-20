@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lisxten</title>
+  <title>Listen</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     body {
@@ -319,16 +319,157 @@
             document.getElementById('checkButton').classList.add('hide');
             
             if (currentPhraseIndex < totalPhrases - 1) {
+                document.getElementBy<script>
+    let currentPhraseIndex = 0;
+    let exercisePhrases = [];
+    let allPhrases = []; 
+    let totalPhrases = 10;
+    let totalAttempts = 0;
+    
+    const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwoSxSMnLX2NFBBsp61a3qcWkohu0VjJjZ-GFbS9SvD5WBWqVKO7gL71TFw7WvobtkPhA/exec"; 
+    const GAME_NAME = "Dictation"; 
+    let timerInterval;
+    let startTime;
+
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    function getSpreadsheetId(url) {
+        if (!url) return null;
+        if (url.includes('/d/e/')) {
+            const matches = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+            return matches ? matches[1] : url;
+        }
+        const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        return matches ? matches[1] : url;
+    }
+    const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
+
+    if (!sheetUrl) {
+        document.getElementById('gameMainTitle').textContent = "⚠️ No CSV URL provided.";
+    } else {
+        document.getElementById('gameMainTitle').textContent = "Loading vocabulary...";
+        
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                if (results.errors.length) {
+                    document.getElementById('gameMainTitle').textContent = "⚠️ Error parsing CSV.";
+                    return;
+                }
+
+                results.data.forEach(row => {
+                    const word = row["French"] || row["English"] || "";
+                    if (word.trim()) allPhrases.push(word.trim());
+                });
+
+                if (allPhrases.length === 0) {
+                    document.getElementById('gameMainTitle').textContent = "⚠️ No data found in sheet.";
+                    return;
+                }
+
+                document.getElementById('gameMainTitle').textContent = "Type what you hear";
+                initialize();
+            }
+        });
+    }
+
+    function normalizeApostrophes(text) {
+        if (typeof text !== 'string') return '';
+        return text.replace(/’/g, "'");
+    }
+
+    function initialize() {
+        totalAttempts = 0;
+        generateExercisePhrases();
+        startTimer();
+        updateCounter();
+        generateExercise();
+        updateKeyboard();
+        document.getElementById('textInput').focus();
+    }
+
+    function generateKeyboard(language) {
+        const keyboardContainer = document.querySelector('.keyboard-container');
+        keyboardContainer.innerHTML = '';
+        let specialChars = [];
+        switch (language) {
+          case 'french': specialChars = ['à', 'â', 'ä', 'é', 'è', 'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'ù', 'ü', 'û', 'ç']; break;
+          case 'german': specialChars = ['ä', 'ö', 'ü', 'ß']; break;
+          case 'spanish': specialChars = ['á', 'é', 'í', 'ó', 'ú', 'ñ']; break;
+        }
+        specialChars.forEach(function (char) {
+            const button = document.createElement('button');
+            button.textContent = char;
+            button.className = 'keyboard-button';
+            button.setAttribute('onclick', `insertLetter('${char}')`);
+            keyboardContainer.appendChild(button);
+        });
+    }
+
+    function insertLetter(letter) {
+        const input = document.getElementById('textInput');
+        if (input.readOnly) return; 
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.value = input.value.substring(0, start) + letter + input.value.substring(end);
+        input.selectionStart = input.selectionEnd = start + 1;
+        input.focus();
+    }
+
+    function generateExercisePhrases() {
+        const shuffledPhrases = [...allPhrases].sort(() => Math.random() - 0.5);
+        totalPhrases = Math.min(10, allPhrases.length);
+        exercisePhrases = shuffledPhrases.slice(0, totalPhrases);
+    }
+
+    function generateExercise() {
+        const textInput = document.getElementById('textInput');
+        textInput.value = '';
+        textInput.readOnly = false;
+        textInput.classList.remove('hide');
+        document.getElementById('checkButton').classList.remove('hide');
+        document.getElementById('nextButton').classList.add('hide');
+        document.getElementById('feedback').classList.add('hide');
+        textInput.focus();
+        playAudio();
+    }
+
+    function checkAnswer() {
+        const userInput = document.getElementById('textInput').value.trim();
+        const correctAnswer = exercisePhrases[currentPhraseIndex];
+        const feedbackEl = document.getElementById('feedback');
+        const textInput = document.getElementById('textInput');
+        
+        if (!userInput) return;
+
+        totalAttempts++;
+
+        const normalizedUserInput = normalizeApostrophes(userInput).toLowerCase();
+        const normalizedCorrectAnswer = normalizeApostrophes(correctAnswer).toLowerCase();
+
+        if (normalizedUserInput === normalizedCorrectAnswer) {
+            feedbackEl.textContent = 'Correct!';
+            feedbackEl.style.color = 'green';
+            
+            textInput.readOnly = true; 
+            document.getElementById('checkButton').classList.add('hide');
+            
+            if (currentPhraseIndex < totalPhrases - 1) {
                 document.getElementById('nextButton').classList.remove('hide');
                 textInput.focus(); 
             } else {
                 stopTimer();
                 
-                const totalDuration = ((new Date().getTime() - startTime) / 1000).toFixed(2);
-                // Calculate accuracy percentage
+                // Convert total game time into decimal minutes
+                const totalSeconds = (new Date().getTime() - startTime) / 1000;
+                const totalMinutes = parseFloat((totalSeconds / 60).toFixed(2));
+                
                 const accuracy = Math.min(100, Math.round((totalPhrases / totalAttempts) * 100));
                 
-                document.getElementById('gameMainTitle').textContent = `🎉 Score: ${accuracy}% Accuracy in ${totalDuration}s!`;
+                document.getElementById('gameMainTitle').textContent = `🎉 Score: ${accuracy}% Accuracy in ${totalMinutes} min!`;
                 
                 document.getElementById('statsWrapper').style.display = "none";
                 document.getElementById('textInputWrapper').style.display = "none";
@@ -336,7 +477,7 @@
                 document.getElementById('controlButtonsWrapper').style.display = "none";
                 document.getElementById('virtualKeyboardWrapper').style.display = "none";
 
-                checkQualificationAndLoad(totalDuration, accuracy);
+                checkQualificationAndLoad(totalMinutes, accuracy);
             }
         } else {
             feedbackEl.style.color = 'darkorange';
@@ -431,14 +572,7 @@
         generateKeyboard(document.getElementById('languageSelect').value);
     }
 
-    // Helper comparison function: Accuracy first, Time second
-    function isScoreBetter(acc1, time1, acc2, time2) {
-        if (acc1 > acc2) return true;
-        if (acc1 === acc2 && time1 < time2) return true;
-        return false;
-    }
-
-    function checkQualificationAndLoad(time, accuracy) {
+    function checkQualificationAndLoad(timeMinutes, accuracy) {
         const list = document.getElementById('leaderboardList');
         const section = document.getElementById('leaderboardSection');
         
@@ -448,13 +582,17 @@
         fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
         .then(res => res.json())
         .then(data => {
-            let lastPlace = data[data.length - 1];
+            // Predict exact rank by inserting player into existing score pool
+            let tempBoard = [...data];
+            let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
+            tempBoard.push(newAttempt);
+            tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
             
-            // Check qualification using both Accuracy and Time
-            let qualifies = data.length < 5 || (lastPlace && isScoreBetter(parseFloat(accuracy), parseFloat(time), parseFloat(lastPlace.accuracy), parseFloat(lastPlace.time)));
-            
-            if (qualifies) {
-                let studentName = prompt("🏆 Outstanding! You made the Top 5! Enter your name:");
+            let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
+
+            if (playerRank <= 5) {
+                // Dynamic prompt displaying exact rank position
+                let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
                 if (!studentName) studentName = "Anonymous";
                 
                 list.innerHTML = "<li>Saving your spot... ⏳</li>";
@@ -465,13 +603,13 @@
                         topicId: topicId,
                         game: GAME_NAME,
                         name: studentName,
-                        time: parseFloat(time),
-                        accuracy: parseFloat(accuracy) // SENDS ACCURACY TO APPS SCRIPT
+                        time: parseFloat(timeMinutes),
+                        accuracy: parseFloat(accuracy)
                     })
                 })
                 .then(res => res.json())
                 .then(updatedData => {
-                    renderLeaderboardRows(updatedData, studentName, time, accuracy);
+                    renderLeaderboardRows(updatedData, studentName, timeMinutes, accuracy);
                 });
             } else {
                 renderLeaderboardRows(data, null, null, null);
@@ -509,8 +647,7 @@
             const li = document.createElement('li');
             const accVal = entry.accuracy !== undefined ? entry.accuracy : 100;
             
-            // Displays both Accuracy and Time on the Leaderboard
-            li.innerHTML = `<strong>${entry.name}</strong> — ${accVal}% Accuracy | ${entry.time}s`;
+            li.innerHTML = `<strong>${entry.name}</strong> — ${accVal}% Accuracy | ${entry.time} min`;
             
             if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) {
                 li.style.backgroundColor = '#cef4ce';
