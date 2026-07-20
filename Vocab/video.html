@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <title>Video Game</title>
+    <title>Space Defense</title>
     <link href='https://fonts.googleapis.com/css?family=Varela+Round' rel='stylesheet' type='text/css'>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -43,7 +43,7 @@
         .button { transition: all .1s ease-in-out; }
         .button:active { transform: scale(.9); }
         #mainMenu { width: 100%; height: 500px; position: relative; z-index: 10; }
-        #endScreen { width: 100%; height: 500px; display: none; position: relative; z-index: 10; }
+        #endScreen { width: 100%; height: 500px; display: none; position: relative; z-index: 10; overflow-y: auto; }
         .menuButton { border: 4px solid #fff; border-radius: 20px; display: inline-block; padding: 4px; cursor: pointer; margin: 2px; }
         .answer {
             border: 4px solid #fff;
@@ -106,6 +106,27 @@
             background-color: #666;
             border-color: #fff;
         }
+
+        /* Leaderboard Box Styling */
+        .leaderboard-box {
+            margin-top: 15px;
+            text-align: center;
+            border-top: 2px solid #555;
+            padding-top: 10px;
+            color: #fff;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .leaderboard-list {
+            display: inline-block;
+            text-align: left;
+            font-size: 16px;
+            padding-left: 20px;
+            line-height: 1.5;
+            color: #fff;
+        }
+
         @keyframes blink { 50% { background-color: #222; } }
         @keyframes shake { from { transform: rotate(2deg); } to { transform: rotate(-2deg); } }
     </style>
@@ -195,7 +216,27 @@
 <script>
     var loaded = false; var origArray = []; var QandAs = []; var sound = true; var mode = "normal"; var levUp = 10; var chargeTime = 300; var interval = 10; var metSpeedInc = .1; var baseProjSpeed = 7; var projOriginX = 382; var projOriginY = 495; var its = 0; var confirmAns = false;
     
-    // ✅ SOUND OBJECTS INITIALIZED WITH FULL URLS
+    // --- LEADERBOARD CONFIGURATION ---
+    const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwkxF_dLYp8k1YTs6rkk3Icfpj9WVM4SL5yPCyUVuLh-RlMitzW_9lz8wb6lYa4PoiWtg/exec"; 
+    const GAME_NAME = "Video Game"; 
+    let startTime;
+    let totalAttempts = 0;
+
+    const params = new URLSearchParams(window.location.search);
+    const sheetUrl = params.get('sheet');
+
+    function getSpreadsheetId(url) {
+        if (!url) return null;
+        if (url.includes('/d/e/')) {
+            const matches = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+            return matches ? matches[1] : url;
+        }
+        const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        return matches ? matches[1] : url;
+    }
+    const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
+
+    // SOUND OBJECTS INITIALIZED WITH FULL URLS
     const startMusic = new Audio("https://www.flippity.net/StartMusic.mp3");
     const pulseSnd = new Audio("https://www.flippity.net/Pulse.mp3");
     const explosionSnd = new Audio("https://www.flippity.net/Explosion.mp3");
@@ -212,13 +253,13 @@
     function switchMode(m) { const keyboardControls = document.getElementById('keyboard-controls'); if (m == 1) { mode = "multi"; document.getElementById("entryScreen").style.display = "none"; document.getElementById("multChoice").style.display = "table"; document.getElementById("noButton").style.borderColor = "#fff"; document.getElementById("muButton").style.borderColor = "#0f3"; keyboardControls.style.display = 'none'; } else { mode = "normal"; document.getElementById("multChoice").style.display = "none"; document.getElementById("entryScreen").style.display = "table"; document.getElementById("noButton").style.borderColor = "#0f3"; document.getElementById("muButton").style.borderColor = "#fff"; keyboardControls.style.display = 'block'; } }
     function switchSpeed(s) { if (s == 1) { interval = 20; document.getElementById("faButton").style.borderColor = "#fff"; document.getElementById("slButton").style.borderColor = "#0f3"; } else { interval = 10; document.getElementById("faButton").style.borderColor = "#0f3"; document.getElementById("slButton").style.borderColor = "#fff"; } }
     
-    function preLoadContents() { const params = new URLSearchParams(window.location.search); const sheetUrl = params.get('sheet'); if (!sheetUrl) { alert("⚠️ No sheet URL provided in the address bar. Add ?sheet=YOUR_LINK to the end of the URL."); document.getElementById("loading").style.display = "none"; return; } Papa.parse(sheetUrl, { download: true, header: true, skipEmptyLines: true, complete: function(results) { if (results.data) { results.data.forEach(row => { if (row.English && row.French) { origArray.push([row.English.trim(), row.French.trim(), "", "", ""]); } }); } if (origArray.length === 0) { alert("⚠️ No valid data found. Check your sheet headers are 'English' and 'French'."); document.getElementById("loading").style.display = "none"; return; } loaded = true; startGame(); }, error: function(err) { console.error("CSV Loading Error:", err); alert("⚠️ Error loading or parsing the CSV file."); document.getElementById("loading").style.display = "none"; } }); }
+    function preLoadContents() { if (!sheetUrl) { alert("⚠️ No sheet URL provided in the address bar. Add ?sheet=YOUR_LINK to the end of the URL."); document.getElementById("loading").style.display = "none"; return; } Papa.parse(sheetUrl, { download: true, header: true, skipEmptyLines: true, complete: function(results) { if (results.data) { results.data.forEach(row => { if (row.English && row.French) { origArray.push([row.English.trim(), row.French.trim(), "", "", ""]); } }); } if (origArray.length === 0) { alert("⚠️ No valid data found. Check your sheet headers are 'English' and 'French'."); document.getElementById("loading").style.display = "none"; return; } loaded = true; startGame(); }, error: function(err) { console.error("CSV Loading Error:", err); alert("⚠️ Error loading or parsing the CSV file."); document.getElementById("loading").style.display = "none"; } }); }
     var f = document.getElementById('frame'); var c = document.getElementById('cannon'); var m = document.getElementById('meteor'); var p = document.getElementById('projectile'); var x = document.getElementById('explosion'); var s = document.getElementById('score'); var e = document.getElementById('entry');
     var meteorImgs = ["8-Bit-Meteor-Gy.png", "8-Bit-Meteor-Re.png", "8-Bit-Meteor-Or.png", "8-Bit-Meteor-Ye.png", "8-Bit-Meteor-Gr.png", "8-Bit-Meteor-Cy.png", "8-Bit-Meteor-Bl.png", "8-Bit-Meteor-Pu.png"].map(img => "https://www.flippity.net/images/" + img);
     function startGame() { document.getElementById("loading").style.display = "none"; document.getElementById("main").style.display = "table"; mainMenu(); }
     function mainMenu() { document.getElementById("endScreen").style.display = "none"; document.getElementById("mainMenu").style.display = "table"; }
     function preRestart() { document.getElementById("mainMenu").style.display = "none"; recharge(); if (sound) { startMusic.play(); } setTimeout(restart, 2000); }
-    function restart() { prepAnswers(); hearts = 5; for (var i = 0; i < hearts; i++) { document.getElementById("h" + (i + 1)).src = "https://www.flippity.net/images/8-Bit-Heart.png"; } answer = false; score = 0; s.innerHTML = score; lev = 0; hits = 0; q = 0; fired = false; gameOver = false; resetProj(); meteorX = Math.floor(Math.random() * 730) + 10; meteorY = 0; metSpeed = .8; m.style.left = meteorX + "px"; m.style.top = meteorY + "px"; m.src = meteorImgs[lev]; m.style.display = "block"; document.getElementById("a1").classList.remove("correctAns"); document.getElementById("a2").classList.remove("correctAns"); document.getElementById("a3").classList.remove("correctAns"); document.getElementById("a4").classList.remove("correctAns"); setPrompts(); meteor(); confirmAns = false; generateKeyboard('french'); }
+    function restart() { startTime = Date.now(); totalAttempts = 0; prepAnswers(); hearts = 5; for (var i = 0; i < hearts; i++) { document.getElementById("h" + (i + 1)).src = "https://www.flippity.net/images/8-Bit-Heart.png"; } answer = false; score = 0; s.innerHTML = score; lev = 0; hits = 0; q = 0; fired = false; gameOver = false; resetProj(); meteorX = Math.floor(Math.random() * 730) + 10; meteorY = 0; metSpeed = .8; m.style.left = meteorX + "px"; m.style.top = meteorY + "px"; m.src = meteorImgs[lev]; m.style.display = "block"; document.getElementById("a1").classList.remove("correctAns"); document.getElementById("a2").classList.remove("correctAns"); document.getElementById("a3").classList.remove("correctAns"); document.getElementById("a4").classList.remove("correctAns"); setPrompts(); meteor(); confirmAns = false; generateKeyboard('french'); }
     function setPrompts() { document.getElementById("prompt").innerHTML = QandAs[q][0]; document.getElementById("prompt").title = QandAs[q][0]; if (mode == "multi") { document.getElementById("a1").innerHTML = QandAs[q][2][0]; document.getElementById("a1").title = "[A] " + QandAs[q][2][0]; document.getElementById("a2").innerHTML = QandAs[q][2][1]; document.getElementById("a2").title = "[B] " + QandAs[q][2][1]; document.getElementById("a3").innerHTML = QandAs[q][2][2]; document.getElementById("a3").title = "[C] " + QandAs[q][2][2]; document.getElementById("a4").innerHTML = QandAs[q][2][3]; document.getElementById("a4").title = "[D] " + QandAs[q][2][3]; } else { document.getElementById("button").src = "https://www.flippity.net/images/8-Bit-Button.png"; document.getElementById("button").title = "Click to fire [Enter]"; e.value = ""; e.disabled = false; e.focus(); } }
     function meteor() { meteorY += metSpeed; if (meteorY < 560) { m.style.top = meteorY + "px"; meteorTimer = setTimeout(meteor, interval); } else { impact(); } }
     function nextMet() { if (hearts > 0) { q++; if (q == QandAs.length) { prepAnswers(); q = 0; } setPrompts(); meteorY = 0; meteorX = Math.floor(Math.random() * 730) + 10; m.style.left = meteorX + "px"; m.style.top = meteorY + "px"; m.style.display = "block"; setTimeout(meteor, interval); } }
@@ -256,7 +297,34 @@
             }
         }
     }
-    function fire(ans) { if (!fired && !gameOver && charged) { if (sound) { pulseSnd.play(); } fired = true; charged = false; discharge(); recharge(); var x = meteorX + 20 - 392; var y = 560 - 60 - 20 - meteorY; var d = Math.sqrt(x * x + y * y); var i = d / projSpeed; y -= i * metSpeed; d = Math.sqrt(x * x + y * y); projSpeed = d / i; angle = Math.atan2(y, x); if (ans == 1) { meteorHitTimer = setTimeout(meteorHit, i * interval); answer = true; hits++; } else { if (Math.abs(angle) > 1.57) { angle -= .4; } else { angle += .4; } } p.style.display = "block"; projectile(); if (mode != "multi") { e.value = ""; setTimeout(e.focus(), 100); } } }
+    function fire(ans) { 
+        if (!fired && !gameOver && charged) { 
+            totalAttempts++;
+            if (sound) { pulseSnd.play(); } 
+            fired = true; 
+            charged = false; 
+            discharge(); 
+            recharge(); 
+            var x = meteorX + 20 - 392; 
+            var y = 560 - 60 - 20 - meteorY; 
+            var d = Math.sqrt(x * x + y * y); 
+            var i = d / projSpeed; 
+            y -= i * metSpeed; 
+            d = Math.sqrt(x * x + y * y); 
+            projSpeed = d / i; 
+            angle = Math.atan2(y, x); 
+            if (ans == 1) { 
+                meteorHitTimer = setTimeout(meteorHit, i * interval); 
+                answer = true; 
+                hits++; 
+            } else { 
+                if (Math.abs(angle) > 1.57) { angle -= .4; } else { angle += .4; } 
+            } 
+            p.style.display = "block"; 
+            projectile(); 
+            if (mode != "multi") { e.value = ""; setTimeout(e.focus(), 100); } 
+        } 
+    }
     function projectile() { its++; var lft = p.offsetLeft; var top = p.offsetTop; if (top > 0 && top < 550 && lft > 0 && lft < 770) { p.style.left = projOriginX + (Math.cos(angle) * projSpeed * its) + "px"; p.style.top = projOriginY - (Math.sin(angle) * projSpeed * its) + "px"; projectileTimer = setTimeout(projectile, interval); } else { resetProj(); } }
     function meteorHit() { clearTimeout(meteorTimer); updateScore(10000); x.style.left = meteorX - 8 + "px"; x.style.top = meteorY - 8 + "px"; x.style.display = "block"; m.style.display = "none"; if (sound) { explosionSnd.play(); } if (hits % levUp == 0) { if (sound) { setTimeout(function(){levelUpSnd.play();}, 500); } lev++; updateScore(50000); if (lev < meteorImgs.length) { m.src = meteorImgs[lev]; } metSpeed += metSpeedInc; setTimeout(nextMet, 1500); } else { setTimeout(nextMet, 500); } setTimeout(resetExpl, 1000); resetProj(); }
     function resetProj() { p.style.display = "none"; its = 0; answer = false; projSpeed = baseProjSpeed; p.style.left = projOriginX + "px"; p.style.top = projOriginY + "px"; fired = false; }
@@ -264,7 +332,126 @@
     function discharge() { for (var i = 1; i <= 5; i++) { document.getElementById("p" + i).src = "https://www.flippity.net/images/8-Bit-Power-Empty.png"; } }
     function resetExpl() { x.style.display = "none"; }
     function updateScore(sc) { score += sc; s.innerHTML = score.toLocaleString(); }
-    function stopGame() { if (sound) { gameOverSnd.play(); } discharge(); document.getElementById("endScreen").innerHTML = "<tr><td align='center'><img src='https://www.flippity.net/images/8-Bit-Sad-Face.png' alt='Game Over' style='margin-bottom: 30px;'><div id='final-score' class='text' style='color: #ff0; margin-bottom: 30px;'>" + score.toLocaleString() + "</div><img src='https://www.flippity.net/images/8-Bit-Reload.png' id='reload' title='Restart game' onClick='mainMenu()' style='visibility: hidden; cursor: pointer;'></td></tr>"; document.getElementById("endScreen").style.display = "table"; setTimeout("document.getElementById('reload').style.visibility = 'visible';", 1500); clearTimeout(meteorTimer); clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); clearTimeout(t5); }
+    
+    function stopGame() { 
+        if (sound) { gameOverSnd.play(); } 
+        discharge(); 
+
+        const totalSeconds = Math.round((Date.now() - startTime) / 1000);
+        const totalMinutes = parseFloat((totalSeconds / 60).toFixed(2));
+        const accuracy = totalAttempts > 0 ? Math.min(100, Math.round((hits / Math.max(hits, totalAttempts)) * 100)) : 0;
+
+        document.getElementById("endScreen").innerHTML = "<tr><td align='center' style='padding: 20px;'><img src='https://www.flippity.net/images/8-Bit-Sad-Face.png' alt='Game Over' style='margin-bottom: 15px;'><div id='final-score' class='text' style='color: #ff0; margin-bottom: 10px;'>" + score.toLocaleString() + " Points</div><div class='text' style='font-size: 18px; margin-bottom: 15px;'>Accuracy: " + accuracy + "% | Time: " + formatTimeDisplay(totalMinutes) + "</div><div id='leaderboardSection' class='leaderboard-box' style='display:none;'><h3>🏆 Top 5 Leaderboard 🏆</h3><ol id='leaderboardList' class='leaderboard-list'></ol></div><br><img src='https://www.flippity.net/images/8-Bit-Reload.png' id='reload' title='Restart game' onClick='mainMenu()' style='visibility: hidden; cursor: pointer; margin-top: 15px;'></td></tr>"; 
+        
+        document.getElementById("endScreen").style.display = "table"; 
+        setTimeout("document.getElementById('reload').style.visibility = 'visible';", 1500); 
+        clearTimeout(meteorTimer); 
+        clearTimeout(t1); 
+        clearTimeout(t2); 
+        clearTimeout(t3); 
+        clearTimeout(t4); 
+        clearTimeout(t5); 
+
+        checkQualificationAndLoad(totalMinutes, accuracy);
+    }
+
+    function formatTimeDisplay(minutesVal) {
+        if (minutesVal === undefined || minutesVal === null) return "";
+        const totalSecs = Math.round(parseFloat(minutesVal) * 60);
+        const m = Math.floor(totalSecs / 60);
+        const s = totalSecs % 60;
+        return `${m}m ${s}s`;
+    }
+
+    function checkQualificationAndLoad(timeMinutes, accuracy) {
+        const list = document.getElementById('leaderboardList');
+        const section = document.getElementById('leaderboardSection');
+        if (!list || !section) return;
+
+        list.innerHTML = "<li>Loading board profiles... ⏳</li>";
+        section.style.display = "block";
+
+        fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
+        .then(res => res.json())
+        .then(data => {
+            let tempBoard = [...data];
+            let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
+            tempBoard.push(newAttempt);
+            tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
+            
+            let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
+
+            if (playerRank <= 5) {
+                let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+                if (!studentName) studentName = "Anonymous";
+                
+                list.innerHTML = "<li>Saving your spot... ⏳</li>";
+                
+                fetch(LEADERBOARD_API_URL, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        topicId: topicId,
+                        game: GAME_NAME,
+                        name: studentName,
+                        time: parseFloat(timeMinutes),
+                        accuracy: parseFloat(accuracy)
+                    })
+                })
+                .then(res => res.json())
+                .then(updatedData => {
+                    renderLeaderboardRows(updatedData, studentName, timeMinutes, accuracy);
+                });
+            } else {
+                renderLeaderboardRows(data, null, null, null);
+            }
+        })
+        .catch(err => {
+            console.error("Leaderboard loading failure:", err);
+            list.innerHTML = "<li>Error connecting to records database.</li>";
+        });
+    }
+
+    function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc) {
+        const list = document.getElementById('leaderboardList');
+        const section = document.getElementById('leaderboardSection');
+        if (!list || !section) return;
+
+        list.innerHTML = "";
+        
+        let rankHeader = document.getElementById('personalRankTitle');
+        if(!rankHeader) {
+            rankHeader = document.createElement('h4');
+            rankHeader.id = 'personalRankTitle';
+            rankHeader.style.fontSize = '20px';
+            rankHeader.style.margin = '10px 0';
+            section.insertBefore(rankHeader, list);
+        }
+
+        if (highlightName) {
+            let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) + 1;
+            rankHeader.style.color = '#2ecc71';
+            rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
+        } else {
+            rankHeader.style.color = '#e67e22';
+            rankHeader.textContent = `🏁 Good effort! Try again to break into the Top 5.`;
+        }
+
+        data.forEach((entry) => {
+            const li = document.createElement('li');
+            const accVal = entry.accuracy !== undefined ? entry.accuracy : 100;
+            const timeFormatted = formatTimeDisplay(entry.time);
+            
+            li.innerHTML = `<strong>${entry.name}</strong> — ${accVal}% Accuracy | ${timeFormatted}`;
+            if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) {
+                li.style.backgroundColor = '#27ae60';
+                li.style.color = '#fff';
+                li.style.padding = '2px 5px';
+                li.style.borderRadius = '5px';
+            }
+            list.appendChild(li);
+        });
+    }
+
     function keyCode(event) { if (!event.ctrlKey) { var x = event.keyCode; if (mode == "multi") { if (x == 65) { preFireMult(0) } else if (x == 66) { preFireMult(1) } else if (x == 67) { preFireMult(2) } else if (x == 68) { preFireMult(3) } } else { if (x == 13) { preFire() } } } }
     function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
     function prepAnswers() { var tempArray = [...origArray]; shuffle(tempArray); for (var i = 0; i < tempArray.length; i++) { QandAs[i] = []; QandAs[i][0] = tempArray[0][0]; QandAs[i][1] = tempArray[0][1]; QandAs[i][2] = []; if (tempArray[0][2] != "") { QandAs[i][2][0] = tempArray[0][2]; } else { QandAs[i][2][0] = tempArray[1][1]; } if (tempArray[0][3] != "") { QandAs[i][2][1] = tempArray[0][3]; } else { QandAs[i][2][1] = tempArray[2][1]; } if (tempArray[0][4] != "") { QandAs[i][2][2] = tempArray[0][4]; } else { QandAs[i][2][2] = tempArray[3][1]; } shuffle(QandAs[i][2]); var c = Math.floor(Math.random() * 4); QandAs[i][2].splice(c, 0, QandAs[i][1]); QandAs[i].splice(3, 0, c); tempArray.push(tempArray.shift()); } }
