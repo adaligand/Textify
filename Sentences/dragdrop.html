@@ -24,6 +24,7 @@
             background-color: white;
             border-radius: 15px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-align: center;
         }
         .title {
             font-size: 40px;
@@ -51,10 +52,21 @@
             cursor: pointer;
             margin: 5px;
             transition: transform 0.2s, background-color 0.2s;
+            font-size: 18px;
+            font-weight: bold;
         }
         button:hover {
             background-color: #A9A9A9;
             transform: translateY(-4px);
+        }
+        #nextButton {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        #nextButton:hover {
+            background-color: #0056b3;
+            border-color: #0056b3;
         }
         .hide {
             display: none;
@@ -150,20 +162,100 @@
             opacity: 0.8;
             transform: translate(-50%, -50%);
         }
+
+        /* Leaderboard Box & Table Styling */
+        .leaderboard-box {
+            margin-top: 25px;
+            text-align: center;
+            border-top: 2px solid #eee;
+            padding-top: 20px;
+        }
+
+        .leaderboard-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 16px;
+            background-color: #fafafa;
+            color: #333;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .leaderboard-table th, .leaderboard-table td {
+            padding: 10px 12px;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+        }
+
+        .leaderboard-table th {
+            background-color: #f1f3f5;
+            color: #333;
+            font-weight: bold;
+        }
+
+        .leaderboard-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .leaderboard-table tr.highlight-row {
+            background-color: #d4edda !important;
+            color: #155724 !important;
+            font-weight: bold;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            font-size: 18px;
+            font-weight: bold;
+            background-color: #f9f9f9;
+            border: 2px solid #ccc;
+            color: #000000;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 20px 5px 5px 5px;
+            transition: transform 0.2s, background-color 0.2s;
+            font-family: Arial, sans-serif;
+        }
+        .btn:hover {
+            background-color: #e0e0e0;
+            transform: translateY(-2px);
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="title">Drag and Drop</div>
+        <div class="title" id="gameTitle">Drag and Drop</div>
         <div class="subtitle" id="subtitle">Drag and drop the words into the correct places.</div>
         <div class="counter" id="sentenceCounter"></div>
         <div id="exerciseOutput"></div>
-        <div class="input-container">
+        
+        <div class="input-container" id="inputAreaContainer">
             <div class="feedback-container">
                 <div id="feedback" class="hide"></div>
-                <button id="nextButton" class="hide" onclick="nextText()">Next</button>
-                <button id="resetButton" class="hide" onclick="resetActivity()">Restart</button>
+                <button id="nextButton" class="hide" onclick="nextText()">Next ▶️</button>
             </div>
+        </div>
+
+        <div id="scoreDisplay" style="font-size: 28px; font-weight: bold; margin: 20px 0; color: #333; padding: 15px; background-color: #f8f9fa; border-radius: 12px; display: none;"></div>
+
+        <!-- Leaderboard Container -->
+        <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
+            <h3 style="margin: 5px 0;">🏆 Top 5 Leaderboard 🏆</h3>
+            <div id="leaderboardStatus"></div>
+            <table class="leaderboard-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Player</th>
+                        <th>Accuracy</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody id="leaderboardBody"></tbody>
+            </table>
+            <button id="restartBtn" class="btn" onclick="restartGame()">🔄 Start Again</button>
         </div>
     </div>
 
@@ -171,12 +263,31 @@
     var currentTextIndex = 0;
     var originalChunks = [];
     var sentencePairs = [];
+    var exerciseSentences = [];
     
     let touchDraggedItem = null;
     let ghostElement = null;
 
+    let totalAttempts = 0;
+    let startTime;
+
+    // --- LEADERBOARD CONFIGURATION ---
+    const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwoSxSMnLX2NFBBsp61a3qcWkohu0VjJjZ-GFbS9SvD5WBWqVKO7gL71TFw7WvobtkPhA/exec"; 
+    const GAME_NAME = "Sent_DragAndDrop"; 
+
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
+
+    function getSpreadsheetId(url) {
+        if (!url) return null;
+        if (url.includes('/d/e/')) {
+            const matches = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+            return matches ? matches[1] : url;
+        }
+        const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        return matches ? matches[1] : url;
+    }
+    const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
 
     if (!sheetUrl) {
         document.getElementById('subtitle').textContent = "⚠️ No CSV URL provided. Please add ?sheet=YOUR_LINK to the address bar.";
@@ -199,9 +310,7 @@
                     document.getElementById('subtitle').textContent = "⚠️ No data found. Check your column headers are 'French sentences' and 'English sentences'.";
                     return;
                 }
-                document.getElementById('subtitle').textContent = "Drag and drop the words into the correct places.";
-                shuffleArray(sentencePairs);
-                generateChunk();
+                restartGame();
             },
             error: function(err) {
                 document.getElementById('subtitle').textContent = "⚠️ Error loading the CSV file.";
@@ -210,17 +319,36 @@
         });
     }
 
+    function restartGame() {
+        document.getElementById('gameTitle').style.display = "block";
+        document.getElementById('subtitle').style.display = "block";
+        document.getElementById('subtitle').textContent = "Drag and drop the words into the correct places.";
+        document.getElementById('sentenceCounter').style.display = "block";
+        document.getElementById('exerciseOutput').style.display = "block";
+        document.getElementById('inputAreaContainer').style.display = "block";
+        document.getElementById('scoreDisplay').style.display = "none";
+        document.getElementById('leaderboardSection').style.display = "none";
+
+        initialize();
+    }
+
+    function initialize() {
+        shuffleArray(sentencePairs);
+        exerciseSentences = sentencePairs.slice(0, Math.min(10, sentencePairs.length));
+        currentTextIndex = 0;
+        totalAttempts = 0;
+        startTime = Date.now();
+        generateChunk();
+    }
+
     function generateChunk() {
-        if (currentTextIndex >= sentencePairs.length) {
-            document.getElementById('exerciseOutput').innerHTML = '<h2>🎉 Well done! You have completed all sentences.</h2>';
-            document.getElementById('resetButton').classList.remove('hide');
-            document.getElementById('nextButton').classList.add('hide');
-            document.getElementById('sentenceCounter').classList.add('hide');
+        if (currentTextIndex >= exerciseSentences.length) {
+            finishGame();
             return;
         }
 
-        const englishSentence = sentencePairs[currentTextIndex].english;
-        const frenchSentence = sentencePairs[currentTextIndex].french;
+        const englishSentence = exerciseSentences[currentTextIndex].english;
+        const frenchSentence = exerciseSentences[currentTextIndex].french;
         originalChunks = getWordChunks(frenchSentence);
 
         const halfChunksCount = Math.ceil(originalChunks.length / 2);
@@ -242,19 +370,15 @@
             <div class="chunk-container"></div>
         `;
 
-        // --- BUG FIX IS HERE ---
-        // Shuffle the array of indices, not the words themselves.
         shuffleArray(removedChunksIndices);
 
-        // Loop through the shuffled indices to create the draggable words.
-        // This ensures each word, even duplicates, gets its correct original index.
         removedChunksIndices.forEach(originalIndex => {
             const chunk = originalChunks[originalIndex];
             addDraggableWord(chunk, originalIndex);
         });
         
         checkCompletionState();
-        document.getElementById('sentenceCounter').textContent = `${currentTextIndex + 1}/${sentencePairs.length}`;
+        document.getElementById('sentenceCounter').textContent = `${currentTextIndex + 1} / ${exerciseSentences.length}`;
         document.getElementById('sentenceCounter').classList.remove('hide');
     }
 
@@ -323,7 +447,6 @@
     }
 
     function removeDraggableWord(text, originalIndex) {
-        // Now it also checks for the original-index to remove the correct duplicate
         document.querySelectorAll('.draggable-word').forEach(word => {
             if (word.textContent === text && word.getAttribute('data-original-index') === originalIndex) {
                 word.remove();
@@ -351,7 +474,7 @@
         chunkElement.className = 'draggable-word';
         chunkElement.setAttribute('draggable', 'true');
         chunkElement.setAttribute('ondragstart', 'drag(event)');
-        chunkElement.setAttribute('data-original-index', String(index)); // Ensure index is a string
+        chunkElement.setAttribute('data-original-index', String(index));
         chunkElement.addEventListener('touchstart', handleTouchStart, { passive: false });
         chunkElement.addEventListener('touchmove', handleTouchMove, { passive: false });
         chunkElement.addEventListener('touchend', handleTouchEnd);
@@ -372,26 +495,18 @@
         }
     }
     
-   function validateAllAnswers() {
+    function validateAllAnswers() {
+        totalAttempts++;
         const dropzones = document.querySelectorAll('.dropzone');
         let allCorrect = true;
 
-        // This is the updated logic
         dropzones.forEach(dz => {
-            // 1. Get the index of this dropzone (e.g., it's the 2nd word in the sentence)
             const dropzoneIndex = dz.getAttribute('data-index');
-            
-            // 2. Get the correct word that *should* be at this index
-            //    We look this up in our original, correct 'originalChunks' array
             const correctWord = originalChunks[dropzoneIndex];
-            
-            // 3. Get the word the user *actually* placed in the dropzone
             const placedWord = dz.textContent;
 
-            // 4. Compare the text, not the indices
             if (placedWord !== correctWord) {
                 allCorrect = false;
-                // We could add 'attempt-incorrect' here, but it's cleaner to do it in the next step
             }
         });
         
@@ -400,13 +515,15 @@
             dropzones.forEach(dz => dz.classList.add('attempt-correct'));
             feedbackElement.textContent = 'Correct! Well done.';
             feedbackElement.style.color = '#28a745';
-            if (currentTextIndex >= sentencePairs.length - 1) {
-                document.getElementById('resetButton').classList.remove('hide');
+            
+            const nextBtn = document.getElementById('nextButton');
+            if (currentTextIndex >= exerciseSentences.length - 1) {
+                nextBtn.textContent = '🎉 See Score';
             } else {
-                document.getElementById('nextButton').classList.remove('hide');
+                nextBtn.textContent = 'Next ▶️';
             }
+            nextBtn.classList.remove('hide');
         } else {
-            // If anything was wrong, mark all dropzones as incorrect for this attempt
             dropzones.forEach(dz => dz.classList.add('attempt-incorrect'));
             feedbackElement.textContent = 'That is not quite right. Click a word to try again.';
             feedbackElement.style.color = '#dc3545';
@@ -415,20 +532,49 @@
         feedbackElement.classList.remove('hide');
     }
 
+    function finishGame() {
+        const totalSeconds = Math.round((Date.now() - startTime) / 1000);
+        const displayMins = Math.floor(totalSeconds / 60);
+        const displaySecs = totalSeconds % 60;
+
+        const clockFormattedTime = parseFloat(`${displayMins}.${displaySecs < 10 ? '0' : ''}${displaySecs}`);
+        const formattedTimeText = `${displayMins}m ${displaySecs}s`;
+        const accuracy = Math.min(100, Math.round((exerciseSentences.length / Math.max(exerciseSentences.length, totalAttempts)) * 100));
+
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        scoreDisplay.textContent = `🎉 Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
+        scoreDisplay.style.display = "block";
+
+        document.getElementById('gameTitle').style.display = "none";
+        document.getElementById('subtitle').style.display = "none";
+        document.getElementById('sentenceCounter').style.display = "none";
+        document.getElementById('exerciseOutput').style.display = "none";
+        document.getElementById('inputAreaContainer').style.display = "none";
+
+        checkQualificationAndLoad(clockFormattedTime, accuracy);
+    }
+
+    // Allow pressing Enter key to go next
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            const nextBtn = document.getElementById('nextButton');
+            if (nextBtn && !nextBtn.classList.contains('hide')) {
+                event.preventDefault();
+                nextText();
+            }
+        }
+    });
+
     // --- UTILITY AND NAVIGATION FUNCTIONS ---
     function nextText() {
         currentTextIndex++;
         generateChunk();
     }
-    function resetActivity() {
-        currentTextIndex = 0;
-        shuffleArray(sentencePairs);
-        generateChunk();
-        document.getElementById('resetButton').classList.add('hide');
-    }
+
     function getWordChunks(text) {
         return text.split(/\s+/).filter(Boolean);
     }
+
     function getRandomIndices(length, count) {
         const indices = new Set();
         while (indices.size < count) {
@@ -436,12 +582,120 @@
         }
         return Array.from(indices);
     }
+
     function shuffleArray(array) {
         for (let i = array.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [array[i], array[j]] = [array[j], array[i]];
         }
         return array;
+    }
+
+    // Converts M.SS stored numbers back into text ("Xm Ys") for display
+    function formatTimeDisplay(minutesVal) {
+        if (minutesVal === undefined || minutesVal === null || isNaN(minutesVal)) return "";
+        const num = parseFloat(minutesVal);
+        const mins = Math.floor(num);
+        const secs = Math.round((num - mins) * 100);
+        return `${mins}m ${secs}s`;
+    }
+
+    function checkQualificationAndLoad(timeMinutes, accuracy) {
+        const tbody = document.getElementById('leaderboardBody');
+        const section = document.getElementById('leaderboardSection');
+        
+        tbody.innerHTML = '<tr><td colspan="4">Loading board profiles... ⏳</td></tr>';
+        section.style.display = "block";
+
+        fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
+        .then(res => res.json())
+        .then(data => {
+            let tempBoard = [...data];
+            let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
+            tempBoard.push(newAttempt);
+            tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
+            
+            let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
+
+            if (playerRank <= 5) {
+                let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+                if (!studentName) studentName = "Anonymous";
+                
+                tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
+                
+                fetch(LEADERBOARD_API_URL, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        topicId: topicId,
+                        game: GAME_NAME,
+                        name: studentName,
+                        time: parseFloat(timeMinutes),
+                        accuracy: parseFloat(accuracy)
+                    })
+                })
+                .then(res => res.json())
+                .then(updatedData => {
+                    renderLeaderboardRows(updatedData, studentName, timeMinutes, accuracy);
+                });
+            } else {
+                renderLeaderboardRows(data, null, null, null);
+            }
+        })
+        .catch(err => {
+            console.error("Leaderboard loading failure:", err);
+            tbody.innerHTML = '<tr><td colspan="4">Error connecting to records database.</td></tr>';
+        });
+    }
+
+    function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc) {
+        const tbody = document.getElementById('leaderboardBody');
+        const statusDiv = document.getElementById('leaderboardStatus');
+        if(!tbody) return;
+        
+        tbody.innerHTML = "";
+        
+        let rankHeader = document.getElementById('personalRankTitle');
+        if(!rankHeader && statusDiv) {
+            rankHeader = document.createElement('h4');
+            rankHeader.id = 'personalRankTitle';
+            rankHeader.style.fontSize = '18px';
+            rankHeader.style.margin = '8px 0';
+            statusDiv.appendChild(rankHeader);
+        }
+
+        if (highlightName) {
+            let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) + 1;
+            if(rankHeader) {
+                rankHeader.style.color = '#2ecc71';
+                rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
+            }
+        } else {
+            if(rankHeader) {
+                rankHeader.style.color = '#e67e22';
+                rankHeader.textContent = `🏁 Good effort! Try again to break into the Top 5.`;
+            }
+        }
+
+        const medals = ['🥇 1', '🥈 2', '🥉 3'];
+
+        data.forEach((entry, index) => {
+            const tr = document.createElement('tr');
+            const accVal = entry.accuracy !== undefined ? entry.accuracy : 100;
+            const timeFormatted = formatTimeDisplay(entry.time);
+            const rankDisplay = medals[index] || `#${index + 1}`;
+            
+            if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) {
+                tr.className = 'highlight-row';
+            }
+
+            tr.innerHTML = `
+                <td><strong>${rankDisplay}</strong></td>
+                <td><strong>${entry.name}</strong></td>
+                <td>${accVal}%</td>
+                <td>${timeFormatted}</td>
+            `;
+            tbody.appendChild(tr);
+        });
     }
 </script>
 </body>
