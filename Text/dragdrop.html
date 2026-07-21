@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drag&Drop</title>
+    <title>Drag & Drop</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         body {
@@ -350,6 +350,15 @@ function generateExercise() {
     document.getElementById('subtitle').style.display = 'none';
 }
 
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 function generateDragDropExercise(frenchText) {
     document.getElementById('exerciseOutput').innerHTML = '';
     document.getElementById('removedWords').innerHTML = '';
@@ -362,36 +371,45 @@ function generateDragDropExercise(frenchText) {
         case "moreWords": percentage = 20; break;
         case "half": percentage = 50; break;
         case "evenMoreWords": percentage = 60; break;
-        default: return;
+        default: percentage = 10;
     }
 
-    var words = frenchText.match(/[\wÀ-ÿ'’-]+|[^\w\s'’-]+/gu);
-    var uniqueWords = Array.from(new Set(words.filter(word => word.length > 1)));
-    var numWordsToRemove = Math.min(Math.round((percentage / 100) * uniqueWords.length), uniqueWords.length);
+    var tokens = frenchText.match(/[\wÀ-ÿ'’-]+|[^\w\s'’-]+/gu) || [];
+    
+    // Find candidate word indices (only actual words with length > 1)
+    var eligibleIndices = [];
+    tokens.forEach(function(token, index) {
+        if (/^[\wÀ-ÿ'’-]+$/u.test(token) && token.length > 1) {
+            eligibleIndices.push(index);
+        }
+    });
 
-    if (numWordsToRemove < 1) {
-        alert("Not enough unique words to remove for this percentage.");
+    if (eligibleIndices.length === 0) {
+        alert("Not enough words in the text to generate exercise.");
         return;
+    }
+
+    var numWordsToRemove = Math.min(Math.round((percentage / 100) * eligibleIndices.length), eligibleIndices.length);
+    if (numWordsToRemove < 1) {
+        numWordsToRemove = 1;
     }
 
     totalTargetBlanks = numWordsToRemove;
 
-    uniqueWords = shuffle(uniqueWords);
-    var wordsToTurnIntoBlanks = uniqueWords.slice(0, numWordsToRemove);
-    
-    var allRemovedInstances = [];
-    words.forEach(function(word) {
-        if (wordsToTurnIntoBlanks.includes(word)) {
-            allRemovedInstances.push(word);
-        }
-    });
+    // Pick specific word positions (indices) to turn into gaps
+    var shuffledIndices = shuffle([...eligibleIndices]);
+    var removedIndicesSet = new Set(shuffledIndices.slice(0, numWordsToRemove));
 
+    var allRemovedInstances = [];
     var modifiedText = '';
-    words.forEach(function(match) {
-        if (wordsToTurnIntoBlanks.includes(match)) {
-            modifiedText += '<span class="drop-target" data-correct-answer="' + match + '" onclick="emptyDropBox(this)"></span> ';
+
+    tokens.forEach(function(token, index) {
+        if (removedIndicesSet.has(index)) {
+            allRemovedInstances.push(token);
+            var safeAttr = token.replace(/"/g, '&quot;');
+            modifiedText += '<span class="drop-target" data-correct-answer="' + safeAttr + '" onclick="emptyDropBox(this)"></span> ';
         } else {
-            modifiedText += '<span class="filled-word">' + match + '</span> ';
+            modifiedText += '<span class="filled-word">' + escapeHtml(token) + '</span> ';
         }
     });
 
@@ -561,7 +579,7 @@ function finishGame(isWin) {
     const clockFormattedTime = parseFloat(`${displayMins}.${displaySecs < 10 ? '0' : ''}${displaySecs}`);
     const formattedTimeText = `${displayMins}m ${displaySecs}s`;
     
-    // Accuracy calculation based on target blanks vs total attempts/errors
+    // Accuracy calculation based on target blanks vs total errors made
     const accuracy = Math.max(0, Math.min(100, Math.round((totalTargetBlanks / (totalTargetBlanks + totalErrors)) * 100)));
 
     const scoreDisplay = document.getElementById('scoreDisplay');
