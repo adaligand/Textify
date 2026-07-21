@@ -275,7 +275,7 @@
       });
     }
 
-    // Enter Key to restart when game is finished
+    // Press ENTER to restart game on summary screen
     document.addEventListener('keydown', function(event) {
       if (event.key === 'Enter' && isFinished) {
         event.preventDefault();
@@ -342,7 +342,7 @@
           displayDroppedChunks();
           currentIndex++;
           if (currentIndex >= correctChunks.length) {
-            finishGame(true);
+            finishGame(true); // Completed successfully!
           } else {
             displayChoices();
           }
@@ -353,7 +353,7 @@
           lives--;
           updateLivesDisplay();
           if (lives === 0) {
-            finishGame(false);
+            finishGame(false); // Game Over (lost all lives)
           } else {
             startTimer();
           }
@@ -388,7 +388,7 @@
           lives--;
           updateLivesDisplay();
           if (lives === 0) {
-            finishGame(false);
+            finishGame(false); // Game Over (ran out of time)
           } else {
             displayChoices();
           }
@@ -431,11 +431,11 @@
       if (won) {
         scoreDisplay.textContent = `🎉 Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
       } else {
-        scoreDisplay.textContent = `💔 Game Over - Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
+        scoreDisplay.textContent = `💔 Game Over - You ran out of lives!`;
       }
       scoreDisplay.style.display = "block";
 
-      checkQualificationAndLoad(clockFormattedTime, accuracy);
+      checkQualificationAndLoad(clockFormattedTime, accuracy, won);
     }
 
     function formatTimeDisplay(minutesVal) {
@@ -446,7 +446,7 @@
       return `${mins}m ${secs}s`;
     }
 
-    function checkQualificationAndLoad(timeMinutes, accuracy) {
+    function checkQualificationAndLoad(timeMinutes, accuracy, won) {
       const tbody = document.getElementById('leaderboardBody');
       const section = document.getElementById('leaderboardSection');
       
@@ -456,35 +456,41 @@
       fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
       .then(res => res.json())
       .then(data => {
-          let tempBoard = [...data];
-          let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
-          tempBoard.push(newAttempt);
-          tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
-          
-          let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
+          // Only prompt and post to leaderboard if the player WON (completed the text)
+          if (won) {
+              let tempBoard = [...data];
+              let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
+              tempBoard.push(newAttempt);
+              tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
+              
+              let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
 
-          if (playerRank <= 5) {
-              let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
-              if (!studentName) studentName = "Anonymous";
-              
-              tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
-              
-              fetch(LEADERBOARD_API_URL, {
-                  method: "POST",
-                  body: JSON.stringify({
-                      topicId: topicId,
-                      game: GAME_NAME,
-                      name: studentName,
-                      time: parseFloat(timeMinutes),
-                      accuracy: parseFloat(accuracy)
+              if (playerRank <= 5) {
+                  let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+                  if (!studentName) studentName = "Anonymous";
+                  
+                  tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
+                  
+                  fetch(LEADERBOARD_API_URL, {
+                      method: "POST",
+                      body: JSON.stringify({
+                          topicId: topicId,
+                          game: GAME_NAME,
+                          name: studentName,
+                          time: parseFloat(timeMinutes),
+                          accuracy: parseFloat(accuracy)
+                      })
                   })
-              })
-              .then(res => res.json())
-              .then(updatedData => {
-                  renderLeaderboardRows(updatedData, studentName, timeMinutes, accuracy);
-              });
+                  .then(res => res.json())
+                  .then(updatedData => {
+                      renderLeaderboardRows(updatedData, studentName, timeMinutes, accuracy, true);
+                  });
+              } else {
+                  renderLeaderboardRows(data, null, null, null, true);
+              }
           } else {
-              renderLeaderboardRows(data, null, null, null);
+              // Player lost / ran out of lives: show existing leaderboard only
+              renderLeaderboardRows(data, null, null, null, false);
           }
       })
       .catch(err => {
@@ -493,7 +499,7 @@
       });
     }
 
-    function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc) {
+    function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc, won) {
       const tbody = document.getElementById('leaderboardBody');
       const statusDiv = document.getElementById('leaderboardStatus');
       if (!tbody) return;
@@ -507,7 +513,10 @@
       rankHeader.style.margin = '8px 0';
       if (statusDiv) statusDiv.appendChild(rankHeader);
 
-      if (highlightName) {
+      if (!won) {
+          rankHeader.style.color = '#e74c3c';
+          rankHeader.textContent = `💀 You ran out of lives! Complete the text to qualify for the leaderboard.`;
+      } else if (highlightName) {
           let studentRank = data.findIndex(entry => 
               String(entry.name).trim().toLowerCase() === String(highlightName).trim().toLowerCase() && 
               Math.abs(Number(entry.time) - Number(highlightTime)) < 0.01 && 
@@ -529,7 +538,7 @@
           const timeFormatted = formatTimeDisplay(entry.time);
           const rankDisplay = medals[index] || `#${index + 1}`;
           
-          if (highlightName && 
+          if (won && highlightName && 
               String(entry.name).trim().toLowerCase() === String(highlightName).trim().toLowerCase() && 
               Math.abs(Number(entry.time) - Number(highlightTime)) < 0.01 && 
               Math.abs(Number(entry.accuracy) - Number(highlightAcc)) < 0.1) {
