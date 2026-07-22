@@ -231,7 +231,7 @@
 
         <!-- Leaderboard Container -->
         <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
-            <h3 style="margin: 5px 0;">🏆 Top 5 Leaderboard 🏆</h3>
+            <h3 id="leaderboardHeaderTitle" style="margin: 5px 0;">🏆 Top 5 Leaderboard 🏆</h3>
             <div id="leaderboardStatus"></div>
             <table class="leaderboard-table">
                 <thead>
@@ -251,7 +251,7 @@
 
 <script>
 // --- LEADERBOARD CONFIGURATION ---
-const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwoSxSMnLX2NFBBsp61a3qcWkohu0VjJjZ-GFbS9SvD5WBWqVKO7gL71TFw7WvobtkPhA/exec";
+const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycby5GlnkTukYGkwHv55atBKyxRGSN8y2d4yYEdz9GqEkLfv4Z_MF9R6FbvHmgo0_eCkV/exec";
 const GAME_NAME = "Text_Drag&Drop";
 
 var removedWordSet = new Set();
@@ -590,7 +590,10 @@ function finishGame(isWin) {
     scoreDisplay.textContent = `🎉 Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
     scoreDisplay.style.display = "block";
 
-    checkQualificationAndLoad(clockFormattedTime, accuracy);
+    const percentageSelect = document.getElementById('percentageSelect');
+    const categoryLabel = percentageSelect.options[percentageSelect.selectedIndex].text;
+
+    checkQualificationAndLoad(clockFormattedTime, accuracy, categoryLabel);
 }
 
 function formatTimeDisplay(minutesVal) {
@@ -601,17 +604,25 @@ function formatTimeDisplay(minutesVal) {
     return `${mins}m ${secs}s`;
 }
 
-function checkQualificationAndLoad(timeMinutes, accuracy) {
+function checkQualificationAndLoad(timeMinutes, accuracy, categoryLabel) {
     const tbody = document.getElementById('leaderboardBody');
     const section = document.getElementById('leaderboardSection');
+    const headerTitle = document.getElementById('leaderboardHeaderTitle');
     
+    if (headerTitle) {
+        headerTitle.textContent = `🏆 Top 5 Leaderboard (${categoryLabel}) 🏆`;
+    }
+
     tbody.innerHTML = '<tr><td colspan="4">Loading board profiles... ⏳</td></tr>';
     section.style.display = "block";
 
     fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
     .then(res => res.json())
     .then(data => {
-        let tempBoard = [...data];
+        // Filter entries specifically for current word removal mode
+        const categoryData = data.filter(entry => entry.name && entry.name.includes(`(${categoryLabel})`));
+
+        let tempBoard = [...categoryData];
         let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
         tempBoard.push(newAttempt);
         tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
@@ -619,9 +630,11 @@ function checkQualificationAndLoad(timeMinutes, accuracy) {
         let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
 
         if (playerRank <= 5) {
-            let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+            let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard (${categoryLabel})! Enter your name:`);
             if (!studentName) studentName = "Anonymous";
             
+            const formattedName = `${studentName.trim()} (${categoryLabel})`;
+
             tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
             
             fetch(LEADERBOARD_API_URL, {
@@ -629,17 +642,18 @@ function checkQualificationAndLoad(timeMinutes, accuracy) {
                 body: JSON.stringify({
                     topicId: topicId,
                     game: GAME_NAME,
-                    name: studentName,
+                    name: formattedName,
                     time: parseFloat(timeMinutes),
                     accuracy: parseFloat(accuracy)
                 })
             })
             .then(res => res.json())
             .then(updatedData => {
-                renderLeaderboardRows(updatedData, studentName, timeMinutes, accuracy);
+                const updatedCategoryData = updatedData.filter(entry => entry.name && entry.name.includes(`(${categoryLabel})`));
+                renderLeaderboardRows(updatedCategoryData, formattedName, timeMinutes, accuracy);
             });
         } else {
-            renderLeaderboardRows(data, null, null, null);
+            renderLeaderboardRows(categoryData, null, null, null);
         }
     })
     .catch(err => {
