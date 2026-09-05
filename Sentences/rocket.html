@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Rocket Launch</title>
+    <title>Rocket Launchx</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
@@ -106,14 +106,14 @@
             border-top: 2px solid #eee; 
             padding-top: 15px; 
             width: 100%;
-            max-width: 550px;
+            max-width: 600px;
         }
 
         .leaderboard-table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 10px;
-            font-size: 16px;
+            font-size: 15px;
             background-color: #fafafa;
             color: #333;
             border-radius: 10px;
@@ -122,7 +122,7 @@
         }
 
         .leaderboard-table th, .leaderboard-table td {
-            padding: 10px 12px;
+            padding: 10px 10px;
             text-align: center;
             border-bottom: 1px solid #eee;
         }
@@ -412,6 +412,7 @@
                             <tr>
                                 <th>Rank</th>
                                 <th>Player</th>
+                                <th>Completed</th>
                                 <th>Accuracy</th>
                                 <th>Time</th>
                             </tr>
@@ -452,6 +453,7 @@
     let googleInitialised = false;
     let pendingTimeMinutes = null;
     let pendingAccuracy = null;
+    let pendingCompleted = null;
 
     // --- Game Metrics ---
     var gameStartTime = 0;
@@ -578,6 +580,7 @@
         currentGoogleUser = null;
         pendingTimeMinutes = null;
         pendingAccuracy = null;
+        pendingCompleted = null;
         
         // Reset Metrics
         gameStartTime = new Date().getTime();
@@ -845,7 +848,7 @@
             nextButton.classList.add('hide');
 
             setTimeout(() => {
-                showEndScreen('💥 Game Over 💥', `You completed ${currentTextIndex} out of ${sentencePairs.length} sentences.`);
+                showEndScreen('💥 Game Over 💥', `You completed ${currentTextIndex} out of ${sentencePairs.length} sentences.`, currentTextIndex);
             }, EXPLOSION_DURATION);
 
         } else {
@@ -872,12 +875,12 @@
     
     function triggerWin() {
         isGameOver = true;
-        showEndScreen('🎉 You Win! 🎉', "You've completed all the sentences!");
+        showEndScreen('🎉 You Win! 🎉', "You've completed all the sentences!", sentencePairs.length);
         feedbackElement.classList.add('hide'); 
         nextButton.classList.add('hide');
     }
 
-    function showEndScreen(titleText, subtitleText) {
+    function showEndScreen(titleText, subtitleText, sentencesCompleted) {
         document.getElementById('end-title').textContent = titleText;
         document.getElementById('end-subtitle').textContent = subtitleText;
         
@@ -891,12 +894,12 @@
         const accuracy = totalClicks > 0 ? Math.min(100, Math.round((correctClicks / totalClicks) * 100)) : 0;
 
         document.getElementById('stats-summary').innerHTML = 
-            `⏱️ Time: <b>${displayMins}m ${displaySecs}s</b> | 🎯 Accuracy: <b>${accuracy}%</b>`;
+            `📝 Completed: <b>${sentencesCompleted}/${sentencePairs.length}</b> | 🎯 Accuracy: <b>${accuracy}%</b> | ⏱️ Time: <b>${displayMins}m ${displaySecs}s</b>`;
 
         endScreen.classList.add('visible');
 
-        // Check leaderboard qualification using Google Sign-In logic
-        checkQualificationAndLoad(clockFormattedTime, accuracy);
+        // Check leaderboard qualification using Sentences -> Accuracy -> Time hierarchy
+        checkQualificationAndLoad(clockFormattedTime, accuracy, sentencesCompleted);
     }
 
     // --- LEADERBOARD & GOOGLE AUTHENTICATION LOGIC ---
@@ -908,44 +911,55 @@
         return `${mins}m ${secs}s`;
     }
 
-    function checkQualificationAndLoad(timeMinutes, accuracy) {
+    function checkQualificationAndLoad(timeMinutes, accuracy, sentencesCompleted) {
         const tbody = document.getElementById('leaderboardBody');
         const section = document.getElementById('leaderboardSection');
         
-        tbody.innerHTML = '<tr><td colspan="4">Loading board profiles... ⏳</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5">Loading board profiles... ⏳</td></tr>';
         section.style.display = "block";
 
         fetch(`${LEADERBOARD_API_URL}?game=${encodeURIComponent(GAME_NAME)}&topicId=${encodeURIComponent(topicId)}`)
         .then(res => res.json())
         .then(data => {
-            let tempBoard = [...data];
+            let tempBoard = data.map(entry => ({
+                ...entry,
+                completed: entry.completed !== undefined ? parseInt(entry.completed) : 0,
+                accuracy: parseFloat(entry.accuracy || 0),
+                time: parseFloat(entry.time || 0)
+            }));
+
             let newAttempt = {
                 name: "___TEMP_PLAYER___",
-                time: parseFloat(timeMinutes),
-                accuracy: parseFloat(accuracy)
+                completed: parseInt(sentencesCompleted),
+                accuracy: parseFloat(accuracy),
+                time: parseFloat(timeMinutes)
             };
 
             tempBoard.push(newAttempt);
-            tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
+
+            // Hierarchical Sort: 1. Sentences Completed (Desc), 2. Accuracy (Desc), 3. Time (Asc)
+            tempBoard.sort((a, b) => b.completed - a.completed || b.accuracy - a.accuracy || a.time - b.time);
 
             let playerRank = tempBoard.findIndex(e => 
                 e.name === "___TEMP_PLAYER___" && 
-                e.time === parseFloat(timeMinutes) && 
-                e.accuracy === parseFloat(accuracy)
+                e.completed === parseInt(sentencesCompleted) &&
+                e.accuracy === parseFloat(accuracy) &&
+                e.time === parseFloat(timeMinutes)
             ) + 1;
 
             if (playerRank <= 5) {
                 pendingTimeMinutes = parseFloat(timeMinutes);
                 pendingAccuracy = parseFloat(accuracy);
-                tbody.innerHTML = '<tr><td colspan="4">🏆 You made the Top 5! Please sign in to save your score.</td></tr>';
+                pendingCompleted = parseInt(sentencesCompleted);
+                tbody.innerHTML = '<tr><td colspan="5">🏆 You made the Top 5! Please sign in to save your score.</td></tr>';
                 startGoogleAuthentication();
             } else {
-                renderLeaderboardRows(data, null, null, null);
+                renderLeaderboardRows(data, null, null, null, null);
             }
         })
         .catch(err => {
             console.error("Leaderboard loading failure:", err);
-            tbody.innerHTML = '<tr><td colspan="4">Error connecting to records database.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5">Error connecting to records database.</td></tr>';
         });
     }
 
@@ -1010,7 +1024,7 @@
 
     function submitLeaderboardScore() {
         const tbody = document.getElementById('leaderboardBody');
-        tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5">Saving your spot... ⏳</td></tr>';
 
         fetch(LEADERBOARD_API_URL, {
             method: "POST",
@@ -1020,21 +1034,22 @@
                 name: currentGoogleUser.name,
                 email: currentGoogleUser.email,
                 googleId: currentGoogleUser.googleId,
-                time: parseFloat(pendingTimeMinutes),
-                accuracy: parseFloat(pendingAccuracy)
+                completed: parseInt(pendingCompleted),
+                accuracy: parseFloat(pendingAccuracy),
+                time: parseFloat(pendingTimeMinutes)
             })
         })
         .then(res => res.json())
         .then(updatedData => {
-            renderLeaderboardRows(updatedData, currentGoogleUser.name, pendingTimeMinutes, pendingAccuracy);
+            renderLeaderboardRows(updatedData, currentGoogleUser.name, pendingCompleted, pendingAccuracy, pendingTimeMinutes);
         })
         .catch(err => {
             console.error("Leaderboard save error:", err);
-            tbody.innerHTML = '<tr><td colspan="4">Error saving your leaderboard score.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5">Error saving your leaderboard score.</td></tr>';
         });
     }
 
-    function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc) {
+    function renderLeaderboardRows(data, highlightName, highlightCompleted, highlightAcc, highlightTime) {
         const tbody = document.getElementById('leaderboardBody');
         const statusDiv = document.getElementById('leaderboardStatus');
         if (!tbody) return;
@@ -1050,11 +1065,24 @@
             statusDiv.appendChild(rankHeader);
         }
 
+        // Apply Hierarchical Sorting on fetched board items
+        data.sort((a, b) => {
+            let compA = a.completed !== undefined ? parseInt(a.completed) : 0;
+            let compB = b.completed !== undefined ? parseInt(b.completed) : 0;
+            let accA = parseFloat(a.accuracy || 0);
+            let accB = parseFloat(b.accuracy || 0);
+            let timeA = parseFloat(a.time || 0);
+            let timeB = parseFloat(b.time || 0);
+
+            return compB - compA || accB - accA || timeA - timeB;
+        });
+
         if (highlightName) {
             let studentRank = data.findIndex(entry => 
                 entry.name === highlightName && 
-                entry.time === parseFloat(highlightTime) && 
-                entry.accuracy === parseFloat(highlightAcc)
+                parseInt(entry.completed || 0) === parseInt(highlightCompleted) &&
+                parseFloat(entry.accuracy || 0) === parseFloat(highlightAcc) &&
+                parseFloat(entry.time || 0) === parseFloat(highlightTime)
             ) + 1;
 
             if (rankHeader) {
@@ -1072,11 +1100,16 @@
 
         data.forEach((entry, index) => {
             const tr = document.createElement('tr');
+            const compVal = entry.completed !== undefined ? entry.completed : 0;
             const accVal = entry.accuracy !== undefined ? entry.accuracy : 100;
             const timeFormatted = formatTimeDisplay(entry.time);
             const rankDisplay = medals[index] || `#${index + 1}`;
 
-            if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) {
+            if (highlightName && 
+                entry.name === highlightName && 
+                parseInt(entry.completed || 0) === parseInt(highlightCompleted) &&
+                parseFloat(entry.accuracy || 0) === parseFloat(highlightAcc) &&
+                parseFloat(entry.time || 0) === parseFloat(highlightTime)) {
                 tr.className = 'highlight-row';
             }
 
@@ -1088,6 +1121,9 @@
             nameStrong.textContent = entry.name || "Unknown";
             nameCell.appendChild(nameStrong);
 
+            const compCell = document.createElement('td');
+            compCell.textContent = `${compVal}/${sentencePairs.length}`;
+
             const accCell = document.createElement('td');
             accCell.textContent = `${accVal}%`;
 
@@ -1096,6 +1132,7 @@
 
             tr.appendChild(rankCell);
             tr.appendChild(nameCell);
+            tr.appendChild(compCell);
             tr.appendChild(accCell);
             tr.appendChild(timeCell);
 
