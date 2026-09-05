@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>No vowelsc</title>
+<title>No vowels</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <!-- Google Identity Services Library -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -25,7 +25,6 @@
     .feedback { font-weight: bold; font-size: 24px; display: flex; gap: 10px; justify-content: center; align-items: center; margin-top: 10px; }
     #nextButton { padding: 10px 20px; border-radius: 10px; border: 2px solid #ccc; background: #f9f9f9; cursor: pointer; display: none; font-size: 24px;}
     
-    /* Leaderboard Box & Table Styling */
     .leaderboard-box {
         margin-top: 25px;
         text-align: center;
@@ -84,12 +83,21 @@
         background-color: #e0e0e0;
         transform: translateY(-2px);
     }
+
+    .auth-banner {
+        font-size: 14px;
+        color: #555;
+        text-align: center;
+        margin-bottom: 15px;
+        font-style: italic;
+    }
 </style>
 </head>
 <body>
 <div class="container">
     <div class="title">No vowels</div>
-    <div class="subtitle" id="gameSubtitle">Fill in the missing vowels</div>
+    <div class="subtitle" id="gameSubtitle">Authenticating user...</div>
+    <div class="auth-banner" id="authBanner">Connecting with Chrome Account...</div>
     <div class="counter" id="wordCounter"></div>
     <div class="english-word" id="englishWord"></div>
     <div class="french-word" id="frenchWord"></div>
@@ -132,39 +140,48 @@ const vowels = ['a','e','i','o','u','à','â','ä','é','è','ê','ë','î','ï'
 
 let totalVowelsCount = 0;
 let totalInputAttempts = 0;
-let currentUser = null; // Stores Google account details cached or retrieved in background
+let currentUser = null; 
 
 // --- LEADERBOARD CONFIGURATION ---
 const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzasoQX0sQoLfpK9Uoup_d-IvuEaAKoJvHi79hZKf5qsVei8XP_CxvE5IQcdlrxE0DfHA/exec"; 
 const GAME_NAME = "No Vowels"; 
 let startTime;
 
-// --- SILENT BACKGROUND GOOGLE AUTH ---
-window.onload = function() {
-    // 1. Check local storage first (Zero-wait background cached identity)
-    const savedUser = localStorage.getItem('no_vowels_user');
-    if (savedUser) {
-        try {
-            currentUser = JSON.parse(savedUser);
-            console.log("Restored user silently from cache:", currentUser.name);
-        } catch(e) {}
-    }
+const params = new URLSearchParams(window.location.search);
+const sheetUrl = params.get('sheet'); 
 
-    // 2. Initialize Google One Tap with auto-select forced
+function getSpreadsheetId(url) {
+    if (!url) return null;
+    if (url.includes('/d/e/')) {
+        const matches = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+        return matches ? matches[1] : url;
+    }
+    const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    return matches ? matches[1] : url;
+}
+const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
+
+// --- ZERO-CLICK AUTOMATED AUTHENTICATION & LOAD ---
+window.onload = function() {
     if (window.google) {
         google.accounts.id.initialize({
             client_id: "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com",
             callback: handleCredentialResponse,
-            auto_select: true, // Forces silent sign-in for returning users
-            use_fedcm_for_prompt: true
+            auto_select: true, // Automates silent login without clicking "Continue as..."
+            cancel_on_tap_outside: false
         });
 
-        // Prompt silently in background without blocking gameplay
+        // Prompt Google to resolve identity silently in the background
         google.accounts.id.prompt((notification) => {
             if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-                console.log("Background prompt suppressed or pending user action.");
+                console.warn("Silent login skipped or suppressed by browser policies.");
+                // Fallback: If Google background resolution fails, proceed without interrupting user flow
+                document.getElementById('authBanner').textContent = "Playing as Guest (Sign-in optional)";
+                startAppFlow();
             }
         });
+    } else {
+        startAppFlow();
     }
 };
 
@@ -183,51 +200,43 @@ function handleCredentialResponse(response) {
         name: payload.name,
         email: payload.email
     };
-    // Cache account details locally so future games are 100% instant and silent
-    localStorage.setItem('no_vowels_user', JSON.stringify(currentUser));
-    console.log("Authenticated via Google silently:", currentUser.name);
+    
+    document.getElementById('authBanner').textContent = `Playing as: ${currentUser.name}`;
+    startAppFlow();
 }
 
-const params = new URLSearchParams(window.location.search);
-const sheetUrl = params.get('sheet'); 
-
-function getSpreadsheetId(url) {
-    if (!url) return null;
-    if (url.includes('/d/e/')) {
-        const matches = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
-        return matches ? matches[1] : url;
+function startAppFlow() {
+    if(!sheetUrl){
+        document.getElementById('englishWord').textContent = "⚠️ No CSV URL provided in query string.";
+        return;
     }
-    const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-    return matches ? matches[1] : url;
-}
-const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
 
-if(!sheetUrl){
-    document.getElementById('englishWord').textContent = "⚠️ No CSV URL provided in query string.";
-}
+    if(vocabList.length === 0) {
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results){
+                results.data.forEach(row => {
+                    if(row.French && row.English){
+                        vocabList.push({ french: row.French.trim(), english: row.English.trim() });
+                    }
+                });
+                if(vocabList.length === 0){
+                    document.getElementById('englishWord').textContent = "⚠️ No items found in columns A/B!";
+                    return;
+                }
 
-Papa.parse(sheetUrl, {
-    download: true,
-    header: true,
-    skipEmptyLines: true,
-    complete: function(results){
-        results.data.forEach(row => {
-            if(row.French && row.English){
-                vocabList.push({ french: row.French.trim(), english: row.English.trim() });
+                document.getElementById('gameSubtitle').textContent = "Fill in the missing vowels";
+                restartGame();
+            },
+            error: function(err){
+                console.error(err);
+                document.getElementById('englishWord').textContent = "⚠️ CSV load error: " + err;
             }
         });
-        if(vocabList.length === 0){
-            document.getElementById('englishWord').textContent = "⚠️ No items found in columns A/B!";
-            return;
-        }
-
-        restartGame();
-    },
-    error: function(err){
-        console.error(err);
-        document.getElementById('englishWord').textContent = "⚠️ CSV load error: " + err;
     }
-});
+}
 
 function restartGame() {
     exerciseWords = vocabList.sort(() => 0.5 - Math.random()).slice(0,10);
@@ -439,12 +448,7 @@ function checkQualificationAndLoad(timeMinutes, accuracy) {
         let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
 
         if (playerRank <= 5) {
-            // Priority order: 1. Live Google Auth -> 2. Local Storage Cache -> 3. Fallback prompt
-            let studentName = currentUser ? currentUser.name : null;
-            
-            if (!studentName) {
-                studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
-            }
+            let studentName = currentUser ? currentUser.name : prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
             if (!studentName) studentName = "Anonymous";
             
             tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
@@ -503,10 +507,6 @@ function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc)
     }
 
     const medals = ['🥇 1', '🥈 2', '🥉 3'];
-
-    data.forEach((index, entry) => {
-        // Correcting loop variables for safety
-    });
 
     data.forEach((entry, index) => {
         const tr = document.createElement('tr');
