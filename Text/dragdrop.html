@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Drag & Drop</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -187,6 +188,12 @@
             color: #155724 !important;
             font-weight: bold;
         }
+
+        #googleBtnContainer {
+            display: flex;
+            justify-content: center;
+            margin: 15px 0;
+        }
     </style>
 </head>
 <body>
@@ -233,6 +240,7 @@
         <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
             <h3 id="leaderboardHeaderTitle" style="margin: 5px 0;">🏆 Top 5 Leaderboard 🏆</h3>
             <div id="leaderboardStatus"></div>
+            <div id="googleBtnContainer"></div>
             <table class="leaderboard-table">
                 <thead>
                     <tr>
@@ -250,9 +258,16 @@
 </div>
 
 <script>
-// --- LEADERBOARD CONFIGURATION ---
-const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzO9F1mpXF88pMcM1X5lsx7Wn7r25u4Ye8KUFbD3hGa0jlEIkkvBnIeDcDqlLboxtS2/exec";
+// --- LEADERBOARD & AUTH CONFIGURATION ---
+const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzasoQX0sQoLfpK9Uoup_d-IvuEaAKoJvHi79hZKf5qsVei8XP_CxvE5IQcdlrxE0DfHA/exec";
 const GAME_NAME = "Text_Drag&Drop";
+const GOOGLE_CLIENT_ID = "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com";
+
+let currentGoogleUser = null;
+let googleInitialised = false;
+let pendingTimeMinutes = null;
+let pendingAccuracy = null;
+let pendingCategoryLabel = null;
 
 var removedWordSet = new Set();
 var sentencePair = {};
@@ -339,6 +354,14 @@ function generateExercise() {
 
     isFinished = false;
     totalErrors = 0;
+    currentGoogleUser = null;
+    pendingTimeMinutes = null;
+    pendingAccuracy = null;
+    pendingCategoryLabel = null;
+    
+    const googleBtnContainer = document.getElementById('googleBtnContainer');
+    if (googleBtnContainer) googleBtnContainer.innerHTML = "";
+
     startTime = Date.now();
 
     document.getElementById('game-screen').classList.remove('hide');
@@ -616,7 +639,7 @@ function checkQualificationAndLoad(timeMinutes, accuracy, categoryLabel) {
     tbody.innerHTML = '<tr><td colspan="4">Loading board profiles... ⏳</td></tr>';
     section.style.display = "block";
 
-    fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
+    fetch(`${LEADERBOARD_API_URL}?game=${encodeURIComponent(GAME_NAME)}&topicId=${encodeURIComponent(topicId)}`)
     .then(res => res.json())
     .then(data => {
         // Filter entries specifically for current word removal mode
@@ -630,28 +653,12 @@ function checkQualificationAndLoad(timeMinutes, accuracy, categoryLabel) {
         let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
 
         if (playerRank <= 5) {
-            let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard (${categoryLabel})! Enter your name:`);
-            if (!studentName) studentName = "Anonymous";
-            
-            const formattedName = `${studentName.trim()} (${categoryLabel})`;
+            pendingTimeMinutes = parseFloat(timeMinutes);
+            pendingAccuracy = parseFloat(accuracy);
+            pendingCategoryLabel = categoryLabel;
 
-            tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
-            
-            fetch(LEADERBOARD_API_URL, {
-                method: "POST",
-                body: JSON.stringify({
-                    topicId: topicId,
-                    game: GAME_NAME,
-                    name: formattedName,
-                    time: parseFloat(timeMinutes),
-                    accuracy: parseFloat(accuracy)
-                })
-            })
-            .then(res => res.json())
-            .then(updatedData => {
-                const updatedCategoryData = updatedData.filter(entry => entry.name && entry.name.includes(`(${categoryLabel})`));
-                renderLeaderboardRows(updatedCategoryData, formattedName, timeMinutes, accuracy);
-            });
+            tbody.innerHTML = '<tr><td colspan="4">🏆 You made the Top 5! Please sign in to save your score.</td></tr>';
+            startGoogleAuthentication();
         } else {
             renderLeaderboardRows(categoryData, null, null, null);
         }
@@ -659,6 +666,94 @@ function checkQualificationAndLoad(timeMinutes, accuracy, categoryLabel) {
     .catch(err => {
         console.error("Leaderboard loading failure:", err);
         tbody.innerHTML = '<tr><td colspan="4">Error connecting to records database.</td></tr>';
+    });
+}
+
+function startGoogleAuthentication() {
+    if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+        setTimeout(startGoogleAuthentication, 200);
+        return;
+    }
+
+    if (!googleInitialised) {
+        google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: handleGoogleCredential,
+            auto_select: false,
+            use_fedcm_for_prompt: false
+        });
+        googleInitialised = true;
+    }
+
+    const btnContainer = document.getElementById('googleBtnContainer');
+    btnContainer.innerHTML = '';
+    google.accounts.id.renderButton(
+        btnContainer,
+        { theme: "outline", size: "large", text: "continue_with" }
+    );
+
+    google.accounts.id.prompt(function(notification) {
+        if (notification.isNotDisplayed()) {
+            console.warn("One Tap Prompt not displayed:", notification.getNotDisplayedReason());
+        }
+        if (notification.isSkippedMoment()) {
+            console.warn("One Tap Prompt skipped:", notification.getSkippedReason());
+        }
+    });
+}
+
+function handleGoogleCredential(response) {
+    try {
+        const payload = parseJwt(response.credential);
+        currentGoogleUser = {
+            name: payload.name || "Google User",
+            email: payload.email || "",
+            googleId: payload.sub || "",
+            picture: payload.picture || ""
+        };
+
+        document.getElementById('googleBtnContainer').innerHTML = '';
+        submitLeaderboardScore();
+    } catch (error) {
+        console.error("Could not process Google credential:", error);
+        document.getElementById('leaderboardStatus').innerHTML = 
+            '<h4 style="color:#e74c3c;">Google sign-in could not be completed. Your score was not saved.</h4>';
+    }
+}
+
+function parseJwt(token) {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    return JSON.parse(jsonPayload);
+}
+
+function submitLeaderboardScore() {
+    const tbody = document.getElementById('leaderboardBody');
+    tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
+
+    const formattedName = `${currentGoogleUser.name.trim()} (${pendingCategoryLabel})`;
+
+    fetch(LEADERBOARD_API_URL, {
+        method: "POST",
+        body: JSON.stringify({
+            topicId: topicId,
+            game: GAME_NAME,
+            name: formattedName,
+            email: currentGoogleUser.email,
+            googleId: currentGoogleUser.googleId,
+            time: parseFloat(pendingTimeMinutes),
+            accuracy: parseFloat(pendingAccuracy)
+        })
+    })
+    .then(res => res.json())
+    .then(updatedData => {
+        const updatedCategoryData = updatedData.filter(entry => entry.name && entry.name.includes(`(${pendingCategoryLabel})`));
+        renderLeaderboardRows(updatedCategoryData, formattedName, pendingTimeMinutes, pendingAccuracy);
+    })
+    .catch(err => {
+        console.error("Leaderboard save error:", err);
+        tbody.innerHTML = '<tr><td colspan="4">Error saving your leaderboard score.</td></tr>';
     });
 }
 
