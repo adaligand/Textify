@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>No vowels</title>
+<title>No vowelsc</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <!-- Google Identity Services Library -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -132,22 +132,39 @@ const vowels = ['a','e','i','o','u','à','â','ä','é','è','ê','ë','î','ï'
 
 let totalVowelsCount = 0;
 let totalInputAttempts = 0;
-let currentUser = null; // Stores Google account details
+let currentUser = null; // Stores Google account details cached or retrieved in background
 
 // --- LEADERBOARD CONFIGURATION ---
 const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzasoQX0sQoLfpK9Uoup_d-IvuEaAKoJvHi79hZKf5qsVei8XP_CxvE5IQcdlrxE0DfHA/exec"; 
 const GAME_NAME = "No Vowels"; 
 let startTime;
 
-// --- GOOGLE SIGN-IN INTEGRATION ---
+// --- SILENT BACKGROUND GOOGLE AUTH ---
 window.onload = function() {
+    // 1. Check local storage first (Zero-wait background cached identity)
+    const savedUser = localStorage.getItem('no_vowels_user');
+    if (savedUser) {
+        try {
+            currentUser = JSON.parse(savedUser);
+            console.log("Restored user silently from cache:", currentUser.name);
+        } catch(e) {}
+    }
+
+    // 2. Initialize Google One Tap with auto-select forced
     if (window.google) {
         google.accounts.id.initialize({
             client_id: "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com",
             callback: handleCredentialResponse,
-            auto_select: true
+            auto_select: true, // Forces silent sign-in for returning users
+            use_fedcm_for_prompt: true
         });
-        google.accounts.id.prompt();
+
+        // Prompt silently in background without blocking gameplay
+        google.accounts.id.prompt((notification) => {
+            if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+                console.log("Background prompt suppressed or pending user action.");
+            }
+        });
     }
 };
 
@@ -166,7 +183,9 @@ function handleCredentialResponse(response) {
         name: payload.name,
         email: payload.email
     };
-    console.log("Logged in via Google as:", currentUser.name);
+    // Cache account details locally so future games are 100% instant and silent
+    localStorage.setItem('no_vowels_user', JSON.stringify(currentUser));
+    console.log("Authenticated via Google silently:", currentUser.name);
 }
 
 const params = new URLSearchParams(window.location.search);
@@ -420,8 +439,12 @@ function checkQualificationAndLoad(timeMinutes, accuracy) {
         let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
 
         if (playerRank <= 5) {
-            // Uses Google Account name automatically if signed in; falls back to prompt
-            let studentName = currentUser ? currentUser.name : prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+            // Priority order: 1. Live Google Auth -> 2. Local Storage Cache -> 3. Fallback prompt
+            let studentName = currentUser ? currentUser.name : null;
+            
+            if (!studentName) {
+                studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+            }
             if (!studentName) studentName = "Anonymous";
             
             tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
@@ -480,6 +503,10 @@ function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc)
     }
 
     const medals = ['🥇 1', '🥈 2', '🥉 3'];
+
+    data.forEach((index, entry) => {
+        // Correcting loop variables for safety
+    });
 
     data.forEach((entry, index) => {
         const tr = document.createElement('tr');
