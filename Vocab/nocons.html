@@ -26,7 +26,41 @@
         background-color: white;
         border-radius: 15px;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        position: relative;
     }
+    
+    /* --- USER STATUS / LOGIN BAR --- */
+    .user-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background-color: #f8f9fa;
+        padding: 8px 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        border: 1px solid #e9ecef;
+    }
+    .user-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .user-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        object-fit: cover;
+    }
+    .user-name {
+        font-weight: bold;
+        color: #333;
+    }
+    .user-email {
+        color: #6c757d;
+        font-size: 12px;
+    }
+
     .title { font-size: 40px; font-weight: bold; text-align: center; margin-bottom: 20px; }
     .subtitle { font-size: 20px; margin-bottom: 10px; text-align: center; }
     .counter { font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 10px; }
@@ -83,6 +117,16 @@
         font-weight: bold;
     }
 
+    .pb-banner {
+        background-color: #e8f4f8;
+        border: 1px solid #b8daff;
+        color: #004085;
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        font-weight: bold;
+    }
+
     .btn {
         padding: 10px 20px;
         font-size: 18px;
@@ -104,6 +148,14 @@
 </head>
 <body>
 <div class="container">
+    <!-- User Login Status Header -->
+    <div class="user-bar">
+        <div id="userInfo" class="user-info">
+            <span id="userStatusText">Not signed in</span>
+        </div>
+        <div id="g_id_signin"></div>
+    </div>
+
     <div class="title">No consonants</div>
     <div class="subtitle" id="gameSubtitle">Fill in the missing consonants</div>
     <div class="counter" id="sentenceCounter"></div>
@@ -118,6 +170,7 @@
     <!-- Leaderboard Container -->
     <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
         <h3 style="margin: 5px 0;">🏆 Top 5 Leaderboard 🏆</h3>
+        <div id="personalBestBanner" class="pb-banner" style="display:none;"></div>
         <div id="leaderboardStatus"></div>
         <table class="leaderboard-table">
             <thead>
@@ -159,6 +212,13 @@ window.onload = function() {
             callback: handleCredentialResponse,
             auto_select: true
         });
+
+        // Render standard Sign-In button
+        google.accounts.id.renderButton(
+            document.getElementById("g_id_signin"),
+            { theme: "outline", size: "medium", type: "standard" }
+        );
+
         google.accounts.id.prompt();
     }
 };
@@ -176,9 +236,22 @@ function handleCredentialResponse(response) {
     const payload = parseJwt(response.credential);
     currentUser = {
         name: payload.name,
-        email: payload.email
+        email: payload.email,
+        picture: payload.picture
     };
-    console.log("Logged in via Google as:", currentUser.name);
+    
+    // Update Header Bar UI
+    const userInfoDiv = document.getElementById('userInfo');
+    userInfoDiv.innerHTML = `
+        <img class="user-avatar" src="${payload.picture}" alt="Avatar">
+        <div>
+            <div class="user-name">${payload.name}</div>
+            <div class="user-email">${payload.email}</div>
+        </div>
+    `;
+    
+    // Hide Google sign-in button after login
+    document.getElementById('g_id_signin').style.display = 'none';
 }
 
 const params = new URLSearchParams(window.location.search);
@@ -236,6 +309,7 @@ function restartGame() {
         document.getElementById('keyboardContainer').style.display = "block";
     }
     document.getElementById('leaderboardSection').style.display = "none";
+    document.getElementById('personalBestBanner').style.display = "none";
     
     generateSentence();
     generateKeyboard(); 
@@ -415,16 +489,33 @@ function checkQualificationAndLoad(timeMinutes, accuracy) {
     .then(res => res.json())
     .then(data => {
         let tempBoard = [...data];
-        let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
+        let newAttempt = { name: currentUser ? currentUser.name : "___TEMP_PLAYER___", email: currentUser ? currentUser.email : "", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
         tempBoard.push(newAttempt);
         tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
         
-        let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
+        let playerRank = tempBoard.findIndex(e => e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
 
-        if (playerRank <= 5) {
-            let studentName = currentUser ? currentUser.name : prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+        // Process personal best for logged-in user
+        if (currentUser) {
+            let userScores = data.filter(e => e.email === currentUser.email);
+            if (userScores.length > 0) {
+                userScores.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
+                let best = userScores[0];
+                const pbBanner = document.getElementById('personalBestBanner');
+                pbBanner.innerHTML = `⭐ Personal Best: ${best.accuracy}% Accuracy in ${formatTimeDisplay(best.time)}`;
+                pbBanner.style.display = "block";
+            }
+        }
+
+        let studentName = currentUser ? currentUser.name : null;
+        let studentEmail = currentUser ? currentUser.email : null;
+
+        if (!currentUser && playerRank <= 5) {
+            studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
             if (!studentName) studentName = "Anonymous";
-            
+        }
+
+        if (studentName) {
             tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
             
             fetch(LEADERBOARD_API_URL, {
@@ -433,6 +524,7 @@ function checkQualificationAndLoad(timeMinutes, accuracy) {
                     topicId: topicId,
                     game: GAME_NAME,
                     name: studentName,
+                    email: studentEmail || "",
                     time: parseFloat(timeMinutes),
                     accuracy: parseFloat(accuracy)
                 })
