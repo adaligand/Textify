@@ -6,6 +6,8 @@
     <link href='https://fonts.googleapis.com/css?family=Varela+Round' rel='stylesheet' type='text/css'>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Google Identity Services Library -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         body {
             font-family: 'Varela Round', sans-serif;
@@ -201,8 +203,8 @@
                                                             <td align="center">
                                                                 <table width="100%">
                                                                     <tr>
-                                                                        <td align="center"><p class="text" style="margin-bottom: 4px;">mode:</p><div id="noButton" class="menuButton text gametext" style="border-color: #0f3;" title="Type answer"><img src="https://www.flippity.net/images/8-Bit-Mode1.png"></div><div id="muButton" class="menuButton text gametext" title="Multiple choice"><img src="https://www.flippity.net/images/8-Bit-Mode2.png"></div></td>
-                                                                        <td align="center"><p class="text" style="margin-bottom: 4px;">speed:</p><div id="faButton" class="menuButton text gametext" style="border-color: #0f3; width: 80px;" title="Normal"><img src="https://www.flippity.net/images/8-Bit-Fast.png"></div><div id="slButton" class="menuButton text gametext" style="width: 80px;" title="Slow"><img src="https://www.flippity.net/images/8-Bit-Slow.png"></div></td>
+                                                                        <td align="center"><p class="text" style="margin-bottom: 4px;">mode:</p><div id="noButton" class="menuButton text gametext" style="border-color: #0f3;" title="Type answer" onClick="switchMode(0)"><img src="https://www.flippity.net/images/8-Bit-Mode1.png"></div><div id="muButton" class="menuButton text gametext" title="Multiple choice" onClick="switchMode(1)"><img src="https://www.flippity.net/images/8-Bit-Mode2.png"></div></td>
+                                                                        <td align="center"><p class="text" style="margin-bottom: 4px;">speed:</p><div id="faButton" class="menuButton text gametext" style="border-color: #0f3; width: 80px;" title="Normal" onClick="switchSpeed(0)"><img src="https://www.flippity.net/images/8-Bit-Fast.png"></div><div id="slButton" class="menuButton text gametext" style="width: 80px;" title="Slow" onClick="switchSpeed(1)"><img src="https://www.flippity.net/images/8-Bit-Slow.png"></div></td>
                                                                     </tr>
                                                                 </table>
                                                                 <img src="https://www.flippity.net/images/8-Bit-Play-Button.png" class="button" title="Click to play" onClick="preRestart()" style="margin-top: 30px;">
@@ -263,9 +265,40 @@
     
     // --- LEADERBOARD CONFIGURATION ---
     const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzasoQX0sQoLfpK9Uoup_d-IvuEaAKoJvHi79hZKf5qsVei8XP_CxvE5IQcdlrxE0DfHA/exec"; 
-    const GAME_NAME = "Video Game"; 
+    const GAME_NAME = "Space Defence"; 
     let startTime;
     let totalAttempts = 0;
+    let currentUser = null;
+
+    // --- GOOGLE SIGN-IN INTEGRATION ---
+    window.onload = function() {
+        if (window.google) {
+            google.accounts.id.initialize({
+                client_id: "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com",
+                callback: handleCredentialResponse,
+                auto_select: true
+            });
+            google.accounts.id.prompt();
+        }
+    };
+
+    function parseJwt(token) {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        return JSON.parse(jsonPayload);
+    }
+
+    function handleCredentialResponse(response) {
+        const payload = parseJwt(response.credential);
+        currentUser = {
+            name: payload.name,
+            email: payload.email
+        };
+        console.log("Logged in via Google as:", currentUser.name);
+    }
 
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
@@ -299,10 +332,48 @@
     function switchSpeed(s) { if (s == 1) { interval = 20; document.getElementById("faButton").style.borderColor = "#fff"; document.getElementById("slButton").style.borderColor = "#0f3"; } else { interval = 10; document.getElementById("faButton").style.borderColor = "#0f3"; document.getElementById("slButton").style.borderColor = "#fff"; } }
     
     function preLoadContents() { if (!sheetUrl) { alert("⚠️ No sheet URL provided in the address bar. Add ?sheet=YOUR_LINK to the end of the URL."); document.getElementById("loading").style.display = "none"; return; } Papa.parse(sheetUrl, { download: true, header: true, skipEmptyLines: true, complete: function(results) { if (results.data) { results.data.forEach(row => { if (row.English && row.French) { origArray.push([row.English.trim(), row.French.trim(), "", "", ""]); } }); } if (origArray.length === 0) { alert("⚠️ No valid data found. Check your sheet headers are 'English' and 'French'."); document.getElementById("loading").style.display = "none"; return; } loaded = true; startGame(); }, error: function(err) { console.error("CSV Loading Error:", err); alert("⚠️ Error loading or parsing the CSV file."); document.getElementById("loading").style.display = "none"; } }); }
+    
     var f = document.getElementById('frame'); var c = document.getElementById('cannon'); var m = document.getElementById('meteor'); var p = document.getElementById('projectile'); var x = document.getElementById('explosion'); var s = document.getElementById('score'); var e = document.getElementById('entry');
     var meteorImgs = ["8-Bit-Meteor-Gy.png", "8-Bit-Meteor-Re.png", "8-Bit-Meteor-Or.png", "8-Bit-Meteor-Ye.png", "8-Bit-Meteor-Gr.png", "8-Bit-Meteor-Cy.png", "8-Bit-Meteor-Bl.png", "8-Bit-Meteor-Pu.png"].map(img => "https://www.flippity.net/images/" + img);
+    
     function startGame() { document.getElementById("loading").style.display = "none"; document.getElementById("main").style.display = "table"; mainMenu(); }
     function mainMenu() { document.getElementById("endScreen").style.display = "none"; document.getElementById("mainMenu").style.display = "table"; }
+    
+    function prepAnswers() {
+        QandAs = [];
+        for (var i = 0; i < origArray.length; i++) {
+            var wrongAns = [];
+            while (wrongAns.length < 3) {
+                var r = Math.floor(Math.random() * origArray.length);
+                if (r !== i && wrongAns.indexOf(origArray[r][1]) === -1) {
+                    wrongAns.push(origArray[r][1]);
+                }
+            }
+            var pos = Math.floor(Math.random() * 4);
+            var choices = wrongAns.slice();
+            choices.splice(pos, 0, origArray[i][1]);
+            QandAs.push([origArray[i][0], origArray[i][1], choices, pos]);
+        }
+        QandAs.sort(() => 0.5 - Math.random());
+    }
+
+    function keyCode(event) {
+        if (event.keyCode == 13) {
+            if (document.getElementById("mainMenu").style.display != "none") {
+                preRestart();
+            } else if (document.getElementById("endScreen").style.display != "none") {
+                mainMenu();
+            } else if (mode != "multi") {
+                preFire();
+            }
+        } else if (mode == "multi" && !confirmAns) {
+            if (event.keyCode == 65) { preFireMult(0); }
+            else if (event.keyCode == 66) { preFireMult(1); }
+            else if (event.keyCode == 67) { preFireMult(2); }
+            else if (event.keyCode == 68) { preFireMult(3); }
+        }
+    }
+
     function preRestart() { document.getElementById("mainMenu").style.display = "none"; recharge(); if (sound) { startMusic.play(); } setTimeout(restart, 2000); }
     function restart() { startTime = Date.now(); totalAttempts = 0; prepAnswers(); hearts = 5; for (var i = 0; i < hearts; i++) { document.getElementById("h" + (i + 1)).src = "https://www.flippity.net/images/8-Bit-Heart.png"; } answer = false; score = 0; s.innerHTML = score; lev = 0; hits = 0; q = 0; fired = false; gameOver = false; resetProj(); meteorX = Math.floor(Math.random() * 730) + 10; meteorY = 0; metSpeed = .8; m.style.left = meteorX + "px"; m.style.top = meteorY + "px"; m.src = meteorImgs[lev]; m.style.display = "block"; document.getElementById("a1").classList.remove("correctAns"); document.getElementById("a2").classList.remove("correctAns"); document.getElementById("a3").classList.remove("correctAns"); document.getElementById("a4").classList.remove("correctAns"); setPrompts(); meteor(); confirmAns = false; generateKeyboard('french'); }
     function setPrompts() { document.getElementById("prompt").innerHTML = QandAs[q][0]; document.getElementById("prompt").title = QandAs[q][0]; if (mode == "multi") { document.getElementById("a1").innerHTML = QandAs[q][2][0]; document.getElementById("a1").title = "[A] " + QandAs[q][2][0]; document.getElementById("a2").innerHTML = QandAs[q][2][1]; document.getElementById("a2").title = "[B] " + QandAs[q][2][1]; document.getElementById("a3").innerHTML = QandAs[q][2][2]; document.getElementById("a3").title = "[C] " + QandAs[q][2][2]; document.getElementById("a4").innerHTML = QandAs[q][2][3]; document.getElementById("a4").title = "[D] " + QandAs[q][2][3]; } else { document.getElementById("button").src = "https://www.flippity.net/images/8-Bit-Button.png"; document.getElementById("button").title = "Click to fire [Enter]"; e.value = ""; e.disabled = false; e.focus(); } }
@@ -378,11 +449,38 @@
     function resetExpl() { x.style.display = "none"; }
     function updateScore(sc) { score += sc; s.innerHTML = score.toLocaleString(); }
     
+    function generateKeyboard(language) {
+        const container = document.getElementById('keyboardContainer');
+        container.innerHTML = '';
+        let chars = [];
+        switch(language) {
+            case 'french': chars=['à','â','ä','é','è','ê','ë','î','ï','ô','ö','ù','ü','û','ç']; break;
+            case 'german': chars=['ä','ö','ü','ß']; break;
+            case 'spanish': chars=['á','é','í','ó','ú','ñ']; break;
+        }
+        chars.forEach(c => {
+            const btn = document.createElement('button');
+            btn.textContent = c;
+            btn.className = 'keyboard-button';
+            btn.type = 'button';
+            btn.onclick = () => {
+                const input = document.getElementById('entry');
+                if(input) {
+                    const pos = input.selectionStart;
+                    const val = input.value;
+                    input.value = val.slice(0,pos) + c + val.slice(pos);
+                    input.setSelectionRange(pos+1,pos+1);
+                    input.focus();
+                }
+            };
+            container.appendChild(btn);
+        });
+    }
+
     function stopGame() { 
         if (sound) { gameOverSnd.play(); } 
         discharge(); 
 
-        // Formats time in M.SS clock number format: e.g., 34s -> 0.34 | 1m 30s -> 1.30
         const totalSeconds = Math.round((Date.now() - startTime) / 1000);
         const displayMins = Math.floor(totalSeconds / 60);
         const displaySecs = totalSeconds % 60;
@@ -422,7 +520,6 @@
         checkQualificationAndLoad(clockFormattedTime, score);
     }
 
-    // Parses M.SS clock formatted value back into readable "Xm Ys" text
     function formatTimeDisplay(minutesVal) {
         if (minutesVal === undefined || minutesVal === null || isNaN(minutesVal)) return "";
         const num = parseFloat(minutesVal);
@@ -443,17 +540,15 @@
         .then(res => res.json())
         .then(data => {
             let tempBoard = [...data];
-            // Sends currentScore as `accuracy` so Apps Script places points directly into Column I
             let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseInt(currentScore) };
             tempBoard.push(newAttempt);
             
-            // Sort by score points descending (primary) and time ascending (secondary tiebreaker)
             tempBoard.sort((a, b) => (parseFloat(b.accuracy || b.score || 0)) - (parseFloat(a.accuracy || a.score || 0)) || a.time - b.time);
             
             let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && (parseFloat(e.accuracy || e.score) === parseInt(currentScore))) + 1;
 
             if (playerRank <= 5) {
-                let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+                let studentName = currentUser ? currentUser.name : prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
                 if (!studentName) studentName = "Anonymous";
                 
                 tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
@@ -465,7 +560,7 @@
                         game: GAME_NAME,
                         name: studentName,
                         time: parseFloat(timeMinutes),
-                        accuracy: parseInt(currentScore) // Passes score inside `accuracy` payload key
+                        accuracy: parseInt(currentScore)
                     })
                 })
                 .then(res => res.json())
@@ -485,12 +580,12 @@
     function renderLeaderboardRows(data, highlightName, highlightTime, highlightScore) {
         const tbody = document.getElementById('leaderboardBody');
         const statusDiv = document.getElementById('leaderboardStatus');
-        if (!tbody) return;
-
+        if(!tbody) return;
+        
         tbody.innerHTML = "";
         
         let rankHeader = document.getElementById('personalRankTitle');
-        if (!rankHeader && statusDiv) {
+        if(!rankHeader && statusDiv) {
             rankHeader = document.createElement('h4');
             rankHeader.id = 'personalRankTitle';
             rankHeader.style.fontSize = '18px';
@@ -500,12 +595,12 @@
 
         if (highlightName) {
             let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime) && (parseFloat(entry.accuracy || entry.score) === parseInt(highlightScore))) + 1;
-            if (rankHeader) {
+            if(rankHeader) {
                 rankHeader.style.color = '#2ecc71';
                 rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
             }
         } else {
-            if (rankHeader) {
+            if(rankHeader) {
                 rankHeader.style.color = '#e67e22';
                 rankHeader.textContent = `🏁 Good effort! Try again to break into the Top 5.`;
             }
@@ -515,7 +610,7 @@
 
         data.forEach((entry, index) => {
             const tr = document.createElement('tr');
-            const scoreVal = entry.accuracy !== undefined ? entry.accuracy : (entry.score !== undefined ? entry.score : 0);
+            const scoreVal = (entry.accuracy !== undefined ? entry.accuracy : (entry.score !== undefined ? entry.score : 0)).toLocaleString();
             const timeFormatted = formatTimeDisplay(entry.time);
             const rankDisplay = medals[index] || `#${index + 1}`;
             
@@ -526,22 +621,13 @@
             tr.innerHTML = `
                 <td><strong>${rankDisplay}</strong></td>
                 <td><strong>${entry.name}</strong></td>
-                <td>${Number(scoreVal).toLocaleString()} pts</td>
+                <td>${scoreVal} pts</td>
                 <td>${timeFormatted}</td>
             `;
             tbody.appendChild(tr);
         });
     }
 
-    function keyCode(event) { if (!event.ctrlKey) { var x = event.keyCode; if (mode == "multi") { if (x == 65) { preFireMult(0) } else if (x == 66) { preFireMult(1) } else if (x == 67) { preFireMult(2) } else if (x == 68) { preFireMult(3) } } else { if (x == 13) { preFire() } } } }
-    function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
-    function prepAnswers() { var tempArray = [...origArray]; shuffle(tempArray); for (var i = 0; i < tempArray.length; i++) { QandAs[i] = []; QandAs[i][0] = tempArray[0][0]; QandAs[i][1] = tempArray[0][1]; QandAs[i][2] = []; if (tempArray[0][2] != "") { QandAs[i][2][0] = tempArray[0][2]; } else { QandAs[i][2][0] = tempArray[1][1]; } if (tempArray[0][3] != "") { QandAs[i][2][1] = tempArray[0][3]; } else { QandAs[i][2][1] = tempArray[2][1]; } if (tempArray[0][4] != "") { QandAs[i][2][2] = tempArray[0][4]; } else { QandAs[i][2][2] = tempArray[3][1]; } shuffle(QandAs[i][2]); var c = Math.floor(Math.random() * 4); QandAs[i][2].splice(c, 0, QandAs[i][1]); QandAs[i].splice(3, 0, c); tempArray.push(tempArray.shift()); } }
-    function generateKeyboard(language) { const keyboardContainer = document.getElementById('keyboardContainer'); keyboardContainer.innerHTML = ''; let specialChars = []; switch (language) { case 'french': specialChars = ['à', 'â', 'ä', 'é', 'è', 'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'ù', 'ü', 'û', 'ç']; break; case 'german': specialChars = ['ä', 'ö', 'ü', 'ß']; break; case 'spanish': specialChars = ['á', 'é', 'í', 'ó', 'ú', 'ñ']; break; } specialChars.forEach(function (char) { const button = document.createElement('button'); button.textContent = char; button.className = 'keyboard-button'; button.onclick = () => insertLetter(char); keyboardContainer.appendChild(button); }); }
-    function insertLetter(letter) { const input = document.getElementById('entry'); if (input) { const start = input.selectionStart; const end = input.selectionEnd; input.value = input.value.substring(0, start) + letter + input.value.substring(end); input.selectionStart = input.selectionEnd = start + 1; input.focus(); } }
-    document.getElementById('noButton').addEventListener('click', () => switchMode(0));
-    document.getElementById('muButton').addEventListener('click', () => switchMode(1));
-    document.getElementById('faButton').addEventListener('click', () => switchSpeed(0));
-    document.getElementById('slButton').addEventListener('click', () => switchSpeed(1));
     preLoadContents();
 </script>
 </body>
