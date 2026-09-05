@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>No consonant</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<!-- Google Identity Services Library -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
     body {
         font-family: Arial, sans-serif;
@@ -140,6 +142,7 @@ let lastFocusedInput = null;
 
 let totalConsonantsCount = 0;
 let totalInputAttempts = 0;
+let currentUser = null; // Stores Google account details
 
 const consonants = /[bcdfghjklmnpqrstvwxyzßçñBCDFGHJKLMNPQRSTVWXYZ]/;
 
@@ -147,6 +150,36 @@ const consonants = /[bcdfghjklmnpqrstvwxyzßçñBCDFGHJKLMNPQRSTVWXYZ]/;
 const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzasoQX0sQoLfpK9Uoup_d-IvuEaAKoJvHi79hZKf5qsVei8XP_CxvE5IQcdlrxE0DfHA/exec"; 
 const GAME_NAME = "No Consonants"; 
 let startTime;
+
+// --- GOOGLE SIGN-IN INTEGRATION ---
+window.onload = function() {
+    if (window.google) {
+        google.accounts.id.initialize({
+            client_id: "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com",
+            callback: handleCredentialResponse,
+            auto_select: true
+        });
+        google.accounts.id.prompt();
+    }
+};
+
+function parseJwt(token) {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(jsonPayload);
+}
+
+function handleCredentialResponse(response) {
+    const payload = parseJwt(response.credential);
+    currentUser = {
+        name: payload.name,
+        email: payload.email
+    };
+    console.log("Logged in via Google as:", currentUser.name);
+}
 
 const params = new URLSearchParams(window.location.search);
 const csvUrl = params.get('sheet');
@@ -389,7 +422,7 @@ function checkQualificationAndLoad(timeMinutes, accuracy) {
         let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
 
         if (playerRank <= 5) {
-            let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+            let studentName = currentUser ? currentUser.name : prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
             if (!studentName) studentName = "Anonymous";
             
             tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
