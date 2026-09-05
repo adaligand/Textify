@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Listen</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <!-- Google Identity Services Library -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     body {
         font-family: Arial, sans-serif;
@@ -186,11 +188,42 @@
     let allPhrases = []; 
     let totalPhrases = 10;
     let totalAttempts = 0;
+    let currentUser = null; // Stores Google account details
     
     const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzasoQX0sQoLfpK9Uoup_d-IvuEaAKoJvHi79hZKf5qsVei8XP_CxvE5IQcdlrxE0DfHA/exec"; 
     const GAME_NAME = "Listen"; 
     let timerInterval;
     let startTime;
+
+    // --- GOOGLE SIGN-IN INTEGRATION ---
+    window.onload = function() {
+        if (window.google) {
+            google.accounts.id.initialize({
+                client_id: "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com",
+                callback: handleCredentialResponse,
+                auto_select: true
+            });
+            google.accounts.id.prompt();
+        }
+    };
+
+    function parseJwt(token) {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        return JSON.parse(jsonPayload);
+    }
+
+    function handleCredentialResponse(response) {
+        const payload = parseJwt(response.credential);
+        currentUser = {
+            name: payload.name,
+            email: payload.email
+        };
+        console.log("Logged in via Google as:", currentUser.name);
+    }
 
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
@@ -299,70 +332,70 @@
     }
 
     function checkAnswer() {
-    const userInput = document.getElementById('textInput').value.trim();
-    const correctAnswer = exercisePhrases[currentPhraseIndex];
-    const feedbackEl = document.getElementById('feedback');
-    const textInput = document.getElementById('textInput');
-    
-    if (!userInput) return;
-
-    totalAttempts++;
-
-    const normalizedUserInput = normalizeApostrophes(userInput).toLowerCase();
-    const normalizedCorrectAnswer = normalizeApostrophes(correctAnswer).toLowerCase();
-
-    if (normalizedUserInput === normalizedCorrectAnswer) {
-        feedbackEl.textContent = 'Correct!';
-        feedbackEl.style.color = 'green';
+        const userInput = document.getElementById('textInput').value.trim();
+        const correctAnswer = exercisePhrases[currentPhraseIndex];
+        const feedbackEl = document.getElementById('feedback');
+        const textInput = document.getElementById('textInput');
         
-        textInput.readOnly = true; 
-        document.getElementById('checkButton').classList.add('hide');
-        
-        if (currentPhraseIndex < totalPhrases - 1) {
-            document.getElementById('nextButton').classList.remove('hide');
-            textInput.focus(); 
-        } else {
-            stopTimer();
-            
-            // Calculate minutes and seconds
-            const totalSeconds = Math.round((new Date().getTime() - startTime) / 1000);
-            const displayMins = Math.floor(totalSeconds / 60);
-            const displaySecs = totalSeconds % 60;
-            
-            // Formats time into clock number format: e.g., 34s -> 0.34 | 1m 30s -> 1.30
-            const clockFormattedTime = parseFloat(`${displayMins}.${displaySecs < 10 ? '0' : ''}${displaySecs}`);
-            
-            const formattedTimeText = `${displayMins}m ${displaySecs}s`;
-            const accuracy = Math.min(100, Math.round((totalPhrases / totalAttempts) * 100));
-            
-            document.getElementById('gameMainTitle').textContent = `🎉 Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
-            
-            document.getElementById('statsWrapper').style.display = "none";
-            document.getElementById('textInputWrapper').style.display = "none";
-            document.getElementById('feedbackWrapper').style.display = "none";
-            document.getElementById('controlButtonsWrapper').style.display = "none";
-            document.getElementById('virtualKeyboardWrapper').style.display = "none";
+        if (!userInput) return;
 
-            // Sends M.SS time (e.g. 0.34 or 1.30) to the leaderboard
-            checkQualificationAndLoad(clockFormattedTime, accuracy);
-        }
-    } else {
-        feedbackEl.style.color = 'darkorange';
-        
-        let correctPrefixLength = 0;
-        for (let i = 0; i < normalizedUserInput.length; i++) {
-            if (i < normalizedCorrectAnswer.length && normalizedUserInput[i] === normalizedCorrectAnswer[i]) {
-                correctPrefixLength++;
+        totalAttempts++;
+
+        const normalizedUserInput = normalizeApostrophes(userInput).toLowerCase();
+        const normalizedCorrectAnswer = normalizeApostrophes(correctAnswer).toLowerCase();
+
+        if (normalizedUserInput === normalizedCorrectAnswer) {
+            feedbackEl.textContent = 'Correct!';
+            feedbackEl.style.color = 'green';
+            
+            textInput.readOnly = true; 
+            document.getElementById('checkButton').classList.add('hide');
+            
+            if (currentPhraseIndex < totalPhrases - 1) {
+                document.getElementById('nextButton').classList.remove('hide');
+                textInput.focus(); 
             } else {
-                break;
-            }
-        }
+                stopTimer();
+                
+                // Calculate minutes and seconds
+                const totalSeconds = Math.round((new Date().getTime() - startTime) / 1000);
+                const displayMins = Math.floor(totalSeconds / 60);
+                const displaySecs = totalSeconds % 60;
+                
+                // Formats time into clock number format: e.g., 34s -> 0.34 | 1m 30s -> 1.30
+                const clockFormattedTime = parseFloat(`${displayMins}.${displaySecs < 10 ? '0' : ''}${displaySecs}`);
+                
+                const formattedTimeText = `${displayMins}m ${displaySecs}s`;
+                const accuracy = Math.min(100, Math.round((totalPhrases / totalAttempts) * 100));
+                
+                document.getElementById('gameMainTitle').textContent = `🎉 Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
+                
+                document.getElementById('statsWrapper').style.display = "none";
+                document.getElementById('textInputWrapper').style.display = "none";
+                document.getElementById('feedbackWrapper').style.display = "none";
+                document.getElementById('controlButtonsWrapper').style.display = "none";
+                document.getElementById('virtualKeyboardWrapper').style.display = "none";
 
-        const hint = correctAnswer.substring(0, correctPrefixLength + 1);
-        feedbackEl.textContent = `Not quite! Hint: ${hint}...`;
+                // Sends M.SS time (e.g. 0.34 or 1.30) to the leaderboard
+                checkQualificationAndLoad(clockFormattedTime, accuracy);
+            }
+        } else {
+            feedbackEl.style.color = 'darkorange';
+            
+            let correctPrefixLength = 0;
+            for (let i = 0; i < normalizedUserInput.length; i++) {
+                if (i < normalizedCorrectAnswer.length && normalizedUserInput[i] === normalizedCorrectAnswer[i]) {
+                    correctPrefixLength++;
+                } else {
+                    break;
+                }
+            }
+
+            const hint = correctAnswer.substring(0, correctPrefixLength + 1);
+            feedbackEl.textContent = `Not quite! Hint: ${hint}...`;
+        }
+        feedbackEl.classList.remove('hide');
     }
-    feedbackEl.classList.remove('hide');
-}
 
     function handleKeyPress(event) {
         if (event.key === 'Enter') {
@@ -439,13 +472,13 @@
         generateKeyboard(document.getElementById('languageSelect').value);
     }
 
-   function formatTimeDisplay(minutesVal) {
-    if (minutesVal === undefined || minutesVal === null || isNaN(minutesVal)) return "";
-    const num = parseFloat(minutesVal);
-    const mins = Math.floor(num);
-    const secs = Math.round((num - mins) * 100);
-    return `${mins}m ${secs}s`;
-}
+    function formatTimeDisplay(minutesVal) {
+        if (minutesVal === undefined || minutesVal === null || isNaN(minutesVal)) return "";
+        const num = parseFloat(minutesVal);
+        const mins = Math.floor(num);
+        const secs = Math.round((num - mins) * 100);
+        return `${mins}m ${secs}s`;
+    }
 
     function checkQualificationAndLoad(timeMinutes, accuracy) {
         const list = document.getElementById('leaderboardList');
@@ -466,8 +499,8 @@
             let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
 
             if (playerRank <= 5) {
-                // Dynamic prompt displaying exact rank position
-                let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
+                // Uses Google Account name automatically if signed in; falls back to prompt
+                let studentName = currentUser ? currentUser.name : prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
                 if (!studentName) studentName = "Anonymous";
                 
                 list.innerHTML = "<li>Saving your spot... ⏳</li>";
