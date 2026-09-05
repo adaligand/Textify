@@ -4,7 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Rocket Launch</title>
+    
+    <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
     <style>
         :root {
             --sky-height: 400px;
@@ -52,19 +56,15 @@
             width: 100%;
             height: 100%;
             z-index: 70; 
-            
             background-color: rgba(255, 255, 255, 0.96);
-            
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
             align-items: center;
-            
             text-align: center;
             color: #333; 
             padding: 20px;
             box-sizing: border-box;
-            
             opacity: 0;
             transition: opacity 0.5s ease-in-out;
             pointer-events: none; 
@@ -105,7 +105,7 @@
             border-top: 2px solid #eee; 
             padding-top: 15px; 
             width: 100%;
-            max-width: 550px;
+            max-width: 650px;
         }
 
         .leaderboard-table {
@@ -137,6 +137,7 @@
 
         .leaderboard-table tr.highlight-row {
             background-color: #d4edda !important;
+            color: #155724 !important;
             font-weight: bold;
         }
 
@@ -291,9 +292,7 @@
             color: #333;
             text-align: center;
             white-space: nowrap;
-            
             padding: 30px 40px; 
-            
             background-image: url('https://adaligand.github.io/Textify/Sentences/cloud.png');
             background-size: 100% 100%; 
             background-repeat: no-repeat;
@@ -302,7 +301,6 @@
             border: none; 
             border-radius: 0; 
             box-shadow: none; 
-            
             transition: transform 0.2s, background-color 0.2s;
             animation: float 4s ease-in-out infinite;
         }
@@ -361,6 +359,12 @@
             box-sizing: border-box;
         }
 
+        #googleBtnContainer {
+            display: flex;
+            justify-content: center;
+            margin: 15px 0;
+        }
+
         @media (max-width: 520px) {
              .cloud-option { font-size: 14px; padding: 12px 16px; }
              .english-sentence { font-size: 18px; }
@@ -397,11 +401,13 @@
                 <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
                     <h3 style="margin: 5px 0;">🏆 Top 5 Leaderboard 🏆</h3>
                     <div id="leaderboardStatus"></div>
+                    <div id="googleBtnContainer"></div>
                     <table class="leaderboard-table">
                         <thead>
                             <tr>
                                 <th>Rank</th>
                                 <th>Player</th>
+                                <th>Completed</th>
                                 <th>Accuracy</th>
                                 <th>Time</th>
                             </tr>
@@ -433,14 +439,23 @@
     </div>
 
 <script>
-    // --- Leaderboard Constants & API Config ---
-    const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzasoQX0sQoLfpK9Uoup_d-IvuEaAKoJvHi79hZKf5qsVei8XP_CxvE5IQcdlrxE0DfHA/exec";
-    const GAME_NAME = "Rocket";
+    // --- Leaderboard Constants & Config ---
+    const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzD_wxhdMz2_IMcPTYt3vj1Ctt8JsUNuxw_rHZriuZrfZ2gpuMvoiWJTlSEr0ZSH9BkMg/exec";
+    const GAME_NAME = "Rocket Launch";
+    const GOOGLE_CLIENT_ID = "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com";
 
     // --- Game Metrics ---
     var gameStartTime = 0;
     var totalClicks = 0;
     var correctClicks = 0;
+    var completedSentences = 0;
+
+    // --- Google Auth & Pending Submission State ---
+    let currentGoogleUser = null;
+    let googleInitialised = false;
+    let pendingCompleted = null;
+    let pendingAccuracy = null;
+    let pendingTimeMinutes = null;
 
     // --- Game State Variables ---
     var currentTextIndex = 0;
@@ -558,12 +573,17 @@
     function startGame() {
         isGameOver = false;
         currentTextIndex = 0;
+        completedSentences = 0;
         lives = 5;
         
-        // Reset Metrics
+        // Reset Metrics & Auth
         gameStartTime = new Date().getTime();
         totalClicks = 0;
         correctClicks = 0;
+        currentGoogleUser = null;
+        pendingCompleted = null;
+        pendingAccuracy = null;
+        pendingTimeMinutes = null;
 
         stopSentenceTimer();
         shuffleArray(sentencePairs);
@@ -579,6 +599,7 @@
         explosionGif.classList.add('hide'); 
         explosionGif.style.display = 'none'; 
 
+        document.getElementById('googleBtnContainer').innerHTML = "";
         document.getElementById('leaderboardSection').style.display = 'none';
         endScreen.classList.remove('visible'); 
         displaySentence();
@@ -741,6 +762,7 @@
 
             if (currentChunkIndex === originalChunks.length) {
                 stopSentenceTimer();
+                completedSentences++;
                 cloudAreaWrapper.innerHTML = ''; 
                 rocket.style.bottom = ''; 
 
@@ -816,7 +838,7 @@
             nextButton.classList.add('hide');
 
             setTimeout(() => {
-                showEndScreen('💥 Game Over 💥', `You completed ${currentTextIndex} out of ${sentencePairs.length} sentences.`);
+                showEndScreen('💥 Game Over 💥', `You completed ${completedSentences} out of ${sentencePairs.length} sentences.`);
             }, EXPLOSION_DURATION);
 
         } else {
@@ -857,78 +879,167 @@
         const displayMins = Math.floor(totalSeconds / 60);
         const displaySecs = totalSeconds % 60;
         
-        // Format time into decimal representation e.g. 1m 30s -> 1.30
-        const clockFormattedTime = parseFloat(`${displayMins}.${displaySecs < 10 ? '0' : ''}${displaySecs}`);
+        const timeInMinutes = (new Date().getTime() - gameStartTime) / 60000;
         const accuracy = totalClicks > 0 ? Math.min(100, Math.round((correctClicks / totalClicks) * 100)) : 0;
 
         document.getElementById('stats-summary').innerHTML = 
-            `⏱️ Time: <b>${displayMins}m ${displaySecs}s</b> | 🎯 Accuracy: <b>${accuracy}%</b>`;
+            `📋 Completed: <b>${completedSentences}/${sentencePairs.length}</b> | 🎯 Accuracy: <b>${accuracy}%</b> | ⏱️ Time: <b>${displayMins}m ${displaySecs < 10 ? '0' : ''}${displaySecs}s</b>`;
 
         endScreen.classList.add('visible');
 
-        // Check leaderboard qualification using reference logic
-        checkQualificationAndLoad(clockFormattedTime, accuracy);
+        // Check leaderboard qualification
+        checkQualificationAndLoad(completedSentences, accuracy, timeInMinutes);
     }
 
-    // --- LEADERBOARD LOGIC MATCHING REFERENCE CODE ---
-    function formatTimeDisplay(minutesVal) {
-        if (minutesVal === undefined || minutesVal === null || isNaN(minutesVal)) return "";
-        const num = parseFloat(minutesVal);
-        const mins = Math.floor(num);
-        const secs = Math.round((num - mins) * 100);
-        return `${mins}m ${secs}s`;
+    // --- LEADERBOARD & GOOGLE AUTH LOGIC ---
+    function formatTimeDisplay(decimalMinutes) {
+        if (decimalMinutes === undefined || decimalMinutes === null || isNaN(decimalMinutes)) return "";
+        const totalSeconds = Math.round(parseFloat(decimalMinutes) * 60);
+        const m = Math.floor(totalSeconds / 60);
+        const s = totalSeconds % 60;
+        return `${m}m ${s < 10 ? '0' : ''}${s}s`;
     }
 
-    function checkQualificationAndLoad(timeMinutes, accuracy) {
+    function checkQualificationAndLoad(completed, accuracy, timeMinutes) {
         const tbody = document.getElementById('leaderboardBody');
         const section = document.getElementById('leaderboardSection');
         
-        tbody.innerHTML = '<tr><td colspan="4">Loading board profiles... ⏳</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5">Loading board profiles... ⏳</td></tr>';
         section.style.display = "block";
 
-        fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
+        fetch(`${LEADERBOARD_API_URL}?game=${encodeURIComponent(GAME_NAME)}&topicId=${encodeURIComponent(topicId)}`)
         .then(res => res.json())
         .then(data => {
-            // Predict exact rank by inserting player into existing score pool
-            let tempBoard = [...data];
-            let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseFloat(accuracy) };
-            tempBoard.push(newAttempt);
-            tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
+            let tempBoard = Array.isArray(data) ? [...data] : [];
+            let newAttempt = { 
+                name: "___TEMP_PLAYER___", 
+                completed: parseInt(completed), 
+                accuracy: parseFloat(accuracy), 
+                time: parseFloat(timeMinutes) 
+            };
             
-            let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && e.accuracy === parseFloat(accuracy)) + 1;
+            tempBoard.push(newAttempt);
+            
+            // Sort priority: Completed (desc) -> Accuracy (desc) -> Time (asc)
+            tempBoard.sort((a, b) => 
+                (b.completed || 0) - (a.completed || 0) || 
+                (b.accuracy || 0) - (a.accuracy || 0) || 
+                (a.time || 0) - (b.time || 0)
+            );
+            
+            let playerRank = tempBoard.findIndex(e => 
+                e.name === "___TEMP_PLAYER___" && 
+                e.completed === parseInt(completed) &&
+                e.accuracy === parseFloat(accuracy) && 
+                e.time === parseFloat(timeMinutes)
+            ) + 1;
 
             if (playerRank <= 5) {
-                // Dynamic prompt displaying exact rank position
-                let studentName = prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
-                if (!studentName) studentName = "Anonymous";
-                
-                tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
-                
-                fetch(LEADERBOARD_API_URL, {
-                    method: "POST",
-                    body: JSON.stringify({
-                        topicId: topicId,
-                        game: GAME_NAME,
-                        name: studentName,
-                        time: parseFloat(timeMinutes),
-                        accuracy: parseFloat(accuracy)
-                    })
-                })
-                .then(res => res.json())
-                .then(updatedData => {
-                    renderLeaderboardRows(updatedData, studentName, timeMinutes, accuracy);
-                });
+                pendingCompleted = parseInt(completed);
+                pendingAccuracy = parseFloat(accuracy);
+                pendingTimeMinutes = parseFloat(timeMinutes);
+
+                tbody.innerHTML = '<tr><td colspan="5">🏆 You made the Top 5! Please sign in to save your score.</td></tr>';
+                startGoogleAuthentication();
             } else {
-                renderLeaderboardRows(data, null, null, null);
+                renderLeaderboardRows(data, null, null, null, null);
             }
         })
         .catch(err => {
             console.error("Leaderboard database error:", err);
-            tbody.innerHTML = '<tr><td colspan="4">Error connecting to records database.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="color:red;">Error connecting to records database.</td></tr>';
         });
     }
 
-    function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc) {
+    function startGoogleAuthentication() {
+        if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+            setTimeout(startGoogleAuthentication, 200);
+            return;
+        }
+
+        if (!googleInitialised) {
+            google.accounts.id.initialize({
+                client_id: GOOGLE_CLIENT_ID,
+                callback: handleGoogleCredential,
+                auto_select: false,
+                use_fedcm_for_prompt: false
+            });
+            googleInitialised = true;
+        }
+
+        // Render Google Sign-In Button
+        const btnContainer = document.getElementById('googleBtnContainer');
+        btnContainer.innerHTML = '';
+        google.accounts.id.renderButton(
+            btnContainer,
+            { theme: "outline", size: "large", text: "continue_with" }
+        );
+
+        // Passive One Tap prompt
+        google.accounts.id.prompt(function(notification) {
+            if (notification.isNotDisplayed()) {
+                console.warn("One Tap Prompt not displayed:", notification.getNotDisplayedReason());
+            }
+            if (notification.isSkippedMoment()) {
+                console.warn("One Tap Prompt skipped:", notification.getSkippedReason());
+            }
+        });
+    }
+
+    function handleGoogleCredential(response) {
+        try {
+            const payload = parseJwt(response.credential);
+            currentGoogleUser = {
+                name: payload.name || "Google User",
+                email: payload.email || "",
+                googleId: payload.sub || "",
+                picture: payload.picture || ""
+            };
+
+            document.getElementById('googleBtnContainer').innerHTML = '';
+            submitLeaderboardScore();
+        } catch (error) {
+            console.error("Could not process Google credential:", error);
+            document.getElementById('leaderboardStatus').innerHTML = 
+                '<h4 style="color:#e74c3c;">Google sign-in could not be completed. Your score was not saved.</h4>';
+        }
+    }
+
+    function parseJwt(token) {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+        return JSON.parse(jsonPayload);
+    }
+
+    function submitLeaderboardScore() {
+        const tbody = document.getElementById('leaderboardBody');
+        tbody.innerHTML = '<tr><td colspan="5">Saving your spot... ⏳</td></tr>';
+
+        fetch(LEADERBOARD_API_URL, {
+            method: "POST",
+            body: JSON.stringify({
+                topicId: topicId,
+                game: GAME_NAME,
+                name: currentGoogleUser.name,
+                email: currentGoogleUser.email,
+                googleId: currentGoogleUser.googleId,
+                completed: pendingCompleted,
+                accuracy: pendingAccuracy,
+                time: pendingTimeMinutes
+            })
+        })
+        .then(res => res.json())
+        .then(updatedData => {
+            renderLeaderboardRows(updatedData, currentGoogleUser.name, pendingCompleted, pendingAccuracy, pendingTimeMinutes);
+        })
+        .catch(err => {
+            console.error("Leaderboard save error:", err);
+            tbody.innerHTML = '<tr><td colspan="5" style="color:red;">Error saving your leaderboard score.</td></tr>';
+        });
+    }
+
+    function renderLeaderboardRows(data, highlightName, highlightCompleted, highlightAcc, highlightTime) {
         const tbody = document.getElementById('leaderboardBody');
         const statusDiv = document.getElementById('leaderboardStatus');
         tbody.innerHTML = "";
@@ -943,7 +1054,13 @@
         }
 
         if (highlightName) {
-            let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) + 1;
+            let studentRank = data.findIndex(entry => 
+                entry.name === highlightName && 
+                entry.completed === parseInt(highlightCompleted) &&
+                entry.accuracy === parseFloat(highlightAcc) &&
+                entry.time === parseFloat(highlightTime)
+            ) + 1;
+
             rankHeader.style.color = '#2ecc71';
             rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
         } else {
@@ -951,22 +1068,29 @@
             rankHeader.textContent = `🏁 Good effort! Try again to break into the Top 5.`;
         }
 
+        if (!Array.isArray(data) || data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5">No scores submitted yet.</td></tr>`;
+            return;
+        }
+
         const medals = ['🥇 1', '🥈 2', '🥉 3'];
 
         data.forEach((entry, index) => {
             const tr = document.createElement('tr');
+            const completedVal = entry.completed !== undefined ? entry.completed : 0;
             const accVal = entry.accuracy !== undefined ? entry.accuracy : 100;
             const timeFormatted = formatTimeDisplay(entry.time);
             const rankDisplay = medals[index] || `#${index + 1}`;
             
-            if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) {
+            if (highlightName && entry.name === highlightName && entry.completed === parseInt(highlightCompleted) && entry.accuracy === parseFloat(highlightAcc) && entry.time === parseFloat(highlightTime)) {
                 tr.className = 'highlight-row';
             }
 
             tr.innerHTML = `
                 <td><strong>${rankDisplay}</strong></td>
-                <td><strong>${entry.name}</strong></td>
-                <td>${accVal}%</td>
+                <td><strong>${entry.name || 'Anonymous'}</strong></td>
+                <td>${completedVal}/${sentencePairs.length}</td>
+                <td>${Math.round(accVal)}%</td>
                 <td>${timeFormatted}</td>
             `;
             tbody.appendChild(tr);
