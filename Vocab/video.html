@@ -174,6 +174,8 @@
             transform: translateY(-2px);
         }
 
+        #googleBtnContainer { display: flex; justify-content: center; margin: 15px 0; }
+
         @keyframes blink { 50% { background-color: #222; } }
         @keyframes shake { from { transform: rotate(2deg); } to { transform: rotate(-2deg); } }
     </style>
@@ -250,52 +252,17 @@
 <script>
     var loaded = false; var origArray = []; var QandAs = []; var sound = true; var mode = "normal"; var levUp = 10; var chargeTime = 300; var interval = 10; var metSpeedInc = .1; var baseProjSpeed = 7; var projOriginX = 382; var projOriginY = 495; var its = 0; var confirmAns = false;
     
-    // --- LEADERBOARD CONFIGURATION ---
+    // --- LEADERBOARD & GOOGLE AUTH CONFIGURATION ---
     const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzasoQX0sQoLfpK9Uoup_d-IvuEaAKoJvHi79hZKf5qsVei8XP_CxvE5IQcdlrxE0DfHA/exec"; 
     const GAME_NAME = "Space Defence"; 
+    const GOOGLE_CLIENT_ID = "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com";
+    
     let startTime;
     let totalAttempts = 0;
-    let currentUser = null;
-
-    // --- SILENT BACKGROUND GOOGLE AUTH (NO INTERRUPTIONS/NO PROMPTS) ---
-    window.onload = function() {
-        if (window.google) {
-            try {
-                google.accounts.id.initialize({
-                    client_id: "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com",
-                    callback: handleCredentialResponse,
-                    auto_select: true // Silently selects existing Google session if available
-                });
-                
-                // Attempt silent authentication in the background without UI overlays
-                google.accounts.id.prompt((notification) => {
-                    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-                        console.log("Silent Google Auth skipped; game continues smoothly.");
-                    }
-                });
-            } catch (e) {
-                console.log("Background Google Auth skipped");
-            }
-        }
-    };
-
-    function parseJwt(token) {
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-        return JSON.parse(jsonPayload);
-    }
-
-    function handleCredentialResponse(response) {
-        const payload = parseJwt(response.credential);
-        currentUser = {
-            name: payload.name,
-            email: payload.email
-        };
-        console.log("Silently identified Google account:", currentUser.name);
-    }
+    let currentGoogleUser = null;
+    let googleInitialised = false;
+    let pendingTimeMinutes = null;
+    let pendingScore = null;
 
     const params = new URLSearchParams(window.location.search);
     const sheetUrl = params.get('sheet');
@@ -357,10 +324,12 @@
         }); 
     }
     
+    // Auto-load on page start
+    preLoadContents();
+
     var f = document.getElementById('frame'); var c = document.getElementById('cannon'); var m = document.getElementById('meteor'); var p = document.getElementById('projectile'); var x = document.getElementById('explosion'); var s = document.getElementById('score'); var e = document.getElementById('entry');
     var meteorImgs = ["8-Bit-Meteor-Gy.png", "8-Bit-Meteor-Re.png", "8-Bit-Meteor-Or.png", "8-Bit-Meteor-Ye.png", "8-Bit-Meteor-Gr.png", "8-Bit-Meteor-Cy.png", "8-Bit-Meteor-Bl.png", "8-Bit-Meteor-Pu.png"].map(img => "https://www.flippity.net/images/" + img);
     
-    // IMMEDIATE AUTOMATED GAME LAUNCH
     function startGame() { 
         document.getElementById("loading").style.display = "none"; 
         document.getElementById("main").style.display = "table"; 
@@ -410,6 +379,10 @@
     function restart() { 
         startTime = Date.now(); 
         totalAttempts = 0; 
+        currentGoogleUser = null;
+        pendingTimeMinutes = null;
+        pendingScore = null;
+
         prepAnswers(); 
         hearts = 5; 
         for (var i = 0; i < hearts; i++) { 
@@ -445,6 +418,7 @@
     function meteor() { meteorY += metSpeed; if (meteorY < 560) { m.style.top = meteorY + "px"; meteorTimer = setTimeout(meteor, interval); } else { impact(); } }
     function nextMet() { if (hearts > 0) { q++; if (q == QandAs.length) { prepAnswers(); q = 0; } setPrompts(); meteorY = 0; meteorX = Math.floor(Math.random() * 730) + 10; m.style.left = meteorX + "px"; m.style.top = meteorY + "px"; m.style.display = "block"; setTimeout(meteor, interval); } }
     function impact() { confirmAns = true; if (typeof meteorHitTimer !== 'undefined') { clearTimeout(meteorHitTimer); } hearts--; if (hearts < 5) { document.getElementById("h" + (hearts + 1)).src = "https://www.flippity.net/images/8-Bit-Heart-Empty.png"; } if (sound) { impactSnd.play(); } m.style.display = "none"; f.style.animation = "shake .05s linear 10 alternate"; setTimeout(function() { f.style.animation = ""; }, 600); if (mode == "multi") { document.getElementById("a" + (QandAs[q][3] + 1)).classList.add("correctAns"); } else { e.disabled = true; e.value = QandAs[q][1]; document.getElementById("button").src = "https://www.flippity.net/images/8-Bit-Button-Blinking.gif"; document.getElementById("button").title = "Click to continue [Enter]"; } if (hearts == 0) { gameOver = true; if (mode == "multi") { document.getElementById("a" + (QandAs[q][3] + 1)).style.animation = ""; } else { document.getElementById("button").src = "https://www.flippity.net/images/8-Bit-Button.png"; } setTimeout(stopGame, 2000); } }
+    
     function preFire() {
         if (confirmAns) {
             confirmAns = false;
@@ -459,8 +433,10 @@
             }
         }
     }
+    
     function pushButton() { document.getElementById("button").src = "https://www.flippity.net/images/8-Bit-Button-On.png"; }
     function releaseButton() { document.getElementById("button").src = "https://www.flippity.net/images/8-Bit-Button.png"; preFire(); }
+    
     function preFireMult(nm) {
         if (confirmAns) {
             if (nm == QandAs[q][3]) {
@@ -478,6 +454,7 @@
             }
         }
     }
+    
     function fire(ans) { 
         if (!fired && !gameOver && charged) { 
             totalAttempts++;
@@ -506,6 +483,7 @@
             if (mode != "multi") { e.value = ""; setTimeout(e.focus(), 100); } 
         } 
     }
+    
     function projectile() { its++; var lft = p.offsetLeft; var top = p.offsetTop; if (top > 0 && top < 550 && lft > 0 && lft < 770) { p.style.left = projOriginX + (Math.cos(angle) * projSpeed * its) + "px"; p.style.top = projOriginY - (Math.sin(angle) * projSpeed * its) + "px"; projectileTimer = setTimeout(projectile, interval); } else { resetProj(); } }
     function meteorHit() { clearTimeout(meteorTimer); updateScore(10000); x.style.left = meteorX - 8 + "px"; x.style.top = meteorY - 8 + "px"; x.style.display = "block"; m.style.display = "none"; if (sound) { explosionSnd.play(); } if (hits % levUp == 0) { if (sound) { setTimeout(function(){levelUpSnd.play();}, 500); } lev++; updateScore(50000); if (lev < meteorImgs.length) { m.src = meteorImgs[lev]; } metSpeed += metSpeedInc; setTimeout(nextMet, 1500); } else { setTimeout(nextMet, 500); } setTimeout(resetExpl, 1000); resetProj(); }
     function resetProj() { p.style.display = "none"; its = 0; answer = false; projSpeed = baseProjSpeed; p.style.left = projOriginX + "px"; p.style.top = projOriginY + "px"; fired = false; }
@@ -559,6 +537,7 @@
             "<div id='leaderboardSection' class='leaderboard-box' style='display:none;'>" +
                 "<h3 style='margin: 5px 0;'>🏆 Top 5 Leaderboard 🏆</h3>" +
                 "<div id='leaderboardStatus'></div>" +
+                "<div id='googleBtnContainer'></div>" +
                 "<table class='leaderboard-table'>" +
                     "<thead>" +
                         "<tr>" +
@@ -593,6 +572,7 @@
         return `${mins}m ${secs}s`;
     }
 
+    // --- LEADERBOARD & GOOGLE CONDITIONAL SIGN-IN LOGIC ---
     function checkQualificationAndLoad(timeMinutes, currentScore) {
         const tbody = document.getElementById('leaderboardBody');
         const section = document.getElementById('leaderboardSection');
@@ -601,37 +581,31 @@
         tbody.innerHTML = '<tr><td colspan="4">Loading board profiles... ⏳</td></tr>';
         section.style.display = "block";
 
-        fetch(`${LEADERBOARD_API_URL}?game=${GAME_NAME}&topicId=${topicId}`)
+        fetch(`${LEADERBOARD_API_URL}?game=${encodeURIComponent(GAME_NAME)}&topicId=${encodeURIComponent(topicId)}`)
         .then(res => res.json())
         .then(data => {
             let tempBoard = [...data];
-            let newAttempt = { name: "___TEMP_PLAYER___", time: parseFloat(timeMinutes), accuracy: parseInt(currentScore) };
+            let newAttempt = {
+                name: "___TEMP_PLAYER___",
+                time: parseFloat(timeMinutes),
+                score: parseFloat(currentScore)
+            };
+
             tempBoard.push(newAttempt);
-            
-            tempBoard.sort((a, b) => (parseFloat(b.accuracy || b.score || 0)) - (parseFloat(a.accuracy || a.score || 0)) || a.time - b.time);
-            
-            let playerRank = tempBoard.findIndex(e => e.name === "___TEMP_PLAYER___" && e.time === parseFloat(timeMinutes) && (parseFloat(e.accuracy || e.score) === parseInt(currentScore))) + 1;
+            // Sort high score first, then lowest time
+            tempBoard.sort((a, b) => (b.score || 0) - (a.score || 0) || a.time - b.time);
+
+            let playerRank = tempBoard.findIndex(e => 
+                e.name === "___TEMP_PLAYER___" && 
+                e.time === parseFloat(timeMinutes) && 
+                e.score === parseFloat(currentScore)
+            ) + 1;
 
             if (playerRank <= 5) {
-                let studentName = currentUser ? currentUser.name : prompt(`🏆 Outstanding! You reached Rank #${playerRank} on the Leaderboard! Enter your name:`);
-                if (!studentName) studentName = "Anonymous";
-                
-                tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
-                
-                fetch(LEADERBOARD_API_URL, {
-                    method: "POST",
-                    body: JSON.stringify({
-                        topicId: topicId,
-                        game: GAME_NAME,
-                        name: studentName,
-                        time: parseFloat(timeMinutes),
-                        accuracy: parseInt(currentScore)
-                    })
-                })
-                .then(res => res.json())
-                .then(updatedData => {
-                    renderLeaderboardRows(updatedData, studentName, timeMinutes, currentScore);
-                });
+                pendingTimeMinutes = parseFloat(timeMinutes);
+                pendingScore = parseFloat(currentScore);
+                tbody.innerHTML = '<tr><td colspan="4">🏆 You made the Top 5! Please sign in to save your score.</td></tr>';
+                startGoogleAuthentication();
             } else {
                 renderLeaderboardRows(data, null, null, null);
             }
@@ -642,15 +616,103 @@
         });
     }
 
+    function startGoogleAuthentication() {
+        if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+            setTimeout(startGoogleAuthentication, 200);
+            return;
+        }
+
+        if (!googleInitialised) {
+            google.accounts.id.initialize({
+                client_id: GOOGLE_CLIENT_ID,
+                callback: handleGoogleCredential,
+                auto_select: false,
+                use_fedcm_for_prompt: false
+            });
+            googleInitialised = true;
+        }
+
+        const btnContainer = document.getElementById('googleBtnContainer');
+        if (btnContainer) {
+            btnContainer.innerHTML = '';
+            google.accounts.id.renderButton(
+                btnContainer,
+                { theme: "outline", size: "large", text: "continue_with" }
+            );
+        }
+
+        google.accounts.id.prompt(function(notification) {
+            if (notification.isNotDisplayed()) {
+                console.warn("One Tap Prompt not displayed:", notification.getNotDisplayedReason());
+            }
+            if (notification.isSkippedMoment()) {
+                console.warn("One Tap Prompt skipped:", notification.getSkippedReason());
+            }
+        });
+    }
+
+    function handleGoogleCredential(response) {
+        try {
+            const payload = parseJwt(response.credential);
+            currentGoogleUser = {
+                name: payload.name || "Google User",
+                email: payload.email || "",
+                googleId: payload.sub || "",
+                picture: payload.picture || ""
+            };
+
+            const btnContainer = document.getElementById('googleBtnContainer');
+            if (btnContainer) btnContainer.innerHTML = '';
+            submitLeaderboardScore();
+        } catch (error) {
+            console.error("Could not process Google credential:", error);
+            document.getElementById('leaderboardStatus').innerHTML = 
+                '<h4 style="color:#e74c3c;">Google sign-in could not be completed. Your score was not saved.</h4>';
+        }
+    }
+
+    function parseJwt(token) {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+        return JSON.parse(jsonPayload);
+    }
+
+    function submitLeaderboardScore() {
+        const tbody = document.getElementById('leaderboardBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
+
+        fetch(LEADERBOARD_API_URL, {
+            method: "POST",
+            body: JSON.stringify({
+                topicId: topicId,
+                game: GAME_NAME,
+                name: currentGoogleUser.name,
+                email: currentGoogleUser.email,
+                googleId: currentGoogleUser.googleId,
+                time: parseFloat(pendingTimeMinutes),
+                score: parseFloat(pendingScore)
+            })
+        })
+        .then(res => res.json())
+        .then(updatedData => {
+            renderLeaderboardRows(updatedData, currentGoogleUser.name, pendingTimeMinutes, pendingScore);
+        })
+        .catch(err => {
+            console.error("Leaderboard save error:", err);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="4">Error saving your leaderboard score.</td></tr>';
+        });
+    }
+
     function renderLeaderboardRows(data, highlightName, highlightTime, highlightScore) {
         const tbody = document.getElementById('leaderboardBody');
         const statusDiv = document.getElementById('leaderboardStatus');
-        if(!tbody) return;
-        
+        if (!tbody) return;
+
         tbody.innerHTML = "";
-        
         let rankHeader = document.getElementById('personalRankTitle');
-        if(!rankHeader && statusDiv) {
+
+        if (!rankHeader && statusDiv) {
             rankHeader = document.createElement('h4');
             rankHeader.id = 'personalRankTitle';
             rankHeader.style.fontSize = '18px';
@@ -659,13 +721,18 @@
         }
 
         if (highlightName) {
-            let studentRank = data.findIndex(entry => entry.name === highlightName && entry.time === parseFloat(highlightTime) && (parseFloat(entry.accuracy || entry.score) === parseInt(highlightScore))) + 1;
-            if(rankHeader) {
+            let studentRank = data.findIndex(entry => 
+                entry.name === highlightName && 
+                entry.time === parseFloat(highlightTime) && 
+                parseFloat(entry.score) === parseFloat(highlightScore)
+            ) + 1;
+
+            if (rankHeader) {
                 rankHeader.style.color = '#2ecc71';
                 rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Posted Successfully!`;
             }
         } else {
-            if(rankHeader) {
+            if (rankHeader) {
                 rankHeader.style.color = '#e67e22';
                 rankHeader.textContent = `🏁 Good effort! Try again to break into the Top 5.`;
             }
@@ -675,25 +742,37 @@
 
         data.forEach((entry, index) => {
             const tr = document.createElement('tr');
-            const scoreVal = (entry.accuracy !== undefined ? entry.accuracy : (entry.score !== undefined ? entry.score : 0)).toLocaleString();
+            const scoreVal = entry.score !== undefined ? entry.score.toLocaleString() : "0";
             const timeFormatted = formatTimeDisplay(entry.time);
             const rankDisplay = medals[index] || `#${index + 1}`;
-            
-            if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && (parseFloat(entry.accuracy || entry.score) === parseInt(highlightScore))) {
+
+            if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && parseFloat(entry.score) === parseFloat(highlightScore)) {
                 tr.className = 'highlight-row';
             }
 
-            tr.innerHTML = `
-                <td><strong>${rankDisplay}</strong></td>
-                <td><strong>${entry.name}</strong></td>
-                <td>${scoreVal} pts</td>
-                <td>${timeFormatted}</td>
-            `;
+            const rankCell = document.createElement('td');
+            rankCell.innerHTML = `<strong>${rankDisplay}</strong>`;
+
+            const nameCell = document.createElement('td');
+            const nameStrong = document.createElement('strong');
+            nameStrong.textContent = entry.name || "Unknown";
+            nameCell.appendChild(nameStrong);
+
+            const scoreCell = document.createElement('td');
+            scoreCell.textContent = scoreVal;
+
+            const timeCell = document.createElement('td');
+            timeCell.textContent = timeFormatted;
+
+            tr.appendChild(rankCell);
+            tr.appendChild(nameCell);
+            tr.appendChild(scoreCell);
+            tr.appendChild(timeCell);
+
             tbody.appendChild(tr);
         });
     }
-
-    preLoadContents();
 </script>
+
 </body>
 </html>
