@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>No vowelcs</title>
+<title>No vowels</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <!-- Google Identity Services Library -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -135,9 +135,11 @@ let totalInputAttempts = 0;
 
 // --- LEADERBOARD & STUDENT TRACKING CONFIGURATION ---
 const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzasoQX0sQoLfpK9Uoup_d-IvuEaAKoJvHi79hZKf5qsVei8XP_CxvE5IQcdlrxE0DfHA/exec"; 
-const STUDENT_TRACKER_URL = "https://script.google.com/macros/s/AKfycbx2UBVoPagjit2qVk0CQxQGvcr2e4Pw6onQVfJDytCjyuClgrr2lgIcA9-fryYcQSmDkQ/exec";
+const STUDENT_TRACKER_URL = "https://script.google.com/macros/s/AKfycbxAqHWeoPPp-PuNuM_qTvd7e0Txrot53f8vzAGQi1oQAQUX4QmUe-AFJZP8zOay-md_aw/exec";
 const GOOGLE_CLIENT_ID = "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com";
 const GAME_NAME = "No Vowels"; 
+const ALLOWED_DOMAIN = "cedarsupper.co.uk";
+
 let startTime;
 let userEmail = "";
 
@@ -153,22 +155,20 @@ window.addEventListener('load', function() {
     }
 });
 
-// Set your official school domain here
-const ALLOWED_DOMAIN = "cedarsupper.co.uk";
-
 function handleCredentialResponse(response) {
-  const responsePayload = parseJwt(response.credential);
-  const email = responsePayload.email || "";
+    const responsePayload = parseJwt(response.credential);
+    const email = responsePayload.email || "";
 
-  // Check if email ends with school domain
-  if (email.toLowerCase().endsWith("@" + ALLOWED_DOMAIN)) {
-    userEmail = email;
-    console.log("Logged in student:", userEmail);
-  } else {
-    userEmail = "";
-    alert("⚠️ Please sign into Google using your school email (@" + ALLOWED_DOMAIN + ") to track your progress.");
-  }
+    // Check if email ends with school domain
+    if (email.toLowerCase().endsWith("@" + ALLOWED_DOMAIN)) {
+        userEmail = email;
+        console.log("Logged in student:", userEmail);
+    } else {
+        userEmail = "";
+        alert("⚠️ Please sign into Google using your school email (@" + ALLOWED_DOMAIN + ") to track your progress.");
+    }
 }
+
 function parseJwt(token) {
     var base64Url = token.split('.')[1];
     var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -176,6 +176,36 @@ function parseJwt(token) {
         return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
     }).join(''));
     return JSON.parse(jsonPayload);
+}
+
+// --- SCORE SUBMISSION TO SPREADSHEET ---
+function sendStudentProgress(finalScore) {
+    if (!userEmail) {
+        console.warn("No authenticated user logged in. Skipping score submission.");
+        return;
+    }
+
+    const dynamicUnit = (window.GAME_CONFIG && window.GAME_CONFIG.unitName) 
+                        ? window.GAME_CONFIG.unitName 
+                        : document.title;
+
+    const payload = {
+        email: userEmail,
+        unitTitle: dynamicUnit,
+        gameTitle: GAME_NAME,
+        score: finalScore || "100%"
+    };
+
+    fetch(STUDENT_TRACKER_URL, {
+        method: "POST",
+        headers: {
+            "Content-Type": "text/plain;charset=utf-8"
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => console.log("Student progress logged successfully:", data))
+    .catch(err => console.error("Tracking Error:", err));
 }
 
 const params = new URLSearchParams(window.location.search);
@@ -219,21 +249,6 @@ Papa.parse(sheetUrl, {
     }
 });
 
-function sendStudentProgress(finalScore) {
-  const payload = {
-    email: userEmail || "Anonymous / Unauthenticated",
-    unitTitle: window.GAME_CONFIG ? window.GAME_CONFIG.unitName : document.title,
-    gameTitle: GAME_NAME,
-    score: finalScore || "100%"
-  };
-
-  fetch(STUDENT_TRACKER_URL, {
-    method: "POST",
-    mode: "no-cors",
-    body: JSON.stringify(payload)
-  }).catch(err => console.error("Tracking Error:", err));
-}
-
 function restartGame() {
     exerciseWords = vocabList.sort(() => 0.5 - Math.random()).slice(0,10);
     currentIndex = 0;
@@ -265,7 +280,7 @@ function generateExercise(){
         const formattedTimeText = `${displayMins}m ${displaySecs}s`;
         const accuracy = Math.min(100, Math.round((totalVowelsCount / Math.max(totalVowelsCount, totalInputAttempts)) * 100));
 
-        // --- AUTOMATICALLY LOG STUDENT PROGRESS TO SPREADSHEET ---
+        // AUTOMATICALLY LOG STUDENT PROGRESS TO SPREADSHEET
         sendStudentProgress(`${accuracy}% Accuracy (${formattedTimeText})`);
 
         document.getElementById('frenchWord').textContent = `🎉 Score: ${accuracy}% Accuracy in ${formattedTimeText}!`;
