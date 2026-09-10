@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClassTile Web</title>
+  <title>ClassTile cWeb</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
@@ -532,7 +532,7 @@
     const DESK_WIDTH = 112;
     const DESK_HEIGHT = 64;
     const ROOM_PADDING = 80;
-    const MIN_ZOOM = 0.05; // Lowered to allow large rooms to adapt cleanly
+    const MIN_ZOOM = 0.05;
     const MAX_ZOOM = 2.5;
     const ZOOM_STEP = 0.1;
 
@@ -972,7 +972,6 @@
       await populateRoomDropdown();
       document.getElementById("select-room-design").value = window.AppState.currentRoomId;
       
-      // Populate textarea with current roster
       const rosterText = window.AppState.students.map(s => s.name).join('\n');
       document.getElementById("input-batch-roster").value = rosterText;
       
@@ -998,19 +997,15 @@
         return;
       }
 
-      // Smart Roster Reconciliation:
-      // Preserves seat assignment and flags even if spelling of name changes
       const existingStudents = window.AppState.students || [];
       const usedExistingIds = new Set();
       const timestamp = Date.now();
 
       const newStudents = studentNames.map((name, index) => {
-        // 1. Check exact/case-insensitive name match
         let matched = existingStudents.find(
           s => !usedExistingIds.has(s.id) && s.name.toLowerCase() === name.toLowerCase()
         );
 
-        // 2. Fall back to row index match (spelling typo edit on existing student)
         if (!matched && existingStudents[index] && !usedExistingIds.has(existingStudents[index].id)) {
           matched = existingStudents[index];
         }
@@ -1019,7 +1014,7 @@
           usedExistingIds.add(matched.id);
           return {
             ...matched,
-            name: name // Update spelling
+            name: name
           };
         }
 
@@ -1030,7 +1025,6 @@
         };
       });
 
-      // Fetch room layout
       const roomSnap = await getDoc(doc(db, "rooms", roomId));
       if (!roomSnap.exists()) {
         alert("The selected room no longer exists.");
@@ -1045,7 +1039,6 @@
       window.AppState.roomDesks = Array.isArray(roomData.deskLayout) ? roomData.deskLayout : [];
       window.AppState.students = newStudents;
       
-      // Unassign students if seat index exceeds new room size
       window.AppState.students.forEach(s => {
         if (s.seatIndex !== null && s.seatIndex >= window.AppState.roomDesks.length) {
           s.seatIndex = null;
@@ -1308,7 +1301,6 @@
       stage.style.width = `${totalStageWidth}px`;
       stage.style.height = `${totalStageHeight}px`;
 
-      // Center stage inside canvas viewport
       const scaledWidth = totalStageWidth * zoom;
       const scaledHeight = totalStageHeight * zoom;
       stage.style.left = `${Math.max(0, (canvas.clientWidth - scaledWidth) / 2)}px`;
@@ -1378,16 +1370,10 @@
 
           // --- Line 2: Last Name ---
           if (lastName) {
-            const lastNameContainer = document.createElement("div");
-            lastNameContainer.className = "w-full px-1 pointer-events-none flex justify-center items-center h-3.5";
-            
-            const svgBoxWidth = Math.max(100, lastName.length * 9);
-            lastNameContainer.innerHTML = `
-              <svg class="w-full h-full" viewBox="0 0 ${svgBoxWidth} 14" preserveAspectRatio="xMidYMid meet">
-                <text x="50%" y="11" text-anchor="middle" font-size="11" font-weight="bold" fill="#064e3b">${escapeHtml(lastName)}</text>
-              </svg>
-            `;
-            deskElement.appendChild(lastNameContainer);
+            const lastNameEl = document.createElement("span");
+            lastNameEl.className = "font-bold text-[11px] truncate w-full text-center px-1 leading-tight text-emerald-950 pointer-events-none";
+            lastNameEl.textContent = lastName;
+            deskElement.appendChild(lastNameEl);
           }
 
           // --- Line 3: Target Grade (Confidential - Teacher View) ---
@@ -1595,7 +1581,6 @@
       if (student.sen) flags.push("🅺");
       if (student.lac) flags.push("❤️");
       if (student.med) flags.push("🚑");
-      // Bold Orange Capital C for Young Carer
       if (student.yc) flags.push('<span class="font-bold text-orange-500" style="color: #ea580c; font-weight: bold;">C</span>');
       return flags.join(" ");
     }
@@ -1818,49 +1803,90 @@
 
 
     /* ------------------------------------------------------------------
-       EXPORT TO PDF
+       EXPORT TO PDF (High Precision Full-Resolution Stage Capture)
     ------------------------------------------------------------------ */
 
 
     window.exportToPDF = async function() {
       const { jsPDF } = window.jspdf;
-      const canvasElement = document.getElementById("seating-canvas");
 
       cleanupDragState();
-      fitSeatingToFrame();
 
-      const canvas = await html2canvas(canvasElement, {
-        backgroundColor: "#f8fafc",
-        scale: 2
-      });
+      const bounds = getRoomBounds();
+      const totalStageWidth = bounds.width + ROOM_PADDING;
+      const totalStageHeight = bounds.height + ROOM_PADDING;
 
-      const imageData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("landscape", "mm", "a4");
+      const originalStage = document.getElementById("room-stage");
+      if (!originalStage) return;
 
-      const roomStr = window.AppState.currentRoomName ? ` - Room: ${window.AppState.currentRoomName}` : "";
-      pdf.setFontSize(14);
-      pdf.text(
-        `${window.AppState.currentClassCode} - ${window.AppState.currentTeacher}${roomStr}`,
-        10,
-        12
-      );
+      // Clone room stage for pure high-resolution rendering without zoom transforms
+      const cloneStage = originalStage.cloneNode(true);
 
-      const pageWidth = 277;
-      const pageHeight = 175;
-      const imageRatio = canvas.width / canvas.height;
+      // Remove UI buttons (such as delete '✕' buttons) from export clone
+      cloneStage.querySelectorAll("button").forEach(btn => btn.remove());
 
-      let width = pageWidth;
-      let height = width / imageRatio;
+      // Reset transforms and apply explicit dimensions
+      cloneStage.style.transform = "none";
+      cloneStage.style.left = "0px";
+      cloneStage.style.top = "0px";
+      cloneStage.style.position = "relative";
+      cloneStage.style.width = `${totalStageWidth}px`;
+      cloneStage.style.height = `${totalStageHeight}px`;
+      cloneStage.style.backgroundColor = "#ffffff";
 
-      if (height > pageHeight) {
-        height = pageHeight;
-        width = height * imageRatio;
+      // Build hidden container to isolate render canvas from screen viewport constraints
+      const tempContainer = document.createElement("div");
+      tempContainer.style.position = "fixed";
+      tempContainer.style.left = "-9999px";
+      tempContainer.style.top = "-9999px";
+      tempContainer.style.width = `${totalStageWidth}px`;
+      tempContainer.style.height = `${totalStageHeight}px`;
+      tempContainer.style.overflow = "visible";
+      tempContainer.appendChild(cloneStage);
+      document.body.appendChild(tempContainer);
+
+      try {
+        const canvas = await html2canvas(cloneStage, {
+          backgroundColor: "#ffffff",
+          scale: 3, // High DPI capture ensuring razor-sharp student text
+          useCORS: true,
+          logging: false
+        });
+
+        const imageData = canvas.toDataURL("image/png");
+        const pdf = new jsPDF("landscape", "mm", "a4");
+
+        const roomStr = window.AppState.currentRoomName ? ` - Room: ${window.AppState.currentRoomName}` : "";
+        pdf.setFontSize(14);
+        pdf.setFont("helvetica", "bold");
+        pdf.text(
+          `${window.AppState.currentClassCode} - ${window.AppState.currentTeacher}${roomStr}`,
+          10,
+          12
+        );
+
+        const pdfWidth = 277;
+        const pdfHeight = 180;
+        const imageRatio = canvas.width / canvas.height;
+
+        let printWidth = pdfWidth;
+        let printHeight = printWidth / imageRatio;
+
+        if (printHeight > pdfHeight) {
+          printHeight = pdfHeight;
+          printWidth = printHeight * imageRatio;
+        }
+
+        pdf.addImage(imageData, "PNG", 10, 18, printWidth, printHeight);
+
+        const filename = `${slugify(window.AppState.currentClassCode)}_seating_plan.pdf`;
+        pdf.save(filename);
+      } catch (err) {
+        console.error("PDF Export failed:", err);
+        alert("Failed to export PDF. Please try again.");
+      } finally {
+        tempContainer.remove();
       }
-
-      pdf.addImage(imageData, "PNG", 10, 18, width, height);
-
-      const filename = `${slugify(window.AppState.currentClassCode)}_seating_plan.pdf`;
-      pdf.save(filename);
     };
 
 
