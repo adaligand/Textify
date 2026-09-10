@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Classlefcc Web</title>
+  <title>Classcclefcc Web</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
@@ -96,8 +96,7 @@
   <!-- TOP NAVBAR -->
   <header class="bg-indigo-600 text-white p-4 shadow-md flex justify-between items-center">
     <div
-      class="flex items-center gap-2 cursor-pointer"
-      onclick="showView('view-home')"
+     <div class="flex items-center gap-2 cursor-pointer" onclick="window.AppState.activeTeacherFolder = null; showView('view-home')">
     >
       <span class="text-2xl font-bold tracking-wide">ClassTile Web</span>
     </div>
@@ -330,7 +329,12 @@
           >
             Fit
           </button>
-
+<button
+  onclick="openEditClassModal()"
+  class="bg-indigo-100 hover:bg-indigo-200 border border-indigo-200 px-3 py-1.5 rounded text-sm text-indigo-700 font-medium"
+>
+  Edit Plan Details
+</button>
           <button
             onclick="exportToPDF()"
             class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded text-sm font-medium"
@@ -929,81 +933,76 @@
         .classList.add("hidden");
     };
 
+window.openEditClassModal = async function() {
+  document.getElementById("modal-class-title").textContent = "Edit Seating Plan Details";
+  document.getElementById("input-teacher-name").value = window.AppState.currentTeacher;
+  document.getElementById("input-class-code").value = window.AppState.currentClassCode;
+  
+  await populateRoomDropdown();
+  document.getElementById("select-room-design").value = window.AppState.currentRoomId;
+  
+  // Populate the textarea with current roster
+  const rosterText = window.AppState.students.map(s => s.name).join('\n');
+  document.getElementById("input-batch-roster").value = rosterText;
+  
+  document.getElementById("modal-new-class").classList.remove("hidden");
+};
 
-    window.confirmCreateNewClass = async function() {
-      const teacher =
-        document
-          .getElementById("input-teacher-name")
-          .value
-          .trim();
+// Replace your existing window.confirmCreateNewClass with this:
+window.confirmCreateNewClass = async function() {
+  const teacher = document.getElementById("input-teacher-name").value.trim();
+  const code = document.getElementById("input-class-code").value.trim();
+  const roomId = document.getElementById("select-room-design").value;
+  const rosterRaw = document.getElementById("input-batch-roster").value.trim();
 
-      const code =
-        document
-          .getElementById("input-class-code")
-          .value
-          .trim();
+  if (!teacher || !code || !roomId || !rosterRaw) {
+    alert("Fill in all required fields.");
+    return;
+  }
 
-      const roomId =
-        document.getElementById("select-room-design").value;
+  const studentNames = rosterRaw.split(/\r?\n/).map(name => name.trim()).filter(Boolean);
 
-      const rosterRaw =
-        document
-          .getElementById("input-batch-roster")
-          .value
-          .trim();
+  if (studentNames.length === 0) {
+    alert("Enter at least one student.");
+    return;
+  }
 
-      if (!teacher || !code || !roomId || !rosterRaw) {
-        alert("Fill in all required fields.");
-        return;
-      }
+  // Reconcile roster to preserve assigned seats and flags for existing students
+  const existingStudents = window.AppState.students || [];
+  const timestamp = Date.now();
+  const newStudents = studentNames.map((name, index) => {
+    const existing = existingStudents.find(s => s.name.toLowerCase() === name.toLowerCase());
+    if (existing) return existing; 
+    return { id: `s_${timestamp}_${index}`, name, seatIndex: null };
+  });
 
-      const studentNames =
-        rosterRaw
-          .split(/\r?\n/)
-          .map(name => name.trim())
-          .filter(Boolean);
+  // Update room layout if the room was changed
+  if (window.AppState.currentRoomId !== roomId || !window.AppState.roomDesks.length) {
+    const roomSnap = await getDoc(doc(db, "rooms", roomId));
+    if (!roomSnap.exists()) {
+      alert("The selected room no longer exists.");
+      return;
+    }
+    const roomData = roomSnap.data();
+    window.AppState.roomDesks = Array.isArray(roomData.deskLayout) ? roomData.deskLayout : [];
+  }
 
-      if (studentNames.length === 0) {
-        alert("Enter at least one student.");
-        return;
-      }
+  window.AppState.currentTeacher = teacher;
+  window.AppState.currentClassCode = code;
+  window.AppState.currentRoomId = roomId;
+  window.AppState.students = newStudents;
+  
+  // Unassign students if they are seated at a desk index that no longer exists in a newly selected, smaller room
+  window.AppState.students.forEach(s => {
+    if (s.seatIndex !== null && s.seatIndex >= window.AppState.roomDesks.length) {
+      s.seatIndex = null;
+    }
+  });
 
-      const timestamp = Date.now();
-
-      const students =
-        studentNames.map((name, index) => ({
-          id: `s_${timestamp}_${index}`,
-          name,
-          seatIndex: null
-        }));
-
-      const roomSnap =
-        await getDoc(doc(db, "rooms", roomId));
-
-      if (!roomSnap.exists()) {
-        alert("The selected room no longer exists.");
-        return;
-      }
-
-      const roomData = roomSnap.data();
-
-      window.AppState.roomDesks =
-        Array.isArray(roomData.deskLayout)
-          ? roomData.deskLayout
-          : [];
-
-      window.AppState.currentTeacher = teacher;
-      window.AppState.currentClassCode = code;
-      window.AppState.currentRoomId = roomId;
-      window.AppState.students = students;
-      window.AppState.seatingZoom = null;
-      window.AppState.activeViewMode = "teacher";
-
-      closeNewClassModal();
-
-      renderSeatingChartWorkspace();
-      showView("view-chart");
-    };
+  closeNewClassModal();
+  renderSeatingChartWorkspace();
+  showView("view-chart");
+};
 
 
     window.openPlanForEdit = async function(planId) {
