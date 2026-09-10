@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClassTile Web - Seating Manager</title>
+  <title>ClassTile Webr</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Interact.js for Drag and Drop -->
@@ -34,13 +34,23 @@
   <!-- MAIN CONTAINER -->
   <main class="p-6 max-w-7xl mx-auto">
 
-    <!-- VIEW 1: HOMEPAGE (DIRECTORY & TRASH) -->
+    <!-- VIEW 1: HOMEPAGE (TEACHER FOLDERS, ROOMS & TRASH) -->
     <section id="view-home" class="space-y-8">
       
-      <!-- SAVED SEATING PLANS -->
+      <!-- TEACHER FOLDERS / PLANS SECTION -->
       <div>
-        <h2 class="text-xl font-bold mb-3 text-slate-700">Saved Seating Plans</h2>
-        <div id="plan-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="flex items-center gap-2 mb-3">
+          <button id="btn-back-teachers" onclick="closeTeacherFolder()" class="hidden text-xs bg-slate-200 hover:bg-slate-300 px-2 py-1 rounded text-slate-700">← Back to Teachers</button>
+          <h2 id="section-plans-title" class="text-xl font-bold text-slate-700">Teachers</h2>
+        </div>
+        
+        <!-- Teacher Folders Grid -->
+        <div id="teacher-folder-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+          <!-- Populated dynamically -->
+        </div>
+
+        <!-- Single Teacher Seating Plans Grid (Hidden by default) -->
+        <div id="teacher-plan-list" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <!-- Populated dynamically -->
         </div>
       </div>
@@ -50,7 +60,7 @@
       <!-- SAVED ROOM DESIGNS -->
       <div>
         <h2 class="text-xl font-bold mb-3 text-slate-700">Saved Room Designs</h2>
-        <div id="room-list" class="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-6 gap-4">
+        <div id="room-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
           <!-- Populated dynamically -->
         </div>
       </div>
@@ -84,7 +94,7 @@
         </div>
       </div>
 
-      <div id="room-canvas" class="relative w-full h-[550px] bg-white rounded-lg border-2 border-dashed border-slate-300 overflow-hidden grid-bg">
+      <div id="room-canvas" class="relative w-full h-[600px] bg-white rounded-lg border-2 border-dashed border-slate-300 overflow-auto grid-bg">
         <!-- Draggable desks -->
       </div>
     </section>
@@ -112,15 +122,15 @@
       <div class="grid grid-cols-12 gap-6">
         <div class="col-span-3 bg-white p-4 rounded-lg shadow-sm border">
           <h3 class="font-bold text-sm text-slate-700 mb-2">Unassigned Roster (<span id="unassigned-count">0</span>)</h3>
-          <div id="unassigned-bench" class="space-y-2 min-h-[450px] max-h-[500px] overflow-y-auto p-2 bg-slate-50 rounded border dropzone-bench">
-            <!-- Student cards -->
+          <div id="unassigned-bench" class="space-y-2 min-h-[550px] max-h-[600px] overflow-y-auto p-2 bg-slate-50 rounded border dropzone-bench">
+            <!-- Unassigned student tiles -->
           </div>
         </div>
 
-        <div class="col-span-9 bg-white p-4 rounded-lg shadow-sm border overflow-hidden">
+        <div class="col-span-9 bg-white p-4 rounded-lg shadow-sm border overflow-auto">
           <div id="seating-canvas-wrapper" class="transition-transform duration-300 origin-center">
-            <div id="seating-canvas" class="relative w-full h-[520px] bg-slate-50 rounded border border-slate-200">
-              <!-- Desks -->
+            <div id="seating-canvas" class="relative w-full h-[600px] bg-slate-50 rounded border border-slate-200 grid-bg">
+              <!-- Desks rendered here -->
             </div>
           </div>
         </div>
@@ -160,7 +170,7 @@
     </div>
   </div>
 
-  <!-- FIREBASE ENGINE SETUP -->
+  <!-- FIREBASE ENGINE & INTERACTIVE LOGIC -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getFirestore, collection, addDoc, getDocs, doc, setDoc, getDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -180,6 +190,7 @@
     // GLOBAL STATE
     window.AppState = {
       currentView: 'view-home',
+      activeTeacherFolder: null,
       editingRoomId: null,
       editingPlanId: null,
       currentTeacher: '',
@@ -275,14 +286,17 @@
       if (deskElements.length === 0) return alert('Add at least one desk before saving.');
 
       const deskLayout = [];
-      const canvasRect = document.getElementById('room-canvas').getBoundingClientRect();
 
       deskElements.forEach((el, index) => {
-        const rect = el.getBoundingClientRect();
+        const xOffset = parseFloat(el.getAttribute('data-x')) || 0;
+        const yOffset = parseFloat(el.getAttribute('data-y')) || 0;
+        const originalLeft = parseFloat(el.style.left) || 0;
+        const originalTop = parseFloat(el.style.top) || 0;
+
         deskLayout.push({
           id: index,
-          left: Math.round(rect.left - canvasRect.left),
-          top: Math.round(rect.top - canvasRect.top)
+          left: Math.round(originalLeft + xOffset),
+          top: Math.round(originalTop + yOffset)
         });
       });
 
@@ -326,11 +340,11 @@
       renderHomeDirectory();
     };
 
-    // --- SEATING PLAN MANAGEMENT ---
+    // --- SEATING PLAN MANAGEMENT & MODAL ---
     window.openNewClassModal = async function() {
       window.AppState.editingPlanId = null;
       document.getElementById('modal-class-title').innerText = "Create New Seating Plan";
-      document.getElementById('input-teacher-name').value = '';
+      document.getElementById('input-teacher-name').value = window.AppState.activeTeacherFolder || '';
       document.getElementById('input-class-code').value = '';
       document.getElementById('input-batch-roster').value = '';
 
@@ -427,7 +441,7 @@
       renderHomeDirectory();
     };
 
-    // --- SEATING WORKSPACE ENGINE ---
+    // --- SEATING WORKSPACE ENGINE & DRAG-AND-DROP ---
     function renderSeatingChartWorkspace() {
       document.getElementById('chart-title').innerText = `${window.AppState.currentClassCode} Seating Plan`;
       document.getElementById('chart-subtitle').innerText = `Teacher: ${window.AppState.currentTeacher}`;
@@ -446,7 +460,7 @@
 
       unassigned.forEach(student => {
         const item = document.createElement('div');
-        item.className = 'student-card bg-indigo-600 text-white p-2 rounded shadow text-xs font-bold cursor-grab select-none z-10';
+        item.className = 'student-card bg-indigo-600 text-white p-2 rounded shadow text-xs font-bold cursor-grab select-none touch-none';
         item.setAttribute('data-student-id', student.id);
         item.innerText = student.name;
         bench.appendChild(item);
@@ -458,28 +472,30 @@
       canvas.innerHTML = '';
 
       const isFlipped = window.AppState.activeViewMode === 'flipped';
-      const canvasWidth = canvas.clientWidth || 800;
-      const canvasHeight = canvas.clientHeight || 520;
+      const canvasWidth = canvas.clientWidth || 900;
+      const canvasHeight = canvas.clientHeight || 600;
 
       window.AppState.roomDesks.forEach((desk, idx) => {
         const deskEl = document.createElement('div');
-        deskEl.className = 'desk-slot absolute w-28 h-16 border-2 border-slate-300 rounded bg-white flex items-center justify-center text-xs shadow-sm transition-all';
+        deskEl.className = 'desk-slot absolute w-28 h-16 border-2 border-slate-300 rounded bg-white flex flex-col items-center justify-center text-xs shadow-sm transition-all overflow-hidden p-1';
         
+        let posX = desk.left;
+        let posY = desk.top;
+
         if (isFlipped) {
-          deskEl.style.left = (canvasWidth - desk.left - 112) + 'px';
-          deskEl.style.top = (canvasHeight - desk.top - 64) + 'px';
-        } else {
-          deskEl.style.left = desk.left + 'px';
-          deskEl.style.top = desk.top + 'px';
+          posX = canvasWidth - desk.left - 112;
+          posY = canvasHeight - desk.top - 64;
         }
 
+        deskEl.style.left = posX + 'px';
+        deskEl.style.top = posY + 'px';
         deskEl.setAttribute('data-seat-index', idx);
 
         const assignedStudent = window.AppState.students.find(s => s.seatIndex === idx);
         if (assignedStudent) {
-          deskEl.className = 'desk-slot absolute w-28 h-16 border-2 border-emerald-500 rounded bg-emerald-50 flex items-center justify-center text-xs font-bold text-emerald-900 shadow-sm cursor-grab student-card';
+          deskEl.className = 'desk-slot absolute w-28 h-16 border-2 border-emerald-500 rounded bg-emerald-100 flex flex-col items-center justify-center text-xs font-bold text-emerald-900 shadow-md cursor-grab student-card touch-none';
           deskEl.setAttribute('data-student-id', assignedStudent.id);
-          deskEl.innerText = assignedStudent.name;
+          deskEl.innerHTML = `<span class="pointer-events-none truncate w-full text-center">${assignedStudent.name}</span><span class="text-[9px] text-emerald-600 pointer-events-none">Desk ${idx + 1}</span>`;
         } else {
           deskEl.innerHTML = `<span class="text-slate-300 pointer-events-none">Desk ${idx + 1}</span>`;
         }
@@ -494,7 +510,7 @@
         autoScroll: true,
         listeners: {
           start(event) {
-            event.target.classList.add('opacity-75', 'z-50');
+            event.target.classList.add('opacity-50', 'z-50');
           },
           move(event) {
             const target = event.target;
@@ -509,14 +525,14 @@
             target.style.transform = 'none';
             target.removeAttribute('data-x');
             target.removeAttribute('data-y');
-            target.classList.remove('opacity-75', 'z-50');
+            target.classList.remove('opacity-50', 'z-50');
           }
         }
       });
 
       interact('.desk-slot').dropzone({
         accept: '.student-card',
-        overlap: 0.5,
+        overlap: 0.25,
         ondrop(event) {
           const studentId = event.relatedTarget.getAttribute('data-student-id');
           const seatIdx = parseInt(event.target.getAttribute('data-seat-index'), 10);
@@ -534,7 +550,7 @@
 
       interact('.dropzone-bench').dropzone({
         accept: '.student-card',
-        overlap: 0.2,
+        overlap: 0.1,
         ondrop(event) {
           const studentId = event.relatedTarget.getAttribute('data-student-id');
           const student = window.AppState.students.find(s => s.id === studentId);
@@ -574,7 +590,7 @@
 
     async function purgeExpiredTrashItems() {
       const now = new Date();
-      const cutoff = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+      const cutoff = 30 * 24 * 60 * 60 * 1000;
 
       ['rooms', 'plans'].forEach(async (coll) => {
         const snap = await getDocs(collection(db, coll));
@@ -590,42 +606,103 @@
       });
     }
 
-    // --- HOMEPAGE DIRECTORY RENDER ---
+    // --- HOMEPAGE TEACHER FOLDERS & DIRECTORY RENDER ---
+    window.openTeacherFolder = function(teacherName) {
+      window.AppState.activeTeacherFolder = teacherName;
+      renderHomeDirectory();
+    };
+
+    window.closeTeacherFolder = function() {
+      window.AppState.activeTeacherFolder = null;
+      renderHomeDirectory();
+    };
+
     async function renderHomeDirectory() {
-      const planContainer = document.getElementById('plan-list');
+      const folderContainer = document.getElementById('teacher-folder-list');
+      const planContainer = document.getElementById('teacher-plan-list');
       const roomContainer = document.getElementById('room-list');
       const trashContainer = document.getElementById('trash-list');
 
-      planContainer.innerHTML = '<span class="text-xs text-slate-400">Loading plans...</span>';
-      roomContainer.innerHTML = '<span class="text-xs text-slate-400">Loading rooms...</span>';
+      folderContainer.innerHTML = '<span class="text-xs text-slate-400">Loading...</span>';
+      roomContainer.innerHTML = '<span class="text-xs text-slate-400">Loading...</span>';
       trashContainer.innerHTML = '';
 
       let trashItems = [];
 
-      // Render Active Plans
+      // Fetch all plans
       const planSnap = await getDocs(collection(db, "plans"));
-      planContainer.innerHTML = '';
+      const teacherMap = {};
+      const activePlans = [];
+
       planSnap.forEach(docSnap => {
         const plan = docSnap.data();
         if (plan.deleted) {
           trashItems.push({ type: 'Plan', name: `${plan.classCode} (${plan.teacherName})`, id: docSnap.id, collection: 'plans' });
         } else {
+          activePlans.push({ id: docSnap.id, ...plan });
+          const tName = plan.teacherName || 'Unassigned';
+          if (!teacherMap[tName]) teacherMap[tName] = 0;
+          teacherMap[tName]++;
+        }
+      });
+
+      // Render Folders or Teacher Plans depending on activeTeacherFolder state
+      if (window.AppState.activeTeacherFolder) {
+        // VIEW: Single Teacher Folder open
+        document.getElementById('section-plans-title').innerText = `Teacher: ${window.AppState.activeTeacherFolder}`;
+        document.getElementById('btn-back-teachers').classList.remove('hidden');
+        folderContainer.classList.add('hidden');
+        planContainer.classList.remove('hidden');
+
+        const filteredPlans = activePlans.filter(p => p.teacherName === window.AppState.activeTeacherFolder);
+        planContainer.innerHTML = '';
+
+        filteredPlans.forEach(plan => {
           planContainer.innerHTML += `
             <div class="bg-white p-4 rounded-lg border shadow-sm flex flex-col justify-between space-y-3">
               <div>
                 <span class="font-bold text-base block text-slate-800">${plan.classCode}</span>
-                <span class="text-xs text-slate-500">Teacher: ${plan.teacherName}</span>
+                <span class="text-xs text-slate-500">${plan.students ? plan.students.length : 0} Students</span>
               </div>
               <div class="flex gap-1 border-t pt-2 text-xs">
-                <button onclick="openPlanForEdit('${docSnap.id}')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-medium">Open</button>
-                <button onclick="duplicatePlan('${docSnap.id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded">Duplicate</button>
-                <button onclick="binPlan('${docSnap.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded ml-auto">Bin</button>
+                <button onclick="openPlanForEdit('${plan.id}')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-medium">Open</button>
+                <button onclick="duplicatePlan('${plan.id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded">Duplicate</button>
+                <button onclick="binPlan('${plan.id}')" class="bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded ml-auto">Bin</button>
               </div>
             </div>
           `;
+        });
+
+        if (filteredPlans.length === 0) {
+          planContainer.innerHTML = '<span class="text-xs text-slate-400">No seating plans for this teacher.</span>';
         }
-      });
-      if (!planContainer.innerHTML) planContainer.innerHTML = '<span class="text-xs text-slate-400">No active seating plans.</span>';
+
+      } else {
+        // VIEW: All Teacher Folders
+        document.getElementById('section-plans-title').innerText = 'Teachers';
+        document.getElementById('btn-back-teachers').classList.add('hidden');
+        folderContainer.classList.remove('hidden');
+        planContainer.classList.add('hidden');
+
+        folderContainer.innerHTML = '';
+        const teacherNames = Object.keys(teacherMap);
+
+        teacherNames.forEach(tName => {
+          folderContainer.innerHTML += `
+            <div onclick="openTeacherFolder('${tName}')" class="bg-white p-4 rounded-lg border shadow-sm hover:border-indigo-500 hover:shadow-md cursor-pointer transition flex items-center gap-3">
+              <span class="text-3xl">📁</span>
+              <div>
+                <span class="font-bold text-sm block text-slate-800">${tName}</span>
+                <span class="text-xs text-slate-500">${teacherMap[tName]} Plan(s)</span>
+              </div>
+            </div>
+          `;
+        });
+
+        if (teacherNames.length === 0) {
+          folderContainer.innerHTML = '<span class="text-xs text-slate-400">No teachers found. Create a plan to get started.</span>';
+        }
+      }
 
       // Render Active Rooms
       const roomSnap = await getDocs(collection(db, "rooms"));
