@@ -1218,41 +1218,126 @@
       };
     }
 
+   function calculateAutoZoom() {
+  const canvas = document.getElementById("seating-canvas");
+  if (!canvas || !bounds) return 1;
 
-    function calculateAutoZoom() {
-      const canvas =
-        document.getElementById("seating-canvas");
+  const padding = ROOM_PADDING;
+  const availableWidth = canvas.clientWidth - padding;
+  const availableHeight = canvas.clientHeight - padding;
 
-      if (!canvas) {
-        return 1;
-      }
+  if (roomWidth <= 0 || roomHeight <= 0) return 1;
 
-      const bounds = getRoomBounds();
+  const scaleX = availableWidth / roomWidth;
+  const scaleY = availableHeight / roomHeight;
 
-      const availableWidth =
-        Math.max(
-          100,
-          canvas.clientWidth - ROOM_PADDING
-        );
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(scaleX, scaleY)));
+}
 
-      const availableHeight =
-        Math.max(
-          100,
-          canvas.clientHeight - ROOM_PADDING
-        );
+function renderCanvasDesks() {
+  const stage = document.getElementById("stage");
+  const canvas = document.getElementById("seating-canvas");
+  if (!stage || !canvas) return;
 
-      const scaleX =
-        availableWidth / bounds.width;
+  stage.innerHTML = "";
 
-      const scaleY =
-        availableHeight / bounds.height;
+  const zoom = getSeatingZoom();
 
-      return Math.min(
-        1.5,
-        scaleX,
-        scaleY
-      );
+  stage.style.width = `${roomWidth}px`;
+  stage.style.height = `${roomHeight}px`;
+
+  // Center stage inside canvas viewport
+  stage.style.left = `${Math.max(0, (canvas.clientWidth - roomWidth * zoom) / 2)}px`;
+  stage.style.top = `${Math.max(0, (canvas.clientHeight - roomHeight * zoom) / 2)}px`;
+  stage.style.transformOrigin = "0 0";
+  stage.style.transform = `scale(${zoom})`;
+
+  const isFlipped = window.AppState.activeViewMode === "flipped";
+
+  desks.forEach((desk, index) => {
+    const deskElement = document.createElement("div");
+
+    const rawLeft = Number(desk.left) || 0;
+    const rawTop = Number(desk.top) || 0;
+
+    let left = rawLeft - bounds.minX + ROOM_PADDING / 2;
+    let top = rawTop - bounds.minY + ROOM_PADDING / 2;
+
+    if (isFlipped) {
+      left = roomWidth - (rawLeft - bounds.minX) - DESK_WIDTH - ROOM_PADDING / 2;
+      top = roomHeight - (rawTop - bounds.minY) - DESK_HEIGHT - ROOM_PADDING / 2;
     }
+
+    deskElement.style.left = `${left}px`;
+    deskElement.style.top = `${top}px`;
+    deskElement.style.position = "absolute";
+    deskElement.dataset.seatIndex = String(index);
+
+    const assignedStudent = window.AppState.students.find(
+      student => Number(student.seatIndex) === index
+    );
+
+    if (assignedStudent) {
+      deskElement.className =
+        "desk-slot room-desk border-2 border-emerald-500 rounded bg-emerald-100 " +
+        "flex flex-col items-center justify-center text-xs font-bold text-emerald-900 " +
+        "shadow-md cursor-pointer student-card z-20 overflow-hidden relative group";
+
+      deskElement.dataset.studentId = assignedStudent.id;
+
+      // --- Red Cross Unassign Button ---
+      const removeBtn = document.createElement("button");
+      removeBtn.className =
+        "absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 hover:bg-red-600 " +
+        "text-white rounded-full text-[9px] flex items-center justify-center " +
+        "font-bold z-30 shadow-sm cursor-pointer";
+      removeBtn.textContent = "✕";
+      removeBtn.title = "Unassign student";
+      removeBtn.onclick = (e) => {
+        e.stopPropagation();
+        unassignStudent(assignedStudent.id);
+      };
+
+      const name = document.createElement("span");
+      name.className = "pointer-events-none truncate w-full text-center px-1 leading-tight";
+      name.textContent = assignedStudent.name;
+
+      // --- Flag Emojis Line ---
+      const metaSpan = document.createElement("span");
+      metaSpan.className = "text-[10px] text-emerald-800 font-normal truncate px-1 pointer-events-none";
+      metaSpan.textContent = getStudentFlagIcons(assignedStudent);
+
+      const deskNumber = document.createElement("span");
+      deskNumber.className = "text-[9px] text-emerald-600 pointer-events-none";
+      deskNumber.textContent = `Desk ${index + 1}`;
+
+      deskElement.appendChild(removeBtn);
+      deskElement.appendChild(name);
+      if (metaSpan.textContent) {
+        deskElement.appendChild(metaSpan);
+      }
+      deskElement.appendChild(deskNumber);
+
+      // Open metadata flags dialog on desk click
+      deskElement.onclick = () => openStudentFlagsModal(assignedStudent.id);
+    } else {
+      deskElement.className =
+        "desk-slot room-desk border-2 border-slate-300 rounded bg-white " +
+        "flex flex-col items-center justify-center text-xs shadow-sm overflow-hidden";
+
+      const deskNumber = document.createElement("span");
+      deskNumber.className = "text-slate-400 pointer-events-none font-medium";
+      deskNumber.textContent = `Desk ${index + 1}`;
+
+      deskElement.appendChild(deskNumber);
+    }
+
+    stage.appendChild(deskElement);
+  });
+
+  updateZoomDisplay();
+  setupDragAndDrop();
+}
 
 
     function getSeatingZoom() {
@@ -1261,172 +1346,7 @@
     }
 
 
-    function renderCanvasDesks() {
-      const canvas =
-        document.getElementById("seating-canvas");
-
-      const stage =
-        document.getElementById("room-stage");
-
-      const emptyMessage =
-        document.getElementById("empty-room-message");
-
-      stage.innerHTML = "";
-
-      const desks =
-        window.AppState.roomDesks || [];
-
-      if (!desks.length) {
-        stage.style.width = "0px";
-        stage.style.height = "0px";
-        stage.style.transform = "none";
-
-        emptyMessage.classList.remove("hidden");
-
-        setupDragAndDrop();
-
-        return;
-      }
-
-      emptyMessage.classList.add("hidden");
-
-      const bounds =
-        getRoomBounds();
-
-      const zoom =
-        getSeatingZoom();
-
-      const roomWidth =
-        bounds.width + ROOM_PADDING;
-
-      const roomHeight =
-        bounds.height + ROOM_PADDING;
-
-      stage.style.width =
-        `${roomWidth}px`;
-
-      stage.style.height =
-        `${roomHeight}px`;
-
-      stage.style.left =
-        `${Math.max(
-          0,
-          (canvas.clientWidth - roomWidth * zoom) / 2
-        )}px`;
-
-      stage.style.top =
-        `${Math.max(
-          0,
-          (canvas.clientHeight - roomHeight * zoom) / 2
-        )}px`;
-
-      stage.style.transform =
-        `scale(${zoom})`;
-
-      const isFlipped =
-        window.AppState.activeViewMode === "flipped";
-
-      desks.forEach((desk, index) => {
-        const deskElement =
-          document.createElement("div");
-
-        const rawLeft =
-          Number(desk.left) || 0;
-
-        const rawTop =
-          Number(desk.top) || 0;
-
-        let left =
-          rawLeft - bounds.minX + ROOM_PADDING / 2;
-
-        let top =
-          rawTop - bounds.minY + ROOM_PADDING / 2;
-
-        if (isFlipped) {
-          left =
-            roomWidth -
-            (rawLeft - bounds.minX) -
-            DESK_WIDTH -
-            ROOM_PADDING / 2;
-
-          top =
-            roomHeight -
-            (rawTop - bounds.minY) -
-            DESK_HEIGHT -
-            ROOM_PADDING / 2;
-        }
-
-        deskElement.style.left =
-          `${left}px`;
-
-        deskElement.style.top =
-          `${top}px`;
-
-        deskElement.dataset.seatIndex =
-          String(index);
-
-        const assignedStudent =
-          window.AppState.students.find(
-            student =>
-              Number(student.seatIndex) === index
-          );
-
-        if (assignedStudent) {
-          deskElement.className =
-            "desk-slot room-desk border-2 border-emerald-500 " +
-            "rounded bg-emerald-100 flex flex-col items-center " +
-            "justify-center text-xs font-bold text-emerald-900 " +
-            "shadow-md cursor-grab student-card z-20 overflow-hidden";
-
-          deskElement.dataset.studentId =
-            assignedStudent.id;
-
-          const name =
-            document.createElement("span");
-
-          name.className =
-            "pointer-events-none truncate w-full text-center px-1";
-
-          name.textContent =
-            assignedStudent.name;
-
-          const deskNumber =
-            document.createElement("span");
-
-          deskNumber.className =
-            "text-[9px] text-emerald-600 pointer-events-none";
-
-          deskNumber.textContent =
-            `Desk ${index + 1}`;
-
-          deskElement.appendChild(name);
-          deskElement.appendChild(deskNumber);
-        } else {
-          deskElement.className =
-            "desk-slot room-desk border-2 border-slate-300 " +
-            "rounded bg-white flex flex-col items-center " +
-            "justify-center text-xs shadow-sm overflow-hidden";
-
-          const deskNumber =
-            document.createElement("span");
-
-          deskNumber.className =
-            "text-slate-400 pointer-events-none font-medium";
-
-          deskNumber.textContent =
-            `Desk ${index + 1}`;
-
-          deskElement.appendChild(deskNumber);
-        }
-
-        stage.appendChild(deskElement);
-      });
-
-      updateZoomDisplay();
-      setupDragAndDrop();
-    }
-
-
+   
     /* ------------------------------------------------------------------
        ROBUST DRAG ENGINE
     ------------------------------------------------------------------ */
@@ -1537,115 +1457,59 @@
       setupDeskDropzones();
       setupBenchDropzone();
     }
+function setupStudentDraggable() {
+  interact(".student-card").draggable({
+    inertia: false,
+    autoScroll: {
+      container: document.getElementById("unassigned-bench"),
+      margin: 50,
+      distance: 5,
+      speed: 300
+    },
 
+    listeners: {
+      start(event) {
+        const target = event.target;
+        window.AppState.dragState.active = true;
+        window.AppState.dragState.target = target;
 
-    function setupStudentDraggable() {
-      interact(".student-card").draggable({
-        inertia: false,
-        autoScroll: {
-          container: document.getElementById(
-            "unassigned-bench"
-          ),
-          margin: 50,
-          distance: 5,
-          speed: 300
-        },
+        document.body.classList.add("dragging-active");
+        target.dataset.dragging = "true";
+        target.classList.add("drag-source-hidden");
+      },
 
-        listeners: {
-          start(event) {
-            const target =
-              event.target;
+      move(event) {
+        const target = event.target;
+        // Divide drag delta by current zoom scale to maintain exact cursor tracking
+        const zoom = getSeatingZoom() || 1;
 
-            window.AppState.dragState.active =
-              true;
+        const x = (parseFloat(target.getAttribute("data-x")) || 0) + (event.dx / zoom);
+        const y = (parseFloat(target.getAttribute("data-y")) || 0) + (event.dy / zoom);
 
-            window.AppState.dragState.target =
-              target;
+        target.style.transform = `translate(${x}px, ${y}px)`;
+        target.setAttribute("data-x", String(x));
+        target.setAttribute("data-y", String(y));
+      },
 
-            document.body.classList.add(
-              "dragging-active"
-            );
+      end(event) {
+        const target = event.target;
+        target.style.transform = "";
+        target.removeAttribute("data-x");
+        target.removeAttribute("data-y");
+        cleanupDragState();
+      },
 
-            target.dataset.dragging =
-              "true";
-
-            target.classList.add(
-              "drag-source-hidden"
-            );
-          },
-
-          move(event) {
-            const target =
-              event.target;
-
-            /*
-              The original element remains in its container.
-              Interact.js moves it temporarily, but the global
-              recovery handlers guarantee that the cursor cannot
-              remain locked if the pointer leaves the browser.
-            */
-            const x =
-              (parseFloat(
-                target.getAttribute("data-x")
-              ) || 0) +
-              event.dx;
-
-            const y =
-              (parseFloat(
-                target.getAttribute("data-y")
-              ) || 0) +
-              event.dy;
-
-            target.style.transform =
-              `translate(${x}px, ${y}px)`;
-
-            target.setAttribute(
-              "data-x",
-              String(x)
-            );
-
-            target.setAttribute(
-              "data-y",
-              String(y)
-            );
-          },
-
-          end(event) {
-            const target =
-              event.target;
-
-            target.style.transform = "";
-
-            target.removeAttribute(
-              "data-x"
-            );
-
-            target.removeAttribute(
-              "data-y"
-            );
-
-            cleanupDragState();
-          },
-
-          cancel(event) {
-            if (event && event.target) {
-              event.target.style.transform = "";
-
-              event.target.removeAttribute(
-                "data-x"
-              );
-
-              event.target.removeAttribute(
-                "data-y"
-              );
-            }
-
-            cleanupDragState();
-          }
+      cancel(event) {
+        if (event && event.target) {
+          event.target.style.transform = "";
+          event.target.removeAttribute("data-x");
+          event.target.removeAttribute("data-y");
         }
-      });
+        cleanupDragState();
+      }
     }
-
+  });
+}
 
     function setupDeskDropzones() {
       interact(".desk-slot").dropzone({
@@ -1691,7 +1555,92 @@
       });
     }
 
+function getStudentFlagIcons(student) {
+  let flags = [];
 
+  if (student.grade) flags.push(student.grade);
+  if (student.eal) flags.push("🌍");
+  if (student.pp) flags.push("🅿️");
+  if (student.gt) flags.push("⭐");
+  if (student.sen) flags.push("🅺");
+  if (student.lac) flags.push("❤️");
+  if (student.med) flags.push("🚑");
+  if (student.yc) flags.push("C");
+
+  return flags.join(" ");
+}
+
+function openStudentFlagsModal(studentId) {
+  const student = window.AppState.students.find(s => s.id === studentId);
+  if (!student) return;
+
+  let modal = document.getElementById("student-flags-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "student-flags-modal";
+    document.body.appendChild(modal);
+  }
+
+  modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4";
+  modal.innerHTML = `
+    <div class="bg-white rounded-lg shadow-xl max-w-sm w-full p-5 space-y-4">
+      <div class="flex justify-between items-center border-b pb-2">
+        <h3 class="font-bold text-slate-800 text-base">${student.name} — Flags</h3>
+        <button id="btn-close-flags" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
+      </div>
+
+      <div class="space-y-3 text-xs text-slate-700">
+        <div>
+          <label class="block font-semibold text-slate-500 mb-1">Target / Grade</label>
+          <input type="text" id="flag-grade" value="${student.grade || ''}" placeholder="e.g. 7A" class="w-full border rounded px-2 py-1">
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="flag-eal" ${student.eal ? 'checked' : ''}> 🌍 EAL
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="flag-pp" ${student.pp ? 'checked' : ''}> 🅿️ PP
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="flag-gt" ${student.gt ? 'checked' : ''}> ⭐ G&T
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="flag-sen" ${student.sen ? 'checked' : ''}> 🅺 SEN
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="flag-lac" ${student.lac ? 'checked' : ''}> ❤️ LAC
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="flag-med" ${student.med ? 'checked' : ''}> 🚑 MED
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer col-span-2">
+            <input type="checkbox" id="flag-yc" ${student.yc ? 'checked' : ''}> Young Carer (C)
+          </label>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 border-t pt-3">
+        <button id="btn-save-flags" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded font-medium">Save Flags</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("btn-close-flags").onclick = () => modal.remove();
+  document.getElementById("btn-save-flags").onclick = () => {
+    student.grade = document.getElementById("flag-grade").value.trim();
+    student.eal = document.getElementById("flag-eal").checked;
+    student.pp = document.getElementById("flag-pp").checked;
+    student.gt = document.getElementById("flag-gt").checked;
+    student.sen = document.getElementById("flag-sen").checked;
+    student.lac = document.getElementById("flag-lac").checked;
+    student.med = document.getElementById("flag-med").checked;
+    student.yc = document.getElementById("flag-yc").checked;
+
+    modal.remove();
+    renderSeatingChartWorkspace();
+  };
+}
     function setupBenchDropzone() {
       interact(".dropzone-bench").dropzone({
         accept: ".student-card",
