@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClassTile Web - Seating Manager</title>
+  <title>ClassTile Web</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Interact.js for Drag and Drop -->
+  <!-- Interact.js -->
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
   <!-- PDF Generation Libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -15,6 +15,11 @@
     .grid-bg {
       background-size: 20px 20px;
       background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+    }
+    /* Prevents cursor locking and stuck touch/mouse events during drag */
+    .dragging-active {
+      cursor: grabbing !important;
+      user-select: none !important;
     }
   </style>
 </head>
@@ -34,7 +39,7 @@
   </header>
 
   <!-- MAIN CONTAINER -->
-  <main class="p-6 max-w-7xl mx-auto">
+  <main class="p-6 max-w-[1600px] mx-auto">
 
     <!-- VIEW 1: HOMEPAGE (TEACHER FOLDERS ONLY) -->
     <section id="view-home" class="space-y-6">
@@ -43,15 +48,8 @@
         <h2 id="section-plans-title" class="text-xl font-bold text-slate-700">Teachers</h2>
       </div>
       
-      <!-- Teacher Folders Grid -->
-      <div id="teacher-folder-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-        <!-- Populated dynamically -->
-      </div>
-
-      <!-- Single Teacher Seating Plans Grid -->
-      <div id="teacher-plan-list" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-        <!-- Populated dynamically -->
-      </div>
+      <div id="teacher-folder-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4"></div>
+      <div id="teacher-plan-list" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4"></div>
     </section>
 
     <!-- VIEW 2: SAVED ROOMS -->
@@ -60,21 +58,17 @@
         <h2 class="text-xl font-bold text-slate-700">Saved Room Designs</h2>
         <button onclick="openRoomBuilderForCreate()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-sm font-medium">+ Create Room Design</button>
       </div>
-      <div id="room-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
-        <!-- Populated dynamically -->
-      </div>
+      <div id="room-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4"></div>
     </section>
 
-    <!-- VIEW 3: RECYCLE BIN (TRASH) -->
+    <!-- VIEW 3: RECYCLE BIN -->
     <section id="view-trash" class="hidden space-y-4">
       <div class="bg-white p-6 rounded-lg border border-slate-300 shadow-sm">
         <div class="flex justify-between items-center mb-4">
           <h2 class="text-xl font-bold text-slate-700 flex items-center gap-2">🗑️ Recycle Bin</h2>
           <span class="text-xs text-slate-500">Items permanently deleted after 30 days</span>
         </div>
-        <div id="trash-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-          <!-- Populated dynamically -->
-        </div>
+        <div id="trash-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3"></div>
       </div>
     </section>
 
@@ -92,9 +86,7 @@
         </div>
       </div>
 
-      <div id="room-canvas" class="relative w-full h-[650px] bg-white rounded-lg border-2 border-dashed border-slate-300 overflow-auto grid-bg">
-        <!-- Draggable desks -->
-      </div>
+      <div id="room-canvas" class="relative w-full h-[700px] bg-white rounded-lg border-2 border-dashed border-slate-300 overflow-hidden grid-bg"></div>
     </section>
 
     <!-- VIEW 5: SEATING CHART WORKSPACE -->
@@ -117,18 +109,16 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-12 gap-6">
-        <div class="col-span-3 bg-white p-4 rounded-lg shadow-sm border">
+      <div class="flex gap-6 w-full items-start">
+        <!-- Unassigned Roster Sidebar -->
+        <div class="w-72 bg-white p-4 rounded-lg shadow-sm border flex-shrink-0">
           <h3 class="font-bold text-sm text-slate-700 mb-2">Unassigned Roster (<span id="unassigned-count">0</span>)</h3>
-          <div id="unassigned-bench" class="space-y-2 min-h-[600px] max-h-[650px] overflow-y-auto p-2 bg-slate-50 rounded border dropzone-bench">
-            <!-- Unassigned student tiles -->
-          </div>
+          <div id="unassigned-bench" class="space-y-2 h-[700px] overflow-y-auto p-2 bg-slate-50 rounded border dropzone-bench relative"></div>
         </div>
 
-        <div class="col-span-9 bg-white p-4 rounded-lg shadow-sm border overflow-auto">
-          <div id="seating-canvas" class="relative w-full h-[650px] bg-slate-50 rounded border border-slate-200">
-            <!-- Desks rendered here without grid dots -->
-          </div>
+        <!-- Seating Canvas Area -->
+        <div class="flex-grow bg-white p-4 rounded-lg shadow-sm border overflow-hidden">
+          <div id="seating-canvas" class="relative w-full h-[700px] bg-slate-50 rounded border border-slate-200 overflow-hidden"></div>
         </div>
       </div>
     </section>
@@ -166,7 +156,6 @@
     </div>
   </div>
 
-  <!-- FIREBASE ENGINE & INTERACTIVE LOGIC -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getFirestore, collection, addDoc, getDocs, doc, setDoc, getDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -183,7 +172,6 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // GLOBAL STATE
     window.AppState = {
       currentView: 'view-home',
       activeTeacherFolder: null,
@@ -197,7 +185,6 @@
       roomDesks: []
     };
 
-    // ROUTER
     window.showView = function(viewId) {
       document.querySelectorAll('main > section').forEach(s => s.classList.add('hidden'));
       document.getElementById(viewId).classList.remove('hidden');
@@ -439,7 +426,7 @@
       renderHomeDirectory();
     };
 
-    // --- SEATING WORKSPACE ENGINE & FIXED DRAG-AND-DROP ---
+    // --- SEATING WORKSPACE ENGINE ---
     function renderSeatingChartWorkspace() {
       document.getElementById('chart-title').innerText = `${window.AppState.currentClassCode} Seating Plan`;
       document.getElementById('chart-subtitle').innerText = `Teacher: ${window.AppState.currentTeacher}`;
@@ -458,7 +445,7 @@
 
       unassigned.forEach(student => {
         const item = document.createElement('div');
-        item.className = 'student-card bg-indigo-600 text-white p-2 rounded shadow text-xs font-bold cursor-grab select-none touch-none relative z-30';
+        item.className = 'student-card bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded shadow text-xs font-bold cursor-grab select-none relative z-20';
         item.setAttribute('data-student-id', student.id);
         item.innerText = student.name;
         bench.appendChild(item);
@@ -470,12 +457,11 @@
       canvas.innerHTML = '';
 
       const isFlipped = window.AppState.activeViewMode === 'flipped';
-      const canvasWidth = canvas.clientWidth || 900;
-      const canvasHeight = canvas.clientHeight || 650;
+      const canvasWidth = canvas.clientWidth || 1000;
+      const canvasHeight = canvas.clientHeight || 700;
 
       window.AppState.roomDesks.forEach((desk, idx) => {
         const deskEl = document.createElement('div');
-        deskEl.className = 'desk-slot absolute w-28 h-16 border-2 border-slate-300 rounded bg-white flex flex-col items-center justify-center text-xs shadow-sm transition-all overflow-hidden p-1';
         
         let posX = desk.left;
         let posY = desk.top;
@@ -491,24 +477,28 @@
 
         const assignedStudent = window.AppState.students.find(s => s.seatIndex === idx);
         if (assignedStudent) {
-          deskEl.className = 'desk-slot absolute w-28 h-16 border-2 border-emerald-500 rounded bg-emerald-100 flex flex-col items-center justify-center text-xs font-bold text-emerald-900 shadow-md cursor-grab student-card touch-none relative z-30';
+          deskEl.className = 'desk-slot absolute w-28 h-16 border-2 border-emerald-500 rounded bg-emerald-100 flex flex-col items-center justify-center text-xs font-bold text-emerald-900 shadow-md cursor-grab student-card z-20';
           deskEl.setAttribute('data-student-id', assignedStudent.id);
           deskEl.innerHTML = `<span class="pointer-events-none truncate w-full text-center">${assignedStudent.name}</span><span class="text-[9px] text-emerald-600 pointer-events-none">Desk ${idx + 1}</span>`;
         } else {
-          deskEl.innerHTML = `<span class="text-slate-300 pointer-events-none">Desk ${idx + 1}</span>`;
+          deskEl.className = 'desk-slot absolute w-28 h-16 border-2 border-slate-300 rounded bg-white flex flex-col items-center justify-center text-xs shadow-sm transition-all overflow-hidden p-1';
+          deskEl.innerHTML = `<span class="text-slate-400 pointer-events-none font-medium">Desk ${idx + 1}</span>`;
         }
 
         canvas.appendChild(deskEl);
       });
     }
 
+    // ROBUST INTERACT DRAG & DROP
     function setupDragAndDrop() {
       interact('.student-card').draggable({
         inertia: false,
         autoScroll: true,
         listeners: {
           start(event) {
-            event.target.classList.add('opacity-70', 'z-50');
+            const target = event.target;
+            document.body.classList.add('dragging-active');
+            target.classList.add('opacity-80', 'z-50', 'ring-2', 'ring-indigo-400');
           },
           move(event) {
             const target = event.target;
@@ -520,17 +510,18 @@
           },
           end(event) {
             const target = event.target;
-            target.style.transform = 'none';
+            document.body.classList.remove('dragging-active');
+            target.style.transform = '';
             target.removeAttribute('data-x');
             target.removeAttribute('data-y');
-            target.classList.remove('opacity-70', 'z-50');
+            target.classList.remove('opacity-80', 'z-50', 'ring-2', 'ring-indigo-400');
           }
         }
       });
 
       interact('.desk-slot').dropzone({
         accept: '.student-card',
-        overlap: 0.2,
+        overlap: 0.1,
         ondrop(event) {
           const studentId = event.relatedTarget.getAttribute('data-student-id');
           const seatIdx = parseInt(event.target.getAttribute('data-seat-index'), 10);
@@ -577,7 +568,7 @@
       alert('Seating plan saved!');
     };
 
-    // --- RECYCLE BIN ENGINE (RESTORE & 30-DAY PURGE) ---
+    // --- RECYCLE BIN ENGINE ---
     window.restoreItem = async function(collectionName, id) {
       await updateDoc(doc(db, collectionName, id), {
         deleted: false,
@@ -790,7 +781,6 @@
       });
     };
 
-    // Initialize View
     showView('view-home');
   </script>
 </body>
