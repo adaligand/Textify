@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Seating Planner - Working Draft</title>
+  <title>Seating Planner - Full Version</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
   <style>
@@ -13,12 +13,12 @@
       height: 60px;
       box-sizing: border-box;
       transition: border-color 0.15s ease, background-color 0.15s ease;
+      touch-action: none;
     }
     .desk-slot.drop-target {
       border-color: #3b82f6 !important;
       background-color: #eff6ff !important;
     }
-    /* Smooth drag shadow layer */
     #drag-layer {
       position: fixed;
       top: 0;
@@ -42,13 +42,20 @@
 <body class="bg-slate-100 text-slate-800 h-screen flex flex-col font-sans overflow-hidden">
 
   <!-- TOP HEADER & CONTROLS -->
-  <header class="bg-white border-b px-6 py-3 flex items-center justify-between shadow-sm z-10">
+  <header class="bg-white border-b px-6 py-3 flex items-center justify-between shadow-sm z-10 flex-wrap gap-2">
     <div class="flex items-center gap-4">
       <h1 class="text-xl font-bold text-slate-800">Seating Planner</h1>
       <div class="flex border rounded overflow-hidden">
         <button id="btn-normal-view" onclick="setViewMode('normal')" class="px-3 py-1 text-xs font-semibold bg-indigo-600 text-white">Teacher View</button>
-        <button id="btn-flipped-view" onclick="setViewMode('flipped')" class="px-3 py-1 text-xs font-semibold bg-white text-slate-600 border-l hover:bg-slate-50">Student View (Flipped)</button>
+        <button id="btn-flipped-view" onclick="setViewMode('flipped')" class="px-3 py-1 text-xs font-semibold bg-white text-slate-600 border-l hover:bg-slate-50">Student View</button>
       </div>
+    </div>
+
+    <!-- ROOM BUILDER CONTROLS -->
+    <div class="flex items-center gap-2">
+      <button onclick="addNewStudent()" class="px-3 py-1.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded hover:bg-emerald-200 text-xs font-bold">+ Student</button>
+      <button onclick="addNewDesk()" class="px-3 py-1.5 bg-blue-100 text-blue-800 border border-blue-300 rounded hover:bg-blue-200 text-xs font-bold">+ Desk</button>
+      <button onclick="clearAllDesks()" class="px-3 py-1.5 bg-red-100 text-red-800 border border-red-300 rounded hover:bg-red-200 text-xs font-bold">Clear Room</button>
     </div>
 
     <!-- ZOOM CONTROLS -->
@@ -67,11 +74,10 @@
     <!-- LEFT ROSTER SIDEBAR -->
     <aside class="w-64 bg-white border-r flex flex-col z-10 shadow-sm">
       <div class="p-4 border-b bg-slate-50 flex items-center justify-between">
-        <h2 class="font-bold text-slate-700 text-sm">Unassigned Students</h2>
+        <h2 class="font-bold text-slate-700 text-sm">Unassigned</h2>
         <span id="unassigned-count" class="bg-slate-200 text-slate-700 text-xs font-bold px-2 py-0.5 rounded-full">0</span>
       </div>
-
-      <div id="unassigned-bench" class="flex-1 p-3 overflow-y-auto space-y-2">
+      <div id="unassigned-bench" class="flex-1 p-3 overflow-y-auto space-y-2 dropzone-roster">
         <!-- Student roster cards inject here -->
       </div>
     </aside>
@@ -79,11 +85,11 @@
     <!-- SEATING CANVAS CONTAINER -->
     <section id="seating-canvas" class="flex-1 bg-slate-200 relative overflow-hidden flex items-center justify-center p-8">
       <div id="empty-room-message" class="text-center text-slate-400 text-sm hidden">
-        No desks configured in this room layout.
+        No desks configured. Click "+ Desk" to start building.
       </div>
 
       <!-- INTERACTIVE ROOM STAGE -->
-      <div id="room-stage" class="absolute bg-white rounded-lg shadow-md border border-slate-300 transition-transform origin-top-left">
+      <div id="room-stage" class="absolute bg-white rounded-lg shadow-md border border-slate-300 transition-transform origin-top-left dropzone-stage">
         <!-- Desk targets and seated students inject here -->
       </div>
     </section>
@@ -101,33 +107,25 @@
         <div>
           <label class="text-xs font-semibold uppercase text-slate-500 block mb-1">Student Flags</label>
           <div class="flex flex-wrap gap-2 text-xs">
-            <label class="flex items-center gap-1 border px-2 py-1 rounded cursor-pointer hover:bg-slate-50">
-              <input type="checkbox" id="flag-sen"> SEN
-            </label>
-            <label class="flex items-center gap-1 border px-2 py-1 rounded cursor-pointer hover:bg-slate-50">
-              <input type="checkbox" id="flag-pp"> PP
-            </label>
-            <label class="flex items-center gap-1 border px-2 py-1 rounded cursor-pointer hover:bg-slate-50">
-              <input type="checkbox" id="flag-eal"> EAL
-            </label>
-            <label class="flex items-center gap-1 border px-2 py-1 rounded cursor-pointer hover:bg-slate-50">
-              <input type="checkbox" id="flag-c"> C
-            </label>
+            <label class="flex items-center gap-1 border px-2 py-1 rounded cursor-pointer hover:bg-slate-50"><input type="checkbox" id="flag-sen"> SEN</label>
+            <label class="flex items-center gap-1 border px-2 py-1 rounded cursor-pointer hover:bg-slate-50"><input type="checkbox" id="flag-pp"> PP</label>
+            <label class="flex items-center gap-1 border px-2 py-1 rounded cursor-pointer hover:bg-slate-50"><input type="checkbox" id="flag-eal"> EAL</label>
+            <label class="flex items-center gap-1 border px-2 py-1 rounded cursor-pointer hover:bg-slate-50"><input type="checkbox" id="flag-c"> C</label>
           </div>
         </div>
 
         <div>
           <label class="text-xs font-semibold uppercase text-slate-500 block mb-1">Target Grade / Goal</label>
-          <input type="text" id="input-student-target" class="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="e.g. Grade 7">
+          <input type="text" id="input-student-target" class="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-indigo-500" placeholder="e.g. Grade 7">
         </div>
 
         <div>
           <label class="text-xs font-semibold uppercase text-slate-500 block mb-1">Individual Notes</label>
-          <textarea id="input-student-notes" rows="3" class="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="Add specific notes here..."></textarea>
+          <textarea id="input-student-notes" rows="3" class="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-indigo-500" placeholder="Add specific notes here..."></textarea>
         </div>
       </div>
 
-      <div class="flex justify-end gap-2 pt-2 border-t">
+      <div class="flex justify-end gap-2 pt-2 border-t mt-4">
         <button onclick="closeStudentModal()" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
         <button onclick="saveStudentProfile()" class="px-4 py-2 text-sm bg-indigo-600 text-white rounded font-medium hover:bg-indigo-700">Save Profile</button>
       </div>
@@ -135,134 +133,138 @@
   </div>
 
   <script type="module">
-    // CONSTANTS
     const DESK_WIDTH = 100;
     const DESK_HEIGHT = 60;
-    const ROOM_PADDING = 60;
+    const ROOM_PADDING = 80;
 
     // GLOBAL APPLICATION STATE
     window.AppState = {
       activeViewMode: 'normal',
       zoomScale: 1.0,
       students: [
-        { id: "s1", name: "Alice Smith", seatIndex: null, sen: true, pp: false, eal: false, c: false, target: "Grade 8", notes: "Prefers front row" },
-        { id: "s2", name: "Bob Jones", seatIndex: null, sen: false, pp: true, eal: false, c: false, target: "Grade 6", notes: "" },
-        { id: "s3", name: "Charlie Brown", seatIndex: null, sen: false, pp: false, eal: true, c: false, target: "Grade 5", notes: "Needs visual aids" },
-        { id: "s4", name: "Diana Prince", seatIndex: null, sen: false, pp: false, eal: false, c: true, target: "Grade 9", notes: "" },
-        { id: "s5", name: "Ethan Hunt", seatIndex: null, sen: true, pp: true, eal: false, c: false, target: "Grade 7", notes: "" }
+        { id: "s1", name: "Alice Smith", seatIndex: null, sen: true, pp: false, eal: false, c: false, target: "Grade 8", notes: "" },
+        { id: "s2", name: "Bob Jones", seatIndex: 0, sen: false, pp: true, eal: false, c: false, target: "Grade 6", notes: "" },
+        { id: "s3", name: "Charlie Brown", seatIndex: null, sen: false, pp: false, eal: true, c: false, target: "Grade 5", notes: "" }
       ],
       roomDesks: [
         { left: 40, top: 40 },
         { left: 160, top: 40 },
-        { left: 280, top: 40 },
-        { left: 400, top: 40 },
-        { left: 40, top: 140 },
-        { left: 160, top: 140 },
-        { left: 280, top: 140 },
-        { left: 400, top: 140 },
-        { left: 40, top: 240 },
-        { left: 160, top: 240 },
-        { left: 280, top: 240 },
-        { left: 400, top: 240 }
+        { left: 40, top: 120 },
+        { left: 160, top: 120 }
       ]
     };
 
-    // ZOOM HELPERS
-    function getSeatingZoom() {
-      return window.AppState.zoomScale;
-    }
+    // --- ROOM BUILDER FUNCTIONS ---
+    window.addNewDesk = () => {
+      // Find a safe spot to drop a new desk
+      let maxTop = 0;
+      window.AppState.roomDesks.forEach(d => { if (d.top > maxTop) maxTop = d.top; });
+      window.AppState.roomDesks.push({ left: 40, top: maxTop + DESK_HEIGHT + 20 });
+      renderAll();
+      window.handleFitZoom();
+    };
 
-    function setSeatingZoom(scale) {
-      window.AppState.zoomScale = Math.min(Math.max(0.3, scale), 2.0);
-      renderCanvasDesks();
-    }
+    window.clearAllDesks = () => {
+      if(!confirm("Are you sure you want to clear all desks?")) return;
+      window.AppState.students.forEach(s => s.seatIndex = null);
+      window.AppState.roomDesks = [];
+      renderAll();
+    };
 
+    window.addNewStudent = () => {
+      const name = prompt("Enter student name:");
+      if (!name) return;
+      const id = "s" + Date.now();
+      window.AppState.students.push({ id, name, seatIndex: null, sen: false, pp: false, eal: false, c: false, target: "", notes: "" });
+      renderAll();
+    };
+
+    // --- ZOOM LOGIC ---
     function getRoomBounds() {
       const desks = window.AppState.roomDesks || [];
       if (!desks.length) return { minX: 0, minY: 0, maxX: 400, maxY: 300, width: 400, height: 300 };
-
-      let maxX = 0;
-      let maxY = 0;
-
+      let maxX = 0, maxY = 0;
       desks.forEach(desk => {
         const right = (Number(desk.left) || 0) + DESK_WIDTH;
         const bottom = (Number(desk.top) || 0) + DESK_HEIGHT;
         if (right > maxX) maxX = right;
         if (bottom > maxY) maxY = bottom;
       });
-
       return { minX: 0, minY: 0, maxX, maxY, width: maxX, height: maxY };
     }
 
-    function calculateAutoZoom() {
+    window.calculateAutoZoom = () => {
       const canvas = document.getElementById("seating-canvas");
       if (!canvas) return 1;
-
       const bounds = getRoomBounds();
       const availableWidth = Math.max(100, canvas.clientWidth - ROOM_PADDING);
       const availableHeight = Math.max(100, canvas.clientHeight - ROOM_PADDING);
-
       const scaleX = availableWidth / (bounds.width + ROOM_PADDING / 2);
       const scaleY = availableHeight / (bounds.height + ROOM_PADDING / 2);
-
       return Math.min(scaleX, scaleY, 1.0);
-    }
+    };
 
-    // ZOOM CONTROLLER HANDLERS
-    window.handleZoomIn = () => setSeatingZoom(getSeatingZoom() + 0.1);
-    window.handleZoomOut = () => setSeatingZoom(getSeatingZoom() - 0.1);
-    window.handleResetZoom = () => setSeatingZoom(1.0);
-    window.handleFitZoom = () => setSeatingZoom(calculateAutoZoom());
-
-    function updateZoomDisplay() {
-      const txt = document.getElementById("zoom-level-text");
-      if (txt) txt.textContent = `${Math.round(getSeatingZoom() * 100)}%`;
-    }
-
-    // VIEW MODES
-    window.setViewMode = (mode) => {
-      window.AppState.activeViewMode = mode;
-      const btnNormal = document.getElementById("btn-normal-view");
-      const btnFlipped = document.getElementById("btn-flipped-view");
-
-      if (mode === "flipped") {
-        btnFlipped.className = "px-3 py-1 text-xs font-semibold bg-indigo-600 text-white border-l";
-        btnNormal.className = "px-3 py-1 text-xs font-semibold bg-white text-slate-600 hover:bg-slate-50";
-      } else {
-        btnNormal.className = "px-3 py-1 text-xs font-semibold bg-indigo-600 text-white";
-        btnFlipped.className = "px-3 py-1 text-xs font-semibold bg-white text-slate-600 border-l hover:bg-slate-50";
-      }
+    window.setSeatingZoom = (scale) => {
+      window.AppState.zoomScale = Math.min(Math.max(0.3, scale), 2.0);
       renderCanvasDesks();
     };
 
-    // UNASSIGNMENT LOGIC
-    window.unassignStudent = (studentId) => {
-      const student = window.AppState.students.find(s => s.id === studentId);
-      if (student) {
-        student.seatIndex = null;
-        renderAll();
-      }
+    window.handleZoomIn = () => setSeatingZoom(window.AppState.zoomScale + 0.1);
+    window.handleZoomOut = () => setSeatingZoom(window.AppState.zoomScale - 0.1);
+    window.handleResetZoom = () => setSeatingZoom(1.0);
+    window.handleFitZoom = () => setSeatingZoom(calculateAutoZoom());
+
+    // --- VIEW & STATE LOGIC ---
+    window.setViewMode = (mode) => {
+      window.AppState.activeViewMode = mode;
+      document.getElementById("btn-normal-view").className = mode === 'normal' ? "px-3 py-1 text-xs font-semibold bg-indigo-600 text-white" : "px-3 py-1 text-xs font-semibold bg-white text-slate-600 hover:bg-slate-50";
+      document.getElementById("btn-flipped-view").className = mode === 'flipped' ? "px-3 py-1 text-xs font-semibold bg-indigo-600 text-white border-l" : "px-3 py-1 text-xs font-semibold bg-white text-slate-600 border-l hover:bg-slate-50";
+      renderCanvasDesks();
     };
 
-    // RENDER FUNCTIONS
+    window.unassignStudent = (studentId) => {
+      const student = window.AppState.students.find(s => s.id === studentId);
+      if (student) student.seatIndex = null;
+      renderAll();
+    };
+
+    window.removeDesk = (deskIndex) => {
+      // Unassign student sitting here
+      const student = window.AppState.students.find(s => s.seatIndex === deskIndex);
+      if (student) student.seatIndex = null;
+      
+      // Shift indices for students sitting in desks after this one
+      window.AppState.students.forEach(s => {
+        if (s.seatIndex !== null && s.seatIndex > deskIndex) {
+          s.seatIndex -= 1;
+        }
+      });
+      
+      window.AppState.roomDesks.splice(deskIndex, 1);
+      renderAll();
+    };
+
+    // --- RENDERING ---
+    window.renderAll = () => {
+      renderUnassignedRoster();
+      renderCanvasDesks();
+    };
+
     function renderUnassignedRoster() {
       const bench = document.getElementById("unassigned-bench");
-      const countEl = document.getElementById("unassigned-count");
       bench.innerHTML = "";
-
       const unassigned = window.AppState.students.filter(s => s.seatIndex === null);
-      countEl.textContent = unassigned.length;
+      document.getElementById("unassigned-count").textContent = unassigned.length;
 
       unassigned.forEach(student => {
         const card = document.createElement("div");
-        card.className = "p-2.5 bg-slate-50 border border-slate-200 rounded shadow-sm hover:border-indigo-400 cursor-grab flex items-center justify-between text-xs text-slate-700 font-medium student-card transition";
+        card.className = "p-2.5 bg-slate-50 border border-slate-200 rounded shadow-sm hover:border-indigo-400 cursor-grab flex flex-col gap-1 text-xs text-slate-700 font-medium student-card transition z-10";
         card.dataset.studentId = student.id;
 
         const nameSpan = document.createElement("span");
         nameSpan.textContent = student.name;
         card.appendChild(nameSpan);
 
-        // Render mini flags indicator
         const flags = [];
         if (student.sen) flags.push("SEN");
         if (student.pp) flags.push("PP");
@@ -271,11 +273,10 @@
 
         if (flags.length) {
           const flagSpan = document.createElement("span");
-          flagSpan.className = "text-[9px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-extrabold";
+          flagSpan.className = "text-[9px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-extrabold self-start";
           flagSpan.textContent = flags.join(", ");
           card.appendChild(flagSpan);
         }
-
         bench.appendChild(card);
       });
     }
@@ -283,136 +284,111 @@
     function renderCanvasDesks() {
       const canvas = document.getElementById("seating-canvas");
       const stage = document.getElementById("room-stage");
-      const emptyMessage = document.getElementById("empty-room-message");
-
+      const emptyMsg = document.getElementById("empty-room-message");
       stage.innerHTML = "";
-      const desks = window.AppState.roomDesks || [];
-
+      
+      const desks = window.AppState.roomDesks;
       if (!desks.length) {
-        stage.style.width = "0px";
-        stage.style.height = "0px";
-        stage.style.transform = "none";
-        emptyMessage.classList.remove("hidden");
-        setupDragAndDrop();
+        stage.style.width = "0px"; stage.style.height = "0px";
+        emptyMsg.classList.remove("hidden");
         return;
       }
+      emptyMsg.classList.add("hidden");
 
-      emptyMessage.classList.add("hidden");
       const bounds = getRoomBounds();
-      const zoom = getSeatingZoom();
-
+      const zoom = window.AppState.zoomScale;
       const roomWidth = bounds.maxX + ROOM_PADDING / 2;
       const roomHeight = bounds.maxY + ROOM_PADDING / 2;
 
       stage.style.width = `${roomWidth}px`;
       stage.style.height = `${roomHeight}px`;
-
-      // Centering inside canvas container
+      
       const offsetX = Math.max(0, (canvas.clientWidth - roomWidth * zoom) / 2);
       const offsetY = Math.max(0, (canvas.clientHeight - roomHeight * zoom) / 2);
-
       stage.style.left = `${offsetX}px`;
       stage.style.top = `${offsetY}px`;
       stage.style.transform = `scale(${zoom})`;
-      stage.style.transformOrigin = "0 0";
 
       const isFlipped = window.AppState.activeViewMode === "flipped";
 
       desks.forEach((desk, index) => {
-        const deskElement = document.createElement("div");
-        const rawLeft = Number(desk.left) || 0;
-        const rawTop = Number(desk.top) || 0;
-
-        let left = rawLeft;
-        let top = rawTop;
+        const deskEl = document.createElement("div");
+        let left = Number(desk.left) || 0;
+        let top = Number(desk.top) || 0;
 
         if (isFlipped) {
-          left = roomWidth - rawLeft - DESK_WIDTH;
-          top = roomHeight - rawTop - DESK_HEIGHT;
+          left = roomWidth - left - DESK_WIDTH;
+          top = roomHeight - top - DESK_HEIGHT;
         }
 
-        deskElement.style.left = `${left}px`;
-        deskElement.style.top = `${top}px`;
-        deskElement.dataset.seatIndex = String(index);
+        deskEl.style.left = `${left}px`;
+        deskEl.style.top = `${top}px`;
+        deskEl.dataset.seatIndex = String(index);
 
-        const assignedStudent = window.AppState.students.find(
-          student => Number(student.seatIndex) === index
-        );
+        const assignedStudent = window.AppState.students.find(s => Number(s.seatIndex) === index);
 
         if (assignedStudent) {
-          deskElement.className =
-            "desk-slot room-desk border-2 border-emerald-500 " +
-            "rounded bg-emerald-100 flex flex-col items-center " +
-            "justify-center text-xs font-bold text-emerald-900 " +
-            "shadow-md cursor-pointer student-card z-20 overflow-hidden relative group";
+          deskEl.className = "desk-slot room-desk border-2 border-emerald-500 rounded bg-emerald-100 flex flex-col items-center justify-center text-xs font-bold text-emerald-900 shadow-md cursor-pointer student-card z-20 overflow-hidden relative group";
+          deskEl.dataset.studentId = assignedStudent.id;
 
-          deskElement.dataset.studentId = assignedStudent.id;
-
-          // Close (x) button to unassign back to roster
           const removeBtn = document.createElement("button");
-          removeBtn.className = "absolute top-0.5 right-0.5 bg-red-500 hover:bg-red-700 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] leading-none opacity-80 group-hover:opacity-100 transition";
+          removeBtn.className = "absolute top-0.5 right-0.5 bg-red-500 hover:bg-red-700 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] leading-none opacity-80 group-hover:opacity-100 transition z-30";
           removeBtn.innerHTML = "&times;";
-          removeBtn.onclick = (e) => {
-            e.stopPropagation();
-            unassignStudent(assignedStudent.id);
-          };
+          removeBtn.onclick = (e) => { e.stopPropagation(); unassignStudent(assignedStudent.id); };
 
           const name = document.createElement("span");
           name.className = "pointer-events-none truncate w-full text-center px-1";
           name.textContent = assignedStudent.name;
 
-          // Render Flags
           const flags = [];
           if (assignedStudent.sen) flags.push("SEN");
           if (assignedStudent.pp) flags.push("PP");
           if (assignedStudent.eal) flags.push("EAL");
           if (assignedStudent.c) flags.push("C");
 
-          const flagSpan = document.createElement("span");
-          flagSpan.className = "text-[9px] text-indigo-700 font-extrabold pointer-events-none";
-          flagSpan.textContent = flags.join(" | ");
+          deskEl.appendChild(removeBtn);
+          deskEl.appendChild(name);
+          if (flags.length) {
+            const flagSpan = document.createElement("span");
+            flagSpan.className = "text-[9px] text-indigo-700 font-extrabold pointer-events-none mt-0.5";
+            flagSpan.textContent = flags.join(" | ");
+            deskEl.appendChild(flagSpan);
+          }
 
-          deskElement.appendChild(removeBtn);
-          deskElement.appendChild(name);
-          if (flags.length) deskElement.appendChild(flagSpan);
-
-          // Open details modal on click
-          deskElement.onclick = (e) => {
-            if (e.target === removeBtn) return;
-            openStudentModal(assignedStudent.id);
+          deskEl.onclick = (e) => {
+            if (e.target !== removeBtn) openStudentModal(assignedStudent.id);
           };
         } else {
-          deskElement.className =
-            "desk-slot room-desk border-2 border-slate-300 " +
-            "rounded bg-white flex flex-col items-center " +
-            "justify-center text-xs shadow-sm overflow-hidden";
-
+          // Empty Desk - draggable to reposition
+          deskEl.className = "desk-slot room-desk border-2 border-slate-300 rounded bg-white flex flex-col items-center justify-center text-xs shadow-sm overflow-hidden z-10 cursor-move group";
+          
           const deskNumber = document.createElement("span");
           deskNumber.className = "text-slate-400 pointer-events-none font-medium";
           deskNumber.textContent = `Desk ${index + 1}`;
-          deskElement.appendChild(deskNumber);
+          
+          // Delete desk button
+          const delDeskBtn = document.createElement("button");
+          delDeskBtn.className = "absolute top-0.5 right-0.5 bg-slate-300 hover:bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition z-30";
+          delDeskBtn.innerHTML = "&times;";
+          delDeskBtn.onclick = (e) => { e.stopPropagation(); removeDesk(index); };
+
+          deskEl.appendChild(delDeskBtn);
+          deskEl.appendChild(deskNumber);
         }
 
-        stage.appendChild(deskElement);
+        stage.appendChild(deskEl);
       });
 
-      updateZoomDisplay();
+      document.getElementById("zoom-level-text").textContent = `${Math.round(window.AppState.zoomScale * 100)}%`;
       setupDragAndDrop();
     }
 
-    function renderAll() {
-      renderUnassignedRoster();
-      renderCanvasDesks();
-    }
-
-    // STUDENT DETAILS MODAL HANDLERS
-    let activeEditingStudentId = null;
-
-    window.openStudentModal = function(studentId) {
-      const student = window.AppState.students.find(s => s.id === studentId);
+    // --- MODAL LOGIC ---
+    let editingId = null;
+    window.openStudentModal = (id) => {
+      const student = window.AppState.students.find(s => s.id === id);
       if (!student) return;
-
-      activeEditingStudentId = studentId;
+      editingId = id;
       document.getElementById("modal-student-name").textContent = `Edit Details: ${student.name}`;
       document.getElementById("flag-sen").checked = !!student.sen;
       document.getElementById("flag-pp").checked = !!student.pp;
@@ -420,18 +396,16 @@
       document.getElementById("flag-c").checked = !!student.c;
       document.getElementById("input-student-target").value = student.target || "";
       document.getElementById("input-student-notes").value = student.notes || "";
-
       document.getElementById("modal-edit-student").classList.remove("hidden");
     };
 
-    window.closeStudentModal = function() {
+    window.closeStudentModal = () => {
       document.getElementById("modal-edit-student").classList.add("hidden");
-      activeEditingStudentId = null;
+      editingId = null;
     };
 
-    window.saveStudentProfile = function() {
-      if (!activeEditingStudentId) return;
-      const student = window.AppState.students.find(s => s.id === activeEditingStudentId);
+    window.saveStudentProfile = () => {
+      const student = window.AppState.students.find(s => s.id === editingId);
       if (student) {
         student.sen = document.getElementById("flag-sen").checked;
         student.pp = document.getElementById("flag-pp").checked;
@@ -441,95 +415,124 @@
         student.notes = document.getElementById("input-student-notes").value.trim();
       }
       closeStudentModal();
-      renderCanvasDesks();
+      renderAll();
     };
 
-    // INTERACT.JS DRAG & DROP IMPLEMENTATION
-    let dragGhost = null;
-
+    // --- DRAG & DROP LOGIC ---
     function setupDragAndDrop() {
       interact('.student-card').unset();
       interact('.desk-slot').unset();
+      interact('.room-desk:not(.student-card)').unset(); // Empty desks
 
-      // Make Student Cards Draggable
+      let dragGhost = null;
+
+      // 1. Drag Students (Roster to Desk, Desk to Desk)
       interact('.student-card').draggable({
         inertia: false,
         autoScroll: true,
         onstart: function (event) {
-          const target = event.target;
-          const studentId = target.dataset.studentId;
+          const studentId = event.target.dataset.studentId;
           const student = window.AppState.students.find(s => s.id === studentId);
           if (!student) return;
-
-          // Create floating ghost card in drag layer
+          
           dragGhost = document.createElement("div");
           dragGhost.className = "dragging-ghost bg-indigo-600 text-white font-bold text-xs rounded p-2 flex items-center justify-center border-2 border-indigo-400";
           dragGhost.textContent = student.name;
           dragGhost.dataset.studentId = studentId;
-
           document.getElementById("drag-layer").appendChild(dragGhost);
-
-          const clientX = event.clientX;
-          const clientY = event.clientY;
-          dragGhost.style.transform = `translate(${clientX - 50}px, ${clientY - 30}px)`;
+          
+          dragGhost.style.transform = `translate(${event.clientX - 50}px, ${event.clientY - 30}px)`;
         },
         onmove: function (event) {
-          if (!dragGhost) return;
-          const clientX = event.clientX;
-          const clientY = event.clientY;
-          dragGhost.style.transform = `translate(${clientX - 50}px, ${clientY - 30}px)`;
+          if (dragGhost) dragGhost.style.transform = `translate(${event.clientX - 50}px, ${event.clientY - 30}px)`;
         },
         onend: function () {
-          if (dragGhost) {
-            dragGhost.remove();
-            dragGhost = null;
+          if (dragGhost) { dragGhost.remove(); dragGhost = null; }
+        }
+      });
+
+      // 2. Drag Empty Desks (Moving them around the room)
+      interact('.room-desk:not(.student-card)').draggable({
+        modifiers: [
+          interact.modifiers.snap({
+            targets: [ interact.createSnapGrid({ x: 20, y: 20 }) ],
+            range: Infinity,
+            relativePoints: [ { x: 0, y: 0 } ]
+          })
+        ],
+        onmove: function (event) {
+          if (window.AppState.activeViewMode === "flipped") return; // Disable desk moving in flipped view
+          const target = event.target;
+          const zoom = window.AppState.zoomScale;
+          
+          // Calculate movement adjusted for zoom
+          const dx = event.dx / zoom;
+          const dy = event.dy / zoom;
+          
+          const x = (parseFloat(target.style.left) || 0) + dx;
+          const y = (parseFloat(target.style.top) || 0) + dy;
+          
+          target.style.left = `${x}px`;
+          target.style.top = `${y}px`;
+        },
+        onend: function (event) {
+          if (window.AppState.activeViewMode === "flipped") return;
+          const target = event.target;
+          const idx = Number(target.dataset.seatIndex);
+          if (!isNaN(idx)) {
+            // Save new position
+            window.AppState.roomDesks[idx].left = Math.max(0, parseFloat(target.style.left));
+            window.AppState.roomDesks[idx].top = Math.max(0, parseFloat(target.style.top));
+            renderAll(); // Re-render to adjust bounds/zoom if necessary
           }
         }
       });
 
-      // Make Desks Drop Targets
+      // 3. Drop Zones (Desks accepting students)
       interact('.desk-slot').dropzone({
         accept: '.student-card',
         overlap: 0.2,
-        ondragenter: function (event) {
-          event.target.classList.add('drop-target');
-        },
-        ondragleave: function (event) {
-          event.target.classList.remove('drop-target');
-        },
-        ondrop: function (event) {
-          event.target.classList.remove('drop-target');
-          const targetDesk = event.target;
-          const targetSeatIndex = Number(targetDesk.dataset.seatIndex);
+        ondragenter: (e) => e.target.classList.add('drop-target'),
+        ondragleave: (e) => e.target.classList.remove('drop-target'),
+        ondrop: (e) => {
+          e.target.classList.remove('drop-target');
+          const targetSeatIndex = Number(e.target.dataset.seatIndex);
+          if (isNaN(targetSeatIndex) || !dragGhost) return;
 
-          if (isNaN(targetSeatIndex)) return;
-
-          const studentId = dragGhost ? dragGhost.dataset.studentId : null;
-          if (!studentId) return;
-
+          const studentId = dragGhost.dataset.studentId;
           const student = window.AppState.students.find(s => s.id === studentId);
+          
           if (student) {
-            // Swap if another student is sitting here
-            const existingStudent = window.AppState.students.find(s => Number(s.seatIndex) === targetSeatIndex);
-            if (existingStudent && existingStudent.id !== student.id) {
-              existingStudent.seatIndex = student.seatIndex;
+            // Swap logic
+            const existing = window.AppState.students.find(s => s.seatIndex === targetSeatIndex);
+            if (existing && existing.id !== student.id) {
+              existing.seatIndex = student.seatIndex; // Swap them
             }
-
             student.seatIndex = targetSeatIndex;
             renderAll();
           }
         }
       });
+
+      // 4. Unassign Zone (Dropping student back in roster)
+      interact('.dropzone-roster').dropzone({
+        accept: '.student-card',
+        overlap: 0.1,
+        ondrop: (e) => {
+          if (!dragGhost) return;
+          unassignStudent(dragGhost.dataset.studentId);
+        }
+      });
     }
 
-    // INITIALIZATION & RESIZE WATCHER
+    // --- INITIALIZATION ---
     window.addEventListener("DOMContentLoaded", () => {
       renderAll();
       window.handleFitZoom();
     });
 
     window.addEventListener("resize", () => {
-      renderCanvasDesks();
+      renderCanvasDesks(); // Re-center on window resize
     });
   </script>
 </body>
