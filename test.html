@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Classcclefcc Web</title>
+  <title>Clafcc Web</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
@@ -1239,7 +1239,6 @@ window.confirmCreateNewClass = async function() {
 }
 
 function renderCanvasDesks() {
-  // Change "stage" to "room-stage"
   const stage = document.getElementById("room-stage"); 
   const canvas = document.getElementById("seating-canvas");
   if (!stage || !canvas) return;
@@ -1247,8 +1246,6 @@ function renderCanvasDesks() {
   stage.innerHTML = "";
 
   const zoom = getSeatingZoom();
-  
-  // Define missing variables
   const bounds = getRoomBounds();
   const roomWidth = bounds.width;
   const roomHeight = bounds.height;
@@ -1264,9 +1261,10 @@ function renderCanvasDesks() {
   stage.style.transform = `scale(${zoom})`;
 
   const isFlipped = window.AppState.activeViewMode === "flipped";
+  const isTeacherView = window.AppState.activeViewMode === "teacher";
 
   desks.forEach((desk, index) => {
-      const deskElement = document.createElement("div");
+    const deskElement = document.createElement("div");
 
     const rawLeft = Number(desk.left) || 0;
     const rawTop = Number(desk.top) || 0;
@@ -1285,18 +1283,18 @@ function renderCanvasDesks() {
     deskElement.dataset.seatIndex = String(index);
 
     const assignedStudent = window.AppState.students.find(
-  student => student.seatIndex !== null && Number(student.seatIndex) === index
-);
+      student => student.seatIndex !== null && Number(student.seatIndex) === index
+    );
 
     if (assignedStudent) {
       deskElement.className =
         "desk-slot room-desk border-2 border-emerald-500 rounded bg-emerald-100 " +
-        "flex flex-col items-center justify-center text-xs font-bold text-emerald-900 " +
+        "flex flex-col items-center justify-between p-1 text-xs font-bold text-emerald-900 " +
         "shadow-md cursor-pointer student-card z-20 overflow-hidden relative group";
 
       deskElement.dataset.studentId = assignedStudent.id;
 
-      // --- Red Cross Unassign Button ---
+      // --- Unassign Button ---
       const removeBtn = document.createElement("button");
       removeBtn.className =
         "absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 hover:bg-red-600 " +
@@ -1308,28 +1306,52 @@ function renderCanvasDesks() {
         e.stopPropagation();
         unassignStudent(assignedStudent.id);
       };
-
-      const name = document.createElement("span");
-      name.className = "pointer-events-none truncate w-full text-center px-1 leading-tight";
-      name.textContent = assignedStudent.name;
-
-      // --- Flag Emojis Line ---
-      const metaSpan = document.createElement("span");
-      metaSpan.className = "text-[10px] text-emerald-800 font-normal truncate px-1 pointer-events-none";
-      metaSpan.textContent = getStudentFlagIcons(assignedStudent);
-
-      const deskNumber = document.createElement("span");
-      deskNumber.className = "text-[9px] text-emerald-600 pointer-events-none";
-      deskNumber.textContent = `Desk ${index + 1}`;
-
       deskElement.appendChild(removeBtn);
-      deskElement.appendChild(name);
-      if (metaSpan.textContent) {
-        deskElement.appendChild(metaSpan);
-      }
-      deskElement.appendChild(deskNumber);
 
-      // Open metadata flags dialog on desk click
+      // --- Name Parsing ---
+      const fullName = (assignedStudent.name || "").trim();
+      const nameParts = fullName.split(/\s+/);
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
+
+      // --- Line 1: First Name ---
+      const firstNameEl = document.createElement("span");
+      firstNameEl.className = "font-bold text-xs truncate w-full text-center px-1 leading-tight pointer-events-none";
+      firstNameEl.textContent = firstName;
+      deskElement.appendChild(firstNameEl);
+
+      // --- Line 2: Last Name (SVG auto-scaled to remain on single line) ---
+      if (lastName) {
+        const lastNameContainer = document.createElement("div");
+        lastNameContainer.className = "w-full px-1 pointer-events-none flex justify-center items-center h-3.5";
+        
+        const svgBoxWidth = Math.max(100, lastName.length * 9);
+        lastNameContainer.innerHTML = `
+          <svg class="w-full h-full" viewBox="0 0 ${svgBoxWidth} 14" preserveAspectRatio="xMidYMid meet">
+            <text x="50%" y="11" text-anchor="middle" font-size="11" font-weight="bold" fill="#064e3b">${escapeHtml(lastName)}</text>
+          </svg>
+        `;
+        deskElement.appendChild(lastNameContainer);
+      }
+
+      // --- Line 3: Target Grade (Confidential - Teacher View Only) ---
+      if (isTeacherView && assignedStudent.grade) {
+        const gradeEl = document.createElement("span");
+        gradeEl.className = "text-[10px] text-emerald-800 font-semibold truncate w-full text-center px-1 leading-tight pointer-events-none";
+        gradeEl.textContent = `🎯 ${assignedStudent.grade}`;
+        deskElement.appendChild(gradeEl);
+      }
+
+      // --- Line 4: Flags (Confidential - Teacher View Only) ---
+      const flagsText = getStudentFlagIcons(assignedStudent);
+      if (isTeacherView && flagsText) {
+        const flagsEl = document.createElement("span");
+        flagsEl.className = "text-[10px] text-emerald-800 font-normal truncate w-full text-center px-1 leading-tight pointer-events-none";
+        flagsEl.textContent = flagsText;
+        deskElement.appendChild(flagsEl);
+      }
+
+      // Open metadata flags modal on card click
       deskElement.onclick = () => openStudentFlagsModal(assignedStudent.id);
     } else {
       deskElement.className =
@@ -1349,7 +1371,6 @@ function renderCanvasDesks() {
   updateZoomDisplay();
   setupDragAndDrop();
 }
-
 
     function getSeatingZoom() {
       return window.AppState.seatingZoom ??
@@ -1577,8 +1598,6 @@ function setupStudentDraggable() {
 
 function getStudentFlagIcons(student) {
   let flags = [];
-
-  // Grade removed from here so it can have its own dedicated line
   if (student.eal) flags.push("🌍");
   if (student.pp) flags.push("🅿️");
   if (student.gt) flags.push("⭐");
@@ -1586,7 +1605,6 @@ function getStudentFlagIcons(student) {
   if (student.lac) flags.push("❤️");
   if (student.med) flags.push("🚑");
   if (student.yc) flags.push("C");
-
   return flags.join(" ");
 }
 
