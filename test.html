@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClassTilef Web</title>
+  <title>ClassTccilef Web</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
@@ -1469,16 +1469,12 @@ function renderCanvasDesks() {
       setupDeskDropzones();
       setupBenchDropzone();
     }
+let dragClone = null;
+
 function setupStudentDraggable() {
   interact(".student-card").draggable({
     inertia: false,
-    autoScroll: {
-      container: document.getElementById("unassigned-bench"),
-      margin: 50,
-      distance: 5,
-      speed: 300
-    },
-
+    autoScroll: true,
     listeners: {
       start(event) {
         const target = event.target;
@@ -1488,19 +1484,37 @@ function setupStudentDraggable() {
         document.body.classList.add("dragging-active");
         target.dataset.dragging = "true";
         target.classList.add("drag-source-hidden");
+
+        // 1. Create the visual clone
+        dragClone = target.cloneNode(true);
+        dragClone.classList.remove("drag-source-hidden");
+        dragClone.classList.add("drag-ghost");
+        
+        // 2. Append it to the drag-layer (outside the scrollable area!)
+        document.getElementById("drag-layer").appendChild(dragClone);
+        
+        // 3. Set the clone's initial position to the mouse cursor
+        dragClone.style.left = `${event.clientX}px`;
+        dragClone.style.top = `${event.clientY}px`;
       },
 
       move(event) {
         const target = event.target;
-        // Divide drag delta by current zoom scale to maintain exact cursor tracking
         const zoom = getSeatingZoom() || 1;
 
+        // 4. Move the *invisible* original element so InteractJS still calculates drop zones correctly
         const x = (parseFloat(target.getAttribute("data-x")) || 0) + (event.dx / zoom);
         const y = (parseFloat(target.getAttribute("data-y")) || 0) + (event.dy / zoom);
 
         target.style.transform = `translate(${x}px, ${y}px)`;
         target.setAttribute("data-x", String(x));
         target.setAttribute("data-y", String(y));
+
+        // 5. Move the *visible* clone with the mouse pointer
+        if (dragClone) {
+          dragClone.style.left = `${event.clientX}px`;
+          dragClone.style.top = `${event.clientY}px`;
+        }
       },
 
       end(event) {
@@ -1508,6 +1522,12 @@ function setupStudentDraggable() {
         target.style.transform = "";
         target.removeAttribute("data-x");
         target.removeAttribute("data-y");
+        
+        // 6. Clean up the clone
+        if (dragClone) {
+          dragClone.remove();
+          dragClone = null;
+        }
         cleanupDragState();
       },
 
@@ -1517,12 +1537,15 @@ function setupStudentDraggable() {
           event.target.removeAttribute("data-x");
           event.target.removeAttribute("data-y");
         }
+        if (dragClone) {
+          dragClone.remove();
+          dragClone = null;
+        }
         cleanupDragState();
       }
     }
   });
 }
-
     function setupDeskDropzones() {
       interact(".desk-slot").dropzone({
         accept: ".student-card",
