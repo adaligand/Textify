@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClassTile Web</title>
+  <title>ClassTile bWeb</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
@@ -62,7 +62,7 @@
     .room-desk {
       position: absolute;
       width: 112px;
-      height: 64px;
+      height: 80px;
     }
 
     .drop-highlight {
@@ -85,12 +85,13 @@
       text-align: center;
     }
 
-    #view-chart:fullscreen {
+    #seating-canvas:fullscreen {
       background-color: #f8fafc;
-      padding: 1.5rem;
-      overflow-y: auto;
+      padding: 1rem;
       width: 100vw;
       height: 100vh;
+      border: none;
+      border-radius: 0;
     }
   </style>
 </head>
@@ -383,6 +384,14 @@
             id="seating-canvas"
             class="relative w-full h-[700px] bg-slate-50 rounded border border-slate-200 overflow-hidden"
           >
+            <button
+              id="btn-canvas-exit-fullscreen"
+              onclick="toggleFullScreen()"
+              class="hidden absolute top-3 right-3 z-50 bg-slate-800/80 hover:bg-slate-900 text-white px-3 py-1.5 rounded text-xs font-medium shadow-md backdrop-blur-sm cursor-pointer"
+            >
+              🪟 Exit Fullscreen
+            </button>
+
             <div
               id="room-stage"
               class="absolute"
@@ -540,7 +549,7 @@
 
 
     const DESK_WIDTH = 112;
-    const DESK_HEIGHT = 64;
+    const DESK_HEIGHT = 80;
     const ROOM_PADDING = 80;
     const MIN_ZOOM = 0.05;
     const MAX_ZOOM = 2.5;
@@ -682,7 +691,7 @@
       const desk = document.createElement("div");
 
       desk.className =
-        "room-desk-item absolute w-28 h-16 bg-indigo-100 border-2 " +
+        "room-desk-item absolute w-28 h-20 bg-indigo-100 border-2 " +
         "border-indigo-500 rounded cursor-move flex items-center " +
         "justify-center text-xs font-bold text-indigo-800 " +
         "select-none shadow-sm relative";
@@ -1743,14 +1752,14 @@
 
 
     window.toggleFullScreen = function() {
-      const chartView = document.getElementById("view-chart");
+      const canvas = document.getElementById("seating-canvas");
       if (!document.fullscreenElement) {
-        if (chartView.requestFullscreen) {
-          chartView.requestFullscreen();
-        } else if (chartView.webkitRequestFullscreen) {
-          chartView.webkitRequestFullscreen();
-        } else if (chartView.msRequestFullscreen) {
-          chartView.msRequestFullscreen();
+        if (canvas.requestFullscreen) {
+          canvas.requestFullscreen();
+        } else if (canvas.webkitRequestFullscreen) {
+          canvas.webkitRequestFullscreen();
+        } else if (canvas.msRequestFullscreen) {
+          canvas.msRequestFullscreen();
         }
       } else {
         if (document.exitFullscreen) {
@@ -1764,15 +1773,26 @@
 
     document.addEventListener("fullscreenchange", () => {
       const btn = document.getElementById("btn-fullscreen");
-      if (btn) {
-        if (document.fullscreenElement) {
+      const canvasExitBtn = document.getElementById("btn-canvas-exit-fullscreen");
+
+      if (document.fullscreenElement) {
+        if (btn) {
           btn.textContent = "🪟 Exit Fullscreen";
           btn.title = "Exit Fullscreen";
-        } else {
+        }
+        if (canvasExitBtn) {
+          canvasExitBtn.classList.remove("hidden");
+        }
+      } else {
+        if (btn) {
           btn.textContent = "📺 Fullscreen";
           btn.title = "Fullscreen";
         }
+        if (canvasExitBtn) {
+          canvasExitBtn.classList.add("hidden");
+        }
       }
+
       setTimeout(() => {
         fitSeatingToFrame();
       }, 100);
@@ -1990,6 +2010,16 @@
         }
       );
 
+      renderTrashBin();
+    };
+
+
+    window.permanentlyDeleteItem = async function(collectionName, id) {
+      if (!confirm("Are you sure you want to permanently delete this item? This action cannot be undone.")) {
+        return;
+      }
+
+      await deleteDoc(doc(db, collectionName, id));
       renderTrashBin();
     };
 
@@ -2322,17 +2352,30 @@
 
           const title = document.createElement("span");
           title.className = "font-medium text-slate-700 truncate mr-2";
-          title.textContent = `📋 ${plan.title}`;
+          title.textContent = plan.title;
+
+          const actions = document.createElement("div");
+          actions.className = "flex items-center gap-1 flex-shrink-0";
 
           const restoreBtn = createButton(
             "🔄 Restore",
-            "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded font-medium flex-shrink-0 text-xs",
+            "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded font-medium text-xs",
             () => window.restoreItem("plans", plan.id),
             "Restore Plan"
           );
 
+          const deleteBtn = createButton(
+            "🗑️ Delete",
+            "bg-red-50 hover:bg-red-100 text-red-600 px-2.5 py-1 rounded font-medium text-xs",
+            () => window.permanentlyDeleteItem("plans", plan.id),
+            "Permanently Delete Plan"
+          );
+
+          actions.appendChild(restoreBtn);
+          actions.appendChild(deleteBtn);
+
           card.appendChild(title);
-          card.appendChild(restoreBtn);
+          card.appendChild(actions);
           grid.appendChild(card);
         });
 
@@ -2359,17 +2402,30 @@
 
           const title = document.createElement("span");
           title.className = "font-medium text-slate-700 truncate mr-2";
-          title.textContent = `🚪 ${room.title}`;
+          title.textContent = room.title;
+
+          const actions = document.createElement("div");
+          actions.className = "flex items-center gap-1 flex-shrink-0";
 
           const restoreBtn = createButton(
             "🔄 Restore",
-            "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded font-medium flex-shrink-0 text-xs",
+            "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded font-medium text-xs",
             () => window.restoreItem("rooms", room.id),
             "Restore Room"
           );
 
+          const deleteBtn = createButton(
+            "🗑️ Delete",
+            "bg-red-50 hover:bg-red-100 text-red-600 px-2.5 py-1 rounded font-medium text-xs",
+            () => window.permanentlyDeleteItem("rooms", room.id),
+            "Permanently Delete Room"
+          );
+
+          actions.appendChild(restoreBtn);
+          actions.appendChild(deleteBtn);
+
           card.appendChild(title);
-          card.appendChild(restoreBtn);
+          card.appendChild(actions);
           grid.appendChild(card);
         });
 
