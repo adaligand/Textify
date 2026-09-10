@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Clafcc Web</title>
+  <title>ClassTile Web</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
@@ -33,10 +33,6 @@
       user-select: none;
     }
 
-    /*
-      The actual dragged clone lives outside the scrollable roster.
-      This prevents overflow-y-auto from clipping it while dragging.
-    */
     #drag-layer {
       position: fixed;
       inset: 0;
@@ -95,9 +91,7 @@
 
   <!-- TOP NAVBAR -->
   <header class="bg-indigo-600 text-white p-4 shadow-md flex justify-between items-center">
-    <div
-     <div class="flex items-center gap-2 cursor-pointer" onclick="window.AppState.activeTeacherFolder = null; showView('view-home')">
-    
+    <div class="flex items-center gap-2 cursor-pointer" onclick="window.AppState.activeTeacherFolder = null; showView('view-home')">
       <span class="text-2xl font-bold tracking-wide">ClassTile Web</span>
     </div>
 
@@ -329,12 +323,14 @@
           >
             Fit
           </button>
-<button
-  onclick="openEditClassModal()"
-  class="bg-indigo-100 hover:bg-indigo-200 border border-indigo-200 px-3 py-1.5 rounded text-sm text-indigo-700 font-medium"
->
-  Edit Plan Details
-</button>
+          
+          <button
+            onclick="openEditClassModal()"
+            class="bg-indigo-100 hover:bg-indigo-200 border border-indigo-200 px-3 py-1.5 rounded text-sm text-indigo-700 font-medium"
+          >
+            Edit Plan Details
+          </button>
+          
           <button
             onclick="exportToPDF()"
             class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded text-sm font-medium"
@@ -521,6 +517,7 @@
       currentTeacher: "",
       currentClassCode: "",
       currentRoomId: "",
+      currentRoomName: "",
       activeViewMode: "teacher",
       students: [],
       roomDesks: [],
@@ -535,7 +532,7 @@
     const DESK_WIDTH = 112;
     const DESK_HEIGHT = 64;
     const ROOM_PADDING = 80;
-    const MIN_ZOOM = 0.35;
+    const MIN_ZOOM = 0.05; // Lowered to allow large rooms to adapt cleanly
     const MAX_ZOOM = 2.5;
     const ZOOM_STEP = 0.1;
 
@@ -629,6 +626,7 @@
         );
       });
 
+      updateRoomDeskNumbers();
       showView("view-room-builder");
     };
 
@@ -654,6 +652,20 @@
     };
 
 
+    function updateRoomDeskNumbers() {
+      const canvas = document.getElementById("room-canvas");
+      if (!canvas) return;
+
+      const deskElements = canvas.querySelectorAll(".room-desk-item");
+      deskElements.forEach((desk, index) => {
+        const label = desk.querySelector(".desk-label");
+        if (label) {
+          label.textContent = `Desk ${index + 1}`;
+        }
+      });
+    }
+
+
     function renderRoomDeskElement(left, top) {
       const canvas = document.getElementById("room-canvas");
 
@@ -663,14 +675,32 @@
         "room-desk-item absolute w-28 h-16 bg-indigo-100 border-2 " +
         "border-indigo-500 rounded cursor-move flex items-center " +
         "justify-center text-xs font-bold text-indigo-800 " +
-        "select-none shadow-sm";
+        "select-none shadow-sm relative";
 
       desk.style.left = `${left}px`;
       desk.style.top = `${top}px`;
 
-      desk.textContent = "Desk";
+      const label = document.createElement("span");
+      label.className = "desk-label pointer-events-none";
+      desk.appendChild(label);
+
+      // Remove button for room builder
+      const removeBtn = document.createElement("button");
+      removeBtn.className =
+        "absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 hover:bg-red-600 " +
+        "text-white rounded-full text-[9px] flex items-center justify-center " +
+        "font-bold z-10 shadow-sm cursor-pointer";
+      removeBtn.textContent = "✕";
+      removeBtn.title = "Delete desk";
+      removeBtn.onclick = (e) => {
+        e.stopPropagation();
+        desk.remove();
+        updateRoomDeskNumbers();
+      };
+      desk.appendChild(removeBtn);
 
       canvas.appendChild(desk);
+      updateRoomDeskNumbers();
 
       interact(desk).draggable({
         modifiers: [
@@ -933,76 +963,99 @@
         .classList.add("hidden");
     };
 
-window.openEditClassModal = async function() {
-  document.getElementById("modal-class-title").textContent = "Edit Seating Plan Details";
-  document.getElementById("input-teacher-name").value = window.AppState.currentTeacher;
-  document.getElementById("input-class-code").value = window.AppState.currentClassCode;
-  
-  await populateRoomDropdown();
-  document.getElementById("select-room-design").value = window.AppState.currentRoomId;
-  
-  // Populate the textarea with current roster
-  const rosterText = window.AppState.students.map(s => s.name).join('\n');
-  document.getElementById("input-batch-roster").value = rosterText;
-  
-  document.getElementById("modal-new-class").classList.remove("hidden");
-};
 
-// Replace your existing window.confirmCreateNewClass with this:
-window.confirmCreateNewClass = async function() {
-  const teacher = document.getElementById("input-teacher-name").value.trim();
-  const code = document.getElementById("input-class-code").value.trim();
-  const roomId = document.getElementById("select-room-design").value;
-  const rosterRaw = document.getElementById("input-batch-roster").value.trim();
+    window.openEditClassModal = async function() {
+      document.getElementById("modal-class-title").textContent = "Edit Seating Plan Details";
+      document.getElementById("input-teacher-name").value = window.AppState.currentTeacher;
+      document.getElementById("input-class-code").value = window.AppState.currentClassCode;
+      
+      await populateRoomDropdown();
+      document.getElementById("select-room-design").value = window.AppState.currentRoomId;
+      
+      // Populate textarea with current roster
+      const rosterText = window.AppState.students.map(s => s.name).join('\n');
+      document.getElementById("input-batch-roster").value = rosterText;
+      
+      document.getElementById("modal-new-class").classList.remove("hidden");
+    };
 
-  if (!teacher || !code || !roomId || !rosterRaw) {
-    alert("Fill in all required fields.");
-    return;
-  }
 
-  const studentNames = rosterRaw.split(/\r?\n/).map(name => name.trim()).filter(Boolean);
+    window.confirmCreateNewClass = async function() {
+      const teacher = document.getElementById("input-teacher-name").value.trim();
+      const code = document.getElementById("input-class-code").value.trim();
+      const roomId = document.getElementById("select-room-design").value;
+      const rosterRaw = document.getElementById("input-batch-roster").value.trim();
 
-  if (studentNames.length === 0) {
-    alert("Enter at least one student.");
-    return;
-  }
+      if (!teacher || !code || !roomId || !rosterRaw) {
+        alert("Fill in all required fields.");
+        return;
+      }
 
-  // Reconcile roster to preserve assigned seats and flags for existing students
-  const existingStudents = window.AppState.students || [];
-  const timestamp = Date.now();
-  const newStudents = studentNames.map((name, index) => {
-    const existing = existingStudents.find(s => s.name.toLowerCase() === name.toLowerCase());
-    if (existing) return existing; 
-    return { id: `s_${timestamp}_${index}`, name, seatIndex: null };
-  });
+      const studentNames = rosterRaw.split(/\r?\n/).map(name => name.trim()).filter(Boolean);
 
-  // Update room layout if the room was changed
-  if (window.AppState.currentRoomId !== roomId || !window.AppState.roomDesks.length) {
-    const roomSnap = await getDoc(doc(db, "rooms", roomId));
-    if (!roomSnap.exists()) {
-      alert("The selected room no longer exists.");
-      return;
-    }
-    const roomData = roomSnap.data();
-    window.AppState.roomDesks = Array.isArray(roomData.deskLayout) ? roomData.deskLayout : [];
-  }
+      if (studentNames.length === 0) {
+        alert("Enter at least one student.");
+        return;
+      }
 
-  window.AppState.currentTeacher = teacher;
-  window.AppState.currentClassCode = code;
-  window.AppState.currentRoomId = roomId;
-  window.AppState.students = newStudents;
-  
-  // Unassign students if they are seated at a desk index that no longer exists in a newly selected, smaller room
-  window.AppState.students.forEach(s => {
-    if (s.seatIndex !== null && s.seatIndex >= window.AppState.roomDesks.length) {
-      s.seatIndex = null;
-    }
-  });
+      // Smart Roster Reconciliation:
+      // Preserves seat assignment and flags even if spelling of name changes
+      const existingStudents = window.AppState.students || [];
+      const usedExistingIds = new Set();
+      const timestamp = Date.now();
 
-  closeNewClassModal();
-  renderSeatingChartWorkspace();
-  showView("view-chart");
-};
+      const newStudents = studentNames.map((name, index) => {
+        // 1. Check exact/case-insensitive name match
+        let matched = existingStudents.find(
+          s => !usedExistingIds.has(s.id) && s.name.toLowerCase() === name.toLowerCase()
+        );
+
+        // 2. Fall back to row index match (spelling typo edit on existing student)
+        if (!matched && existingStudents[index] && !usedExistingIds.has(existingStudents[index].id)) {
+          matched = existingStudents[index];
+        }
+
+        if (matched) {
+          usedExistingIds.add(matched.id);
+          return {
+            ...matched,
+            name: name // Update spelling
+          };
+        }
+
+        return {
+          id: `s_${timestamp}_${index}`,
+          name: name,
+          seatIndex: null
+        };
+      });
+
+      // Fetch room layout
+      const roomSnap = await getDoc(doc(db, "rooms", roomId));
+      if (!roomSnap.exists()) {
+        alert("The selected room no longer exists.");
+        return;
+      }
+      const roomData = roomSnap.data();
+
+      window.AppState.currentTeacher = teacher;
+      window.AppState.currentClassCode = code;
+      window.AppState.currentRoomId = roomId;
+      window.AppState.currentRoomName = roomData.roomName || "";
+      window.AppState.roomDesks = Array.isArray(roomData.deskLayout) ? roomData.deskLayout : [];
+      window.AppState.students = newStudents;
+      
+      // Unassign students if seat index exceeds new room size
+      window.AppState.students.forEach(s => {
+        if (s.seatIndex !== null && s.seatIndex >= window.AppState.roomDesks.length) {
+          s.seatIndex = null;
+        }
+      });
+
+      closeNewClassModal();
+      renderSeatingChartWorkspace();
+      showView("view-chart");
+    };
 
 
     window.openPlanForEdit = async function(planId) {
@@ -1038,11 +1091,13 @@ window.confirmCreateNewClass = async function() {
       if (roomSnap.exists()) {
         const roomData = roomSnap.data();
 
+        window.AppState.currentRoomName = roomData.roomName || "";
         window.AppState.roomDesks =
           Array.isArray(roomData.deskLayout)
             ? roomData.deskLayout
             : [];
       } else {
+        window.AppState.currentRoomName = "";
         window.AppState.roomDesks = [];
       }
 
@@ -1106,7 +1161,7 @@ window.confirmCreateNewClass = async function() {
 
 
     /* ------------------------------------------------------------------
-       SEATING PLAN
+       SEATING PLAN WORKSPACE
     ------------------------------------------------------------------ */
 
 
@@ -1114,8 +1169,9 @@ window.confirmCreateNewClass = async function() {
       document.getElementById("chart-title").textContent =
         `${window.AppState.currentClassCode} Seating Plan`;
 
+      const roomText = window.AppState.currentRoomName ? ` | Room: ${window.AppState.currentRoomName}` : "";
       document.getElementById("chart-subtitle").textContent =
-        `Teacher: ${window.AppState.currentTeacher}`;
+        `Teacher: ${window.AppState.currentTeacher}${roomText}`;
 
       renderUnassignedBench();
       renderCanvasDesks();
@@ -1217,160 +1273,160 @@ window.confirmCreateNewClass = async function() {
       };
     }
 
- function calculateAutoZoom() {
-  const canvas = document.getElementById("seating-canvas");
-  const bounds = getRoomBounds(); // Define bounds here
-  if (!canvas || !bounds) return 1;
 
-  const padding = ROOM_PADDING;
-  const availableWidth = canvas.clientWidth - padding;
-  const availableHeight = canvas.clientHeight - padding;
-  
-  // Define width and height based on bounds
-  const roomWidth = bounds.width; 
-  const roomHeight = bounds.height;
+    function calculateAutoZoom() {
+      const canvas = document.getElementById("seating-canvas");
+      const bounds = getRoomBounds();
+      if (!canvas || !bounds) return 1;
 
-  if (roomWidth <= 0 || roomHeight <= 0) return 1;
+      const totalStageWidth = bounds.width + ROOM_PADDING;
+      const totalStageHeight = bounds.height + ROOM_PADDING;
 
-  const scaleX = availableWidth / roomWidth;
-  const scaleY = availableHeight / roomHeight;
+      if (totalStageWidth <= 0 || totalStageHeight <= 0) return 1;
 
-  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(scaleX, scaleY)));
-}
+      const scaleX = canvas.clientWidth / totalStageWidth;
+      const scaleY = canvas.clientHeight / totalStageHeight;
 
-function renderCanvasDesks() {
-  const stage = document.getElementById("room-stage"); 
-  const canvas = document.getElementById("seating-canvas");
-  if (!stage || !canvas) return;
-
-  stage.innerHTML = "";
-
-  const zoom = getSeatingZoom();
-  const bounds = getRoomBounds();
-  const roomWidth = bounds.width;
-  const roomHeight = bounds.height;
-  const desks = window.AppState.roomDesks; 
-
-  stage.style.width = `${roomWidth}px`;
-  stage.style.height = `${roomHeight}px`;
-
-  // Center stage inside canvas viewport
-  stage.style.left = `${Math.max(0, (canvas.clientWidth - roomWidth * zoom) / 2)}px`;
-  stage.style.top = `${Math.max(0, (canvas.clientHeight - roomHeight * zoom) / 2)}px`;
-  stage.style.transformOrigin = "0 0";
-  stage.style.transform = `scale(${zoom})`;
-
-  const isFlipped = window.AppState.activeViewMode === "flipped";
-  const isTeacherView = window.AppState.activeViewMode === "teacher";
-
-  desks.forEach((desk, index) => {
-    const deskElement = document.createElement("div");
-
-    const rawLeft = Number(desk.left) || 0;
-    const rawTop = Number(desk.top) || 0;
-
-    let left = rawLeft - bounds.minX + ROOM_PADDING / 2;
-    let top = rawTop - bounds.minY + ROOM_PADDING / 2;
-
-    if (isFlipped) {
-      left = roomWidth - (rawLeft - bounds.minX) - DESK_WIDTH - ROOM_PADDING / 2;
-      top = roomHeight - (rawTop - bounds.minY) - DESK_HEIGHT - ROOM_PADDING / 2;
+      const fitScale = Math.min(scaleX, scaleY);
+      return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, fitScale));
     }
 
-    deskElement.style.left = `${left}px`;
-    deskElement.style.top = `${top}px`;
-    deskElement.style.position = "absolute";
-    deskElement.dataset.seatIndex = String(index);
 
-    const assignedStudent = window.AppState.students.find(
-      student => student.seatIndex !== null && Number(student.seatIndex) === index
-    );
+    function renderCanvasDesks() {
+      const stage = document.getElementById("room-stage"); 
+      const canvas = document.getElementById("seating-canvas");
+      if (!stage || !canvas) return;
 
-    if (assignedStudent) {
-      deskElement.className =
-        "desk-slot room-desk border-2 border-emerald-500 rounded bg-emerald-100 " +
-        "flex flex-col items-center justify-between p-1 text-xs font-bold text-emerald-900 " +
-        "shadow-md cursor-pointer student-card z-20 overflow-hidden relative group";
+      stage.innerHTML = "";
 
-      deskElement.dataset.studentId = assignedStudent.id;
+      const zoom = getSeatingZoom();
+      const bounds = getRoomBounds();
+      const totalStageWidth = bounds.width + ROOM_PADDING;
+      const totalStageHeight = bounds.height + ROOM_PADDING;
+      const desks = window.AppState.roomDesks; 
 
-      // --- Unassign Button ---
-      const removeBtn = document.createElement("button");
-      removeBtn.className =
-        "absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 hover:bg-red-600 " +
-        "text-white rounded-full text-[9px] flex items-center justify-center " +
-        "font-bold z-30 shadow-sm cursor-pointer";
-      removeBtn.textContent = "✕";
-      removeBtn.title = "Unassign student";
-      removeBtn.onclick = (e) => {
-        e.stopPropagation();
-        unassignStudent(assignedStudent.id);
-      };
-      deskElement.appendChild(removeBtn);
+      stage.style.width = `${totalStageWidth}px`;
+      stage.style.height = `${totalStageHeight}px`;
 
-      // --- Name Parsing ---
-      const fullName = (assignedStudent.name || "").trim();
-      const nameParts = fullName.split(/\s+/);
-      const firstName = nameParts[0] || "";
-      const lastName = nameParts.slice(1).join(" ") || "";
+      // Center stage inside canvas viewport
+      const scaledWidth = totalStageWidth * zoom;
+      const scaledHeight = totalStageHeight * zoom;
+      stage.style.left = `${Math.max(0, (canvas.clientWidth - scaledWidth) / 2)}px`;
+      stage.style.top = `${Math.max(0, (canvas.clientHeight - scaledHeight) / 2)}px`;
+      stage.style.transformOrigin = "0 0";
+      stage.style.transform = `scale(${zoom})`;
 
-      // --- Line 1: First Name ---
-      const firstNameEl = document.createElement("span");
-      firstNameEl.className = "font-bold text-xs truncate w-full text-center px-1 leading-tight pointer-events-none";
-      firstNameEl.textContent = firstName;
-      deskElement.appendChild(firstNameEl);
+      const isFlipped = window.AppState.activeViewMode === "flipped";
+      const isTeacherView = window.AppState.activeViewMode === "teacher";
 
-      // --- Line 2: Last Name (SVG auto-scaled to remain on single line) ---
-      if (lastName) {
-        const lastNameContainer = document.createElement("div");
-        lastNameContainer.className = "w-full px-1 pointer-events-none flex justify-center items-center h-3.5";
-        
-        const svgBoxWidth = Math.max(100, lastName.length * 9);
-        lastNameContainer.innerHTML = `
-          <svg class="w-full h-full" viewBox="0 0 ${svgBoxWidth} 14" preserveAspectRatio="xMidYMid meet">
-            <text x="50%" y="11" text-anchor="middle" font-size="11" font-weight="bold" fill="#064e3b">${escapeHtml(lastName)}</text>
-          </svg>
-        `;
-        deskElement.appendChild(lastNameContainer);
-      }
+      desks.forEach((desk, index) => {
+        const deskElement = document.createElement("div");
 
-      // --- Line 3: Target Grade (Confidential - Teacher View Only) ---
-      if (isTeacherView && assignedStudent.grade) {
-        const gradeEl = document.createElement("span");
-        gradeEl.className = "text-[10px] text-emerald-800 font-semibold truncate w-full text-center px-1 leading-tight pointer-events-none";
-        gradeEl.textContent = `🎯 ${assignedStudent.grade}`;
-        deskElement.appendChild(gradeEl);
-      }
+        const rawLeft = Number(desk.left) || 0;
+        const rawTop = Number(desk.top) || 0;
 
-      // --- Line 4: Flags (Confidential - Teacher View Only) ---
-      const flagsText = getStudentFlagIcons(assignedStudent);
-      if (isTeacherView && flagsText) {
-        const flagsEl = document.createElement("span");
-        flagsEl.className = "text-[10px] text-emerald-800 font-normal truncate w-full text-center px-1 leading-tight pointer-events-none";
-        flagsEl.textContent = flagsText;
-        deskElement.appendChild(flagsEl);
-      }
+        let left = rawLeft - bounds.minX + ROOM_PADDING / 2;
+        let top = rawTop - bounds.minY + ROOM_PADDING / 2;
 
-      // Open metadata flags modal on card click
-      deskElement.onclick = () => openStudentFlagsModal(assignedStudent.id);
-    } else {
-      deskElement.className =
-        "desk-slot room-desk border-2 border-slate-300 rounded bg-white " +
-        "flex flex-col items-center justify-center text-xs shadow-sm overflow-hidden";
+        if (isFlipped) {
+          left = totalStageWidth - (rawLeft - bounds.minX + ROOM_PADDING / 2) - DESK_WIDTH;
+          top = totalStageHeight - (rawTop - bounds.minY + ROOM_PADDING / 2) - DESK_HEIGHT;
+        }
 
-      const deskNumber = document.createElement("span");
-      deskNumber.className = "text-slate-400 pointer-events-none font-medium";
-      deskNumber.textContent = `Desk ${index + 1}`;
+        deskElement.style.left = `${left}px`;
+        deskElement.style.top = `${top}px`;
+        deskElement.style.position = "absolute";
+        deskElement.dataset.seatIndex = String(index);
 
-      deskElement.appendChild(deskNumber);
+        const assignedStudent = window.AppState.students.find(
+          student => student.seatIndex !== null && Number(student.seatIndex) === index
+        );
+
+        if (assignedStudent) {
+          deskElement.className =
+            "desk-slot room-desk border-2 border-emerald-500 rounded bg-emerald-100 " +
+            "flex flex-col items-center justify-between p-1 text-xs font-bold text-emerald-900 " +
+            "shadow-md cursor-pointer student-card z-20 overflow-hidden relative group";
+
+          deskElement.dataset.studentId = assignedStudent.id;
+
+          // --- Unassign Button ---
+          const removeBtn = document.createElement("button");
+          removeBtn.className =
+            "absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 hover:bg-red-600 " +
+            "text-white rounded-full text-[9px] flex items-center justify-center " +
+            "font-bold z-30 shadow-sm cursor-pointer";
+          removeBtn.textContent = "✕";
+          removeBtn.title = "Unassign student";
+          removeBtn.onclick = (e) => {
+            e.stopPropagation();
+            unassignStudent(assignedStudent.id);
+          };
+          deskElement.appendChild(removeBtn);
+
+          // --- Name Parsing ---
+          const fullName = (assignedStudent.name || "").trim();
+          const nameParts = fullName.split(/\s+/);
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || "";
+
+          // --- Line 1: First Name ---
+          const firstNameEl = document.createElement("span");
+          firstNameEl.className = "font-bold text-xs truncate w-full text-center px-1 leading-tight pointer-events-none";
+          firstNameEl.textContent = firstName;
+          deskElement.appendChild(firstNameEl);
+
+          // --- Line 2: Last Name ---
+          if (lastName) {
+            const lastNameContainer = document.createElement("div");
+            lastNameContainer.className = "w-full px-1 pointer-events-none flex justify-center items-center h-3.5";
+            
+            const svgBoxWidth = Math.max(100, lastName.length * 9);
+            lastNameContainer.innerHTML = `
+              <svg class="w-full h-full" viewBox="0 0 ${svgBoxWidth} 14" preserveAspectRatio="xMidYMid meet">
+                <text x="50%" y="11" text-anchor="middle" font-size="11" font-weight="bold" fill="#064e3b">${escapeHtml(lastName)}</text>
+              </svg>
+            `;
+            deskElement.appendChild(lastNameContainer);
+          }
+
+          // --- Line 3: Target Grade (Confidential - Teacher View) ---
+          if (isTeacherView && assignedStudent.grade) {
+            const gradeEl = document.createElement("span");
+            gradeEl.className = "text-[10px] text-emerald-800 font-semibold truncate w-full text-center px-1 leading-tight pointer-events-none";
+            gradeEl.textContent = `🎯 ${assignedStudent.grade}`;
+            deskElement.appendChild(gradeEl);
+          }
+
+          // --- Line 4: Flags (Confidential - Teacher View) ---
+          const flagsHTML = getStudentFlagIconsHTML(assignedStudent);
+          if (isTeacherView && flagsHTML) {
+            const flagsEl = document.createElement("span");
+            flagsEl.className = "text-[10px] text-emerald-800 font-normal truncate w-full text-center px-1 leading-tight pointer-events-none";
+            flagsEl.innerHTML = flagsHTML;
+            deskElement.appendChild(flagsEl);
+          }
+
+          deskElement.onclick = () => openStudentFlagsModal(assignedStudent.id);
+        } else {
+          deskElement.className =
+            "desk-slot room-desk border-2 border-slate-300 rounded bg-white " +
+            "flex flex-col items-center justify-center text-xs shadow-sm overflow-hidden";
+
+          const deskNumber = document.createElement("span");
+          deskNumber.className = "text-slate-400 pointer-events-none font-medium";
+          deskNumber.textContent = `Desk ${index + 1}`;
+
+          deskElement.appendChild(deskNumber);
+        }
+
+        stage.appendChild(deskElement);
+      });
+
+      updateZoomDisplay();
+      setupDragAndDrop();
     }
 
-    stage.appendChild(deskElement);
-  });
-
-  updateZoomDisplay();
-  setupDragAndDrop();
-}
 
     function getSeatingZoom() {
       return window.AppState.seatingZoom ??
@@ -1378,85 +1434,34 @@ function renderCanvasDesks() {
     }
 
 
-   
     /* ------------------------------------------------------------------
-       ROBUST DRAG ENGINE
+       DRAG ENGINE
     ------------------------------------------------------------------ */
 
 
     function cleanupDragState() {
-  document.body.classList.remove("dragging-active");
+      document.body.classList.remove("dragging-active");
 
-  document.querySelectorAll(".drag-source-hidden").forEach(element => {
-    element.classList.remove("drag-source-hidden");
-  });
+      document.querySelectorAll(".drag-source-hidden").forEach(element => {
+        element.classList.remove("drag-source-hidden");
+      });
 
-  document.querySelectorAll(".drop-highlight").forEach(element => {
-    element.classList.remove("drop-highlight");
-  });
+      document.querySelectorAll(".drop-highlight").forEach(element => {
+        element.classList.remove("drop-highlight");
+      });
 
-  document.querySelectorAll(".bench-drop-highlight").forEach(element => {
-    element.classList.remove("bench-drop-highlight");
-  });
+      document.querySelectorAll(".bench-drop-highlight").forEach(element => {
+        element.classList.remove("bench-drop-highlight");
+      });
 
-  document.querySelectorAll("[data-dragging='true']").forEach(element => {
-    element.removeAttribute("data-dragging");
-  });
+      document.querySelectorAll("[data-dragging='true']").forEach(element => {
+        element.removeAttribute("data-dragging");
+      });
 
-  // ADD THIS LINE: Destroys all visual drag clones to prevent duplicates
-  document.getElementById("drag-layer").innerHTML = "";
+      document.getElementById("drag-layer").innerHTML = "";
 
-  window.AppState.dragState.active = false;
-  window.AppState.dragState.target = null;
-}
-
-
-    function installGlobalDragRecovery() {
-      const cleanup = () => {
-        if (window.AppState.dragState.active) {
-          cleanupDragState();
-        }
-      };
-
-      window.addEventListener(
-        "pointerup",
-        cleanup,
-        true
-      );
-
-      window.addEventListener(
-        "pointercancel",
-        cleanup,
-        true
-      );
-
-      window.addEventListener(
-        "mouseup",
-        cleanup,
-        true
-      );
-
-      window.addEventListener(
-        "touchend",
-        cleanup,
-        true
-      );
-
-      window.addEventListener(
-        "touchcancel",
-        cleanup,
-        true
-      );
-
-      window.addEventListener(
-        "blur",
-        cleanup
-      );
-
-      document.addEventListener(
-        "visibilitychange",
-        cleanup
-      );
+      window.AppState.dragState.active = false;
+      window.AppState.dragState.target = null;
     }
 
 
@@ -1476,292 +1481,255 @@ function renderCanvasDesks() {
       setupDeskDropzones();
       setupBenchDropzone();
     }
-let dragClone = null;
 
-function setupStudentDraggable() {
-  interact(".student-card").draggable({
-    inertia: false,
-    autoScroll: true,
 
-    listeners: {
-      start(event) {
-        const target = event.target;
-        window.AppState.dragState.active = true;
-        window.AppState.dragState.target = target;
+    function setupStudentDraggable() {
+      interact(".student-card").draggable({
+        inertia: false,
+        autoScroll: true,
 
-        document.body.classList.add("dragging-active");
-        target.dataset.dragging = "true";
-        target.classList.add("drag-source-hidden");
+        listeners: {
+          start(event) {
+            const target = event.target;
+            window.AppState.dragState.active = true;
+            window.AppState.dragState.target = target;
 
-        // Force wipe the layer in case an old clone got stuck
-        document.getElementById("drag-layer").innerHTML = "";
+            document.body.classList.add("dragging-active");
+            target.dataset.dragging = "true";
+            target.classList.add("drag-source-hidden");
 
-        const dragClone = target.cloneNode(true);
-        dragClone.id = "active-drag-clone"; 
-        dragClone.classList.remove("drag-source-hidden");
-        dragClone.classList.add("drag-ghost");
-        
-        // CRITICAL: Force the clone to ignore the mouse so the dropzone can see the cursor
-        dragClone.style.pointerEvents = "none";
-        
-        document.getElementById("drag-layer").appendChild(dragClone);
-        
-        // Use clientX/clientY for standard cursor tracking
-        dragClone.style.left = `${event.clientX}px`;
-        dragClone.style.top = `${event.clientY}px`;
-      },
+            document.getElementById("drag-layer").innerHTML = "";
 
-      move(event) {
-        const target = event.target;
-        const zoom = getSeatingZoom() || 1;
+            const dragClone = target.cloneNode(true);
+            dragClone.id = "active-drag-clone"; 
+            dragClone.classList.remove("drag-source-hidden");
+            dragClone.classList.add("drag-ghost");
+            
+            dragClone.style.pointerEvents = "none";
+            
+            document.getElementById("drag-layer").appendChild(dragClone);
+            
+            dragClone.style.left = `${event.clientX}px`;
+            dragClone.style.top = `${event.clientY}px`;
+          },
 
-        const x = (parseFloat(target.getAttribute("data-x")) || 0) + (event.dx / zoom);
-        const y = (parseFloat(target.getAttribute("data-y")) || 0) + (event.dy / zoom);
+          move(event) {
+            const target = event.target;
+            const zoom = getSeatingZoom() || 1;
 
-        target.style.transform = `translate(${x}px, ${y}px)`;
-        target.setAttribute("data-x", String(x));
-        target.setAttribute("data-y", String(y));
+            const x = (parseFloat(target.getAttribute("data-x")) || 0) + (event.dx / zoom);
+            const y = (parseFloat(target.getAttribute("data-y")) || 0) + (event.dy / zoom);
 
-        const dragClone = document.getElementById("active-drag-clone");
-        if (dragClone) {
-          dragClone.style.left = `${event.clientX}px`;
-          dragClone.style.top = `${event.clientY}px`;
+            target.style.transform = `translate(${x}px, ${y}px)`;
+            target.setAttribute("data-x", String(x));
+            target.setAttribute("data-y", String(y));
+
+            const dragClone = document.getElementById("active-drag-clone");
+            if (dragClone) {
+              dragClone.style.left = `${event.clientX}px`;
+              dragClone.style.top = `${event.clientY}px`;
+            }
+          },
+
+          end(event) {
+            const target = event.target;
+            target.style.transform = "";
+            target.removeAttribute("data-x");
+            target.removeAttribute("data-y");
+            
+            document.getElementById("drag-layer").innerHTML = "";
+            cleanupDragState();
+          },
+
+          cancel(event) {
+            if (event && event.target) {
+              event.target.style.transform = "";
+              event.target.removeAttribute("data-x");
+              event.target.removeAttribute("data-y");
+            }
+            
+            document.getElementById("drag-layer").innerHTML = "";
+            cleanupDragState();
+          }
         }
-      },
-
-      end(event) {
-        const target = event.target;
-        target.style.transform = "";
-        target.removeAttribute("data-x");
-        target.removeAttribute("data-y");
-        
-        document.getElementById("drag-layer").innerHTML = ""; // Force clear
-        cleanupDragState();
-      },
-
-      cancel(event) {
-        if (event && event.target) {
-          event.target.style.transform = "";
-          event.target.removeAttribute("data-x");
-          event.target.removeAttribute("data-y");
-        }
-        
-        document.getElementById("drag-layer").innerHTML = ""; // Force clear
-        cleanupDragState();
-      }
+      });
     }
-  });
-}
+
+
     function setupDeskDropzones() {
       interact(".desk-slot").dropzone({
         accept: ".student-card",
         overlap: "pointer",
 
         ondragenter(event) {
-          event.target.classList.add(
-            "drop-highlight"
-          );
+          event.target.classList.add("drop-highlight");
         },
 
         ondragleave(event) {
-          event.target.classList.remove(
-            "drop-highlight"
-          );
+          event.target.classList.remove("drop-highlight");
         },
 
         ondrop(event) {
-          const studentId =
-            event.relatedTarget.dataset.studentId;
-
-          const seatIndex =
-            Number(
-              event.target.dataset.seatIndex
-            );
+          const studentId = event.relatedTarget.dataset.studentId;
+          const seatIndex = Number(event.target.dataset.seatIndex);
 
           if (!studentId || Number.isNaN(seatIndex)) {
             return;
           }
 
-          assignStudentToSeat(
-            studentId,
-            seatIndex
-          );
+          assignStudentToSeat(studentId, seatIndex);
         },
 
         ondropdeactivate(event) {
-          event.target.classList.remove(
-            "drop-highlight"
-          );
+          event.target.classList.remove("drop-highlight");
         }
       });
     }
 
-function getStudentFlagIcons(student) {
-  let flags = [];
-  if (student.eal) flags.push("🌍");
-  if (student.pp) flags.push("🅿️");
-  if (student.gt) flags.push("⭐");
-  if (student.sen) flags.push("🅺");
-  if (student.lac) flags.push("❤️");
-  if (student.med) flags.push("🚑");
-  if (student.yc) flags.push("C");
-  return flags.join(" ");
-}
 
-function openStudentFlagsModal(studentId) {
-  const student = window.AppState.students.find(s => s.id === studentId);
-  if (!student) return;
+    function getStudentFlagIconsHTML(student) {
+      let flags = [];
+      if (student.eal) flags.push("🌍");
+      if (student.pp) flags.push("🅿️");
+      if (student.gt) flags.push("⭐");
+      if (student.sen) flags.push("🅺");
+      if (student.lac) flags.push("❤️");
+      if (student.med) flags.push("🚑");
+      // Bold Orange Capital C for Young Carer
+      if (student.yc) flags.push('<span class="font-bold text-orange-500" style="color: #ea580c; font-weight: bold;">C</span>');
+      return flags.join(" ");
+    }
 
-  let modal = document.getElementById("student-flags-modal");
-  if (!modal) {
-    modal = document.createElement("div");
-    modal.id = "student-flags-modal";
-    document.body.appendChild(modal);
-  }
 
-  modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4";
-  modal.innerHTML = `
-    <div class="bg-white rounded-lg shadow-xl max-w-sm w-full p-5 space-y-4">
-      <div class="flex justify-between items-center border-b pb-2">
-        <h3 class="font-bold text-slate-800 text-base">${student.name} — Flags</h3>
-        <button id="btn-close-flags" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
-      </div>
+    function openStudentFlagsModal(studentId) {
+      const student = window.AppState.students.find(s => s.id === studentId);
+      if (!student) return;
 
-      <div class="space-y-3 text-xs text-slate-700">
-        <div>
-          <label class="block font-semibold text-slate-500 mb-1">Target / Grade</label>
-          <input type="text" id="flag-grade" value="${student.grade || ''}" placeholder="e.g. 7A" class="w-full border rounded px-2 py-1">
+      let modal = document.getElementById("student-flags-modal");
+      if (!modal) {
+        modal = document.createElement("div");
+        modal.id = "student-flags-modal";
+        document.body.appendChild(modal);
+      }
+
+      modal.className = "fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4";
+      modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full p-5 space-y-4">
+          <div class="flex justify-between items-center border-b pb-2">
+            <h3 class="font-bold text-slate-800 text-base">${student.name} — Flags</h3>
+            <button id="btn-close-flags" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
+          </div>
+
+          <div class="space-y-3 text-xs text-slate-700">
+            <div>
+              <label class="block font-semibold text-slate-500 mb-1">Target / Grade</label>
+              <input type="text" id="flag-grade" value="${student.grade || ''}" placeholder="e.g. 7A" class="w-full border rounded px-2 py-1">
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 pt-1">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="flag-eal" ${student.eal ? 'checked' : ''}> 🌍 EAL
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="flag-pp" ${student.pp ? 'checked' : ''}> 🅿️ PP
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="flag-gt" ${student.gt ? 'checked' : ''}> ⭐ G&T
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="flag-sen" ${student.sen ? 'checked' : ''}> 🅺 SEN
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="flag-lac" ${student.lac ? 'checked' : ''}> ❤️ LAC
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" id="flag-med" ${student.med ? 'checked' : ''}> 🚑 MED
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer col-span-2">
+                <input type="checkbox" id="flag-yc" ${student.yc ? 'checked' : ''}> Young Carer (<span class="font-bold text-orange-500" style="color: #ea580c; font-weight: bold;">C</span>)
+              </label>
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-2 border-t pt-3">
+            <button id="btn-save-flags" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded font-medium">Save Flags</button>
+          </div>
         </div>
+      `;
 
-        <div class="grid grid-cols-2 gap-2 pt-1">
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="flag-eal" ${student.eal ? 'checked' : ''}> 🌍 EAL
-          </label>
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="flag-pp" ${student.pp ? 'checked' : ''}> 🅿️ PP
-          </label>
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="flag-gt" ${student.gt ? 'checked' : ''}> ⭐ G&T
-          </label>
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="flag-sen" ${student.sen ? 'checked' : ''}> 🅺 SEN
-          </label>
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="flag-lac" ${student.lac ? 'checked' : ''}> ❤️ LAC
-          </label>
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="flag-med" ${student.med ? 'checked' : ''}> 🚑 MED
-          </label>
-          <label class="flex items-center gap-2 cursor-pointer col-span-2">
-            <input type="checkbox" id="flag-yc" ${student.yc ? 'checked' : ''}> Young Carer (C)
-          </label>
-        </div>
-      </div>
+      document.getElementById("btn-close-flags").onclick = () => modal.remove();
+      document.getElementById("btn-save-flags").onclick = () => {
+        student.grade = document.getElementById("flag-grade").value.trim();
+        student.eal = document.getElementById("flag-eal").checked;
+        student.pp = document.getElementById("flag-pp").checked;
+        student.gt = document.getElementById("flag-gt").checked;
+        student.sen = document.getElementById("flag-sen").checked;
+        student.lac = document.getElementById("flag-lac").checked;
+        student.med = document.getElementById("flag-med").checked;
+        student.yc = document.getElementById("flag-yc").checked;
 
-      <div class="flex justify-end gap-2 border-t pt-3">
-        <button id="btn-save-flags" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded font-medium">Save Flags</button>
-      </div>
-    </div>
-  `;
+        modal.remove();
+        renderSeatingChartWorkspace();
+      };
+    }
 
-  document.getElementById("btn-close-flags").onclick = () => modal.remove();
-  document.getElementById("btn-save-flags").onclick = () => {
-    student.grade = document.getElementById("flag-grade").value.trim();
-    student.eal = document.getElementById("flag-eal").checked;
-    student.pp = document.getElementById("flag-pp").checked;
-    student.gt = document.getElementById("flag-gt").checked;
-    student.sen = document.getElementById("flag-sen").checked;
-    student.lac = document.getElementById("flag-lac").checked;
-    student.med = document.getElementById("flag-med").checked;
-    student.yc = document.getElementById("flag-yc").checked;
 
-    modal.remove();
-    renderSeatingChartWorkspace();
-  };
-}
     function setupBenchDropzone() {
       interact(".dropzone-bench").dropzone({
         accept: ".student-card",
-        overlap:"pointer",
+        overlap: "pointer",
 
         ondragenter(event) {
-          event.target.classList.add(
-            "bench-drop-highlight"
-          );
+          event.target.classList.add("bench-drop-highlight");
         },
 
         ondragleave(event) {
-          event.target.classList.remove(
-            "bench-drop-highlight"
-          );
+          event.target.classList.remove("bench-drop-highlight");
         },
 
         ondrop(event) {
-          const studentId =
-            event.relatedTarget.dataset.studentId;
+          const studentId = event.relatedTarget.dataset.studentId;
 
           if (!studentId) {
             return;
           }
 
-          unassignStudent(
-            studentId
-          );
+          unassignStudent(studentId);
         },
 
         ondropdeactivate(event) {
-          event.target.classList.remove(
-            "bench-drop-highlight"
-          );
+          event.target.classList.remove("bench-drop-highlight");
         }
       });
     }
 
 
-    function assignStudentToSeat(
-      studentId,
-      seatIndex
-    ) {
-      const student =
-        window.AppState.students.find(
-          item => item.id === studentId
-        );
+    function assignStudentToSeat(studentId, seatIndex) {
+      const student = window.AppState.students.find(item => item.id === studentId);
 
       if (!student) {
         return;
       }
 
-      const previousSeat =
-        student.seatIndex;
+      const previousSeat = student.seatIndex;
 
-      const existingStudent =
-        window.AppState.students.find(
-          item =>
-            item.id !== studentId &&
-            Number(item.seatIndex) === seatIndex
-        );
+      const existingStudent = window.AppState.students.find(
+        item => item.id !== studentId && Number(item.seatIndex) === seatIndex
+      );
 
       if (existingStudent) {
-        existingStudent.seatIndex =
-          previousSeat === null
-            ? null
-            : previousSeat;
+        existingStudent.seatIndex = previousSeat === null ? null : previousSeat;
       }
 
-      student.seatIndex =
-        seatIndex;
+      student.seatIndex = seatIndex;
 
       cleanupDragState();
-
       renderSeatingChartWorkspace();
     }
 
 
     function unassignStudent(studentId) {
-      const student =
-        window.AppState.students.find(
-          item => item.id === studentId
-        );
+      const student = window.AppState.students.find(item => item.id === studentId);
 
       if (!student) {
         return;
@@ -1770,96 +1738,130 @@ function openStudentFlagsModal(studentId) {
       student.seatIndex = null;
 
       cleanupDragState();
-
       renderSeatingChartWorkspace();
     }
 
 
     /* ------------------------------------------------------------------
-       ZOOM / FIT
+       ZOOM / FIT / VIEW MODES
     ------------------------------------------------------------------ */
 
 
-    function fitSeatingToFrame() {
-      window.AppState.seatingZoom =
-        calculateAutoZoom();
+    window.setMode = function(mode) {
+      window.AppState.activeViewMode = mode;
 
+      document.getElementById("btn-mode-teacher").className =
+        mode === "teacher"
+          ? "px-3 py-1 rounded-md bg-white shadow-sm font-medium"
+          : "px-3 py-1 rounded-md font-medium text-slate-600";
+
+      document.getElementById("btn-mode-student").className =
+        mode === "student"
+          ? "px-3 py-1 rounded-md bg-white shadow-sm font-medium"
+          : "px-3 py-1 rounded-md font-medium text-slate-600";
+
+      document.getElementById("btn-mode-flipped").className =
+        mode === "flipped"
+          ? "px-3 py-1 rounded-md bg-white shadow-sm font-medium"
+          : "px-3 py-1 rounded-md font-medium text-slate-600";
+
+      renderCanvasDesks();
+    };
+
+
+    function fitSeatingToFrame() {
+      window.AppState.seatingZoom = calculateAutoZoom();
       renderCanvasDesks();
     }
 
 
     function zoomInSeating() {
-      const current =
-        getSeatingZoom();
-
-      window.AppState.seatingZoom =
-        Math.min(
-          MAX_ZOOM,
-          current + ZOOM_STEP
-        );
-
+      const current = getSeatingZoom();
+      window.AppState.seatingZoom = Math.min(MAX_ZOOM, current + ZOOM_STEP);
       renderCanvasDesks();
     }
 
 
     function zoomOutSeating() {
-      const current =
-        getSeatingZoom();
-
-      window.AppState.seatingZoom =
-        Math.max(
-          MIN_ZOOM,
-          current - ZOOM_STEP
-        );
-
+      const current = getSeatingZoom();
+      window.AppState.seatingZoom = Math.max(MIN_ZOOM, current - ZOOM_STEP);
       renderCanvasDesks();
     }
 
 
     function updateZoomDisplay() {
-      const display =
-        document.getElementById("zoom-display");
+      const display = document.getElementById("zoom-display");
 
       if (!display) {
         return;
       }
 
-      const zoom =
-        getSeatingZoom();
-
-      const autoZoom =
-        calculateAutoZoom();
+      const zoom = getSeatingZoom();
+      const autoZoom = calculateAutoZoom();
 
       if (
         window.AppState.seatingZoom === null ||
-        window.AppState.seatingZoom === undefined
-      ) {
-        display.textContent =
-          "Auto";
-        return;
-      }
-
-      if (
+        window.AppState.seatingZoom === undefined ||
         Math.abs(zoom - autoZoom) < 0.01
       ) {
-        display.textContent =
-          "Auto";
+        display.textContent = "Auto";
         return;
       }
 
-      display.textContent =
-        `${Math.round(zoom * 100)}%`;
+      display.textContent = `${Math.round(zoom * 100)}%`;
     }
 
 
-    window.zoomInSeating =
-      zoomInSeating;
+    window.zoomInSeating = zoomInSeating;
+    window.zoomOutSeating = zoomOutSeating;
+    window.fitSeatingToFrame = fitSeatingToFrame;
 
-    window.zoomOutSeating =
-      zoomOutSeating;
 
-    window.fitSeatingToFrame =
-      fitSeatingToFrame;
+    /* ------------------------------------------------------------------
+       EXPORT TO PDF
+    ------------------------------------------------------------------ */
+
+
+    window.exportToPDF = async function() {
+      const { jsPDF } = window.jspdf;
+      const canvasElement = document.getElementById("seating-canvas");
+
+      cleanupDragState();
+      fitSeatingToFrame();
+
+      const canvas = await html2canvas(canvasElement, {
+        backgroundColor: "#f8fafc",
+        scale: 2
+      });
+
+      const imageData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("landscape", "mm", "a4");
+
+      const roomStr = window.AppState.currentRoomName ? ` - Room: ${window.AppState.currentRoomName}` : "";
+      pdf.setFontSize(14);
+      pdf.text(
+        `${window.AppState.currentClassCode} - ${window.AppState.currentTeacher}${roomStr}`,
+        10,
+        12
+      );
+
+      const pageWidth = 277;
+      const pageHeight = 175;
+      const imageRatio = canvas.width / canvas.height;
+
+      let width = pageWidth;
+      let height = width / imageRatio;
+
+      if (height > pageHeight) {
+        height = pageHeight;
+        width = height * imageRatio;
+      }
+
+      pdf.addImage(imageData, "PNG", 10, 18, width, height);
+
+      const filename = `${slugify(window.AppState.currentClassCode)}_seating_plan.pdf`;
+      pdf.save(filename);
+    };
 
 
     /* ------------------------------------------------------------------
@@ -1885,151 +1887,87 @@ function openStudentFlagsModal(studentId) {
       await setDoc(
         doc(db, "plans", planDocId),
         {
-          teacherName:
-            window.AppState.currentTeacher,
-
-          classCode:
-            window.AppState.currentClassCode,
-
-          roomId:
-            window.AppState.currentRoomId,
-
-          students:
-            window.AppState.students,
-
-          updatedAt:
-            new Date().toISOString(),
-
+          teacherName: window.AppState.currentTeacher,
+          classCode: window.AppState.currentClassCode,
+          roomId: window.AppState.currentRoomId,
+          students: window.AppState.students,
+          updatedAt: new Date().toISOString(),
           deleted: false
         }
       );
 
-      window.AppState.editingPlanId =
-        planDocId;
-
+      window.AppState.editingPlanId = planDocId;
       alert("Seating plan saved.");
     };
 
 
     /* ------------------------------------------------------------------
-       RECYCLE BIN
+       RECYCLE BIN & HOME DIRECTORY
     ------------------------------------------------------------------ */
 
 
-    window.restoreItem =
-      async function(collectionName, id) {
-        await updateDoc(
-          doc(db, collectionName, id),
-          {
-            deleted: false,
-            deletedAt: null
-          }
-        );
+    window.restoreItem = async function(collectionName, id) {
+      await updateDoc(
+        doc(db, collectionName, id),
+        {
+          deleted: false,
+          deletedAt: null
+        }
+      );
 
-        renderTrashBin();
-      };
+      renderTrashBin();
+    };
 
 
     async function purgeExpiredTrashItems() {
       const now = Date.now();
+      const cutoff = 30 * 24 * 60 * 60 * 1000;
 
-      const cutoff =
-        30 *
-        24 *
-        60 *
-        60 *
-        1000;
-
-      for (const collectionName of [
-        "rooms",
-        "plans"
-      ]) {
-        const snapshot =
-          await getDocs(
-            collection(db, collectionName)
-          );
+      for (const collectionName of ["rooms", "plans"]) {
+        const snapshot = await getDocs(collection(db, collectionName));
 
         for (const docSnap of snapshot.docs) {
-          const data =
-            docSnap.data();
+          const data = docSnap.data();
 
-          if (
-            !data.deleted ||
-            !data.deletedAt
-          ) {
+          if (!data.deleted || !data.deletedAt) {
             continue;
           }
 
-          const deletedTime =
-            new Date(
-              data.deletedAt
-            ).getTime();
+          const deletedTime = new Date(data.deletedAt).getTime();
 
-          if (
-            Number.isFinite(deletedTime) &&
-            now - deletedTime > cutoff
-          ) {
-            await deleteDoc(
-              doc(
-                db,
-                collectionName,
-                docSnap.id
-              )
-            );
+          if (Number.isFinite(deletedTime) && now - deletedTime > cutoff) {
+            await deleteDoc(doc(db, collectionName, docSnap.id));
           }
         }
       }
     }
 
 
-    /* ------------------------------------------------------------------
-       HOME DIRECTORY
-    ------------------------------------------------------------------ */
+    window.openTeacherFolder = function(teacherName) {
+      window.AppState.activeTeacherFolder = teacherName;
+      renderHomeDirectory();
+    };
 
 
-    window.openTeacherFolder =
-      function(teacherName) {
-        window.AppState.activeTeacherFolder =
-          teacherName;
-
-        renderHomeDirectory();
-      };
-
-
-    window.closeTeacherFolder =
-      function() {
-        window.AppState.activeTeacherFolder =
-          null;
-
-        renderHomeDirectory();
-      };
+    window.closeTeacherFolder = function() {
+      window.AppState.activeTeacherFolder = null;
+      renderHomeDirectory();
+    };
 
 
     async function renderHomeDirectory() {
-      const folderContainer =
-        document.getElementById(
-          "teacher-folder-list"
-        );
+      const folderContainer = document.getElementById("teacher-folder-list");
+      const planContainer = document.getElementById("teacher-plan-list");
 
-      const planContainer =
-        document.getElementById(
-          "teacher-plan-list"
-        );
+      folderContainer.innerHTML = '<span class="text-xs text-slate-400">Loading...</span>';
 
-      folderContainer.innerHTML =
-        '<span class="text-xs text-slate-400">Loading...</span>';
-
-      const planSnap =
-        await getDocs(
-          collection(db, "plans")
-        );
+      const planSnap = await getDocs(collection(db, "plans"));
 
       const teacherMap = {};
       const activePlans = [];
 
       planSnap.forEach(docSnap => {
-        const plan =
-          docSnap.data();
+        const plan = docSnap.data();
 
         if (plan.deleted) {
           return;
@@ -2040,109 +1978,65 @@ function openStudentFlagsModal(studentId) {
           ...plan
         };
 
-        activePlans.push(
-          activePlan
-        );
+        activePlans.push(activePlan);
 
-        const teacherName =
-          plan.teacherName ||
-          "Unassigned";
-
-        teacherMap[teacherName] =
-          (teacherMap[teacherName] || 0) + 1;
+        const teacherName = plan.teacherName || "Unassigned";
+        teacherMap[teacherName] = (teacherMap[teacherName] || 0) + 1;
       });
 
 
-      if (
-        window.AppState.activeTeacherFolder
-      ) {
-        document.getElementById(
-          "section-plans-title"
-        ).textContent =
+      if (window.AppState.activeTeacherFolder) {
+        document.getElementById("section-plans-title").textContent =
           `Teacher: ${window.AppState.activeTeacherFolder}`;
 
-        document.getElementById(
-          "btn-back-teachers"
-        ).classList.remove("hidden");
+        document.getElementById("btn-back-teachers").classList.remove("hidden");
+        folderContainer.classList.add("hidden");
+        planContainer.classList.remove("hidden");
 
-        folderContainer.classList.add(
-          "hidden"
+        const filteredPlans = activePlans.filter(
+          plan => plan.teacherName === window.AppState.activeTeacherFolder
         );
-
-        planContainer.classList.remove(
-          "hidden"
-        );
-
-        const filteredPlans =
-          activePlans.filter(
-            plan =>
-              plan.teacherName ===
-              window.AppState.activeTeacherFolder
-          );
 
         planContainer.innerHTML = "";
 
         filteredPlans.forEach(plan => {
-          const card =
-            document.createElement("div");
-
+          const card = document.createElement("div");
           card.className =
-            "bg-white p-4 rounded-lg border shadow-sm " +
-            "flex flex-col justify-between space-y-3";
+            "bg-white p-4 rounded-lg border shadow-sm flex flex-col justify-between space-y-3";
 
-          const info =
-            document.createElement("div");
+          const info = document.createElement("div");
 
-          const className =
-            document.createElement("span");
+          const className = document.createElement("span");
+          className.className = "font-bold text-base block text-slate-800";
+          className.textContent = plan.classCode;
 
-          className.className =
-            "font-bold text-base block text-slate-800";
-
-          className.textContent =
-            plan.classCode;
-
-          const studentCount =
-            document.createElement("span");
-
-          studentCount.className =
-            "text-xs text-slate-500";
-
-          studentCount.textContent =
-            `${plan.students?.length || 0} Students`;
+          const studentCount = document.createElement("span");
+          studentCount.className = "text-xs text-slate-500";
+          studentCount.textContent = `${plan.students?.length || 0} Students`;
 
           info.appendChild(className);
           info.appendChild(studentCount);
 
-          const actions =
-            document.createElement("div");
+          const actions = document.createElement("div");
+          actions.className = "flex gap-1 border-t pt-2 text-xs";
 
-          actions.className =
-            "flex gap-1 border-t pt-2 text-xs";
+          const openButton = createButton(
+            "Open",
+            "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-medium",
+            () => window.openPlanForEdit(plan.id)
+          );
 
-          const openButton =
-            createButton(
-              "Open",
-              "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-medium",
-              () =>
-                window.openPlanForEdit(plan.id)
-            );
+          const copyButton = createButton(
+            "Duplicate",
+            "bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded",
+            () => window.duplicatePlan(plan.id)
+          );
 
-          const copyButton =
-            createButton(
-              "Duplicate",
-              "bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded",
-              () =>
-                window.duplicatePlan(plan.id)
-            );
-
-          const binButton =
-            createButton(
-              "Bin",
-              "bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded ml-auto",
-              () =>
-                window.binPlan(plan.id)
-            );
+          const binButton = createButton(
+            "Bin",
+            "bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded ml-auto",
+            () => window.binPlan(plan.id)
+          );
 
           actions.appendChild(openButton);
           actions.appendChild(copyButton);
@@ -2163,77 +2057,35 @@ function openStudentFlagsModal(studentId) {
       }
 
 
-      document.getElementById(
-        "section-plans-title"
-      ).textContent =
-        "Teachers";
-
-      document.getElementById(
-        "btn-back-teachers"
-      ).classList.add("hidden");
-
-      folderContainer.classList.remove(
-        "hidden"
-      );
-
-      planContainer.classList.add(
-        "hidden"
-      );
+      document.getElementById("section-plans-title").textContent = "Teachers";
+      document.getElementById("btn-back-teachers").classList.add("hidden");
+      folderContainer.classList.remove("hidden");
+      planContainer.classList.add("hidden");
 
       folderContainer.innerHTML = "";
 
-      const teacherNames =
-        Object.keys(teacherMap)
-          .sort((a, b) =>
-            a.localeCompare(b)
-          );
+      const teacherNames = Object.keys(teacherMap).sort((a, b) => a.localeCompare(b));
 
       teacherNames.forEach(teacherName => {
-        const card =
-          document.createElement("div");
-
+        const card = document.createElement("div");
         card.className =
-          "bg-white p-4 rounded-lg border shadow-sm " +
-          "hover:border-indigo-500 hover:shadow-md cursor-pointer " +
-          "transition flex items-center gap-3";
+          "bg-white p-4 rounded-lg border shadow-sm hover:border-indigo-500 hover:shadow-md cursor-pointer transition flex items-center gap-3";
 
-        card.addEventListener(
-          "click",
-          () =>
-            window.openTeacherFolder(
-              teacherName
-            )
-        );
+        card.addEventListener("click", () => window.openTeacherFolder(teacherName));
 
-        const icon =
-          document.createElement("span");
+        const icon = document.createElement("span");
+        icon.className = "text-3xl";
+        icon.textContent = "📁";
 
-        icon.className =
-          "text-3xl";
+        const info = document.createElement("div");
 
-        icon.textContent =
-          "📁";
+        const name = document.createElement("span");
+        name.className = "font-bold text-sm block text-slate-800";
+        name.textContent = teacherName;
 
-        const info =
-          document.createElement("div");
-
-        const name =
-          document.createElement("span");
-
-        name.className =
-          "font-bold text-sm block text-slate-800";
-
-        name.textContent =
-          teacherName;
-
-        const count =
-          document.createElement("span");
-
-        count.className =
-          "text-xs text-slate-500";
-
-        count.textContent =
-          `${teacherMap[teacherName]} Plan(s)`;
+        const count = document.createElement("span");
+        count.className = "text-xs text-slate-500";
+        count.textContent = `${teacherMap[teacherName]} Plan(s)`;
 
         info.appendChild(name);
         info.appendChild(count);
@@ -2251,432 +2103,139 @@ function openStudentFlagsModal(studentId) {
     }
 
 
-    function createButton(
-      text,
-      className,
-      onClick
-    ) {
-      const button =
-        document.createElement("button");
-
-      button.className =
-        className;
-
-      button.textContent =
-        text;
-
-      button.addEventListener(
-        "click",
-        event => {
-          event.stopPropagation();
-          onClick();
-        }
-      );
-
+    function createButton(text, className, onClick) {
+      const button = document.createElement("button");
+      button.className = className;
+      button.textContent = text;
+      button.addEventListener("click", event => {
+        event.stopPropagation();
+        onClick();
+      });
       return button;
     }
 
 
     /* ------------------------------------------------------------------
-       SAVED ROOMS
+       SAVED ROOMS & TRASH
     ------------------------------------------------------------------ */
 
 
     async function renderSavedRooms() {
-      const roomContainer =
-        document.getElementById(
-          "room-list"
-        );
+      const roomContainer = document.getElementById("room-list");
+      roomContainer.innerHTML = '<span class="text-xs text-slate-400">Loading saved rooms...</span>';
 
-      roomContainer.innerHTML =
-        '<span class="text-xs text-slate-400">Loading saved rooms...</span>';
-
-      const roomSnap =
-        await getDocs(
-          collection(db, "rooms")
-        );
-
+      const roomSnap = await getDocs(collection(db, "rooms"));
       roomContainer.innerHTML = "";
 
       roomSnap.forEach(docSnap => {
-        const room =
-          docSnap.data();
+        const room = docSnap.data();
 
         if (room.deleted) {
           return;
         }
 
-        const card =
-          document.createElement("div");
-
+        const card = document.createElement("div");
         card.className =
-          "bg-white p-3 rounded-lg border shadow-sm " +
-          "flex flex-col justify-between space-y-2";
+          "bg-white p-4 rounded-lg border shadow-sm flex flex-col justify-between space-y-3";
 
-        const info =
-          document.createElement("div");
+        const info = document.createElement("div");
 
-        const name =
-          document.createElement("span");
+        const name = document.createElement("span");
+        name.className = "font-bold text-sm block text-slate-800";
+        name.textContent = room.roomName;
 
-        name.className =
-          "font-bold text-sm block text-slate-800";
-
-        name.textContent =
-          room.roomName;
-
-        const deskCount =
-          document.createElement("span");
-
-        deskCount.className =
-          "text-xs text-slate-500";
-
-        deskCount.textContent =
-          `${room.deskLayout?.length || 0} Desks`;
+        const deskCount = document.createElement("span");
+        deskCount.className = "text-xs text-slate-500";
+        deskCount.textContent = `${room.deskLayout?.length || 0} Desks`;
 
         info.appendChild(name);
         info.appendChild(deskCount);
 
-        const actions =
-          document.createElement("div");
+        const actions = document.createElement("div");
+        actions.className = "flex gap-1 border-t pt-2 text-xs";
 
-        actions.className =
-          "flex gap-1 border-t pt-2 text-xs";
-
-        actions.appendChild(
-          createButton(
-            "Edit",
-            "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-1.5 py-1 rounded",
-            () =>
-              window.openRoomBuilderForEdit(
-                docSnap.id
-              )
-          )
+        const editButton = createButton(
+          "Edit",
+          "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-medium",
+          () => window.openRoomBuilderForEdit(docSnap.id)
         );
 
-        actions.appendChild(
-          createButton(
-            "Copy",
-            "bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-1 rounded",
-            () =>
-              window.duplicateRoom(
-                docSnap.id
-              )
-          )
+        const copyButton = createButton(
+          "Duplicate",
+          "bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded",
+          () => window.duplicateRoom(docSnap.id)
         );
 
-        actions.appendChild(
-          createButton(
-            "Bin",
-            "bg-red-50 hover:bg-red-100 text-red-600 px-1.5 py-1 rounded ml-auto",
-            () =>
-              window.binRoom(
-                docSnap.id
-              )
-          )
+        const binButton = createButton(
+          "Bin",
+          "bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded ml-auto",
+          () => window.binRoom(docSnap.id)
         );
+
+        actions.appendChild(editButton);
+        actions.appendChild(copyButton);
+        actions.appendChild(binButton);
 
         card.appendChild(info);
         card.appendChild(actions);
 
         roomContainer.appendChild(card);
       });
-
-      if (!roomContainer.children.length) {
-        roomContainer.innerHTML =
-          '<span class="text-xs text-slate-400">No room designs saved.</span>';
-      }
     }
-
-
-    /* ------------------------------------------------------------------
-       TRASH
-    ------------------------------------------------------------------ */
 
 
     async function renderTrashBin() {
-      const trashContainer =
-        document.getElementById(
-          "trash-list"
-        );
+      const trashContainer = document.getElementById("trash-list");
+      trashContainer.innerHTML = '<span class="text-xs text-slate-400">Loading trash...</span>';
 
-      trashContainer.innerHTML =
-        '<span class="text-xs text-slate-400">Loading trash...</span>';
-
-      const trashItems = [];
-
-      const planSnap =
-        await getDocs(
-          collection(db, "plans")
-        );
-
-      planSnap.forEach(docSnap => {
-        const plan =
-          docSnap.data();
-
-        if (!plan.deleted) {
-          return;
-        }
-
-        trashItems.push({
-          type: "Plan",
-          name:
-            `${plan.classCode} (${plan.teacherName})`,
-          id: docSnap.id,
-          collection: "plans"
-        });
-      });
-
-
-      const roomSnap =
-        await getDocs(
-          collection(db, "rooms")
-        );
-
-      roomSnap.forEach(docSnap => {
-        const room =
-          docSnap.data();
-
-        if (!room.deleted) {
-          return;
-        }
-
-        trashItems.push({
-          type: "Room",
-          name: room.roomName,
-          id: docSnap.id,
-          collection: "rooms"
-        });
-      });
-
+      const roomSnap = await getDocs(collection(db, "rooms"));
+      const planSnap = await getDocs(collection(db, "plans"));
 
       trashContainer.innerHTML = "";
 
+      const trashedItems = [];
 
-      if (!trashItems.length) {
-        trashContainer.innerHTML =
-          '<span class="text-xs text-slate-400">Recycle Bin is empty.</span>';
+      roomSnap.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.deleted) {
+          trashedItems.push({ type: "room", id: docSnap.id, title: `Room: ${data.roomName}` });
+        }
+      });
 
-        return;
-      }
+      planSnap.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.deleted) {
+          trashedItems.push({ type: "plan", id: docSnap.id, title: `Plan: ${data.classCode} (${data.teacherName})` });
+        }
+      });
 
+      trashedItems.forEach(item => {
+        const card = document.createElement("div");
+        card.className = "bg-white p-3 rounded border flex justify-between items-center text-xs";
 
-      trashItems.forEach(item => {
-        const card =
-          document.createElement("div");
+        const title = document.createElement("span");
+        title.className = "font-medium text-slate-700 truncate mr-2";
+        title.textContent = item.title;
 
-        card.className =
-          "bg-slate-50 p-3 rounded border shadow-sm " +
-          "flex justify-between items-center text-xs";
+        const restoreBtn = createButton(
+          "Restore",
+          "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2 py-1 rounded font-medium flex-shrink-0",
+          () => window.restoreItem(item.type === "room" ? "rooms" : "plans", item.id)
+        );
 
-        const info =
-          document.createElement("div");
-
-        const name =
-          document.createElement("span");
-
-        name.className =
-          "font-semibold text-slate-700 block";
-
-        name.textContent =
-          item.name;
-
-        const type =
-          document.createElement("span");
-
-        type.className =
-          "text-[10px] text-slate-400 uppercase";
-
-        type.textContent =
-          item.type;
-
-        info.appendChild(name);
-        info.appendChild(type);
-
-        const restore =
-          createButton(
-            "Restore",
-            "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded font-medium border border-emerald-200",
-            () =>
-              window.restoreItem(
-                item.collection,
-                item.id
-              )
-          );
-
-        card.appendChild(info);
-        card.appendChild(restore);
+        card.appendChild(title);
+        card.appendChild(restoreBtn);
 
         trashContainer.appendChild(card);
       });
+
+      if (trashedItems.length === 0) {
+        trashContainer.innerHTML = '<span class="text-xs text-slate-400">Recycle bin is empty.</span>';
+      }
     }
 
 
-    /* ------------------------------------------------------------------
-       VIEW MODES
-    ------------------------------------------------------------------ */
-
-
-    window.setMode =
-      function(mode) {
-        window.AppState.activeViewMode =
-          mode;
-
-        const modes = [
-          "teacher",
-          "student",
-          "flipped"
-        ];
-
-        modes.forEach(currentMode => {
-          const button =
-            document.getElementById(
-              `btn-mode-${currentMode}`
-            );
-
-          if (!button) {
-            return;
-          }
-
-          if (currentMode === mode) {
-            button.className =
-              "px-3 py-1 rounded-md bg-white shadow-sm font-medium";
-          } else {
-            button.className =
-              "px-3 py-1 rounded-md font-medium text-slate-600";
-          }
-        });
-
-        renderCanvasDesks();
-      };
-
-
-    /* ------------------------------------------------------------------
-       PDF
-    ------------------------------------------------------------------ */
-
-
-    window.exportToPDF =
-      async function() {
-        const {
-          jsPDF
-        } = window.jspdf;
-
-        const canvasElement =
-          document.getElementById(
-            "seating-canvas"
-          );
-
-        cleanupDragState();
-
-        const canvas =
-          await html2canvas(
-            canvasElement,
-            {
-              backgroundColor: "#f8fafc",
-              scale: 2
-            }
-          );
-
-        const imageData =
-          canvas.toDataURL(
-            "image/png"
-          );
-
-        const pdf =
-          new jsPDF(
-            "landscape",
-            "mm",
-            "a4"
-          );
-
-        pdf.setFontSize(16);
-
-        pdf.text(
-          `${window.AppState.currentClassCode} - ${window.AppState.currentTeacher}`,
-          10,
-          10
-        );
-
-        const pageWidth =
-          277;
-
-        const pageHeight =
-          175;
-
-        const imageRatio =
-          canvas.width /
-          canvas.height;
-
-        let width =
-          pageWidth;
-
-        let height =
-          width /
-          imageRatio;
-
-        if (height > pageHeight) {
-          height =
-            pageHeight;
-
-          width =
-            height *
-            imageRatio;
-        }
-
-        pdf.addImage(
-          imageData,
-          "PNG",
-          10,
-          15,
-          width,
-          height
-        );
-
-        const filename =
-          `${slugify(window.AppState.currentClassCode)}_seating_plan.pdf`;
-
-        pdf.save(filename);
-      };
-
-
-    /* ------------------------------------------------------------------
-       RESIZE
-    ------------------------------------------------------------------ */
-
-
-    let resizeTimer = null;
-
-    window.addEventListener(
-      "resize",
-      () => {
-        clearTimeout(resizeTimer);
-
-        resizeTimer =
-          setTimeout(() => {
-            if (
-              window.AppState.currentView ===
-              "view-chart"
-            ) {
-              if (
-                window.AppState.seatingZoom === null ||
-                window.AppState.seatingZoom === undefined
-              ) {
-                renderCanvasDesks();
-              }
-            }
-          }, 100);
-      }
-    );
-
-
-    /* ------------------------------------------------------------------
-       INITIALIZATION
-    ------------------------------------------------------------------ */
-
-
-    installGlobalDragRecovery();
-
+    // Initialize Application
     showView("view-home");
   </script>
 </body>
