@@ -98,6 +98,37 @@
 
 <body class="bg-slate-100 text-slate-800 font-sans min-h-screen">
 
+  <!-- LOGIN OVERLAY SCREEN -->
+  <div id="login-screen" class="fixed inset-0 bg-slate-900/90 z-[999999] flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full text-center space-y-6">
+      <div class="space-y-2">
+        <h1 class="text-3xl font-extrabold text-indigo-600">ClassTile</h1>
+        <p class="text-sm text-slate-500">Teacher Authentication Required</p>
+      </div>
+
+      <div class="p-4 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 text-left space-y-1">
+        <p class="font-bold">🔒 Restricted Access</p>
+        <p>• Must sign in with <strong>@cedarsupper.co.uk</strong></p>
+        <p>• Student accounts (starting with numbers) are strictly prohibited.</p>
+      </div>
+
+      <div id="login-error" class="text-xs text-red-600 font-semibold min-h-[1.25rem]"></div>
+
+      <button
+        onclick="handleGoogleLogin()"
+        class="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold py-2.5 px-4 rounded-lg shadow-sm transition cursor-pointer"
+      >
+        <svg class="w-5 h-5" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        Sign in with Google Account
+      </button>
+    </div>
+  </div>
+
   <!-- TOP NAVBAR -->
   <header class="bg-indigo-600 text-white p-4 shadow-md flex justify-between items-center">
     <div class="flex items-center gap-2 cursor-pointer" onclick="window.AppState.activeTeacherFolder = null; showView('view-home')">
@@ -125,6 +156,17 @@
       >
         🗑️ Recycle Bin
       </button>
+
+      <!-- AUTH USER PROFILE & LOGOUT -->
+      <div id="user-profile" class="hidden flex items-center gap-2 pl-3 border-l border-indigo-400 text-xs">
+        <span id="user-email-display" class="font-medium text-indigo-100"></span>
+        <button
+          onclick="handleLogout()"
+          class="bg-indigo-800 hover:bg-indigo-900 px-2.5 py-1.5 rounded text-white font-medium transition cursor-pointer"
+        >
+          Sign Out
+        </button>
+      </div>
     </div>
   </header>
 
@@ -543,6 +585,13 @@
       deleteDoc
     } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
+    import {
+      getAuth,
+      signInWithPopup,
+      GoogleAuthProvider,
+      signOut,
+      onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBSU87WMLPKqBwpO_6fQzWF2vgXrkz1d0E",
@@ -553,10 +602,75 @@
       appId: "1:826310108132:web:315b6e4d3a732cabd75df1"
     };
 
-
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
+    const auth = getAuth(app);
+    const googleProvider = new GoogleAuthProvider();
 
+    /* ------------------------------------------------------------------
+       SECURITY & AUTHENTICATION
+    ------------------------------------------------------------------ */
+
+    function isTeacherEmail(email) {
+      if (!email) return false;
+      const clean = email.trim().toLowerCase();
+      const isCedarsDomain = clean.endsWith("@cedarsupper.co.uk");
+      const isStudent = /^\d/.test(clean); // Starts with a digit
+      return isCedarsDomain && !isStudent;
+    }
+
+    window.handleGoogleLogin = async function() {
+      const errorEl = document.getElementById("login-error");
+      if (errorEl) errorEl.textContent = "";
+
+      try {
+        const result = await signInWithPopup(auth, googleProvider);
+        const user = result.user;
+
+        if (!isTeacherEmail(user.email)) {
+          await signOut(auth);
+          if (errorEl) {
+            errorEl.textContent = "Access denied. Only teacher accounts (@cedarsupper.co.uk) are permitted.";
+          }
+        }
+      } catch (err) {
+        console.error("Login failed:", err);
+        if (errorEl) {
+          errorEl.textContent = "Sign-in failed. " + err.message;
+        }
+      }
+    };
+
+    window.handleLogout = async function() {
+      await signOut(auth);
+    };
+
+    onAuthStateChanged(auth, async (user) => {
+      const loginScreen = document.getElementById("login-screen");
+      const userProfile = document.getElementById("user-profile");
+      const userEmailDisplay = document.getElementById("user-email-display");
+      const errorEl = document.getElementById("login-error");
+
+      if (user) {
+        if (isTeacherEmail(user.email)) {
+          if (loginScreen) loginScreen.classList.add("hidden");
+          if (userProfile) userProfile.classList.remove("hidden");
+          if (userEmailDisplay) userEmailDisplay.textContent = user.email;
+          
+          showView("view-home");
+        } else {
+          await signOut(auth);
+          if (loginScreen) loginScreen.classList.remove("hidden");
+          if (userProfile) userProfile.classList.add("hidden");
+          if (errorEl) {
+            errorEl.textContent = "Access denied. Student accounts starting with numbers cannot log in.";
+          }
+        }
+      } else {
+        if (loginScreen) loginScreen.classList.remove("hidden");
+        if (userProfile) userProfile.classList.add("hidden");
+      }
+    });
 
     window.AppState = {
       currentView: "view-home",
@@ -577,14 +691,12 @@
       }
     };
 
-
     const DESK_WIDTH = 112;
     const DESK_HEIGHT = 80;
     const ROOM_PADDING = 80;
     const MIN_ZOOM = 0.05;
     const MAX_ZOOM = 2.5;
     const ZOOM_STEP = 0.1;
-
 
     function escapeHtml(value) {
       return String(value)
@@ -595,14 +707,12 @@
         .replaceAll("'", "&#039;");
     }
 
-
     function slugify(value) {
       return String(value)
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "_")
         .replace(/^_+|_+$/g, "");
     }
-
 
     window.showView = function(viewId) {
       document
@@ -634,11 +744,9 @@
       }
     };
 
-
     /* ------------------------------------------------------------------
        ROOM DESIGNER
     ------------------------------------------------------------------ */
-
 
     window.openRoomBuilderForCreate = function() {
       window.AppState.editingRoomId = null;
@@ -649,354 +757,346 @@
       showView("view-room-builder");
     };
 
+    window.openRoomBuilderForEdit = async function(roomId) {
+      window.AppState.editingRoomId = roomId;
 
-window.openRoomBuilderForEdit = async function(roomId) {
-  window.AppState.editingRoomId = roomId;
+      const docSnap = await getDoc(doc(db, "rooms", roomId));
+      if (!docSnap.exists()) return;
 
-  const docSnap = await getDoc(doc(db, "rooms", roomId));
-  if (!docSnap.exists()) return;
+      const data = docSnap.data();
+      document.getElementById("room-name-input").value = data.roomName || "";
 
-  const data = docSnap.data();
-  document.getElementById("room-name-input").value = data.roomName || "";
+      const canvas = document.getElementById("room-canvas");
+      canvas.innerHTML = "";
 
-  const canvas = document.getElementById("room-canvas");
-  canvas.innerHTML = "";
+      (data.deskLayout || []).forEach(desk => {
+        renderRoomDeskElement(
+          Number(desk.left) || 0,
+          Number(desk.top) || 0,
+          Number(desk.rotation) || 0
+        );
+      });
 
-  (data.deskLayout || []).forEach(desk => {
-    renderRoomDeskElement(
-      Number(desk.left) || 0,
-      Number(desk.top) || 0,
-      Number(desk.rotation) || 0
-    );
-  });
+      updateRoomDeskNumbers();
+      showView("view-room-builder");
+    };
 
-  updateRoomDeskNumbers();
-  showView("view-room-builder");
-};
+    window.addDeskToRoom = function() {
+      const canvas = document.getElementById("room-canvas");
+      if (!canvas) return;
 
-window.addDeskToRoom = function() {
-  const canvas = document.getElementById("room-canvas");
-  if (!canvas) return;
+      const existingDesks = Array.from(canvas.querySelectorAll(".room-desk-item")).map(desk => ({
+        left: parseFloat(desk.style.left) || 0,
+        top: parseFloat(desk.style.top) || 0
+      }));
 
-  const existingDesks = Array.from(canvas.querySelectorAll(".room-desk-item")).map(desk => ({
-    left: parseFloat(desk.style.left) || 0,
-    top: parseFloat(desk.style.top) || 0
-  }));
+      const gridStepX = 140; 
+      const gridStepY = 100; 
+      const maxCols = Math.max(1, Math.floor((canvas.clientWidth - 40) / gridStepX));
+      const maxRows = Math.max(1, Math.floor((canvas.clientHeight - 40) / gridStepY));
 
-  const gridStepX = 140; // Desk width (112px) + gap
-  const gridStepY = 100; // Desk height (80px) + gap
-  const maxCols = Math.max(1, Math.floor((canvas.clientWidth - 40) / gridStepX));
-  const maxRows = Math.max(1, Math.floor((canvas.clientHeight - 40) / gridStepY));
+      let targetLeft = 20;
+      let targetTop = 20;
+      let foundSpot = false;
 
-  let targetLeft = 20;
-  let targetTop = 20;
-  let foundSpot = false;
+      for (let r = 0; r < maxRows; r++) {
+        for (let c = 0; c < maxCols; c++) {
+          const testLeft = 20 + c * gridStepX;
+          const testTop = 20 + r * gridStepY;
 
-  // Search row-by-row within visible canvas bounds
-  for (let r = 0; r < maxRows; r++) {
-    for (let c = 0; c < maxCols; c++) {
-      const testLeft = 20 + c * gridStepX;
-      const testTop = 20 + r * gridStepY;
+          const isOccupied = existingDesks.some(
+            d => Math.abs(d.left - testLeft) < 60 && Math.abs(d.top - testTop) < 40
+          );
 
-      const isOccupied = existingDesks.some(
-        d => Math.abs(d.left - testLeft) < 60 && Math.abs(d.top - testTop) < 40
-      );
-
-      if (!isOccupied) {
-        targetLeft = testLeft;
-        targetTop = testTop;
-        foundSpot = true;
-        break;
-      }
-    }
-    if (foundSpot) break;
-  }
-
-  // Fallback: offset within visible frame if canvas is full
-  if (!foundSpot) {
-    const offset = (existingDesks.length * 20) % 100;
-    targetLeft = 20 + offset;
-    targetTop = 20 + offset;
-  }
-
-  renderRoomDeskElement(targetLeft, targetTop, 0);
-};
-
-function updateRoomDeskNumbers() {
-  const canvas = document.getElementById("room-canvas");
-  if (!canvas) return;
-
-  const deskElements = Array.from(canvas.querySelectorAll(".room-desk-item"));
-
-  // Sort spatial order: top-to-bottom, left-to-right (30px row tolerance)
-  deskElements.sort((a, b) => {
-    const topA = parseFloat(a.style.top) || 0;
-    const topB = parseFloat(b.style.top) || 0;
-    const leftA = parseFloat(a.style.left) || 0;
-    const leftB = parseFloat(b.style.left) || 0;
-
-    if (Math.abs(topA - topB) > 30) {
-      return topA - topB;
-    }
-    return leftA - leftB;
-  });
-
-  deskElements.forEach((desk, index) => {
-    const label = desk.querySelector(".desk-label");
-    if (label) {
-      label.textContent = `Desk ${index + 1}`;
-    }
-  });
-}
-
-function renderRoomDeskElement(left, top, rotation = 0) {
-  const canvas = document.getElementById("room-canvas");
-
-  const desk = document.createElement("div");
-  desk.className =
-    "room-desk-item absolute w-28 h-20 bg-indigo-100 border-2 " +
-    "border-indigo-500 rounded cursor-move flex items-center " +
-    "justify-center text-xs font-bold text-indigo-800 " +
-    "select-none shadow-sm transition-transform duration-100";
-
-  desk.style.left = `${left}px`;
-  desk.style.top = `${top}px`;
-  desk.setAttribute("data-rotation", String(rotation));
-
-  if (rotation) {
-    desk.style.transform = `rotate(${rotation}deg)`;
-  }
-
-  // Rotate button in top-left corner
-  const rotateBtn = document.createElement("button");
-  rotateBtn.className =
-    "absolute -top-1.5 -left-1.5 w-5 h-5 bg-indigo-600 hover:bg-indigo-700 " +
-    "text-white rounded-full text-[10px] flex items-center justify-center " +
-    "font-bold z-10 shadow-sm cursor-pointer";
-  rotateBtn.innerHTML = "↻";
-  rotateBtn.title = "Rotate 90°";
-  rotateBtn.onclick = (e) => {
-    e.stopPropagation();
-    let curRot = (parseInt(desk.getAttribute("data-rotation")) || 0) + 90;
-    if (curRot >= 360) curRot = 0;
-    desk.setAttribute("data-rotation", String(curRot));
-    desk.style.transform = curRot ? `rotate(${curRot}deg)` : "";
-  };
-  desk.appendChild(rotateBtn);
-
-  const label = document.createElement("span");
-  label.className = "desk-label pointer-events-none";
-  desk.appendChild(label);
-
-  // Delete button in top-right corner
-  const removeBtn = document.createElement("button");
-  removeBtn.className =
-    "absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 hover:bg-red-600 " +
-    "text-white rounded-full text-[9px] flex items-center justify-center " +
-    "font-bold z-10 shadow-sm cursor-pointer";
-  removeBtn.textContent = "✕";
-  removeBtn.title = "Delete desk";
-  removeBtn.onclick = (e) => {
-    e.stopPropagation();
-    desk.remove();
-    updateRoomDeskNumbers();
-  };
-  desk.appendChild(removeBtn);
-
-  desk.addEventListener("mousedown", () => {
-    document.querySelectorAll(".room-desk-item").forEach(d => d.style.zIndex = "1");
-    desk.style.zIndex = "10";
-  });
-
-  interact(desk).draggable({
-    modifiers: [
-      interact.modifiers.snap({
-        targets: [interact.snappers.grid({ x: 20, y: 20 })],
-        range: Infinity,
-        relativePoints: [{ x: 0, y: 0 }]
-      })
-    ],
-
-    listeners: {
-      start(event) {
-        document.body.classList.add("dragging-active");
-        event.target.classList.add("ring-2", "ring-indigo-400");
-      },
-
-      move(event) {
-        const target = event.target;
-        const x = (parseFloat(target.getAttribute("data-x")) || 0) + event.dx;
-        const y = (parseFloat(target.getAttribute("data-y")) || 0) + event.dy;
-        const currentRot = parseInt(target.getAttribute("data-rotation")) || 0;
-
-        target.style.transform = `translate(${x}px, ${y}px)${currentRot ? ` rotate(${currentRot}deg)` : ""}`;
-        target.setAttribute("data-x", x);
-        target.setAttribute("data-y", y);
-      },
-
-      end(event) {
-        const target = event.target;
-        const x = (parseFloat(target.style.left) || 0) + (parseFloat(target.getAttribute("data-x")) || 0);
-        const y = (parseFloat(target.style.top) || 0) + (parseFloat(target.getAttribute("data-y")) || 0);
-
-        let finalLeft = Math.max(0, Math.round(x / 20) * 20);
-        let finalTop = Math.max(0, Math.round(y / 20) * 20);
-
-        if (canvas) {
-          const maxLeft = Math.max(0, canvas.clientWidth - 112);
-          const maxTop = Math.max(0, canvas.clientHeight - 80);
-          finalLeft = Math.min(finalLeft, maxLeft);
-          finalTop = Math.min(finalTop, maxTop);
+          if (!isOccupied) {
+            targetLeft = testLeft;
+            targetTop = testTop;
+            foundSpot = true;
+            break;
+          }
         }
+        if (foundSpot) break;
+      }
 
-        target.style.left = `${finalLeft}px`;
-        target.style.top = `${finalTop}px`;
+      if (!foundSpot) {
+        const offset = (existingDesks.length * 20) % 100;
+        targetLeft = 20 + offset;
+        targetTop = 20 + offset;
+      }
 
-        const currentRot = parseInt(target.getAttribute("data-rotation")) || 0;
-        target.style.transform = currentRot ? `rotate(${currentRot}deg)` : "";
+      renderRoomDeskElement(targetLeft, targetTop, 0);
+    };
 
-        target.removeAttribute("data-x");
-        target.removeAttribute("data-y");
-        target.classList.remove("ring-2", "ring-indigo-400");
+    function updateRoomDeskNumbers() {
+      const canvas = document.getElementById("room-canvas");
+      if (!canvas) return;
 
+      const deskElements = Array.from(canvas.querySelectorAll(".room-desk-item"));
+
+      deskElements.sort((a, b) => {
+        const topA = parseFloat(a.style.top) || 0;
+        const topB = parseFloat(b.style.top) || 0;
+        const leftA = parseFloat(a.style.left) || 0;
+        const leftB = parseFloat(b.style.left) || 0;
+
+        if (Math.abs(topA - topB) > 30) {
+          return topA - topB;
+        }
+        return leftA - leftB;
+      });
+
+      deskElements.forEach((desk, index) => {
+        const label = desk.querySelector(".desk-label");
+        if (label) {
+          label.textContent = `Desk ${index + 1}`;
+        }
+      });
+    }
+
+    function renderRoomDeskElement(left, top, rotation = 0) {
+      const canvas = document.getElementById("room-canvas");
+
+      const desk = document.createElement("div");
+      desk.className =
+        "room-desk-item absolute w-28 h-20 bg-indigo-100 border-2 " +
+        "border-indigo-500 rounded cursor-move flex items-center " +
+        "justify-center text-xs font-bold text-indigo-800 " +
+        "select-none shadow-sm transition-transform duration-100";
+
+      desk.style.left = `${left}px`;
+      desk.style.top = `${top}px`;
+      desk.setAttribute("data-rotation", String(rotation));
+
+      if (rotation) {
+        desk.style.transform = `rotate(${rotation}deg)`;
+      }
+
+      const rotateBtn = document.createElement("button");
+      rotateBtn.className =
+        "absolute -top-1.5 -left-1.5 w-5 h-5 bg-indigo-600 hover:bg-indigo-700 " +
+        "text-white rounded-full text-[10px] flex items-center justify-center " +
+        "font-bold z-10 shadow-sm cursor-pointer";
+      rotateBtn.innerHTML = "↻";
+      rotateBtn.title = "Rotate 90°";
+      rotateBtn.onclick = (e) => {
+        e.stopPropagation();
+        let curRot = (parseInt(desk.getAttribute("data-rotation")) || 0) + 90;
+        if (curRot >= 360) curRot = 0;
+        desk.setAttribute("data-rotation", String(curRot));
+        desk.style.transform = curRot ? `rotate(${curRot}deg)` : "";
+      };
+      desk.appendChild(rotateBtn);
+
+      const label = document.createElement("span");
+      label.className = "desk-label pointer-events-none";
+      desk.appendChild(label);
+
+      const removeBtn = document.createElement("button");
+      removeBtn.className =
+        "absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 hover:bg-red-600 " +
+        "text-white rounded-full text-[9px] flex items-center justify-center " +
+        "font-bold z-10 shadow-sm cursor-pointer";
+      removeBtn.textContent = "✕";
+      removeBtn.title = "Delete desk";
+      removeBtn.onclick = (e) => {
+        e.stopPropagation();
+        desk.remove();
         updateRoomDeskNumbers();
-        cleanupDragState();
-      }
-    }
-  });
+      };
+      desk.appendChild(removeBtn);
 
-  if (canvas) {
-    canvas.appendChild(desk);
-    updateRoomDeskNumbers();
-  }
-}
+      desk.addEventListener("mousedown", () => {
+        document.querySelectorAll(".room-desk-item").forEach(d => d.style.zIndex = "1");
+        desk.style.zIndex = "10";
+      });
 
-window.saveRoomLayout = async function() {
-  try {
-    const nameInput = document.getElementById("room-name-input");
-    const name = nameInput ? nameInput.value.trim() : "";
-    
-    if (!name) {
-      alert("Please enter a room name.");
-      return;
-    }
+      interact(desk).draggable({
+        modifiers: [
+          interact.modifiers.snap({
+            targets: [interact.snappers.grid({ x: 20, y: 20 })],
+            range: Infinity,
+            relativePoints: [{ x: 0, y: 0 }]
+          })
+        ],
 
-    const deskElements = Array.from(document.querySelectorAll(".room-desk-item"));
-    if (deskElements.length === 0) {
-      alert("Add at least one desk before saving.");
-      return;
-    }
+        listeners: {
+          start(event) {
+            document.body.classList.add("dragging-active");
+            event.target.classList.add("ring-2", "ring-indigo-400");
+          },
 
-    const deskLayout = deskElements.map((element, index) => ({
-      id: index,
-      left: Math.round(parseFloat(element.style.left) || 0),
-      top: Math.round(parseFloat(element.style.top) || 0),
-      rotation: parseInt(element.getAttribute("data-rotation")) || 0
-    }));
+          move(event) {
+            const target = event.target;
+            const x = (parseFloat(target.getAttribute("data-x")) || 0) + event.dx;
+            const y = (parseFloat(target.getAttribute("data-y")) || 0) + event.dy;
+            const currentRot = parseInt(target.getAttribute("data-rotation")) || 0;
 
-    const payload = {
-      roomName: name,
-      deskLayout,
-      deleted: false,
-      updatedAt: new Date().toISOString()
-    };
+            target.style.transform = `translate(${x}px, ${y}px)${currentRot ? ` rotate(${currentRot}deg)` : ""}`;
+            target.setAttribute("data-x", x);
+            target.setAttribute("data-y", y);
+          },
 
-    if (!window.AppState) window.AppState = {};
+          end(event) {
+            const target = event.target;
+            const x = (parseFloat(target.style.left) || 0) + (parseFloat(target.getAttribute("data-x")) || 0);
+            const y = (parseFloat(target.style.top) || 0) + (parseFloat(target.getAttribute("data-y")) || 0);
 
-    if (window.AppState.editingRoomId) {
-      await updateDoc(doc(db, "rooms", window.AppState.editingRoomId), payload);
+            let finalLeft = Math.max(0, Math.round(x / 20) * 20);
+            let finalTop = Math.max(0, Math.round(y / 20) * 20);
 
-      const plansSnap = await getDocs(collection(db, "plans"));
-      for (const planDoc of plansSnap.docs) {
-        const planData = planDoc.data();
-        if (planData.roomId === window.AppState.editingRoomId) {
-          let updatedStudents = Array.isArray(planData.students) ? [...planData.students] : [];
-          updatedStudents = updatedStudents.map(student => {
-            if (student.seatIndex !== null && Number(student.seatIndex) >= deskLayout.length) {
-              return { ...student, seatIndex: null };
+            if (canvas) {
+              const maxLeft = Math.max(0, canvas.clientWidth - 112);
+              const maxTop = Math.max(0, canvas.clientHeight - 80);
+              finalLeft = Math.min(finalLeft, maxLeft);
+              finalTop = Math.min(finalTop, maxTop);
             }
-            return student;
-          });
 
-          await updateDoc(doc(db, "plans", planDoc.id), {
-            students: updatedStudents,
-            updatedAt: new Date().toISOString()
-          });
+            target.style.left = `${finalLeft}px`;
+            target.style.top = `${finalTop}px`;
+
+            const currentRot = parseInt(target.getAttribute("data-rotation")) || 0;
+            target.style.transform = currentRot ? `rotate(${currentRot}deg)` : "";
+
+            target.removeAttribute("data-x");
+            target.removeAttribute("data-y");
+            target.classList.remove("ring-2", "ring-indigo-400");
+
+            updateRoomDeskNumbers();
+            cleanupDragState();
+          }
         }
+      });
+
+      if (canvas) {
+        canvas.appendChild(desk);
+        updateRoomDeskNumbers();
       }
-
-      alert("Room layout updated successfully.");
-    } else {
-      await addDoc(collection(db, "rooms"), payload);
-      alert("Room saved successfully.");
     }
 
-    if (typeof showView === "function") showView("view-saved-rooms");
-    if (typeof renderSavedRooms === "function") renderSavedRooms();
-  } catch (err) {
-    console.error("Error saving room:", err);
-    alert("Failed to save room: " + err.message);
-  }
-};
+    window.saveRoomLayout = async function() {
+      try {
+        const nameInput = document.getElementById("room-name-input");
+        const name = nameInput ? nameInput.value.trim() : "";
+        
+        if (!name) {
+          alert("Please enter a room name.");
+          return;
+        }
 
-window.duplicateRoom = async function(roomId) {
-  try {
-    const roomRef = doc(db, "rooms", roomId);
-    const roomSnap = await getDoc(roomRef);
+        const deskElements = Array.from(document.querySelectorAll(".room-desk-item"));
+        if (deskElements.length === 0) {
+          alert("Add at least one desk before saving.");
+          return;
+        }
 
-    if (!roomSnap.exists()) {
-      alert("Room not found.");
-      return;
-    }
+        const deskLayout = deskElements.map((element, index) => ({
+          id: index,
+          left: Math.round(parseFloat(element.style.left) || 0),
+          top: Math.round(parseFloat(element.style.top) || 0),
+          rotation: parseInt(element.getAttribute("data-rotation")) || 0
+        }));
 
-    const data = roomSnap.data();
-    const duplicatedData = {
-      ...data,
-      roomName: `${data.roomName} (Copy)`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+        const payload = {
+          roomName: name,
+          deskLayout,
+          deleted: false,
+          updatedAt: new Date().toISOString()
+        };
+
+        if (!window.AppState) window.AppState = {};
+
+        if (window.AppState.editingRoomId) {
+          await updateDoc(doc(db, "rooms", window.AppState.editingRoomId), payload);
+
+          const plansSnap = await getDocs(collection(db, "plans"));
+          for (const planDoc of plansSnap.docs) {
+            const planData = planDoc.data();
+            if (planData.roomId === window.AppState.editingRoomId) {
+              let updatedStudents = Array.isArray(planData.students) ? [...planData.students] : [];
+              updatedStudents = updatedStudents.map(student => {
+                if (student.seatIndex !== null && Number(student.seatIndex) >= deskLayout.length) {
+                  return { ...student, seatIndex: null };
+                }
+                return student;
+              });
+
+              await updateDoc(doc(db, "plans", planDoc.id), {
+                students: updatedStudents,
+                updatedAt: new Date().toISOString()
+              });
+            }
+          }
+
+          alert("Room layout updated successfully.");
+        } else {
+          await addDoc(collection(db, "rooms"), payload);
+          alert("Room saved successfully.");
+        }
+
+        if (typeof showView === "function") showView("view-saved-rooms");
+        if (typeof renderSavedRooms === "function") renderSavedRooms();
+      } catch (err) {
+        console.error("Error saving room:", err);
+        alert("Failed to save room: " + err.message);
+      }
     };
 
-    await addDoc(collection(db, "rooms"), duplicatedData);
-    alert("Room duplicated successfully.");
+    window.duplicateRoom = async function(roomId) {
+      try {
+        const roomRef = doc(db, "rooms", roomId);
+        const roomSnap = await getDoc(roomRef);
 
-    if (typeof renderSavedRooms === "function") {
-      renderSavedRooms();
-    }
-  } catch (err) {
-    console.error("Error duplicating room:", err);
-    alert("Failed to duplicate room: " + err.message);
-  }
-};
+        if (!roomSnap.exists()) {
+          alert("Room not found.");
+          return;
+        }
 
-window.binRoom = async function(roomId) {
-  if (!confirm("Are you sure you want to move this room to the recycle bin?")) {
-    return;
-  }
+        const data = roomSnap.data();
+        const duplicatedData = {
+          ...data,
+          roomName: `${data.roomName} (Copy)`,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
 
-  try {
-    const roomRef = doc(db, "rooms", roomId);
-    await updateDoc(roomRef, {
-      deleted: true,
-      updatedAt: new Date().toISOString()
-    });
+        await addDoc(collection(db, "rooms"), duplicatedData);
+        alert("Room duplicated successfully.");
 
-    alert("Room moved to recycle bin.");
+        if (typeof renderSavedRooms === "function") {
+          renderSavedRooms();
+        }
+      } catch (err) {
+        console.error("Error duplicating room:", err);
+        alert("Failed to duplicate room: " + err.message);
+      }
+    };
 
-    if (typeof renderSavedRooms === "function") {
-      renderSavedRooms();
-    }
-  } catch (err) {
-    console.error("Error moving room to bin:", err);
-    alert("Failed to delete room: " + err.message);
-  }
-};
+    window.binRoom = async function(roomId) {
+      if (!confirm("Are you sure you want to move this room to the recycle bin?")) {
+        return;
+      }
 
+      try {
+        const roomRef = doc(db, "rooms", roomId);
+        await updateDoc(roomRef, {
+          deleted: true,
+          updatedAt: new Date().toISOString()
+        });
+
+        alert("Room moved to recycle bin.");
+
+        if (typeof renderSavedRooms === "function") {
+          renderSavedRooms();
+        }
+      } catch (err) {
+        console.error("Error moving room to bin:", err);
+        alert("Failed to delete room: " + err.message);
+      }
+    };
 
     /* ------------------------------------------------------------------
        CLASS PLAN MODAL
     ------------------------------------------------------------------ */
-
 
     window.openNewClassModal = async function() {
       window.AppState.editingPlanId = null;
@@ -1016,7 +1116,6 @@ window.binRoom = async function(roomId) {
         .getElementById("modal-new-class")
         .classList.remove("hidden");
     };
-
 
     async function populateRoomDropdown() {
       const select =
@@ -1058,13 +1157,11 @@ window.binRoom = async function(roomId) {
       }
     }
 
-
     window.closeNewClassModal = function() {
       document
         .getElementById("modal-new-class")
         .classList.add("hidden");
     };
-
 
     window.openEditClassModal = async function() {
       document.getElementById("modal-class-title").textContent = "Edit Seating Plan Details";
@@ -1079,7 +1176,6 @@ window.binRoom = async function(roomId) {
       
       document.getElementById("modal-new-class").classList.remove("hidden");
     };
-
 
     window.confirmCreateNewClass = async function() {
       const teacher = document.getElementById("input-teacher-name").value.trim();
@@ -1152,7 +1248,6 @@ window.binRoom = async function(roomId) {
       showView("view-chart");
     };
 
-
     window.openPlanForEdit = async function(planId) {
       const planSnap =
         await getDoc(doc(db, "plans", planId));
@@ -1203,7 +1298,6 @@ window.binRoom = async function(roomId) {
       showView("view-chart");
     };
 
-
     window.duplicatePlan = async function(planId) {
       const planSnap =
         await getDoc(doc(db, "plans", planId));
@@ -1235,7 +1329,6 @@ window.binRoom = async function(roomId) {
       renderHomeDirectory();
     };
 
-
     window.binPlan = async function(planId) {
       if (!confirm(
         "Move this seating plan to the Recycle Bin?"
@@ -1254,11 +1347,9 @@ window.binRoom = async function(roomId) {
       renderHomeDirectory();
     };
 
-
     /* ------------------------------------------------------------------
        SEATING PLAN WORKSPACE
     ------------------------------------------------------------------ */
-
 
     function renderSeatingChartWorkspace() {
       document.getElementById("chart-title").textContent =
@@ -1275,7 +1366,6 @@ window.binRoom = async function(roomId) {
         fitSeatingToFrame();
       });
     }
-
 
     function renderUnassignedBench() {
       const bench =
@@ -1299,7 +1389,6 @@ window.binRoom = async function(roomId) {
       });
     }
 
-
     function createStudentCard(student) {
       const item =
         document.createElement("div");
@@ -1318,7 +1407,6 @@ window.binRoom = async function(roomId) {
 
       return item;
     }
-
 
     function getRoomBounds() {
       const desks = window.AppState.roomDesks;
@@ -1368,7 +1456,6 @@ window.binRoom = async function(roomId) {
       };
     }
 
-
     function calculateAutoZoom() {
       const canvas = document.getElementById("seating-canvas");
       const bounds = getRoomBounds();
@@ -1386,180 +1473,170 @@ window.binRoom = async function(roomId) {
       return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, fitScale));
     }
 
+    function renderCanvasDesks() {
+      const stage = document.getElementById("room-stage");
+      const canvas = document.getElementById("seating-canvas");
+      if (!stage || !canvas) return;
 
-function renderCanvasDesks() {
-  const stage = document.getElementById("room-stage");
-  const canvas = document.getElementById("seating-canvas");
-  if (!stage || !canvas) return;
+      stage.innerHTML = "";
 
-  stage.innerHTML = "";
+      const zoom = getSeatingZoom();
+      const bounds = getRoomBounds();
+      const totalStageWidth = bounds.width + ROOM_PADDING;
+      const totalStageHeight = bounds.height + ROOM_PADDING;
+      const desks = window.AppState.roomDesks;
 
-  const zoom = getSeatingZoom();
-  const bounds = getRoomBounds();
-  const totalStageWidth = bounds.width + ROOM_PADDING;
-  const totalStageHeight = bounds.height + ROOM_PADDING;
-  const desks = window.AppState.roomDesks;
+      stage.style.width = `${totalStageWidth}px`;
+      stage.style.height = `${totalStageHeight}px`;
 
-  stage.style.width = `${totalStageWidth}px`;
-  stage.style.height = `${totalStageHeight}px`;
+      const scaledWidth = totalStageWidth * zoom;
+      const scaledHeight = totalStageHeight * zoom;
+      stage.style.left = `${Math.max(0, (canvas.clientWidth - scaledWidth) / 2)}px`;
+      stage.style.top = `${Math.max(0, (canvas.clientHeight - scaledHeight) / 2)}px`;
+      stage.style.transformOrigin = "0 0";
+      stage.style.transform = `scale(${zoom})`;
 
-  const scaledWidth = totalStageWidth * zoom;
-  const scaledHeight = totalStageHeight * zoom;
-  stage.style.left = `${Math.max(0, (canvas.clientWidth - scaledWidth) / 2)}px`;
-  stage.style.top = `${Math.max(0, (canvas.clientHeight - scaledHeight) / 2)}px`;
-  stage.style.transformOrigin = "0 0";
-  stage.style.transform = `scale(${zoom})`;
+      const isFlipped = window.AppState.activeViewMode === "flipped";
+      const isTeacherView = window.AppState.activeViewMode === "teacher";
 
-  const isFlipped = window.AppState.activeViewMode === "flipped";
-  const isTeacherView = window.AppState.activeViewMode === "teacher";
+      desks.forEach((desk, index) => {
+        const deskElement = document.createElement("div");
 
-  desks.forEach((desk, index) => {
-    const deskElement = document.createElement("div");
+        const rawLeft = Number(desk.left) || 0;
+        const rawTop = Number(desk.top) || 0;
+        const rotation = Number(desk.rotation) || 0;
 
-    const rawLeft = Number(desk.left) || 0;
-    const rawTop = Number(desk.top) || 0;
-    const rotation = Number(desk.rotation) || 0;
+        let left = rawLeft - bounds.minX + ROOM_PADDING / 2;
+        let top = rawTop - bounds.minY + ROOM_PADDING / 2;
 
-    let left = rawLeft - bounds.minX + ROOM_PADDING / 2;
-    let top = rawTop - bounds.minY + ROOM_PADDING / 2;
+        if (isFlipped) {
+          left = totalStageWidth - (rawLeft - bounds.minX + ROOM_PADDING / 2) - DESK_WIDTH;
+          top = totalStageHeight - (rawTop - bounds.minY + ROOM_PADDING / 2) - DESK_HEIGHT;
+        }
 
-    if (isFlipped) {
-      left = totalStageWidth - (rawLeft - bounds.minX + ROOM_PADDING / 2) - DESK_WIDTH;
-      top = totalStageHeight - (rawTop - bounds.minY + ROOM_PADDING / 2) - DESK_HEIGHT;
+        deskElement.style.left = `${left}px`;
+        deskElement.style.top = `${top}px`;
+        deskElement.style.position = "absolute";
+        if (rotation) {
+          deskElement.style.transform = `rotate(${rotation}deg)`;
+        }
+        deskElement.dataset.seatIndex = String(index);
+
+        const assignedStudent = window.AppState.students.find(
+          student => student.seatIndex !== null && Number(student.seatIndex) === index
+        );
+
+        if (assignedStudent) {
+          deskElement.className =
+            "desk-slot room-desk border-2 border-slate-300 rounded bg-slate-100 hover:bg-slate-200/80 " +
+            "flex flex-col items-center justify-center p-1 text-slate-800 " +
+            "shadow-sm cursor-pointer student-card z-20 overflow-visible relative group transition-colors";
+
+          deskElement.dataset.studentId = assignedStudent.id;
+
+          if (isTeacherView && assignedStudent.notes && assignedStudent.notes.trim() !== "") {
+            const infoIcon = document.createElement("div");
+            infoIcon.className =
+              "absolute top-0.5 left-0.5 w-4 h-4 bg-blue-600 text-white rounded-full text-[10px] " +
+              "flex items-center justify-center font-bold font-sans z-30 shadow-sm cursor-help pointer-events-auto";
+            infoIcon.textContent = "i";
+            deskElement.appendChild(infoIcon);
+
+            const tooltip = document.createElement("div");
+            tooltip.className =
+              "hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2.5 " +
+              "bg-slate-900/95 text-white text-xs rounded-lg shadow-xl z-50 pointer-events-none " +
+              "font-normal text-left whitespace-normal border border-slate-700 backdrop-blur-sm";
+
+            const titleSpan = document.createElement("div");
+            titleSpan.className = "font-bold text-[11px] text-blue-300 mb-1 border-b border-slate-700 pb-0.5";
+            titleSpan.textContent = `Notes: ${assignedStudent.name}`;
+
+            const bodySpan = document.createElement("div");
+            bodySpan.className = "text-[11px] text-slate-200 leading-snug";
+            bodySpan.textContent = assignedStudent.notes;
+
+            tooltip.appendChild(titleSpan);
+            tooltip.appendChild(bodySpan);
+            deskElement.appendChild(tooltip);
+          }
+
+          if (isTeacherView) {
+            const removeBtn = document.createElement("button");
+            removeBtn.className =
+              "absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 hover:bg-red-600 " +
+              "text-white rounded-full text-[9px] flex items-center justify-center " +
+              "font-bold z-30 shadow-sm cursor-pointer";
+            removeBtn.textContent = "✕";
+            removeBtn.title = "Unassign student";
+            removeBtn.onclick = (e) => {
+              e.stopPropagation();
+              unassignStudent(assignedStudent.id);
+            };
+            deskElement.appendChild(removeBtn);
+          }
+
+          const fullName = (assignedStudent.name || "").trim();
+          const nameParts = fullName.split(/\s+/);
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || "";
+
+          const firstNameEl = document.createElement("span");
+          firstNameEl.className = "font-extrabold text-sm leading-tight truncate w-full text-center px-1 pointer-events-none text-slate-900";
+          firstNameEl.textContent = firstName;
+          deskElement.appendChild(firstNameEl);
+
+          if (lastName) {
+            const lastNameEl = document.createElement("span");
+            lastNameEl.className = "font-bold text-xs leading-tight truncate w-full text-center px-1 text-slate-700 pointer-events-none";
+            lastNameEl.textContent = lastName;
+            deskElement.appendChild(lastNameEl);
+          }
+
+          if (isTeacherView && assignedStudent.grade) {
+            const gradeEl = document.createElement("span");
+            gradeEl.className = "text-[10px] leading-tight text-slate-600 font-semibold truncate w-full text-center px-1 pointer-events-none";
+            gradeEl.textContent = `🎯 ${assignedStudent.grade}`;
+            deskElement.appendChild(gradeEl);
+          }
+
+          const flagsHTML = getStudentFlagIconsHTML(assignedStudent);
+          if (isTeacherView && flagsHTML) {
+            const flagsEl = document.createElement("span");
+            flagsEl.className = "text-[10px] leading-tight text-slate-600 font-normal truncate w-full text-center px-1 pointer-events-none";
+            flagsEl.innerHTML = flagsHTML;
+            deskElement.appendChild(flagsEl);
+          }
+
+          if (isTeacherView) {
+            deskElement.onclick = () => openStudentFlagsModal(assignedStudent.id);
+          }
+        } else {
+          deskElement.className =
+            "desk-slot room-desk border-2 border-slate-300 rounded bg-white " +
+            "flex flex-col items-center justify-center text-xs shadow-sm overflow-visible";
+
+          const deskNumber = document.createElement("span");
+          deskNumber.className = "text-slate-400 pointer-events-none font-medium text-center w-full";
+          deskNumber.textContent = `Desk ${index + 1}`;
+
+          deskElement.appendChild(deskNumber);
+        }
+
+        stage.appendChild(deskElement);
+      });
+
+      updateZoomDisplay();
+      setupDragAndDrop();
     }
-
-    deskElement.style.left = `${left}px`;
-    deskElement.style.top = `${top}px`;
-    deskElement.style.position = "absolute";
-    if (rotation) {
-      deskElement.style.transform = `rotate(${rotation}deg)`;
-    }
-    deskElement.dataset.seatIndex = String(index);
-
-    const assignedStudent = window.AppState.students.find(
-      student => student.seatIndex !== null && Number(student.seatIndex) === index
-    );
-
-    if (assignedStudent) {
-      deskElement.className =
-        "desk-slot room-desk border-2 border-slate-300 rounded bg-slate-100 hover:bg-slate-200/80 " +
-        "flex flex-col items-center justify-center p-1 text-slate-800 " +
-        "shadow-sm cursor-pointer student-card z-20 overflow-visible relative group transition-colors";
-
-      deskElement.dataset.studentId = assignedStudent.id;
-
-      // Information icon and hover tooltip (Teacher View ONLY)
-      if (isTeacherView && assignedStudent.notes && assignedStudent.notes.trim() !== "") {
-        const infoIcon = document.createElement("div");
-        infoIcon.className =
-          "absolute top-0.5 left-0.5 w-4 h-4 bg-blue-600 text-white rounded-full text-[10px] " +
-          "flex items-center justify-center font-bold font-sans z-30 shadow-sm cursor-help pointer-events-auto";
-        infoIcon.textContent = "i";
-        deskElement.appendChild(infoIcon);
-
-        // Hover popup showing notes
-        const tooltip = document.createElement("div");
-        tooltip.className =
-          "hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2.5 " +
-          "bg-slate-900/95 text-white text-xs rounded-lg shadow-xl z-50 pointer-events-none " +
-          "font-normal text-left whitespace-normal border border-slate-700 backdrop-blur-sm";
-
-        const titleSpan = document.createElement("div");
-        titleSpan.className = "font-bold text-[11px] text-blue-300 mb-1 border-b border-slate-700 pb-0.5";
-        titleSpan.textContent = `Notes: ${assignedStudent.name}`;
-
-        const bodySpan = document.createElement("div");
-        bodySpan.className = "text-[11px] text-slate-200 leading-snug";
-        bodySpan.textContent = assignedStudent.notes;
-
-        tooltip.appendChild(titleSpan);
-        tooltip.appendChild(bodySpan);
-        deskElement.appendChild(tooltip);
-      }
-
-      // Red cross to remove a student only present in teacher view
-      if (isTeacherView) {
-        const removeBtn = document.createElement("button");
-        removeBtn.className =
-          "absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 hover:bg-red-600 " +
-          "text-white rounded-full text-[9px] flex items-center justify-center " +
-          "font-bold z-30 shadow-sm cursor-pointer";
-        removeBtn.textContent = "✕";
-        removeBtn.title = "Unassign student";
-        removeBtn.onclick = (e) => {
-          e.stopPropagation();
-          unassignStudent(assignedStudent.id);
-        };
-        deskElement.appendChild(removeBtn);
-      }
-
-      const fullName = (assignedStudent.name || "").trim();
-      const nameParts = fullName.split(/\s+/);
-      const firstName = nameParts[0] || "";
-      const lastName = nameParts.slice(1).join(" ") || "";
-
-      // Student name elements
-      const firstNameEl = document.createElement("span");
-      firstNameEl.className = "font-extrabold text-sm leading-tight truncate w-full text-center px-1 pointer-events-none text-slate-900";
-      firstNameEl.textContent = firstName;
-      deskElement.appendChild(firstNameEl);
-
-      if (lastName) {
-        const lastNameEl = document.createElement("span");
-        lastNameEl.className = "font-bold text-xs leading-tight truncate w-full text-center px-1 text-slate-700 pointer-events-none";
-        lastNameEl.textContent = lastName;
-        deskElement.appendChild(lastNameEl);
-      }
-
-      if (isTeacherView && assignedStudent.grade) {
-        const gradeEl = document.createElement("span");
-        gradeEl.className = "text-[10px] leading-tight text-slate-600 font-semibold truncate w-full text-center px-1 pointer-events-none";
-        gradeEl.textContent = `🎯 ${assignedStudent.grade}`;
-        deskElement.appendChild(gradeEl);
-      }
-
-      const flagsHTML = getStudentFlagIconsHTML(assignedStudent);
-      if (isTeacherView && flagsHTML) {
-        const flagsEl = document.createElement("span");
-        flagsEl.className = "text-[10px] leading-tight text-slate-600 font-normal truncate w-full text-center px-1 pointer-events-none";
-        flagsEl.innerHTML = flagsHTML;
-        deskElement.appendChild(flagsEl);
-      }
-
-      // Open details modal only in Teacher View
-      if (isTeacherView) {
-        deskElement.onclick = () => openStudentFlagsModal(assignedStudent.id);
-      }
-    } else {
-      deskElement.className =
-        "desk-slot room-desk border-2 border-slate-300 rounded bg-white " +
-        "flex flex-col items-center justify-center text-xs shadow-sm overflow-visible";
-
-      const deskNumber = document.createElement("span");
-      deskNumber.className = "text-slate-400 pointer-events-none font-medium text-center w-full";
-      deskNumber.textContent = `Desk ${index + 1}`;
-
-      deskElement.appendChild(deskNumber);
-    }
-
-    stage.appendChild(deskElement);
-  });
-
-  updateZoomDisplay();
-  setupDragAndDrop();
-}
-
 
     function getSeatingZoom() {
-      return window.AppState.seatingZoom ??
-        calculateAutoZoom();
+      return window.AppState.seatingZoom ?? calculateAutoZoom();
     }
-
 
     /* ------------------------------------------------------------------
        DRAG ENGINE
     ------------------------------------------------------------------ */
-
 
     function cleanupDragState() {
       document.body.classList.remove("dragging-active");
@@ -1586,7 +1663,6 @@ function renderCanvasDesks() {
       window.AppState.dragState.target = null;
     }
 
-
     function destroyStudentInteractions() {
       interact(".student-card").unset();
       interact(".desk-slot").unset();
@@ -1595,7 +1671,6 @@ function renderCanvasDesks() {
       cleanupDragState();
     }
 
-
     function setupDragAndDrop() {
       destroyStudentInteractions();
 
@@ -1603,7 +1678,6 @@ function renderCanvasDesks() {
       setupDeskDropzones();
       setupBenchDropzone();
     }
-
 
     function setupStudentDraggable() {
       interact(".student-card").draggable({
@@ -1677,7 +1751,6 @@ function renderCanvasDesks() {
       });
     }
 
-
     function setupDeskDropzones() {
       interact(".desk-slot").dropzone({
         accept: ".student-card",
@@ -1708,7 +1781,6 @@ function renderCanvasDesks() {
       });
     }
 
-
     function getStudentFlagIconsHTML(student) {
       let flags = [];
       if (student.eal) flags.push("🌍");
@@ -1720,7 +1792,6 @@ function renderCanvasDesks() {
       if (student.yc) flags.push('<span class="font-bold text-orange-500" style="color: #ea580c; font-weight: bold; display: inline;">C</span>');
       return flags.join(" ");
     }
-
 
     function openStudentFlagsModal(studentId) {
       const student = window.AppState.students.find(s => s.id === studentId);
@@ -1800,7 +1871,6 @@ function renderCanvasDesks() {
       };
     }
 
-
     function setupBenchDropzone() {
       interact(".dropzone-bench").dropzone({
         accept: ".student-card",
@@ -1830,7 +1900,6 @@ function renderCanvasDesks() {
       });
     }
 
-
     function assignStudentToSeat(studentId, seatIndex) {
       const student = window.AppState.students.find(item => item.id === studentId);
 
@@ -1854,7 +1923,6 @@ function renderCanvasDesks() {
       renderSeatingChartWorkspace();
     }
 
-
     function unassignStudent(studentId) {
       const student = window.AppState.students.find(item => item.id === studentId);
 
@@ -1868,11 +1936,9 @@ function renderCanvasDesks() {
       renderSeatingChartWorkspace();
     }
 
-
     /* ------------------------------------------------------------------
        ZOOM / FIT / FULLSCREEN / VIEW MODES
     ------------------------------------------------------------------ */
-
 
     window.toggleFullScreen = function() {
       const canvas = document.getElementById("seating-canvas");
@@ -1892,7 +1958,6 @@ function renderCanvasDesks() {
         }
       }
     };
-
 
     document.addEventListener("fullscreenchange", () => {
       const btn = document.getElementById("btn-fullscreen");
@@ -1927,7 +1992,6 @@ function renderCanvasDesks() {
         fitSeatingToFrame();
       }, 100);
     });
-
 
     window.setMode = function(mode) {
       window.AppState.activeViewMode = mode;
@@ -1977,12 +2041,10 @@ function renderCanvasDesks() {
       renderCanvasDesks();
     };
 
-
     function fitSeatingToFrame() {
       window.AppState.seatingZoom = calculateAutoZoom();
       renderCanvasDesks();
     }
-
 
     function zoomInSeating() {
       const current = getSeatingZoom();
@@ -1990,13 +2052,11 @@ function renderCanvasDesks() {
       renderCanvasDesks();
     }
 
-
     function zoomOutSeating() {
       const current = getSeatingZoom();
       window.AppState.seatingZoom = Math.max(MIN_ZOOM, current - ZOOM_STEP);
       renderCanvasDesks();
     }
-
 
     function updateZoomDisplay() {
       const display = document.getElementById("zoom-display");
@@ -2020,16 +2080,13 @@ function renderCanvasDesks() {
       display.textContent = `${Math.round(zoom * 100)}%`;
     }
 
-
     window.zoomInSeating = zoomInSeating;
     window.zoomOutSeating = zoomOutSeating;
     window.fitSeatingToFrame = fitSeatingToFrame;
 
-
     /* ------------------------------------------------------------------
-       EXPORT TO PDF (With Separate Page for Student Notes)
+       EXPORT TO PDF
     ------------------------------------------------------------------ */
-
 
     window.exportToPDF = async function() {
       const { jsPDF } = window.jspdf;
@@ -2114,7 +2171,6 @@ function renderCanvasDesks() {
 
         pdf.addImage(imageData, "PNG", 10, 18, printWidth, printHeight);
 
-        // Export Notes to Additional Page(s)
         const studentsWithNotes = (window.AppState.students || []).filter(
           s => s.notes && s.notes.trim().length > 0
         );
@@ -2128,17 +2184,17 @@ function renderCanvasDesks() {
 
           pdf.setFont("helvetica", "bold");
           pdf.setFontSize(16);
-          pdf.setTextColor(30, 41, 59); // Slate-800
+          pdf.setTextColor(30, 41, 59);
           pdf.text("Student Notes & Comments", margin, y);
           y += 6;
 
           pdf.setFont("helvetica", "normal");
           pdf.setFontSize(10);
-          pdf.setTextColor(100, 116, 139); // Slate-500
+          pdf.setTextColor(100, 116, 139);
           pdf.text(`${window.AppState.currentClassCode} — Teacher: ${window.AppState.currentTeacher}`, margin, y);
           y += 8;
 
-          pdf.setDrawColor(203, 213, 225); // Slate-300
+          pdf.setDrawColor(203, 213, 225);
           pdf.setLineWidth(0.5);
           pdf.line(margin, y, pageWidth - margin, y);
           y += 10;
@@ -2152,14 +2208,12 @@ function renderCanvasDesks() {
               y = 20;
             }
 
-            // Student Name
             pdf.setFont("helvetica", "bold");
             pdf.setFontSize(12);
             pdf.setTextColor(15, 23, 42);
             pdf.text(student.name, margin, y);
             y += 6;
 
-            // Student Notes
             pdf.setFont("helvetica", "normal");
             pdf.setFontSize(10);
             pdf.setTextColor(51, 65, 85);
@@ -2178,11 +2232,9 @@ function renderCanvasDesks() {
       }
     };
 
-
     /* ------------------------------------------------------------------
        SAVE PLAN
     ------------------------------------------------------------------ */
-
 
     window.saveSeatingPlan = async function() {
       if (
@@ -2215,11 +2267,9 @@ function renderCanvasDesks() {
       alert("Seating plan saved.");
     };
 
-
     /* ------------------------------------------------------------------
        RECYCLE BIN & HOME DIRECTORY
     ------------------------------------------------------------------ */
-
 
     window.restoreItem = async function(collectionName, id) {
       await updateDoc(
@@ -2233,7 +2283,6 @@ function renderCanvasDesks() {
       renderTrashBin();
     };
 
-
     window.permanentlyDeleteItem = async function(collectionName, id) {
       if (!confirm("Are you sure you want to permanently delete this item? This action cannot be undone.")) {
         return;
@@ -2242,7 +2291,6 @@ function renderCanvasDesks() {
       await deleteDoc(doc(db, collectionName, id));
       renderTrashBin();
     };
-
 
     async function purgeExpiredTrashItems() {
       const now = Date.now();
@@ -2267,18 +2315,15 @@ function renderCanvasDesks() {
       }
     }
 
-
     window.openTeacherFolder = function(teacherName) {
       window.AppState.activeTeacherFolder = teacherName;
       renderHomeDirectory();
     };
 
-
     window.closeTeacherFolder = function() {
       window.AppState.activeTeacherFolder = null;
       renderHomeDirectory();
     };
-
 
     function createButton(text, className, onClick, title = "") {
       const button = document.createElement("button");
@@ -2291,7 +2336,6 @@ function renderCanvasDesks() {
       });
       return button;
     }
-
 
     async function renderHomeDirectory() {
       const folderContainer = document.getElementById("teacher-folder-list");
@@ -2321,7 +2365,6 @@ function renderCanvasDesks() {
         const teacherName = plan.teacherName || "Unassigned";
         teacherMap[teacherName] = (teacherMap[teacherName] || 0) + 1;
       });
-
 
       if (window.AppState.activeTeacherFolder) {
         document.getElementById("section-plans-title").textContent =
@@ -2397,7 +2440,6 @@ function renderCanvasDesks() {
         return;
       }
 
-
       document.getElementById("section-plans-title").textContent = "Teachers";
       document.getElementById("btn-back-teachers").classList.add("hidden");
       folderContainer.classList.remove("hidden");
@@ -2443,11 +2485,9 @@ function renderCanvasDesks() {
       }
     }
 
-
     /* ------------------------------------------------------------------
        SAVED ROOMS & TRASH
     ------------------------------------------------------------------ */
-
 
     async function renderSavedRooms() {
       const roomContainer = document.getElementById("room-list");
@@ -2515,12 +2555,13 @@ function renderCanvasDesks() {
       });
     }
 
-window.clearRoomCanvas = function() {
-  const canvas = document.getElementById("room-canvas");
-  if (canvas) {
-    canvas.innerHTML = "";
-  }
-};
+    window.clearRoomCanvas = function() {
+      const canvas = document.getElementById("room-canvas");
+      if (canvas) {
+        canvas.innerHTML = "";
+      }
+    };
+
     async function renderTrashBin() {
       const trashContainer = document.getElementById("trash-list");
       trashContainer.innerHTML = '<span class="text-xs text-slate-400">Loading trash...</span>';
@@ -2558,7 +2599,6 @@ window.clearRoomCanvas = function() {
         return;
       }
 
-      // Render Plans grouped by Teacher
       for (const [teacher, plans] of Object.entries(trashedPlansByTeacher)) {
         const teacherSection = document.createElement("div");
         teacherSection.className = "space-y-2";
@@ -2608,7 +2648,6 @@ window.clearRoomCanvas = function() {
         trashContainer.appendChild(teacherSection);
       }
 
-      // Render Room Designs
       if (trashedRooms.length > 0) {
         const roomSection = document.createElement("div");
         roomSection.className = "space-y-2 pt-2";
@@ -2658,10 +2697,6 @@ window.clearRoomCanvas = function() {
         trashContainer.appendChild(roomSection);
       }
     }
-
-
-    // Initialize Application
-    showView("view-home");
   </script>
 </body>
 </html>
