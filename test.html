@@ -758,10 +758,10 @@ function renderRoomDeskElement(left, top, rotation = 0) {
 
   const desk = document.createElement("div");
   desk.className =
-  "room-desk-item absolute w-28 h-20 bg-indigo-100 border-2 " +
-  "border-indigo-500 rounded cursor-move flex items-center " +
-  "justify-center text-xs font-bold text-indigo-800 " +
-  "select-none shadow-sm transition-transform duration-100";
+    "room-desk-item absolute w-28 h-20 bg-indigo-100 border-2 " +
+    "border-indigo-500 rounded cursor-move flex items-center " +
+    "justify-center text-xs font-bold text-indigo-800 " +
+    "select-none shadow-sm transition-transform duration-100";
 
   desk.style.left = `${left}px`;
   desk.style.top = `${top}px`;
@@ -807,8 +807,10 @@ function renderRoomDeskElement(left, top, rotation = 0) {
   };
   desk.appendChild(removeBtn);
 
-  canvas.appendChild(desk);
-  updateRoomDeskNumbers();
+  desk.addEventListener("mousedown", () => {
+    document.querySelectorAll(".room-desk-item").forEach(d => d.style.zIndex = "1");
+    desk.style.zIndex = "10";
+  });
 
   interact(desk).draggable({
     modifiers: [
@@ -866,90 +868,13 @@ function renderRoomDeskElement(left, top, rotation = 0) {
       }
     }
   });
-};
 
-window.saveRoomLayout = async function() {
-  const name = document.getElementById("room-name-input").value.trim();
-  if (!name) {
-    alert("Enter room name.");
-    return;
+  // --- ADDED MISSING LINES HERE ---
+  if (canvas) {
+    canvas.appendChild(desk);
+    updateRoomDeskNumbers();
   }
-
-  const deskElements = Array.from(document.querySelectorAll(".room-desk-item"));
-  if (deskElements.length === 0) {
-    alert("Add at least one desk before saving.");
-    return;
-  }
-
-  // Sort desks spatially so array IDs match reading order
-  deskElements.sort((a, b) => {
-    const topA = parseFloat(a.style.top) || 0;
-    const topB = parseFloat(b.style.top) || 0;
-    const leftA = parseFloat(a.style.left) || 0;
-    const leftB = parseFloat(b.style.left) || 0;
-
-    if (Math.abs(topA - topB) > 30) {
-      return topA - topB;
-    }
-    return leftA - leftB;
-  });
-
-  const deskLayout = deskElements.map((element, index) => ({
-    id: index,
-    left: Math.round(parseFloat(element.style.left) || 0),
-    top: Math.round(parseFloat(element.style.top) || 0),
-    rotation: parseInt(element.getAttribute("data-rotation")) || 0
-  }));
-
-  const payload = {
-    roomName: name,
-    deskLayout,
-    deleted: false,
-    updatedAt: new Date().toISOString()
-  };
-
-  if (window.AppState.editingRoomId) {
-    await updateDoc(doc(db, "rooms", window.AppState.editingRoomId), payload);
-
-    // Sync all existing seating plans referencing this room design
-    const plansSnap = await getDocs(collection(db, "plans"));
-    for (const planDoc of plansSnap.docs) {
-      const planData = planDoc.data();
-      if (planData.roomId === window.AppState.editingRoomId) {
-        let updatedStudents = Array.isArray(planData.students) ? [...planData.students] : [];
-
-        // Retain student data & flags; unassign only if seat index is now out-of-bounds
-        updatedStudents = updatedStudents.map(student => {
-          if (student.seatIndex !== null && Number(student.seatIndex) >= deskLayout.length) {
-            return { ...student, seatIndex: null };
-          }
-          return student;
-        });
-
-        await updateDoc(doc(db, "plans", planDoc.id), {
-          students: updatedStudents,
-          updatedAt: new Date().toISOString()
-        });
-      }
-    }
-
-    if (window.AppState.currentRoomId === window.AppState.editingRoomId) {
-      window.AppState.roomDesks = deskLayout;
-      window.AppState.students.forEach(s => {
-        if (s.seatIndex !== null && Number(s.seatIndex) >= deskLayout.length) {
-          s.seatIndex = null;
-        }
-      });
-    }
-
-    alert("Room design and associated seating plans updated successfully.");
-  } else {
-    await addDoc(collection(db, "rooms"), payload);
-    alert("Room saved successfully.");
-  }
-
-  showView("view-saved-rooms");
-};
+}
 
     /* ------------------------------------------------------------------
        CLASS PLAN MODAL
