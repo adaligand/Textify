@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClassTile bWceb</title>
+  <title>ClassTilce bWceb</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
@@ -650,295 +650,306 @@
     };
 
 
-    window.openRoomBuilderForEdit = async function(roomId) {
-      window.AppState.editingRoomId = roomId;
+/* ------------------------------------------------------------------
+   ROOM DESIGNER (UPDATED)
+------------------------------------------------------------------ */
 
-      const docSnap = await getDoc(doc(db, "rooms", roomId));
+window.openRoomBuilderForEdit = async function(roomId) {
+  window.AppState.editingRoomId = roomId;
 
-      if (!docSnap.exists()) {
-        return;
+  const docSnap = await getDoc(doc(db, "rooms", roomId));
+  if (!docSnap.exists()) return;
+
+  const data = docSnap.data();
+  document.getElementById("room-name-input").value = data.roomName || "";
+
+  const canvas = document.getElementById("room-canvas");
+  canvas.innerHTML = "";
+
+  (data.deskLayout || []).forEach(desk => {
+    renderRoomDeskElement(
+      Number(desk.left) || 0,
+      Number(desk.top) || 0,
+      Number(desk.rotation) || 0
+    );
+  });
+
+  updateRoomDeskNumbers();
+  showView("view-room-builder");
+};
+
+window.addDeskToRoom = function() {
+  const canvas = document.getElementById("room-canvas");
+  if (!canvas) return;
+
+  const existingDesks = Array.from(canvas.querySelectorAll(".room-desk-item")).map(desk => ({
+    left: parseFloat(desk.style.left) || 0,
+    top: parseFloat(desk.style.top) || 0
+  }));
+
+  const gridStepX = 140; // Desk width (112px) + gap
+  const gridStepY = 100; // Desk height (80px) + gap
+  const maxCols = Math.max(1, Math.floor((canvas.clientWidth - 40) / gridStepX));
+  const maxRows = Math.max(1, Math.floor((canvas.clientHeight - 40) / gridStepY));
+
+  let targetLeft = 20;
+  let targetTop = 20;
+  let foundSpot = false;
+
+  // Search row-by-row within visible canvas bounds
+  for (let r = 0; r < maxRows; r++) {
+    for (let c = 0; c < maxCols; c++) {
+      const testLeft = 20 + c * gridStepX;
+      const testTop = 20 + r * gridStepY;
+
+      const isOccupied = existingDesks.some(
+        d => Math.abs(d.left - testLeft) < 60 && Math.abs(d.top - testTop) < 40
+      );
+
+      if (!isOccupied) {
+        targetLeft = testLeft;
+        targetTop = testTop;
+        foundSpot = true;
+        break;
       }
-
-      const data = docSnap.data();
-
-      document.getElementById("room-name-input").value =
-        data.roomName || "";
-
-      const canvas = document.getElementById("room-canvas");
-
-      canvas.innerHTML = "";
-
-      (data.deskLayout || []).forEach(desk => {
-        renderRoomDeskElement(
-          Number(desk.left) || 0,
-          Number(desk.top) || 0
-        );
-      });
-
-      updateRoomDeskNumbers();
-      showView("view-room-builder");
-    };
-
-
-    window.addDeskToRoom = function() {
-      const canvas = document.getElementById("room-canvas");
-
-      const deskCount =
-        canvas.querySelectorAll(".room-desk-item").length;
-
-      const columns = Math.max(
-        1,
-        Math.floor((canvas.clientWidth - 40) / 140)
-      );
-
-      const row = Math.floor(deskCount / columns);
-      const column = deskCount % columns;
-
-      renderRoomDeskElement(
-        20 + column * 140,
-        20 + row * 90
-      );
-    };
-
-
-    function updateRoomDeskNumbers() {
-      const canvas = document.getElementById("room-canvas");
-      if (!canvas) return;
-
-      const deskElements = canvas.querySelectorAll(".room-desk-item");
-      deskElements.forEach((desk, index) => {
-        const label = desk.querySelector(".desk-label");
-        if (label) {
-          label.textContent = `Desk ${index + 1}`;
-        }
-      });
     }
+    if (foundSpot) break;
+  }
 
+  // Fallback: offset within visible frame if canvas is full
+  if (!foundSpot) {
+    const offset = (existingDesks.length * 20) % 100;
+    targetLeft = 20 + offset;
+    targetTop = 20 + offset;
+  }
 
-    function renderRoomDeskElement(left, top) {
-      const canvas = document.getElementById("room-canvas");
+  renderRoomDeskElement(targetLeft, targetTop, 0);
+};
 
-      const desk = document.createElement("div");
+function updateRoomDeskNumbers() {
+  const canvas = document.getElementById("room-canvas");
+  if (!canvas) return;
 
-      desk.className =
-        "room-desk-item absolute w-28 h-20 bg-indigo-100 border-2 " +
-        "border-indigo-500 rounded cursor-move flex items-center " +
-        "justify-center text-xs font-bold text-indigo-800 " +
-        "select-none shadow-sm relative";
+  const deskElements = Array.from(canvas.querySelectorAll(".room-desk-item"));
 
-      desk.style.left = `${left}px`;
-      desk.style.top = `${top}px`;
+  // Sort spatial order: top-to-bottom, left-to-right (30px row tolerance)
+  deskElements.sort((a, b) => {
+    const topA = parseFloat(a.style.top) || 0;
+    const topB = parseFloat(b.style.top) || 0;
+    const leftA = parseFloat(a.style.left) || 0;
+    const leftB = parseFloat(b.style.left) || 0;
 
-      const label = document.createElement("span");
-      label.className = "desk-label pointer-events-none";
-      desk.appendChild(label);
+    if (Math.abs(topA - topB) > 30) {
+      return topA - topB;
+    }
+    return leftA - leftB;
+  });
 
-      // Remove button for room builder
-      const removeBtn = document.createElement("button");
-      removeBtn.className =
-        "absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 hover:bg-red-600 " +
-        "text-white rounded-full text-[9px] flex items-center justify-center " +
-        "font-bold z-10 shadow-sm cursor-pointer";
-      removeBtn.textContent = "✕";
-      removeBtn.title = "Delete desk";
-      removeBtn.onclick = (e) => {
-        e.stopPropagation();
-        desk.remove();
+  deskElements.forEach((desk, index) => {
+    const label = desk.querySelector(".desk-label");
+    if (label) {
+      label.textContent = `Desk ${index + 1}`;
+    }
+  });
+}
+
+function renderRoomDeskElement(left, top, rotation = 0) {
+  const canvas = document.getElementById("room-canvas");
+
+  const desk = document.createElement("div");
+  desk.className =
+    "room-desk-item absolute w-28 h-20 bg-indigo-100 border-2 " +
+    "border-indigo-500 rounded cursor-move flex items-center " +
+    "justify-center text-xs font-bold text-indigo-800 " +
+    "select-none shadow-sm relative transition-transform duration-100";
+
+  desk.style.left = `${left}px`;
+  desk.style.top = `${top}px`;
+  desk.setAttribute("data-rotation", String(rotation));
+
+  if (rotation) {
+    desk.style.transform = `rotate(${rotation}deg)`;
+  }
+
+  // Rotate button in top-left corner
+  const rotateBtn = document.createElement("button");
+  rotateBtn.className =
+    "absolute -top-1.5 -left-1.5 w-5 h-5 bg-indigo-600 hover:bg-indigo-700 " +
+    "text-white rounded-full text-[10px] flex items-center justify-center " +
+    "font-bold z-10 shadow-sm cursor-pointer";
+  rotateBtn.innerHTML = "↻";
+  rotateBtn.title = "Rotate 90°";
+  rotateBtn.onclick = (e) => {
+    e.stopPropagation();
+    let curRot = (parseInt(desk.getAttribute("data-rotation")) || 0) + 90;
+    if (curRot >= 360) curRot = 0;
+    desk.setAttribute("data-rotation", String(curRot));
+    desk.style.transform = curRot ? `rotate(${curRot}deg)` : "";
+  };
+  desk.appendChild(rotateBtn);
+
+  const label = document.createElement("span");
+  label.className = "desk-label pointer-events-none";
+  desk.appendChild(label);
+
+  // Delete button in top-right corner
+  const removeBtn = document.createElement("button");
+  removeBtn.className =
+    "absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 hover:bg-red-600 " +
+    "text-white rounded-full text-[9px] flex items-center justify-center " +
+    "font-bold z-10 shadow-sm cursor-pointer";
+  removeBtn.textContent = "✕";
+  removeBtn.title = "Delete desk";
+  removeBtn.onclick = (e) => {
+    e.stopPropagation();
+    desk.remove();
+    updateRoomDeskNumbers();
+  };
+  desk.appendChild(removeBtn);
+
+  canvas.appendChild(desk);
+  updateRoomDeskNumbers();
+
+  interact(desk).draggable({
+    modifiers: [
+      interact.modifiers.snap({
+        targets: [interact.snappers.grid({ x: 20, y: 20 })],
+        range: Infinity,
+        relativePoints: [{ x: 0, y: 0 }]
+      })
+    ],
+
+    listeners: {
+      start(event) {
+        document.body.classList.add("dragging-active");
+        event.target.classList.add("ring-2", "ring-indigo-400");
+      },
+
+      move(event) {
+        const target = event.target;
+        const x = (parseFloat(target.getAttribute("data-x")) || 0) + event.dx;
+        const y = (parseFloat(target.getAttribute("data-y")) || 0) + event.dy;
+        const currentRot = parseInt(target.getAttribute("data-rotation")) || 0;
+
+        target.style.transform = `translate(${x}px, ${y}px)${currentRot ? ` rotate(${currentRot}deg)` : ""}`;
+        target.setAttribute("data-x", x);
+        target.setAttribute("data-y", y);
+      },
+
+      end(event) {
+        const target = event.target;
+        const x = (parseFloat(target.style.left) || 0) + (parseFloat(target.getAttribute("data-x")) || 0);
+        const y = (parseFloat(target.style.top) || 0) + (parseFloat(target.getAttribute("data-y")) || 0);
+
+        let finalLeft = Math.max(0, Math.round(x / 20) * 20);
+        let finalTop = Math.max(0, Math.round(y / 20) * 20);
+
+        if (canvas) {
+          const maxLeft = Math.max(0, canvas.clientWidth - 112);
+          const maxTop = Math.max(0, canvas.clientHeight - 80);
+          finalLeft = Math.min(finalLeft, maxLeft);
+          finalTop = Math.min(finalTop, maxTop);
+        }
+
+        target.style.left = `${finalLeft}px`;
+        target.style.top = `${finalTop}px`;
+
+        const currentRot = parseInt(target.getAttribute("data-rotation")) || 0;
+        target.style.transform = currentRot ? `rotate(${currentRot}deg)` : "";
+
+        target.removeAttribute("data-x");
+        target.removeAttribute("data-y");
+        target.classList.remove("ring-2", "ring-indigo-400");
+
         updateRoomDeskNumbers();
-      };
-      desk.appendChild(removeBtn);
+        cleanupDragState();
+      }
+    }
+  });
+};
 
-      canvas.appendChild(desk);
-      updateRoomDeskNumbers();
+window.saveRoomLayout = async function() {
+  const name = document.getElementById("room-name-input").value.trim();
+  if (!name) {
+    alert("Enter room name.");
+    return;
+  }
 
-      interact(desk).draggable({
-        modifiers: [
-          interact.modifiers.snap({
-            targets: [
-              interact.snappers.grid({
-                x: 20,
-                y: 20
-              })
-            ],
-            range: Infinity,
-            relativePoints: [
-              {
-                x: 0,
-                y: 0
-              }
-            ]
-          })
-        ],
+  const deskElements = Array.from(document.querySelectorAll(".room-desk-item"));
+  if (deskElements.length === 0) {
+    alert("Add at least one desk before saving.");
+    return;
+  }
 
-        listeners: {
-          start(event) {
-            document.body.classList.add("dragging-active");
+  // Sort desks spatially so array IDs match reading order
+  deskElements.sort((a, b) => {
+    const topA = parseFloat(a.style.top) || 0;
+    const topB = parseFloat(b.style.top) || 0;
+    const leftA = parseFloat(a.style.left) || 0;
+    const leftB = parseFloat(b.style.left) || 0;
 
-            event.target.classList.add(
-              "ring-2",
-              "ring-indigo-400"
-            );
-          },
+    if (Math.abs(topA - topB) > 30) {
+      return topA - topB;
+    }
+    return leftA - leftB;
+  });
 
-          move(event) {
-            const target = event.target;
+  const deskLayout = deskElements.map((element, index) => ({
+    id: index,
+    left: Math.round(parseFloat(element.style.left) || 0),
+    top: Math.round(parseFloat(element.style.top) || 0),
+    rotation: parseInt(element.getAttribute("data-rotation")) || 0
+  }));
 
-            const x =
-              (parseFloat(target.getAttribute("data-x")) || 0) +
-              event.dx;
+  const payload = {
+    roomName: name,
+    deskLayout,
+    deleted: false,
+    updatedAt: new Date().toISOString()
+  };
 
-            const y =
-              (parseFloat(target.getAttribute("data-y")) || 0) +
-              event.dy;
+  if (window.AppState.editingRoomId) {
+    await updateDoc(doc(db, "rooms", window.AppState.editingRoomId), payload);
 
-            target.style.transform =
-              `translate(${x}px, ${y}px)`;
+    // Sync all existing seating plans referencing this room design
+    const plansSnap = await getDocs(collection(db, "plans"));
+    for (const planDoc of plansSnap.docs) {
+      const planData = planDoc.data();
+      if (planData.roomId === window.AppState.editingRoomId) {
+        let updatedStudents = Array.isArray(planData.students) ? [...planData.students] : [];
 
-            target.setAttribute("data-x", x);
-            target.setAttribute("data-y", y);
-          },
-
-          end(event) {
-            const target = event.target;
-
-            const x =
-              (parseFloat(target.style.left) || 0) +
-              (parseFloat(target.getAttribute("data-x")) || 0);
-
-            const y =
-              (parseFloat(target.style.top) || 0) +
-              (parseFloat(target.getAttribute("data-y")) || 0);
-
-            target.style.left = `${Math.max(0, Math.round(x / 20) * 20)}px`;
-            target.style.top = `${Math.max(0, Math.round(y / 20) * 20)}px`;
-
-            target.style.transform = "";
-            target.removeAttribute("data-x");
-            target.removeAttribute("data-y");
-
-            target.classList.remove(
-              "ring-2",
-              "ring-indigo-400"
-            );
-
-            cleanupDragState();
+        // Retain student data & flags; unassign only if seat index is now out-of-bounds
+        updatedStudents = updatedStudents.map(student => {
+          if (student.seatIndex !== null && Number(student.seatIndex) >= deskLayout.length) {
+            return { ...student, seatIndex: null };
           }
+          return student;
+        });
+
+        await updateDoc(doc(db, "plans", planDoc.id), {
+          students: updatedStudents,
+          updatedAt: new Date().toISOString()
+        });
+      }
+    }
+
+    if (window.AppState.currentRoomId === window.AppState.editingRoomId) {
+      window.AppState.roomDesks = deskLayout;
+      window.AppState.students.forEach(s => {
+        if (s.seatIndex !== null && Number(s.seatIndex) >= deskLayout.length) {
+          s.seatIndex = null;
         }
       });
     }
 
+    alert("Room design and associated seating plans updated successfully.");
+  } else {
+    await addDoc(collection(db, "rooms"), payload);
+    alert("Room saved successfully.");
+  }
 
-    window.clearRoomCanvas = function() {
-      document.getElementById("room-canvas").innerHTML = "";
-    };
-
-
-    window.saveRoomLayout = async function() {
-      const name =
-        document.getElementById("room-name-input").value.trim();
-
-      if (!name) {
-        alert("Enter room name.");
-        return;
-      }
-
-      const deskElements =
-        document.querySelectorAll(".room-desk-item");
-
-      if (deskElements.length === 0) {
-        alert("Add at least one desk before saving.");
-        return;
-      }
-
-      const deskLayout = [];
-
-      deskElements.forEach((element, index) => {
-        const x =
-          parseFloat(element.style.left) || 0;
-
-        const y =
-          parseFloat(element.style.top) || 0;
-
-        deskLayout.push({
-          id: index,
-          left: Math.round(x),
-          top: Math.round(y)
-        });
-      });
-
-      const payload = {
-        roomName: name,
-        deskLayout,
-        deleted: false,
-        updatedAt: new Date().toISOString()
-      };
-
-      if (window.AppState.editingRoomId) {
-        await updateDoc(
-          doc(
-            db,
-            "rooms",
-            window.AppState.editingRoomId
-          ),
-          payload
-        );
-
-        alert("Room updated successfully.");
-      } else {
-        await addDoc(
-          collection(db, "rooms"),
-          payload
-        );
-
-        alert("Room saved successfully.");
-      }
-
-      showView("view-saved-rooms");
-    };
-
-
-    window.duplicateRoom = async function(roomId) {
-      const roomSnap =
-        await getDoc(doc(db, "rooms", roomId));
-
-      if (!roomSnap.exists()) {
-        return;
-      }
-
-      const data = roomSnap.data();
-
-      await addDoc(
-        collection(db, "rooms"),
-        {
-          roomName: `${data.roomName} (Copy)`,
-          deskLayout: data.deskLayout || [],
-          deleted: false,
-          updatedAt: new Date().toISOString()
-        }
-      );
-
-      renderSavedRooms();
-    };
-
-
-    window.binRoom = async function(roomId) {
-      if (!confirm(
-        "Move this room design to the Recycle Bin?"
-      )) {
-        return;
-      }
-
-      await updateDoc(
-        doc(db, "rooms", roomId),
-        {
-          deleted: true,
-          deletedAt: new Date().toISOString()
-        }
-      );
-
-      renderSavedRooms();
-    };
-
+  showView("view-saved-rooms");
+};
 
     /* ------------------------------------------------------------------
        CLASS PLAN MODAL
@@ -1334,133 +1345,131 @@
     }
 
 
-    function renderCanvasDesks() {
-      const stage = document.getElementById("room-stage"); 
-      const canvas = document.getElementById("seating-canvas");
-      if (!stage || !canvas) return;
+   function renderCanvasDesks() {
+  const stage = document.getElementById("room-stage");
+  const canvas = document.getElementById("seating-canvas");
+  if (!stage || !canvas) return;
 
-      stage.innerHTML = "";
+  stage.innerHTML = "";
 
-      const zoom = getSeatingZoom();
-      const bounds = getRoomBounds();
-      const totalStageWidth = bounds.width + ROOM_PADDING;
-      const totalStageHeight = bounds.height + ROOM_PADDING;
-      const desks = window.AppState.roomDesks; 
+  const zoom = getSeatingZoom();
+  const bounds = getRoomBounds();
+  const totalStageWidth = bounds.width + ROOM_PADDING;
+  const totalStageHeight = bounds.height + ROOM_PADDING;
+  const desks = window.AppState.roomDesks;
 
-      stage.style.width = `${totalStageWidth}px`;
-      stage.style.height = `${totalStageHeight}px`;
+  stage.style.width = `${totalStageWidth}px`;
+  stage.style.height = `${totalStageHeight}px`;
 
-      const scaledWidth = totalStageWidth * zoom;
-      const scaledHeight = totalStageHeight * zoom;
-      stage.style.left = `${Math.max(0, (canvas.clientWidth - scaledWidth) / 2)}px`;
-      stage.style.top = `${Math.max(0, (canvas.clientHeight - scaledHeight) / 2)}px`;
-      stage.style.transformOrigin = "0 0";
-      stage.style.transform = `scale(${zoom})`;
+  const scaledWidth = totalStageWidth * zoom;
+  const scaledHeight = totalStageHeight * zoom;
+  stage.style.left = `${Math.max(0, (canvas.clientWidth - scaledWidth) / 2)}px`;
+  stage.style.top = `${Math.max(0, (canvas.clientHeight - scaledHeight) / 2)}px`;
+  stage.style.transformOrigin = "0 0";
+  stage.style.transform = `scale(${zoom})`;
 
-      const isFlipped = window.AppState.activeViewMode === "flipped";
-      const isTeacherView = window.AppState.activeViewMode === "teacher";
+  const isFlipped = window.AppState.activeViewMode === "flipped";
+  const isTeacherView = window.AppState.activeViewMode === "teacher";
 
-      desks.forEach((desk, index) => {
-        const deskElement = document.createElement("div");
+  desks.forEach((desk, index) => {
+    const deskElement = document.createElement("div");
 
-        const rawLeft = Number(desk.left) || 0;
-        const rawTop = Number(desk.top) || 0;
+    const rawLeft = Number(desk.left) || 0;
+    const rawTop = Number(desk.top) || 0;
+    const rotation = Number(desk.rotation) || 0;
 
-        let left = rawLeft - bounds.minX + ROOM_PADDING / 2;
-        let top = rawTop - bounds.minY + ROOM_PADDING / 2;
+    let left = rawLeft - bounds.minX + ROOM_PADDING / 2;
+    let top = rawTop - bounds.minY + ROOM_PADDING / 2;
 
-        if (isFlipped) {
-          left = totalStageWidth - (rawLeft - bounds.minX + ROOM_PADDING / 2) - DESK_WIDTH;
-          top = totalStageHeight - (rawTop - bounds.minY + ROOM_PADDING / 2) - DESK_HEIGHT;
-        }
-
-        deskElement.style.left = `${left}px`;
-        deskElement.style.top = `${top}px`;
-        deskElement.style.position = "absolute";
-        deskElement.dataset.seatIndex = String(index);
-
-        const assignedStudent = window.AppState.students.find(
-          student => student.seatIndex !== null && Number(student.seatIndex) === index
-        );
-
-        if (assignedStudent) {
-          deskElement.className =
-            "desk-slot room-desk border-2 border-emerald-500 rounded bg-emerald-100 " +
-            "flex flex-col items-center justify-center p-1 text-xs font-bold text-emerald-900 " +
-            "shadow-md cursor-pointer student-card z-20 overflow-visible relative group";
-
-          deskElement.dataset.studentId = assignedStudent.id;
-
-          // --- Unassign Button ---
-          const removeBtn = document.createElement("button");
-          removeBtn.className =
-            "absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 hover:bg-red-600 " +
-            "text-white rounded-full text-[9px] flex items-center justify-center " +
-            "font-bold z-30 shadow-sm cursor-pointer";
-          removeBtn.textContent = "✕";
-          removeBtn.title = "Unassign student";
-          removeBtn.onclick = (e) => {
-            e.stopPropagation();
-            unassignStudent(assignedStudent.id);
-          };
-          deskElement.appendChild(removeBtn);
-
-          // --- Name Parsing ---
-          const fullName = (assignedStudent.name || "").trim();
-          const nameParts = fullName.split(/\s+/);
-          const firstName = nameParts[0] || "";
-          const lastName = nameParts.slice(1).join(" ") || "";
-
-          // --- Line 1: First Name ---
-          const firstNameEl = document.createElement("span");
-          firstNameEl.className = "font-bold text-[11px] leading-tight truncate w-full text-center px-1 pointer-events-none";
-          firstNameEl.textContent = firstName;
-          deskElement.appendChild(firstNameEl);
-
-          // --- Line 2: Last Name ---
-          if (lastName) {
-            const lastNameEl = document.createElement("span");
-            lastNameEl.className = "font-bold text-[10px] leading-tight truncate w-full text-center px-1 text-emerald-950 pointer-events-none";
-            lastNameEl.textContent = lastName;
-            deskElement.appendChild(lastNameEl);
-          }
-
-          // --- Line 3: Target Grade (Confidential - Teacher View) ---
-          if (isTeacherView && assignedStudent.grade) {
-            const gradeEl = document.createElement("span");
-            gradeEl.className = "text-[9px] leading-tight text-emerald-800 font-semibold truncate w-full text-center px-1 pointer-events-none";
-            gradeEl.textContent = `🎯 ${assignedStudent.grade}`;
-            deskElement.appendChild(gradeEl);
-          }
-
-          // --- Line 4: Flags (Confidential - Teacher View) ---
-          const flagsHTML = getStudentFlagIconsHTML(assignedStudent);
-          if (isTeacherView && flagsHTML) {
-            const flagsEl = document.createElement("span");
-            flagsEl.className = "text-[9px] leading-tight text-emerald-800 font-normal truncate w-full text-center px-1 pointer-events-none";
-            flagsEl.innerHTML = flagsHTML;
-            deskElement.appendChild(flagsEl);
-          }
-
-          deskElement.onclick = () => openStudentFlagsModal(assignedStudent.id);
-        } else {
-          deskElement.className =
-            "desk-slot room-desk border-2 border-slate-300 rounded bg-white " +
-            "flex flex-col items-center justify-center text-xs shadow-sm overflow-visible";
-
-          const deskNumber = document.createElement("span");
-          deskNumber.className = "text-slate-400 pointer-events-none font-medium text-center w-full";
-          deskNumber.textContent = `Desk ${index + 1}`;
-
-          deskElement.appendChild(deskNumber);
-        }
-
-        stage.appendChild(deskElement);
-      });
-
-      updateZoomDisplay();
-      setupDragAndDrop();
+    if (isFlipped) {
+      left = totalStageWidth - (rawLeft - bounds.minX + ROOM_PADDING / 2) - DESK_WIDTH;
+      top = totalStageHeight - (rawTop - bounds.minY + ROOM_PADDING / 2) - DESK_HEIGHT;
     }
+
+    deskElement.style.left = `${left}px`;
+    deskElement.style.top = `${top}px`;
+    deskElement.style.position = "absolute";
+    if (rotation) {
+      deskElement.style.transform = `rotate(${rotation}deg)`;
+    }
+    deskElement.dataset.seatIndex = String(index);
+
+    const assignedStudent = window.AppState.students.find(
+      student => student.seatIndex !== null && Number(student.seatIndex) === index
+    );
+
+    if (assignedStudent) {
+      deskElement.className =
+        "desk-slot room-desk border-2 border-emerald-500 rounded bg-emerald-100 " +
+        "flex flex-col items-center justify-center p-1 text-xs font-bold text-emerald-900 " +
+        "shadow-md cursor-pointer student-card z-20 overflow-visible relative group";
+
+      deskElement.dataset.studentId = assignedStudent.id;
+
+      const removeBtn = document.createElement("button");
+      removeBtn.className =
+        "absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 hover:bg-red-600 " +
+        "text-white rounded-full text-[9px] flex items-center justify-center " +
+        "font-bold z-30 shadow-sm cursor-pointer";
+      removeBtn.textContent = "✕";
+      removeBtn.title = "Unassign student";
+      removeBtn.onclick = (e) => {
+        e.stopPropagation();
+        unassignStudent(assignedStudent.id);
+      };
+      deskElement.appendChild(removeBtn);
+
+      const fullName = (assignedStudent.name || "").trim();
+      const nameParts = fullName.split(/\s+/);
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
+
+      const firstNameEl = document.createElement("span");
+      firstNameEl.className = "font-bold text-[11px] leading-tight truncate w-full text-center px-1 pointer-events-none";
+      firstNameEl.textContent = firstName;
+      deskElement.appendChild(firstNameEl);
+
+      if (lastName) {
+        const lastNameEl = document.createElement("span");
+        lastNameEl.className = "font-bold text-[10px] leading-tight truncate w-full text-center px-1 text-emerald-950 pointer-events-none";
+        lastNameEl.textContent = lastName;
+        deskElement.appendChild(lastNameEl);
+      }
+
+      if (isTeacherView && assignedStudent.grade) {
+        const gradeEl = document.createElement("span");
+        gradeEl.className = "text-[9px] leading-tight text-emerald-800 font-semibold truncate w-full text-center px-1 pointer-events-none";
+        gradeEl.textContent = `🎯 ${assignedStudent.grade}`;
+        deskElement.appendChild(gradeEl);
+      }
+
+      const flagsHTML = getStudentFlagIconsHTML(assignedStudent);
+      if (isTeacherView && flagsHTML) {
+        const flagsEl = document.createElement("span");
+        flagsEl.className = "text-[9px] leading-tight text-emerald-800 font-normal truncate w-full text-center px-1 pointer-events-none";
+        flagsEl.innerHTML = flagsHTML;
+        deskElement.appendChild(flagsEl);
+      }
+
+      deskElement.onclick = () => openStudentFlagsModal(assignedStudent.id);
+    } else {
+      deskElement.className =
+        "desk-slot room-desk border-2 border-slate-300 rounded bg-white " +
+        "flex flex-col items-center justify-center text-xs shadow-sm overflow-visible";
+
+      const deskNumber = document.createElement("span");
+      deskNumber.className = "text-slate-400 pointer-events-none font-medium text-center w-full";
+      deskNumber.textContent = `Desk ${index + 1}`;
+
+      deskElement.appendChild(deskNumber);
+    }
+
+    stage.appendChild(deskElement);
+  });
+
+  updateZoomDisplay();
+  setupDragAndDrop();
+}
 
 
     function getSeatingZoom() {
