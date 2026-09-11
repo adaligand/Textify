@@ -875,7 +875,127 @@ function renderRoomDeskElement(left, top, rotation = 0) {
     updateRoomDeskNumbers();
   }
 }
+window.saveRoomLayout = async function() {
+  try {
+    const nameInput = document.getElementById("room-name-input");
+    const name = nameInput ? nameInput.value.trim() : "";
+    
+    if (!name) {
+      alert("Please enter a room name.");
+      return;
+    }
 
+    const deskElements = Array.from(document.querySelectorAll(".room-desk-item"));
+    if (deskElements.length === 0) {
+      alert("Add at least one desk before saving.");
+      return;
+    }
+
+    const deskLayout = deskElements.map((element, index) => ({
+      id: index,
+      left: Math.round(parseFloat(element.style.left) || 0),
+      top: Math.round(parseFloat(element.style.top) || 0),
+      rotation: parseInt(element.getAttribute("data-rotation")) || 0
+    }));
+
+    const payload = {
+      roomName: name,
+      deskLayout,
+      deleted: false,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (!window.AppState) window.AppState = {};
+
+    if (window.AppState.editingRoomId) {
+      await updateDoc(doc(db, "rooms", window.AppState.editingRoomId), payload);
+
+      const plansSnap = await getDocs(collection(db, "plans"));
+      for (const planDoc of plansSnap.docs) {
+        const planData = planDoc.data();
+        if (planData.roomId === window.AppState.editingRoomId) {
+          let updatedStudents = Array.isArray(planData.students) ? [...planData.students] : [];
+          updatedStudents = updatedStudents.map(student => {
+            if (student.seatIndex !== null && Number(student.seatIndex) >= deskLayout.length) {
+              return { ...student, seatIndex: null };
+            }
+            return student;
+          });
+
+          await updateDoc(doc(db, "plans", planDoc.id), {
+            students: updatedStudents,
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
+
+      alert("Room layout updated successfully.");
+    } else {
+      await addDoc(collection(db, "rooms"), payload);
+      alert("Room saved successfully.");
+    }
+
+    if (typeof showView === "function") showView("view-saved-rooms");
+    if (typeof renderSavedRooms === "function") renderSavedRooms();
+  } catch (err) {
+    console.error("Error saving room:", err);
+    alert("Failed to save room: " + err.message);
+  }
+};
+    // Duplicate Room Handler
+window.duplicateRoom = async function(roomId) {
+  try {
+    const roomRef = doc(db, "rooms", roomId);
+    const roomSnap = await getDoc(roomRef);
+
+    if (!roomSnap.exists()) {
+      alert("Room not found.");
+      return;
+    }
+
+    const data = roomSnap.data();
+    const duplicatedData = {
+      ...data,
+      roomName: `${data.roomName} (Copy)`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    await addDoc(collection(db, "rooms"), duplicatedData);
+    alert("Room duplicated successfully.");
+
+    if (typeof renderSavedRooms === "function") {
+      renderSavedRooms();
+    }
+  } catch (err) {
+    console.error("Error duplicating room:", err);
+    alert("Failed to duplicate room: " + err.message);
+  }
+};
+
+// Recycle Bin / Soft Delete Handler
+window.binRoom = async function(roomId) {
+  if (!confirm("Are you sure you want to move this room to the recycle bin?")) {
+    return;
+  }
+
+  try {
+    const roomRef = doc(db, "rooms", roomId);
+    await updateDoc(roomRef, {
+      deleted: true,
+      updatedAt: new Date().toISOString()
+    });
+
+    alert("Room moved to recycle bin.");
+
+    if (typeof renderSavedRooms === "function") {
+      renderSavedRooms();
+    }
+  } catch (err) {
+    console.error("Error moving room to bin:", err);
+    alert("Failed to delete room: " + err.message);
+  }
+};
     /* ------------------------------------------------------------------
        CLASS PLAN MODAL
     ------------------------------------------------------------------ */
