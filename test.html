@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClasxxsTile Web</title>
+  <title>ClassTile Web</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
@@ -1448,6 +1448,35 @@ window.binRoom = async function(roomId) {
 
       deskElement.dataset.studentId = assignedStudent.id;
 
+      // Information icon in top-left corner if student has notes
+      if (assignedStudent.notes && assignedStudent.notes.trim() !== "") {
+        const infoIcon = document.createElement("div");
+        infoIcon.className =
+          "absolute top-0.5 left-0.5 w-4 h-4 bg-blue-600 text-white rounded-full text-[10px] " +
+          "flex items-center justify-center font-bold font-sans z-30 shadow-sm cursor-help pointer-events-auto";
+        infoIcon.textContent = "i";
+        deskElement.appendChild(infoIcon);
+
+        // Hover popup showing notes
+        const tooltip = document.createElement("div");
+        tooltip.className =
+          "hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2.5 " +
+          "bg-slate-900/95 text-white text-xs rounded-lg shadow-xl z-50 pointer-events-none " +
+          "font-normal text-left whitespace-normal border border-slate-700 backdrop-blur-sm";
+
+        const titleSpan = document.createElement("div");
+        titleSpan.className = "font-bold text-[11px] text-blue-300 mb-1 border-b border-slate-700 pb-0.5";
+        titleSpan.textContent = `Notes: ${assignedStudent.name}`;
+
+        const bodySpan = document.createElement("div");
+        bodySpan.className = "text-[11px] text-slate-200 leading-snug";
+        bodySpan.textContent = assignedStudent.notes;
+
+        tooltip.appendChild(titleSpan);
+        tooltip.appendChild(bodySpan);
+        deskElement.appendChild(tooltip);
+      }
+
       // Red cross to remove a student only present in teacher view
       if (isTeacherView) {
         const removeBtn = document.createElement("button");
@@ -1469,7 +1498,7 @@ window.binRoom = async function(roomId) {
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
 
-      // Increased font sizes for student names
+      // Student name elements
       const firstNameEl = document.createElement("span");
       firstNameEl.className = "font-extrabold text-sm leading-tight truncate w-full text-center px-1 pointer-events-none text-slate-900";
       firstNameEl.textContent = firstName;
@@ -1705,7 +1734,7 @@ window.binRoom = async function(roomId) {
       modal.innerHTML = `
         <div class="bg-white rounded-lg shadow-xl max-w-sm w-full p-5 space-y-4">
           <div class="flex justify-between items-center border-b pb-2">
-            <h3 class="font-bold text-slate-800 text-base">${student.name} — Flags</h3>
+            <h3 class="font-bold text-slate-800 text-base">${student.name} — Student Info</h3>
             <button id="btn-close-flags" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
           </div>
 
@@ -1713,6 +1742,11 @@ window.binRoom = async function(roomId) {
             <div>
               <label class="block font-semibold text-slate-500 mb-1">Target / Grade</label>
               <input type="text" id="flag-grade" value="${student.grade || ''}" placeholder="e.g. 7A" class="w-full border rounded px-2 py-1">
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-500 mb-1">Notes / Comments</label>
+              <textarea id="flag-notes" rows="3" placeholder="Enter student notes or comments..." class="w-full border rounded px-2 py-1 text-xs">${student.notes || ''}</textarea>
             </div>
 
             <div class="grid grid-cols-2 gap-2 pt-1">
@@ -1741,7 +1775,7 @@ window.binRoom = async function(roomId) {
           </div>
 
           <div class="flex justify-end gap-2 border-t pt-3">
-            <button id="btn-save-flags" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded font-medium">Save Flags</button>
+            <button id="btn-save-flags" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded font-medium">Save Student Details</button>
           </div>
         </div>
       `;
@@ -1749,6 +1783,7 @@ window.binRoom = async function(roomId) {
       document.getElementById("btn-close-flags").onclick = () => modal.remove();
       document.getElementById("btn-save-flags").onclick = () => {
         student.grade = document.getElementById("flag-grade").value.trim();
+        student.notes = document.getElementById("flag-notes").value.trim();
         student.eal = document.getElementById("flag-eal").checked;
         student.pp = document.getElementById("flag-pp").checked;
         student.gt = document.getElementById("flag-gt").checked;
@@ -1989,7 +2024,7 @@ window.binRoom = async function(roomId) {
 
 
     /* ------------------------------------------------------------------
-       EXPORT TO PDF (High Precision Full-Resolution Stage Capture)
+       EXPORT TO PDF (With Separate Page for Student Notes)
     ------------------------------------------------------------------ */
 
 
@@ -2075,6 +2110,60 @@ window.binRoom = async function(roomId) {
         }
 
         pdf.addImage(imageData, "PNG", 10, 18, printWidth, printHeight);
+
+        // Export Notes to Additional Page(s)
+        const studentsWithNotes = (window.AppState.students || []).filter(
+          s => s.notes && s.notes.trim().length > 0
+        );
+
+        if (studentsWithNotes.length > 0) {
+          pdf.addPage("a4", "portrait");
+          let y = 20;
+          const margin = 15;
+          const pageWidth = 210;
+          const maxTextWidth = pageWidth - (margin * 2);
+
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(16);
+          pdf.setTextColor(30, 41, 59); // Slate-800
+          pdf.text("Student Notes & Comments", margin, y);
+          y += 6;
+
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(10);
+          pdf.setTextColor(100, 116, 139); // Slate-500
+          pdf.text(`${window.AppState.currentClassCode} — Teacher: ${window.AppState.currentTeacher}`, margin, y);
+          y += 8;
+
+          pdf.setDrawColor(203, 213, 225); // Slate-300
+          pdf.setLineWidth(0.5);
+          pdf.line(margin, y, pageWidth - margin, y);
+          y += 10;
+
+          studentsWithNotes.forEach((student) => {
+            const lines = pdf.splitTextToSize(student.notes, maxTextWidth);
+            const blockHeight = 6 + (lines.length * 5) + 8;
+
+            if (y + blockHeight > 270) {
+              pdf.addPage("a4", "portrait");
+              y = 20;
+            }
+
+            // Student Name
+            pdf.setFont("helvetica", "bold");
+            pdf.setFontSize(12);
+            pdf.setTextColor(15, 23, 42);
+            pdf.text(student.name, margin, y);
+            y += 6;
+
+            // Student Notes
+            pdf.setFont("helvetica", "normal");
+            pdf.setFontSize(10);
+            pdf.setTextColor(51, 65, 85);
+            pdf.text(lines, margin, y);
+            y += (lines.length * 5) + 8;
+          });
+        }
 
         const filename = `${slugify(window.AppState.currentClassCode)}_seating_plan.pdf`;
         pdf.save(filename);
