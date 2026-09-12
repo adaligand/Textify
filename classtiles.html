@@ -649,7 +649,25 @@
             class="w-full border p-2 rounded text-sm bg-white"
           ></select>
         </div>
+<div class="p-3 bg-indigo-50 rounded-lg border border-indigo-100 space-y-2">
+          <label class="text-xs font-semibold uppercase text-indigo-700 block font-bold">
+            Import from Google Classroom (Optional)
+          </label>
+          <div class="flex gap-2">
+            <select id="select-google-course" class="w-full border p-2 rounded text-sm bg-white">
+              <option value="">Select a Classroom course...</option>
+            </select>
+            <button
+              type="button"
+              onclick="importSelectedGoogleClassroom()"
+              class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-xs font-medium whitespace-nowrap cursor-pointer"
+            >
+              Fetch Roster
+            </button>
+          </div>
+        </div>
 
+        
         <div>
           <label class="text-xs font-semibold uppercase text-slate-500">
             Batch Roster Input (One name per line)
@@ -718,7 +736,11 @@
     const db = getFirestore(app);
     const auth = getAuth(app);
     const googleProvider = new GoogleAuthProvider();
+    googleProvider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
+    googleProvider.addScope('https://www.googleapis.com/auth/classroom.rosters.readonly');
 
+    // Token storage variable
+    let googleAccessToken = null;
     /* ------------------------------------------------------------------
        SECURITY & AUTHENTICATION
     ------------------------------------------------------------------ */
@@ -731,13 +753,19 @@
       return isCedarsDomain && !isStudent;
     }
 
-    window.handleGoogleLogin = async function() {
+window.handleGoogleLogin = async function() {
       const errorEl = document.getElementById("login-error");
       if (errorEl) errorEl.textContent = "";
 
       try {
         const result = await signInWithPopup(auth, googleProvider);
         const user = result.user;
+
+        // Capture OAuth Access Token
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        if (credential) {
+          googleAccessToken = credential.accessToken;
+        }
 
         if (!isTeacherEmail(user.email)) {
           await signOut(auth);
@@ -1209,7 +1237,107 @@
         alert("Failed to delete room: " + err.message);
       }
     };
+/* ------------------------------------------------------------------
+       GOOGLE CLASSROOM API & SYNC LOGIC
+    ------------------------------------------------------------------ */
 
+    // Fetch active courses taught by teacher
+    async function fetchGoogleClassroomCourses() {
+      if (!googleAccessToken) return [];
+      try {
+        const res = await fetch('https://classroom.googleapis.com/v1/courses?teacherId=me&courseStates=ACTIVE', {
+          headers: { Authorization: `Bearer ${googleAccessToken}` }
+        });
+        const data = await res.json();
+        return data.courses || [];
+      } catch (err) {
+        console.error("Error fetching Google Classroom courses:", err);
+        return [];
+      }
+    }
+
+    // Fetch roster profiles for a specific course
+    async function fetchClassroomRoster(courseId) {
+      if (!googleAccessToken) return [];
+      try {
+        const res = await fetch(`https://classroom.googleapis.com/v1/courses/${courseId}/students`, {
+          headers: { Authorization: `Bearer ${googleAccessToken}` }
+        });
+        const data = await res.json();
+
+        const students = await Promise.all((data.students || []).map(async (s) => {
+          const profileRes = await fetch(`https://classroom.googleapis.com/v1/userProfiles/${s.userId}`, {
+            headers: { Authorization: `Bearer ${googleAccessToken}` }
+          });
+          const profile = await profileRes.json();
+          return {
+            googleId: s.userId,
+            name: profile.name.fullName
+          };
+        }));
+
+        return students;
+      } catch (err) {
+        console.error("Error fetching roster:", err);
+        return [];
+      }
+    }
+
+    // Reconciliation Logic (Preserves manual edits, places new students in unassigned roster)
+    function syncClassroomRoster(currentStudents, fetchedClassroomStudents) {
+      const fetchedMap = new Map(fetchedClassroomStudents.map(s => [s.googleId, s.name]));
+      const currentGoogleIds = new Set(currentStudents.map(s => s.googleId).filter(Boolean));
+
+      // 1. Filter out students removed from Google Classroom
+      let updatedStudents = currentStudents.filter(s => !s.googleId || fetchedMap.has(s.googleId));
+
+      // 2. Add newly added Google Classroom students to unassigned roster (seatIndex = null)
+      fetchedClassroomStudents.forEach(gStudent => {
+        if (!currentGoogleIds.has(gStudent.googleId)) {
+          updatedStudents.push({
+            id: `s_gc_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            googleId: gStudent.googleId,
+            name: gStudent.name,
+            seatIndex: null
+          });
+        }
+      });
+
+      return updatedStudents;
+    }
+
+    // UI Handler for the modal "Fetch Roster" button
+    window.importSelectedGoogleClassroom = async function() {
+      const select = document.getElementById("select-google-course");
+      const courseId = select ? select.value : null;
+
+      if (!courseId) {
+        alert("Please select a Google Classroom course first.");
+        return;
+      }
+
+      const classroomStudents = await fetchClassroomRoster(courseId);
+      if (!classroomStudents.length) {
+        alert("No students found in this course roster.");
+        return;
+      }
+
+      // Automatically fill in class code if empty
+      const selectedOptionText = select.options[select.selectedIndex].text;
+      const codeInput = document.getElementById("input-class-code");
+      if (codeInput && !codeInput.value) {
+        codeInput.value = selectedOptionText;
+      }
+
+      // Populate text box with student names
+      const rosterTextarea = document.getElementById("input-batch-roster");
+      if (rosterTextarea) {
+        rosterTextarea.value = classroomStudents.map(s => s.name).join("\n");
+      }
+
+      // Store fetched Google IDs in state temporarily for confirmCreateNewClass
+      window.AppState._tempClassroomRoster = classroomStudents;
+    };
     /* ------------------------------------------------------------------
        CLASS PLAN MODAL
     ------------------------------------------------------------------ */
@@ -1217,8 +1345,7 @@
     window.openNewClassModal = async function() {
       window.AppState.editingPlanId = null;
       window.AppState.students = [];
-      document.getElementById("modal-class-title").textContent =
-        "Create New Seating Plan";
+      document.getElementById("modal-class-title").textContent = "Create New Seating Plan";
 
       document.getElementById("input-teacher-name").value =
         window.AppState.activeTeacherFolder || "";
@@ -1228,9 +1355,21 @@
 
       await populateRoomDropdown();
 
-      document
-        .getElementById("modal-new-class")
-        .classList.remove("hidden");
+      // Load Google Classroom courses into dropdown
+      const googleSelect = document.getElementById("select-google-course");
+      if (googleSelect) {
+        googleSelect.innerHTML = '<option value="">Loading courses...</option>';
+        const courses = await fetchGoogleClassroomCourses();
+        googleSelect.innerHTML = '<option value="">Select a Classroom course...</option>';
+        courses.forEach(c => {
+          const opt = document.createElement("option");
+          opt.value = c.id;
+          opt.textContent = c.name;
+          googleSelect.appendChild(opt);
+        });
+      }
+
+      document.getElementById("modal-new-class").classList.remove("hidden");
     };
 
     async function populateRoomDropdown() {
@@ -1293,7 +1432,7 @@
       document.getElementById("modal-new-class").classList.remove("hidden");
     };
 
-    window.confirmCreateNewClass = async function() {
+window.confirmCreateNewClass = async function() {
       const teacher = document.getElementById("input-teacher-name").value.trim();
       const code = document.getElementById("input-class-code").value.trim();
       const roomId = document.getElementById("select-room-design").value;
@@ -1315,6 +1454,9 @@
       const usedExistingIds = new Set();
       const timestamp = Date.now();
 
+      // 1. Grab temporary Google Classroom import state (if present)
+      const tempRoster = window.AppState._tempClassroomRoster || [];
+
       const newStudents = studentNames.map((name, index) => {
         let matched = existingStudents.find(
           s => !usedExistingIds.has(s.id) && s.name.toLowerCase() === name.toLowerCase()
@@ -1324,16 +1466,23 @@
           matched = existingStudents[index];
         }
 
+        // 2. Look for matching Google Student ID from imported roster
+        const gcMatch = tempRoster.find(g => g.name.toLowerCase() === name.toLowerCase());
+
         if (matched) {
           usedExistingIds.add(matched.id);
           return {
             ...matched,
-            name: name
+            name: name,
+            // Preserve or update googleId
+            googleId: gcMatch ? gcMatch.googleId : (matched.googleId || null)
           };
         }
 
         return {
           id: `s_${timestamp}_${index}`,
+          // Attach googleId if importing from Classroom, else null
+          googleId: gcMatch ? gcMatch.googleId : null,
           name: name,
           seatIndex: null
         };
@@ -1359,6 +1508,9 @@
           s.seatIndex = null;
         }
       });
+
+      // 3. Clear temporary roster cache after assigning
+      delete window.AppState._tempClassroomRoster;
 
       closeNewClassModal();
       renderSeatingChartWorkspace();
