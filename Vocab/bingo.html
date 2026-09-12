@@ -17,6 +17,8 @@
     .setup-panel { margin: 20px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     .setup-label { font-size: 18px; margin-bottom: 20px; color: #333; text-align: center; }
 
+    .loading-message { font-size: 20px; font-weight: bold; color: #3b82f6; margin: 20px 0; }
+
     .menu-button, .btn {
         padding: 10px 20px;
         font-size: 18px;
@@ -123,9 +125,12 @@
     <div class="subtitle" id="gameSubtitle">Match the called words with their translations to get 3 in a row!</div>
 
     <div class="setup-panel" id="setupPanel">
-        <div class="setup-label">Select your game mode:</div>
-        <button class="menu-button" onclick="startBingoGame('vs_computer')">1 Player vs Computer 🤖</button>
-        <button class="menu-button" onclick="startBingoGame('2_player')">2 Players 👥</button>
+        <div id="loadingStatus" class="loading-message">Loading activity vocabulary... ⏳</div>
+        <div id="modeSelection" style="display: none; flex-direction: column; align-items: center;">
+            <div class="setup-label">Select your game mode:</div>
+            <button class="menu-button" onclick="startBingoGame('vs_computer')">1 Player vs Computer 🤖</button>
+            <button class="menu-button" onclick="startBingoGame('2_player')">2 Players 👥</button>
+        </div>
     </div>
 
     <div class="call-box" id="callBox">
@@ -204,45 +209,63 @@ function getSpreadsheetId(url) {
 const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
 
 if (!sheetUrl) {
-    document.getElementById('currentCallWord').textContent = "⚠️ No CSV URL provided in query string.";
-}
-
-// --- EXACT COLUMN PARSING (Col B = Target, Col C = English) ---
-Papa.parse(sheetUrl, {
-    download: true,
-    header: false, // Disables named header mapping to prevent grabbing other columns
-    skipEmptyLines: true,
-    complete: function(results) {
-        vocabList = [];
-
-        results.data.forEach(row => {
-            if (Array.isArray(row) && row.length >= 3) {
-                const target = String(row[1] || '').trim();  // Column B (French / Target Language)
-                const english = String(row[2] || '').trim(); // Column C (English)
-
-                // Skip top header row or empty lines
-                if (target.toLowerCase() === 'french' || english.toLowerCase() === 'english') {
-                    return;
-                }
-
-                if (target !== '' && english !== '') {
-                    vocabList.push({
-                        target: target,
-                        english: english
-                    });
-                }
-            }
-        });
-
-        if (vocabList.length < 9) {
-            alert(`⚠️ Spreadsheet only loaded ${vocabList.length} item(s) from Columns B & C. At least 9 items are required for 3x3 Bingo!`);
-        }
-    },
-    error: function(err) {
-        console.error(err);
-        document.getElementById('currentCallWord').textContent = "⚠️ CSV load error: " + err;
+    const loadingEl = document.getElementById('loadingStatus');
+    if (loadingEl) {
+        loadingEl.style.color = "#e53e3e";
+        loadingEl.textContent = "⚠️ No CSV URL provided in query string.";
     }
-});
+} else {
+    // --- PARSING SpreadSheet Data ---
+    Papa.parse(sheetUrl, {
+        download: true,
+        header: false,
+        skipEmptyLines: true,
+        complete: function(results) {
+            vocabList = [];
+
+            results.data.forEach(row => {
+                if (Array.isArray(row) && row.length >= 3) {
+                    const target = String(row[1] || '').trim();  // Column B (Target Language)
+                    const english = String(row[2] || '').trim(); // Column C (English)
+
+                    // Skip header row
+                    if (target.toLowerCase() === 'french' || english.toLowerCase() === 'english') {
+                        return;
+                    }
+
+                    if (target !== '' && english !== '') {
+                        vocabList.push({
+                            target: target,
+                            english: english
+                        });
+                    }
+                }
+            });
+
+            const loadingEl = document.getElementById('loadingStatus');
+            const modeEl = document.getElementById('modeSelection');
+
+            if (vocabList.length < 9) {
+                if (loadingEl) {
+                    loadingEl.style.color = "#e53e3e";
+                    loadingEl.textContent = `⚠️ Spreadsheet only loaded ${vocabList.length} item(s) from Columns B & C. At least 9 items are required for 3x3 Bingo!`;
+                }
+            } else {
+                // Vocabulary ready: hide loading status and display mode selection
+                if (loadingEl) loadingEl.style.display = "none";
+                if (modeEl) modeEl.style.display = "flex";
+            }
+        },
+        error: function(err) {
+            console.error(err);
+            const loadingEl = document.getElementById('loadingStatus');
+            if (loadingEl) {
+                loadingEl.style.color = "#e53e3e";
+                loadingEl.textContent = "⚠️ CSV load error: " + err;
+            }
+        }
+    });
+}
 
 function resetSetup() {
     gameActive = false;
@@ -254,6 +277,11 @@ function resetSetup() {
     document.getElementById('leaderboardSection').style.display = "none";
     document.getElementById('googleBtnContainer').innerHTML = "";
     document.getElementById('gameSubtitle').style.display = "block";
+
+    if (vocabList.length >= 9) {
+        document.getElementById('loadingStatus').style.display = "none";
+        document.getElementById('modeSelection').style.display = "flex";
+    }
 }
 
 function startBingoGame(mode) {
