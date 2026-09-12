@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vocabulary Bingo</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<style>
+    body { font-family: Arial, sans-serif; background-color: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+    .container { width: 100%; max-width: 1100px; padding: 30px; box-sizing: border-box; font-size: 16px; background-color: white; border-radius: 15px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }
+    .title { font-size: 40px; font-weight: bold; text-align: center; margin-bottom: 10px; }
+    .subtitle { font-size: 18px; margin-bottom: 20px; text-align: center; color: #555; }
+    
+    .setup-panel { background: #f9f9f9; padding: 20px; border-radius: 10px; border: 1px solid #e0e0e0; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; align-items: center; }
+    .setup-group { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+    .setup-group label { font-weight: bold; font-size: 14px; }
+    
+    select, input { padding: 8px 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 15px; }
+    
+    .call-box { display: none; text-align: center; background-color: #eef6ff; border: 2px dashed #3182ce; padding: 20px; border-radius: 12px; margin-bottom: 25px; }
+    .call-title { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #3182ce; font-weight: bold; }
+    .call-word { font-size: 32px; font-weight: bold; color: #2b6cb0; margin: 8px 0; }
+    
+    .game-controls { display: flex; justify-content: center; gap: 10px; margin-top: 10px; }
+    
+    .boards-container { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; margin-bottom: 25px; }
+    .player-card { background: #fafafa; border: 2px solid #e2e8f0; border-radius: 12px; padding: 15px; flex: 1 1 220px; max-width: 260px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .player-card.active-turn { border-color: #3182ce; background-color: #ffffff; }
+    .player-title { font-size: 18px; font-weight: bold; text-align: center; margin-bottom: 12px; color: #2d3748; }
+    
+    .bingo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .bingo-tile { height: 70px; font-size: 14px; font-weight: bold; border-radius: 8px; border: 1px solid #cbd5e0; background-color: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: center; text-align: center; padding: 4px; word-break: break-word; transition: all 0.2s ease; }
+    .bingo-tile:hover { background-color: #edf2f7; transform: translateY(-2px); }
+    .bingo-tile.marked { background-color: #48bb78 !important; color: white; border-color: #38a169; }
+    .bingo-tile.incorrect-flash { background-color: #feb2b2; border-color: #e53e3e; }
+    .bingo-tile.winning-line { animation: pulse 1s infinite alternate; background-color: #ecc94b !important; color: #000; }
+
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        100% { transform: scale(1.05); }
+    }
+    
+    .btn { padding: 10px 20px; font-size: 16px; font-weight: bold; background-color: #3182ce; color: white; border: none; border-radius: 8px; cursor: pointer; transition: transform 0.2s, background-color 0.2s; font-family: Arial, sans-serif; }
+    .btn:hover { background-color: #2b6cb0; transform: translateY(-2px); }
+    .btn-secondary { background-color: #718096; }
+    .btn-secondary:hover { background-color: #4a5568; }
+    
+    .leaderboard-box { margin-top: 25px; text-align: center; border-top: 2px solid #eee; padding-top: 20px; }
+    .leaderboard-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 16px; background-color: #fafafa; color: #333; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    .leaderboard-table th, .leaderboard-table td { padding: 10px 12px; text-align: center; border-bottom: 1px solid #eee; }
+    .leaderboard-table th { background-color: #f1f3f5; color: #333; font-weight: bold; }
+    .leaderboard-table tr:last-child td { border-bottom: none; }
+    .leaderboard-table tr.highlight-row { background-color: #d4edda !important; color: #155724 !important; font-weight: bold; }
+    
+    #googleBtnContainer { display: flex; justify-content: center; margin: 15px 0; }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+    <div class="title">Vocabulary Bingo</div>
+    <div class="subtitle" id="gameSubtitle">Match the called English words with the correct target language translation!</div>
+
+    <div class="setup-panel" id="setupPanel">
+        <div class="setup-group">
+            <label for="modeSelect">Game Mode</label>
+            <select id="modeSelect">
+                <option value="vs_computer">1 Player vs Computer 🤖</option>
+                <option value="2_player">2 Players</option>
+                <option value="3_player">3 Players</option>
+                <option value="4_player">4 Players</option>
+            </select>
+        </div>
+        <div class="setup-group">
+            <label for="languageSelect">Target Language</label>
+            <select id="languageSelect">
+                <option value="french" selected>French</option>
+                <option value="german">German</option>
+                <option value="spanish">Spanish</option>
+            </select>
+        </div>
+        <div class="setup-group" style="align-self: flex-end;">
+            <button class="btn" onclick="startBingoGame()">🎮 Start Game</button>
+        </div>
+    </div>
+
+    <div class="call-box" id="callBox">
+        <div class="call-title">Current Call</div>
+        <div class="call-word" id="currentCallWord">---</div>
+        <div class="game-controls">
+            <button class="btn" id="nextCallBtn" onclick="drawNextWord()">🎲 Draw Next Word</button>
+        </div>
+    </div>
+
+    <div class="boards-container" id="boardsContainer"></div>
+
+    <div id="leaderboardSection" class="leaderboard-box" style="display:none;">
+        <h3 style="margin: 5px 0;">🏆 Top 5 Leaderboard 🏆</h3>
+        <div id="leaderboardStatus"></div>
+        <div id="googleBtnContainer"></div>
+        <table class="leaderboard-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Player</th>
+                    <th>Accuracy</th>
+                    <th>Time</th>
+                </tr>
+            </thead>
+            <tbody id="leaderboardBody"></tbody>
+        </table>
+        <button id="restartBtn" class="btn btn-secondary" style="margin-top:15px;" onclick="resetSetup()">🔄 Play Again</button>
+    </div>
+</div>
+
+<script>
+let vocabList = [];
+let callerDeck = [];
+let currentCalledWord = null;
+let playerBoardsData = [];
+let gameActive = false;
+
+let totalAttempts = 0;
+let correctAttempts = 0;
+
+const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzasoQX0sQoLfpK9Uoup_d-IvuEaAKoJvHi79hZKf5qsVei8XP_CxvE5IQcdlrxE0DfHA/exec";
+const GAME_NAME = "Bingo";
+let startTime;
+
+const GOOGLE_CLIENT_ID = "158411898898-17274f13igjs13a5ja3g31vhnp0c4e0u.apps.googleusercontent.com";
+let currentGoogleUser = null;
+let googleInitialised = false;
+
+let pendingTimeMinutes = null;
+let pendingAccuracy = null;
+
+const params = new URLSearchParams(window.location.search);
+const sheetUrl = params.get('sheet');
+
+function getSpreadsheetId(url) {
+    if (!url) return null;
+    if (url.includes('/d/e/')) {
+        const matches = url.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+        return matches ? matches[1] : url;
+    }
+    const matches = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    return matches ? matches[1] : url;
+}
+
+const topicId = sheetUrl ? getSpreadsheetId(sheetUrl) : null;
+
+if (!sheetUrl) {
+    document.getElementById('currentCallWord').textContent = "⚠️ No CSV URL provided in query string.";
+}
+
+Papa.parse(sheetUrl, {
+    download: true,
+    header: true,
+    skipEmptyLines: true,
+    complete: function(results) {
+        vocabList = [];
+        results.data.forEach(row => {
+            const french = row.French || row.french;
+            const german = row.German || row.german;
+            const spanish = row.Spanish || row.spanish;
+            const english = row.English || row.english;
+
+            if (english && (french || german || spanish)) {
+                vocabList.push({
+                    french: (french || "").trim(),
+                    german: (german || "").trim(),
+                    spanish: (spanish || "").trim(),
+                    english: english.trim()
+                });
+            }
+        });
+        if (vocabList.length < 9) {
+            alert("⚠️ Vocabulary list needs at least 9 items to play Bingo!");
+            return;
+        }
+    },
+    error: function(err) {
+        console.error(err);
+        document.getElementById('currentCallWord').textContent = "⚠️ CSV load error: " + err;
+    }
+});
+
+function resetSetup() {
+    gameActive = false;
+    document.getElementById('setupPanel').style.display = "flex";
+    document.getElementById('callBox').style.display = "none";
+    document.getElementById('boardsContainer').innerHTML = "";
+    document.getElementById('leaderboardSection').style.display = "none";
+    document.getElementById('gameSubtitle').style.display = "block";
+}
+
+function getTargetWord(item) {
+    const lang = document.getElementById('languageSelect').value;
+    return item[lang] || item.french || item.english;
+}
+
+function startBingoGame() {
+    if (vocabList.length < 9) {
+        alert("Not enough vocabulary items to start a 3x3 Bingo card.");
+        return;
+    }
+
+    const mode = document.getElementById('modeSelect').value;
+    let playerCount = 1;
+    let hasComputer = false;
+
+    if (mode === 'vs_computer') {
+        playerCount = 2;
+        hasComputer = true;
+    } else {
+        playerCount = parseInt(mode.split('_')[0], 10);
+    }
+
+    totalAttempts = 0;
+    correctAttempts = 0;
+    currentGoogleUser = null;
+    pendingTimeMinutes = null;
+    pendingAccuracy = null;
+    gameActive = true;
+
+    document.getElementById('setupPanel').style.display = "none";
+    document.getElementById('callBox').style.display = "block";
+    document.getElementById('leaderboardSection').style.display = "none";
+
+    callerDeck = [...vocabList].sort(() => 0.5 - Math.random());
+    playerBoardsData = [];
+
+    const container = document.getElementById('boardsContainer');
+    container.innerHTML = "";
+
+    for (let p = 0; p < playerCount; p++) {
+        const isComp = (hasComputer && p === 1);
+        const playerName = isComp ? "Computer 🤖" : `Player ${p + 1}`;
+        
+        // Pick 9 unique random items for each board grid
+        const boardWords = [...vocabList].sort(() => 0.5 - Math.random()).slice(0, 9);
+        
+        playerBoardsData.push({
+            id: p,
+            name: playerName,
+            isComputer: isComp,
+            words: boardWords,
+            marked: new Array(9).fill(false)
+        });
+
+        // Render Card UI
+        const cardDiv = document.createElement('div');
+        cardDiv.className = 'player-card';
+        cardDiv.id = `player-card-${p}`;
+        
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'player-title';
+        titleDiv.textContent = playerName;
+        cardDiv.appendChild(titleDiv);
+
+        const gridDiv = document.createElement('div');
+        gridDiv.className = 'bingo-grid';
+
+        boardWords.forEach((item, tileIndex) => {
+            const btn = document.createElement('button');
+            btn.className = 'bingo-tile';
+            btn.id = `tile-${p}-${tileIndex}`;
+            btn.textContent = getTargetWord(item);
+            btn.onclick = () => handleTileClick(p, tileIndex, item);
+            gridDiv.appendChild(btn);
+        });
+
+        cardDiv.appendChild(gridDiv);
+        container.appendChild(cardDiv);
+    }
+
+    startTime = Date.now();
+    drawNextWord();
+}
+
+function drawNextWord() {
+    if (!gameActive) return;
+
+    if (callerDeck.length === 0) {
+        // Shuffle deck again if ran out of calls
+        callerDeck = [...vocabList].sort(() => 0.5 - Math.random());
+    }
+
+    currentCalledWord = callerDeck.pop();
+    document.getElementById('currentCallWord').textContent = currentCalledWord.english;
+
+    // Trigger AI turns after a brief delay if VS Computer mode is on
+    playerBoardsData.forEach(player => {
+        if (player.isComputer && gameActive) {
+            setTimeout(() => runComputerTurn(player), Math.random() * 1500 + 1000);
+        }
+    });
+}
+
+function handleTileClick(playerIdx, tileIdx, item) {
+    if (!gameActive) return;
+    const player = playerBoardsData[playerIdx];
+
+    if (player.isComputer) return; // Can't click computer tiles
+
+    if (player.marked[tileIdx]) return; // Already marked
+
+    totalAttempts++;
+
+    const isMatch = (item.english === currentCalledWord.english);
+
+    if (isMatch) {
+        correctAttempts++;
+        markTile(playerIdx, tileIdx);
+    } else {
+        const tile = document.getElementById(`tile-${playerIdx}-${tileIdx}`);
+        tile.classList.add('incorrect-flash');
+        setTimeout(() => tile.classList.remove('incorrect-flash'), 500);
+    }
+}
+
+function markTile(playerIdx, tileIdx) {
+    const player = playerBoardsData[playerIdx];
+    player.marked[tileIdx] = true;
+
+    const tile = document.getElementById(`tile-${playerIdx}-${tileIdx}`);
+    tile.classList.add('marked');
+
+    checkBingo(playerIdx);
+}
+
+function runComputerTurn(computerPlayer) {
+    if (!gameActive) return;
+
+    const targetIdx = computerPlayer.words.findIndex(w => w.english === currentCalledWord.english);
+    if (targetIdx !== -1 && !computerPlayer.marked[targetIdx]) {
+        markTile(computerPlayer.id, targetIdx);
+    }
+}
+
+function checkBingo(playerIdx) {
+    const m = playerBoardsData[playerIdx].marked;
+    const winPatterns = [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+        [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
+        [0, 4, 8], [2, 4, 6]             // Diagonals
+    ];
+
+    for (let pattern of winPatterns) {
+        if (pattern.every(idx => m[idx])) {
+            triggerWin(playerIdx, pattern);
+            break;
+        }
+    }
+}
+
+function triggerWin(playerIdx, winningPattern) {
+    gameActive = false;
+    const winner = playerBoardsData[playerIdx];
+
+    winningPattern.forEach(idx => {
+        const tile = document.getElementById(`tile-${playerIdx}-${idx}`);
+        tile.classList.add('winning-line');
+    });
+
+    const totalSeconds = Math.round((Date.now() - startTime) / 1000);
+    const displayMins = Math.floor(totalSeconds / 60);
+    const displaySecs = totalSeconds % 60;
+    const clockFormattedTime = parseFloat(`${displayMins}.${displaySecs < 10 ? '0' : ''}${displaySecs}`);
+    const formattedTimeText = `${displayMins}m ${displaySecs}s`;
+
+    const accuracy = Math.min(100, Math.round((correctAttempts / Math.max(1, totalAttempts)) * 100));
+
+    setTimeout(() => {
+        document.getElementById('currentCallWord').textContent = `🎉 BINGO! ${winner.name} Wins!`;
+        document.getElementById('gameSubtitle').style.display = "none";
+        
+        // Submit score for human winner
+        if (!winner.isComputer) {
+            checkQualificationAndLoad(clockFormattedTime, accuracy);
+        } else {
+            // Show Leaderboard directly without human qualification
+            renderLeaderboardRows([], null, null, null);
+            document.getElementById('leaderboardSection').style.display = "block";
+        }
+    }, 600);
+}
+
+function formatTimeDisplay(minutesVal) {
+    if (minutesVal === undefined || minutesVal === null || isNaN(minutesVal)) {
+        return "";
+    }
+    const num = parseFloat(minutesVal);
+    const mins = Math.floor(num);
+    const secs = Math.round((num - mins) * 100);
+    return `${mins}m ${secs}s`;
+}
+
+function checkQualificationAndLoad(timeMinutes, accuracy) {
+    const tbody = document.getElementById('leaderboardBody');
+    const section = document.getElementById('leaderboardSection');
+
+    tbody.innerHTML = '<tr><td colspan="4">Loading leaderboard... ⏳</td></tr>';
+    section.style.display = "block";
+
+    fetch(`${LEADERBOARD_API_URL}?game=${encodeURIComponent(GAME_NAME)}&topicId=${encodeURIComponent(topicId)}`)
+    .then(res => res.json())
+    .then(data => {
+        let tempBoard = [...data];
+        let newAttempt = {
+            name: "___TEMP_PLAYER___",
+            time: parseFloat(timeMinutes),
+            accuracy: parseFloat(accuracy)
+        };
+
+        tempBoard.push(newAttempt);
+        tempBoard.sort((a, b) => b.accuracy - a.accuracy || a.time - b.time);
+
+        let playerRank = tempBoard.findIndex(e => 
+            e.name === "___TEMP_PLAYER___" && 
+            e.time === parseFloat(timeMinutes) && 
+            e.accuracy === parseFloat(accuracy)
+        ) + 1;
+
+        if (playerRank <= 5) {
+            pendingTimeMinutes = parseFloat(timeMinutes);
+            pendingAccuracy = parseFloat(accuracy);
+            tbody.innerHTML = '<tr><td colspan="4">🏆 You made the Top 5! Please sign in to save your score.</td></tr>';
+            startGoogleAuthentication();
+        } else {
+            renderLeaderboardRows(data, null, null, null);
+        }
+    })
+    .catch(err => {
+        console.error("Leaderboard loading failure:", err);
+        tbody.innerHTML = '<tr><td colspan="4">Error connecting to database.</td></tr>';
+    });
+}
+
+function startGoogleAuthentication() {
+    if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+        setTimeout(startGoogleAuthentication, 200);
+        return;
+    }
+
+    if (!googleInitialised) {
+        google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: handleGoogleCredential,
+            auto_select: false,
+            use_fedcm_for_prompt: false
+        });
+        googleInitialised = true;
+    }
+
+    const btnContainer = document.getElementById('googleBtnContainer');
+    btnContainer.innerHTML = '';
+    google.accounts.id.renderButton(
+        btnContainer,
+        { theme: "outline", size: "large", text: "continue_with" }
+    );
+
+    google.accounts.id.prompt(function(notification) {
+        if (notification.isNotDisplayed()) {
+            console.warn("One Tap Prompt not displayed:", notification.getNotDisplayedReason());
+        }
+    });
+}
+
+function handleGoogleCredential(response) {
+    try {
+        const payload = parseJwt(response.credential);
+        currentGoogleUser = {
+            name: payload.name || "Google User",
+            email: payload.email || "",
+            googleId: payload.sub || "",
+            picture: payload.picture || ""
+        };
+
+        document.getElementById('googleBtnContainer').innerHTML = '';
+        submitLeaderboardScore();
+    } catch (error) {
+        console.error("Could not process Google credential:", error);
+        document.getElementById('leaderboardStatus').innerHTML = 
+            '<h4 style="color:#e74c3c;">Google sign-in could not be completed. Your score was not saved.</h4>';
+    }
+}
+
+function parseJwt(token) {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    return JSON.parse(jsonPayload);
+}
+
+function submitLeaderboardScore() {
+    const tbody = document.getElementById('leaderboardBody');
+    tbody.innerHTML = '<tr><td colspan="4">Saving your spot... ⏳</td></tr>';
+
+    fetch(LEADERBOARD_API_URL, {
+        method: "POST",
+        body: JSON.stringify({
+            topicId: topicId,
+            game: GAME_NAME,
+            name: currentGoogleUser.name,
+            email: currentGoogleUser.email,
+            googleId: currentGoogleUser.googleId,
+            time: parseFloat(pendingTimeMinutes),
+            accuracy: parseFloat(pendingAccuracy)
+        })
+    })
+    .then(res => res.json())
+    .then(updatedData => {
+        renderLeaderboardRows(updatedData, currentGoogleUser.name, pendingTimeMinutes, pendingAccuracy);
+    })
+    .catch(err => {
+        console.error("Leaderboard save error:", err);
+        tbody.innerHTML = '<tr><td colspan="4">Error saving score.</td></tr>';
+    });
+}
+
+function renderLeaderboardRows(data, highlightName, highlightTime, highlightAcc) {
+    const tbody = document.getElementById('leaderboardBody');
+    const statusDiv = document.getElementById('leaderboardStatus');
+    if (!tbody) return;
+
+    tbody.innerHTML = "";
+    let rankHeader = document.getElementById('personalRankTitle');
+
+    if (!rankHeader && statusDiv) {
+        rankHeader = document.createElement('h4');
+        rankHeader.id = 'personalRankTitle';
+        rankHeader.style.fontSize = '18px';
+        rankHeader.style.margin = '8px 0';
+        statusDiv.appendChild(rankHeader);
+    }
+
+    if (highlightName) {
+        let studentRank = data.findIndex(entry => 
+            entry.name === highlightName && 
+            entry.time === parseFloat(highlightTime) && 
+            entry.accuracy === parseFloat(highlightAcc)
+        ) + 1;
+
+        if (rankHeader) {
+            rankHeader.style.color = '#2ecc71';
+            rankHeader.textContent = studentRank > 0 ? `🎯 Final Status: Rank #${studentRank}!` : `🎯 Score Saved Successfully!`;
+        }
+    } else {
+        if (rankHeader) {
+            rankHeader.style.color = '#e67e22';
+            rankHeader.textContent = `🏁 Play again to reach the Top 5!`;
+        }
+    }
+
+    const medals = ['🥇 1', '🥈 2', '🥉 3'];
+
+    data.forEach((entry, index) => {
+        const tr = document.createElement('tr');
+        const accVal = entry.accuracy !== undefined ? entry.accuracy : 100;
+        const timeFormatted = formatTimeDisplay(entry.time);
+        const rankDisplay = medals[index] || `#${index + 1}`;
+
+        if (highlightName && entry.name === highlightName && entry.time === parseFloat(highlightTime) && entry.accuracy === parseFloat(highlightAcc)) {
+            tr.className = 'highlight-row';
+        }
+
+        const rankCell = document.createElement('td');
+        rankCell.innerHTML = `<strong>${rankDisplay}</strong>`;
+
+        const nameCell = document.createElement('td');
+        const nameStrong = document.createElement('strong');
+        nameStrong.textContent = entry.name || "Unknown";
+        nameCell.appendChild(nameStrong);
+
+        const accCell = document.createElement('td');
+        accCell.textContent = `${accVal}%`;
+
+        const timeCell = document.createElement('td');
+        timeCell.textContent = timeFormatted;
+
+        tr.appendChild(rankCell);
+        tr.appendChild(nameCell);
+        tr.appendChild(accCell);
+        tr.appendChild(timeCell);
+
+        tbody.appendChild(tr);
+    });
+}
+</script>
+
+</body>
+</html>
