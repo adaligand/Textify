@@ -1370,33 +1370,51 @@
 
     if (feedbackDiv) feedbackDiv.innerText = readAloudFeedback;
 
-    if (commentInput && commentInput.dataset.userEdited !== "true") {
-        const subObj = allSubmissions.find(s => s.id === submissionId);
-        const activeAssignment = allAssignments.find(a => a.id === (subObj ? subObj.assignmentId : filterTask.value));
+    const subObj = allSubmissions.find(s => s.id === submissionId);
+    const activeAssignment = allAssignments.find(a => a.id === (subObj ? subObj.assignmentId : filterTask.value));
 
-        let sentenceLines = "";
-        let originalSentences = [];
-        if (activeAssignment && activeAssignment.text) {
-            originalSentences = activeAssignment.text.match(/[^.!?]+[.!?]*/g) || [activeAssignment.text];
+    let sentenceLines = "";
+    let originalSentences = [];
+    if (activeAssignment && activeAssignment.text) {
+        originalSentences = activeAssignment.text.match(/[^.!?]+[.!?]*/g) || [activeAssignment.text];
+    }
+    
+    originalSentences.forEach((sText, idx) => {
+        sentenceLines += `• Sentence ${idx + 1}: "${sText.trim()}"\n`;
+    });
+
+    const q1Title = activeAssignment ? (activeAssignment.unseenQ1Title || "Unseen Question 1") : "Unseen Question 1";
+    const q2Title = activeAssignment ? (activeAssignment.unseenQ2Title || "Unseen Question 2") : "Unseen Question 2";
+
+    const structuredDefault = 
+        `★ General Feedback ★\n` +
+        `${readAloudFeedback}\n\n` +
+        `★ Sentence Breakdown ★\n` +
+        `${sentenceLines}\n` +
+        `★ Unseen Questions ★\n` +
+        `• Unseen Q1 (${q1Title}): ${unseen1Val}/2 Marks - ${q1Feedback}\n` +
+        `• Unseen Q2 (${q2Title}): ${unseen2Val}/2 Marks - ${q2Feedback}`;
+
+    if (commentInput) {
+        // Upgrade existing box or populate if template is missing
+        if (commentInput.dataset.userEdited !== "true" || !commentInput.value.includes('★ Sentence Breakdown ★')) {
+            commentInput.value = structuredDefault;
+        } else {
+            // Selectively update Unseen mark lines without overwriting custom sentence notes
+            let currentVal = commentInput.value;
+            const u1Regex = /(•?\s*Unseen Q1\b[^\n]*)/i;
+            const newU1Line = `• Unseen Q1 (${q1Title}): ${unseen1Val}/2 Marks - ${q1Feedback}`;
+            if (u1Regex.test(currentVal)) {
+                currentVal = currentVal.replace(u1Regex, newU1Line);
+            }
+
+            const u2Regex = /(•?\s*Unseen Q2\b[^\n]*)/i;
+            const newU2Line = `• Unseen Q2 (${q2Title}): ${unseen2Val}/2 Marks - ${q2Feedback}`;
+            if (u2Regex.test(currentVal)) {
+                currentVal = currentVal.replace(u2Regex, newU2Line);
+            }
+            commentInput.value = currentVal;
         }
-        
-        originalSentences.forEach((sText, idx) => {
-            sentenceLines += `• Sentence ${idx + 1}: "${sText.trim()}"\n`;
-        });
-
-        const q1Title = activeAssignment ? (activeAssignment.unseenQ1Title || "Unseen Question 1") : "Unseen Question 1";
-        const q2Title = activeAssignment ? (activeAssignment.unseenQ2Title || "Unseen Question 2") : "Unseen Question 2";
-
-        const structuredDefault = 
-            `★ General Feedback ★\n` +
-            `${readAloudFeedback}\n\n` +
-            `★ Sentence Breakdown ★\n` +
-            `${sentenceLines}\n` +
-            `★ Unseen Questions ★\n` +
-            `• Unseen Q1 (${q1Title}): ${unseen1Val}/2 Marks - ${q1Feedback}\n` +
-            `• Unseen Q2 (${q2Title}): ${unseen2Val}/2 Marks - ${q2Feedback}`;
-
-        commentInput.value = structuredDefault;
     }
 
     recalculateTotals(submissionId);
@@ -1955,12 +1973,16 @@
             tbody.appendChild(detailsRow);
 
             const feedbackBox = detailsRow.querySelector(`#feedback-${sub.id}`);
-            if (sub.teacherComment && sub.teacherComment.trim().length > 0) {
-                if (feedbackBox) {
-                    feedbackBox.value = sub.teacherComment;
-                    feedbackBox.dataset.userEdited = "true";
-                }
-            }
+if (sub.teacherComment && sub.teacherComment.trim().length > 0) {
+    if (feedbackBox) {
+        feedbackBox.value = sub.teacherComment;
+        if (sub.teacherComment.includes('★ Sentence Breakdown ★')) {
+            feedbackBox.dataset.userEdited = "true";
+        } else {
+            feedbackBox.dataset.userEdited = "false"; // Flag for upgrade
+        }
+    }
+}
             if (feedbackBox) {
                 feedbackBox.addEventListener('input', () => {
                     feedbackBox.dataset.userEdited = "true";
