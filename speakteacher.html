@@ -999,7 +999,7 @@
 
             card.innerHTML = `
                 <div class="bank-task-info">
-                    <div class="bank-task-title"><span class="badge tier">${tierLetter}</span>${task.title}</div>
+                    <div class="bank-task-title"><span class="badge tier">${tierLetter}</span> ${task.title}</div>
                     <div class="bank-task-classes-container">${classHtml}</div>
                 </div>
                 <div class="task-actions" style="margin-top: 2px;">
@@ -1374,7 +1374,7 @@
         if (feedbackDiv) feedbackDiv.innerText = readAloudFeedback;
         
         if (commentInput) {
-            if (!commentInput.value.trim() || commentInput.dataset.userEdited !== "true") {
+            if (commentInput.dataset.userEdited !== "true" && commentInput.value.trim() === "") {
                 commentInput.value = combinedFeedback;
             }
         }
@@ -1406,7 +1406,7 @@
 
         const feedbackElem = document.getElementById(`feedback-${submissionId}`);
         if (feedbackElem) {
-            if (!feedbackElem.value.trim() || feedbackElem.dataset.userEdited !== "true") {
+            if (feedbackElem.dataset.userEdited !== "true" && feedbackElem.value.trim() === "") {
                 feedbackElem.value = breakdownComments;
             }
         }
@@ -1426,6 +1426,8 @@
 
     async function saveLiveGrades(submissionId, isRolePlay) {
         let updatePayload = {};
+        const commentInput = document.getElementById(`feedback-${submissionId}`);
+        const commentVal = commentInput ? commentInput.value.trim() : "";
 
         if (isRolePlay) {
             let totalGrade = 0;
@@ -1435,7 +1437,6 @@
                 rpMarksArray.push(val);
                 totalGrade += val;
             }
-            const commentVal = document.getElementById(`feedback-${submissionId}`).value.trim();
             updatePayload = {
                 rolePlayMarks: rpMarksArray,
                 teacherComment: commentVal,
@@ -1465,7 +1466,8 @@
 
         try {
             await db.collection("submissions").doc(submissionId).update(updatePayload);
-            alert("✅ Grade & comment saved locally! Click 'Sync Grade & Post Comment' to send to Google Classroom.");
+            if (commentInput && commentVal) commentInput.dataset.userEdited = "true";
+            alert("✅ Grade & custom feedback saved locally! Click 'Sync Grade & Post Comment' to send to Google Classroom.");
         } catch(e) {
             alert("Error updating database grade: " + e.message);
         }
@@ -1479,8 +1481,7 @@
                 headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ commentText: commentText })
             });
-            if (!response.ok) throw new Error("Could not sync private comment to Classroom.");
-            return true;
+            return response.ok;
         } catch (error) {
             return false;
         }
@@ -1499,6 +1500,9 @@
             let percentage = 0;
             let updatePayload = {};
 
+            const commentInput = document.getElementById(`feedback-${subId}`);
+            const commentVal = commentInput ? commentInput.value.trim() : "";
+
             if (isRolePlay) {
                 let rpMarksArray = [];
                 for (let i = 1; i <= 5; i++) {
@@ -1507,7 +1511,6 @@
                     overallGrade += val;
                 }
                 percentage = Math.round((overallGrade / 10) * 100);
-                const commentVal = document.getElementById(`feedback-${subId}`).value.trim();
                 updatePayload = { rolePlayMarks: rpMarksArray, teacherComment: commentVal, overallGrade, percentage, syncedToClassroom: true };
             } else {
                 const rubricVal = parseInt(document.getElementById(`rubric-${subId}`).value, 10) || 0;
@@ -1519,10 +1522,13 @@
 
                 overallGrade = rubricVal + u1Val + u2Val;
                 percentage = Math.round((overallGrade / 12) * 100);
-                const commentVal = document.getElementById(`feedback-${subId}`).value.trim();
                 
                 updatePayload = { score: manualSscScore, rubricGrade: rubricVal, unseen1Grade: u1Val, unseen2Grade: u2Val, teacherComment: commentVal, overallGrade, percentage, syncedToClassroom: true };
             }
+
+            // 1. ALWAYS save to app database first so students see custom notes via assignment link
+            await db.collection("submissions").doc(subId).update(updatePayload);
+            if (commentInput && commentVal) commentInput.dataset.userEdited = "true";
 
             const subObj = allSubmissions.find(s => s.id === subId);
             if (!subObj) throw new Error("Could not load database metrics locally.");
@@ -1530,7 +1536,8 @@
             const courseId = subObj.courseId;
             const activeAssignment = allAssignments.find(a => a.id === subObj.assignmentId);
             if (!activeAssignment || !activeAssignment.gClassroomAssignmentId) {
-                throw new Error("No linked Google Classroom assignment found.");
+                alert("✅ Feedback saved to app database successfully!");
+                return;
             }
             const courseWorkId = activeAssignment.gClassroomAssignmentId;
 
@@ -1561,10 +1568,9 @@
                 body: JSON.stringify({ draftGrade: overallGrade, assignedGrade: overallGrade })
             });
 
-            if (!gradeResponse.ok) throw new Error("Failed to patch score.");
+            if (!gradeResponse.ok) throw new Error("Failed to patch score in Google Classroom.");
 
-            const customFeedbackText = document.getElementById(`feedback-${subId}`).value.trim();
-            const structuredComment = isRolePlay ? customFeedbackText : 
+            const structuredComment = isRolePlay ? commentVal : 
                `★ Reading Aloud Assessment Feedback ★\n` +
                `----------------------------------------\n` +
                `• Read Aloud Accuracy: ${document.getElementById(`rubric-${subId}`).value} / 8\n` +
@@ -1572,15 +1578,14 @@
                `• Unseen Question 2: ${document.getElementById(`unseen2-${subId}`).value} / 2\n` +
                `----------------------------------------\n` +
                `Overall Grade: ${overallGrade} / 12\n\n` +
-               `Teacher Feedback:\n${customFeedbackText}`;
+               `Teacher Feedback:\n${commentVal}`;
 
             await postPrivateCommentToClassroom(courseId, courseWorkId, studentSubmissionId, structuredComment, accessToken);
-            await db.collection("submissions").doc(subId).update(updatePayload);
 
-            alert(`🎉 Grades synced & private comment posted successfully to Google Classroom!`);
+            alert(`🎉 Grade & feedback comment synced successfully!`);
             
         } catch (error) {
-            alert("Workflow Sync Failed: " + error.message);
+            alert("Workflow Sync Warning: " + error.message + "\n(Your custom notes were saved to the student link database successfully).");
         } finally {
             syncBtn.disabled = false;
             syncBtn.innerText = originalText;
@@ -1931,7 +1936,10 @@
 
             const feedbackBox = detailsRow.querySelector(`#feedback-${sub.id}`);
             if (sub.teacherComment && sub.teacherComment.trim().length > 0) {
-                if (feedbackBox) feedbackBox.dataset.userEdited = "true";
+                if (feedbackBox) {
+                    feedbackBox.value = sub.teacherComment;
+                    feedbackBox.dataset.userEdited = "true";
+                }
             }
             if (feedbackBox) {
                 feedbackBox.addEventListener('input', () => {
