@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Speakingx - Teacher</title>
+    <title>Speaking - Teacher</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; flex-direction: column; min-height: 100vh; }
         
@@ -1450,7 +1450,18 @@
         filterTask.disabled = false;
         filterTask.innerHTML = '<option value="">-- Choose an Assignment --</option>';
 
-        const sortedAssigns = classSpecificAssignments.sort((a, b) => a.title.localeCompare(b.title));
+        // Sort assignments by creation/assigned date (newest tasks assigned at the top)
+        const sortedAssigns = classSpecificAssignments.sort((a, b) => {
+            const getMillis = (obj) => {
+                if (!obj || !obj.timestamp) return 0;
+                if (obj.timestamp.seconds) return obj.timestamp.seconds * 1000;
+                if (typeof obj.timestamp.toDate === 'function') return obj.timestamp.toDate().getTime();
+                const d = new Date(obj.timestamp);
+                return isNaN(d.getTime()) ? 0 : d.getTime();
+            };
+            return getMillis(b) - getMillis(a);
+        });
+
         sortedAssigns.forEach(assign => {
             const opt = document.createElement('option');
             opt.value = assign.id;
@@ -2214,6 +2225,15 @@
         document.getElementById('assign-section-desc').innerText = "Select a class to publish and post this template instantly as an interactive speaking activity.";
         document.getElementById('assign-btn').innerText = "Post Assignment to Classroom";
 
+        // Enable student selector for new template assignment mode
+        const allStudentsBtn = document.getElementById('all-students-btn');
+        if (allStudentsBtn) {
+            allStudentsBtn.disabled = false;
+            allStudentsBtn.style.opacity = '1';
+            allStudentsBtn.style.cursor = 'pointer';
+            allStudentsBtn.title = '';
+        }
+
         document.getElementById('activity-type-input').value = 'read_aloud';
         document.getElementById('language-input').value = 'fr';
         document.getElementById('tier-input').value = 'foundation';
@@ -2302,6 +2322,15 @@
 
             activeEditorMode = "template";
             currentTemplateId = id;
+
+            // Enable student selector for template assignment creation
+            const allStudentsBtn = document.getElementById('all-students-btn');
+            if (allStudentsBtn) {
+                allStudentsBtn.disabled = false;
+                allStudentsBtn.style.opacity = '1';
+                allStudentsBtn.style.cursor = 'pointer';
+                allStudentsBtn.title = '';
+            }
             
             document.getElementById('editor-title').innerText = "Edit Master Template";
             document.getElementById('editor-mode-indicator').innerText = "Modifying Global Template Profile Settings";
@@ -2463,15 +2492,22 @@ function renderClassroomStudentList() {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = selectedClassroomStudentIds.includes(studentId);
+
+        if (activeEditorMode === "assignment") {
+            checkbox.disabled = true;
+            checkbox.style.cursor = 'not-allowed';
+        }
+
         checkbox.style.cssText = `
             width: 16px;
             height: 16px;
             margin: 0;
             flex: 0 0 auto;
-            cursor: pointer;
+            cursor: ${activeEditorMode === "assignment" ? "not-allowed" : "pointer"};
         `;
 
         checkbox.addEventListener('change', () => {
+            if (activeEditorMode === "assignment") return;
             if (checkbox.checked) {
                 if (!selectedClassroomStudentIds.includes(studentId)) {
                     selectedClassroomStudentIds.push(studentId);
@@ -2619,6 +2655,7 @@ async function loadClassroomStudents(courseId) {
 }
 
 function selectAllClassroomStudents() {
+    if (activeEditorMode === "assignment") return;
     selectedClassroomStudentIds =
         classroomStudents.map(student => student.userId);
 
@@ -2626,6 +2663,7 @@ function selectAllClassroomStudents() {
 }
 
 function openStudentSelector() {
+    if (activeEditorMode === "assignment") return; // Prevent expanding selector in edit assignment mode
     const panel = document.getElementById('student-selector-panel');
 
     if (!panel) return;
@@ -2908,28 +2946,11 @@ initialiseClassroomStudentSelector();
                     finalGCTopicId = gcTopicSelect.value;
                 }
 
-                const selectedStudentIds = [...selectedClassroomStudentIds];
-                if (selectedStudentIds.length === 0) {
-                    alert("Please select at least one student before saving.");
-                    status.innerText = "";
-                    return;
-                }
-
-                const allStudentIds = classroomStudents.map(student => student.userId);
-                const assigningToEntireClass = (allStudentIds.length > 0 && selectedStudentIds.length === allStudentIds.length && selectedStudentIds.every(id => allStudentIds.includes(id)));
-
                 const courseWorkPatch = {};
                 const updateMasks = [];
 
                 courseWorkPatch.title = isRolePlay ? `🎭 Role Play Task: ${title}` : `📖 Read Aloud Task: ${title}`;
                 updateMasks.push("title");
-
-                // Note: assigneeMode is READ-ONLY in Google Classroom API and cannot be patched.
-                // We update individualStudentsOptions if custom student selection was made.
-                if (!assigningToEntireClass) {
-                    courseWorkPatch.individualStudentsOptions = { studentIds: selectedStudentIds };
-                    updateMasks.push("individualStudentsOptions");
-                }
 
                 if (dueDateVal) {
                     const dateObj = new Date(dueDateVal);
@@ -2943,34 +2964,14 @@ initialiseClassroomStudentSelector();
                     updateMasks.push("topicId");
                 }
 
-                try {
+                if (updateMasks.length > 0) {
                     await gapi.client.classroom.courses.courseWork.patch({
                         courseId: courseId,
                         id: activeAssignment.gClassroomAssignmentId,
                         updateMask: updateMasks.join(","),
                         resource: courseWorkPatch
                     });
-                } catch (gcErr) {
-                    // Fallback: If individualStudentsOptions cannot be modified on an ALL_STUDENTS coursework in GC,
-                    // retry without individualStudentsOptions for Google Classroom while preserving local assignment student targeting.
-                    const gcErrMsg = getErrorMessage(gcErr);
-                    if (updateMasks.includes("individualStudentsOptions") && gcErrMsg.toLowerCase().includes("individualstudentsoptions")) {
-                        const fallbackMasks = updateMasks.filter(m => m !== "individualStudentsOptions");
-                        delete courseWorkPatch.individualStudentsOptions;
-                        if (fallbackMasks.length > 0) {
-                            await gapi.client.classroom.courses.courseWork.patch({
-                                courseId: courseId,
-                                id: activeAssignment.gClassroomAssignmentId,
-                                updateMask: fallbackMasks.join(","),
-                                resource: courseWorkPatch
-                            });
-                        }
-                    } else {
-                        throw gcErr;
-                    }
                 }
-
-                payload.assignedStudentIds = selectedStudentIds;
             }
 
             await db.collection("assignments").doc(currentAssignmentId).update(payload);
@@ -3138,8 +3139,19 @@ initialiseClassroomStudentSelector();
         
         document.getElementById('assign-section').classList.remove('hidden');
         document.getElementById('assign-section-title').innerText = "🏫 Sync with Google Classroom";
-        document.getElementById('assign-section-desc').innerText = "Add/remove targeted students and amend the due date. Updates directly sync to Google Classroom without duplicating tasks or losing submitted work.";
+        document.getElementById('assign-section-desc').innerText = "Amend title, topic, or due date. (Student assignees are locked by Google Classroom once published).";
         document.getElementById('assign-btn').innerText = "🔄 Update Assignment & Sync Classroom";
+
+        // Visually lock and disable student selector when editing live assignments
+        const allStudentsBtn = document.getElementById('all-students-btn');
+        if (allStudentsBtn) {
+            allStudentsBtn.disabled = true;
+            allStudentsBtn.style.opacity = '0.6';
+            allStudentsBtn.style.cursor = 'not-allowed';
+            allStudentsBtn.title = 'Student assignees are locked by Google Classroom on published posts.';
+        }
+        const studentPanel = document.getElementById('student-selector-panel');
+        if (studentPanel) studentPanel.classList.add('hidden');
 
         const actType = assignment.activityType || 'read_aloud';
         document.getElementById('activity-type-input').value = actType;
