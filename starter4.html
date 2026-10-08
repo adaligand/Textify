@@ -2829,6 +2829,7 @@ initialiseClassroomStudentSelector();
     }
 
     // Update Live Assignment in Classroom and Firestore without losing work or duplicating tasks
+  // Update Live Assignment in Classroom and Firestore without losing work or triggering API errors
     async function updateLiveAssignmentInClassroomAndFirestore() {
         const courseId = document.getElementById('course-select').value;
         const status = document.getElementById('status');
@@ -2863,6 +2864,13 @@ initialiseClassroomStudentSelector();
 
             const isRolePlay = (activityType === 'role_play');
 
+            const selectedStudentIds = [...selectedClassroomStudentIds];
+            if (selectedStudentIds.length === 0) {
+                alert("Please select at least one student before saving.");
+                status.innerText = "";
+                return;
+            }
+
             let payload = {
                 activityType,
                 language,
@@ -2870,6 +2878,7 @@ initialiseClassroomStudentSelector();
                 yearGroup,
                 topic,
                 title,
+                assignedStudentIds: selectedStudentIds, // Local targeting updated in Firestore
                 dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
@@ -2890,6 +2899,7 @@ initialiseClassroomStudentSelector();
                 payload.unseenQ2Title = document.getElementById('unseen-2-title').value.trim();
             }
 
+            // Sync updateable fields to Google Classroom
             if (activeAssignment.gClassroomAssignmentId) {
                 const activeToken = localStorage.getItem('oauth_token');
                 if (activeToken) gapi.client.setToken({ access_token: activeToken });
@@ -2908,29 +2918,14 @@ initialiseClassroomStudentSelector();
                     finalGCTopicId = gcTopicSelect.value;
                 }
 
-                const selectedStudentIds = [...selectedClassroomStudentIds];
-                if (selectedStudentIds.length === 0) {
-                    alert("Please select at least one student before saving.");
-                    status.innerText = "";
-                    return;
-                }
-
-                const allStudentIds = classroomStudents.map(student => student.userId);
-                const assigningToEntireClass = (allStudentIds.length > 0 && selectedStudentIds.length === allStudentIds.length && selectedStudentIds.every(id => allStudentIds.includes(id)));
-
                 const courseWorkPatch = {};
                 const updateMasks = [];
 
+                // 1. Title
                 courseWorkPatch.title = isRolePlay ? `🎭 Role Play Task: ${title}` : `📖 Read Aloud Task: ${title}`;
                 updateMasks.push("title");
 
-                // Note: assigneeMode is READ-ONLY in Google Classroom API and cannot be patched.
-                // We update individualStudentsOptions if custom student selection was made.
-                if (!assigningToEntireClass) {
-                    courseWorkPatch.individualStudentsOptions = { studentIds: selectedStudentIds };
-                    updateMasks.push("individualStudentsOptions");
-                }
-
+                // 2. Due Date and Time
                 if (dueDateVal) {
                     const dateObj = new Date(dueDateVal);
                     courseWorkPatch.dueDate = { year: dateObj.getFullYear(), month: dateObj.getMonth() + 1, day: dateObj.getDate() };
@@ -2938,41 +2933,24 @@ initialiseClassroomStudentSelector();
                     updateMasks.push("dueDate", "dueTime");
                 }
 
+                // 3. Topic ID
                 if (finalGCTopicId) {
                     courseWorkPatch.topicId = finalGCTopicId;
                     updateMasks.push("topicId");
                 }
 
-                try {
+                // Send patch with allowed updateMask fields only
+                if (updateMasks.length > 0) {
                     await gapi.client.classroom.courses.courseWork.patch({
                         courseId: courseId,
                         id: activeAssignment.gClassroomAssignmentId,
                         updateMask: updateMasks.join(","),
                         resource: courseWorkPatch
                     });
-                } catch (gcErr) {
-                    // Fallback: If individualStudentsOptions cannot be modified on an ALL_STUDENTS coursework in GC,
-                    // retry without individualStudentsOptions for Google Classroom while preserving local assignment student targeting.
-                    const gcErrMsg = getErrorMessage(gcErr);
-                    if (updateMasks.includes("individualStudentsOptions") && gcErrMsg.toLowerCase().includes("individualstudentsoptions")) {
-                        const fallbackMasks = updateMasks.filter(m => m !== "individualStudentsOptions");
-                        delete courseWorkPatch.individualStudentsOptions;
-                        if (fallbackMasks.length > 0) {
-                            await gapi.client.classroom.courses.courseWork.patch({
-                                courseId: courseId,
-                                id: activeAssignment.gClassroomAssignmentId,
-                                updateMask: fallbackMasks.join(","),
-                                resource: courseWorkPatch
-                            });
-                        }
-                    } else {
-                        throw gcErr;
-                    }
                 }
-
-                payload.assignedStudentIds = selectedStudentIds;
             }
 
+            // Update Firestore database document
             await db.collection("assignments").doc(currentAssignmentId).update(payload);
 
             status.innerText = "Assignment updated & synced with Google Classroom!";
