@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Speaking c- Teacher</title>
+    <title>Speaking - Teacher</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; flex-direction: column; min-height: 100vh; }
         
@@ -571,6 +571,21 @@
     let selRaLang = null, selRaYear = null, selRaTopic = null;
     let selRpLang = null, selRpYear = null, selRpTopic = null;
 
+    // Helper: Formats Google API and standard JavaScript error objects into human-readable text
+    function getErrorMessage(e) {
+        if (!e) return "Unknown error occurred.";
+        if (typeof e === 'string') return e;
+        if (e.result && e.result.error && e.result.error.message) {
+            return e.result.error.message;
+        }
+        if (e.message) return e.message;
+        try {
+            return JSON.stringify(e);
+        } catch (err) {
+            return String(e);
+        }
+    }
+
     function gisInit() {
         try {
             if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
@@ -584,7 +599,7 @@
                                 document.getElementById('auth-header').classList.add('hidden');
                                 return;
                             }
-                            alert("Google Auth Error: " + tokenResponse.error);
+                            alert("Google Auth Error: " + getErrorMessage(tokenResponse.error));
                             return;
                         }
                         
@@ -733,7 +748,7 @@
             }
             if (!tokenClient) gisInit();
             if (tokenClient) {
-                try { tokenClient.requestAccessToken({ prompt: 'select_account' }); } catch (err) { alert(err.message); }
+                try { tokenClient.requestAccessToken({ prompt: 'select_account' }); } catch (err) { alert(getErrorMessage(err)); }
             }
         };
 
@@ -1358,7 +1373,7 @@
             alert(`🎉 Gradebook sync complete!\nSuccessfully sent grades (out of ${maxPointsPossible}) for ${syncSuccessCount} students.\nAssigned 0 to ${missingFlagCount} missing/unsubmitted student items.`);
 
         } catch (error) {
-            alert(`Gradebook sync failed: ${error.message || error}`);
+            alert(`Gradebook sync failed: ` + getErrorMessage(error));
         } finally {
             syncBtn.disabled = false;
             syncBtn.innerText = originalText;
@@ -1633,7 +1648,7 @@
             if (commentInput && commentVal) commentInput.dataset.userEdited = "true";
             alert("✅ Grade & custom feedback saved locally! Click 'Sync Grade & Post Comment' to send to Google Classroom.");
         } catch(e) {
-            alert("Error updating database grade: " + e.message);
+            alert("Error updating database grade: " + getErrorMessage(e));
         }
     }
 
@@ -1748,14 +1763,13 @@
             alert(`🎉 Grade & feedback comment synced successfully!`);
             
         } catch (error) {
-            alert("Workflow Sync Warning: " + error.message + "\n(Your custom notes were saved to the student link database successfully).");
+            alert("Workflow Sync Warning: " + getErrorMessage(error) + "\n(Your custom notes were saved to the student link database successfully).");
         } finally {
             syncBtn.disabled = false;
             syncBtn.innerText = originalText;
         }
     }
 
-    // Dynamic Submission Counter in Orange Header
     async function updateSubmissionCounter(selectedCourseId, activeAssignment, submissionCount) {
         const counterBadge = document.getElementById('submission-counter-badge');
         if (!counterBadge) return;
@@ -1844,7 +1858,6 @@
 
         const filteredSubs = allSubmissions.filter(sub => sub.assignmentId === selectedAssignmentId && sub.courseId === selectedCourseId);
         
-        // Update Orange Box Counter
         updateSubmissionCounter(selectedCourseId, activeAssignment, filteredSubs.length);
 
         tbody.innerHTML = '';
@@ -2355,7 +2368,7 @@
             showSection('editor-section');
             document.getElementById('assign-section').classList.remove('hidden');
         } catch(e) {
-            alert("Error: " + e.message);
+            alert("Error: " + getErrorMessage(e));
         }
     }
 
@@ -2369,7 +2382,7 @@
                 await updateLiveAssignmentInClassroomAndFirestore();
             }
         } catch (e) {
-            alert("Error: " + e.message);
+            alert("Error: " + getErrorMessage(e));
         }
     }
 
@@ -2635,7 +2648,6 @@ function initialiseClassroomStudentSelector() {
 
 initialiseClassroomStudentSelector();
 
-    // Route button click based on current Editor Mode (New vs Edit Assignment)
     document.getElementById('assign-btn').onclick = async () => {
         if (activeEditorMode === "assignment") {
             await updateLiveAssignmentInClassroomAndFirestore();
@@ -2812,7 +2824,7 @@ initialiseClassroomStudentSelector();
             
         } catch (e) {
             status.innerText = "";
-            alert("Classroom connection failed: " + (e.message || "Unknown error parsing network data structures."));
+            alert("Classroom connection failed: " + getErrorMessage(e));
         }
     }
 
@@ -2912,23 +2924,17 @@ initialiseClassroomStudentSelector();
                 courseWorkPatch.title = isRolePlay ? `🎭 Role Play Task: ${title}` : `📖 Read Aloud Task: ${title}`;
                 updateMasks.push("title");
 
-                if (assigningToEntireClass) {
-                    courseWorkPatch.assigneeMode = 'ALL_STUDENTS';
-                    updateMasks.push("assigneeMode");
-                } else {
-                    courseWorkPatch.assigneeMode = 'INDIVIDUAL_STUDENTS';
+                // Note: assigneeMode is READ-ONLY in Google Classroom API and cannot be patched.
+                // We update individualStudentsOptions if custom student selection was made.
+                if (!assigningToEntireClass) {
                     courseWorkPatch.individualStudentsOptions = { studentIds: selectedStudentIds };
-                    updateMasks.push("assigneeMode", "individualStudentsOptions");
+                    updateMasks.push("individualStudentsOptions");
                 }
 
                 if (dueDateVal) {
                     const dateObj = new Date(dueDateVal);
                     courseWorkPatch.dueDate = { year: dateObj.getFullYear(), month: dateObj.getMonth() + 1, day: dateObj.getDate() };
                     courseWorkPatch.dueTime = { hours: dateObj.getHours(), minutes: dateObj.getMinutes(), seconds: 0, nanos: 0 };
-                    updateMasks.push("dueDate", "dueTime");
-                } else {
-                    courseWorkPatch.dueDate = null;
-                    courseWorkPatch.dueTime = null;
                     updateMasks.push("dueDate", "dueTime");
                 }
 
@@ -2937,12 +2943,32 @@ initialiseClassroomStudentSelector();
                     updateMasks.push("topicId");
                 }
 
-                await gapi.client.classroom.courses.courseWork.patch({
-                    courseId: courseId,
-                    id: activeAssignment.gClassroomAssignmentId,
-                    updateMask: updateMasks.join(","),
-                    resource: courseWorkPatch
-                });
+                try {
+                    await gapi.client.classroom.courses.courseWork.patch({
+                        courseId: courseId,
+                        id: activeAssignment.gClassroomAssignmentId,
+                        updateMask: updateMasks.join(","),
+                        resource: courseWorkPatch
+                    });
+                } catch (gcErr) {
+                    // Fallback: If individualStudentsOptions cannot be modified on an ALL_STUDENTS coursework in GC,
+                    // retry without individualStudentsOptions for Google Classroom while preserving local assignment student targeting.
+                    const gcErrMsg = getErrorMessage(gcErr);
+                    if (updateMasks.includes("individualStudentsOptions") && gcErrMsg.toLowerCase().includes("individualstudentsoptions")) {
+                        const fallbackMasks = updateMasks.filter(m => m !== "individualStudentsOptions");
+                        delete courseWorkPatch.individualStudentsOptions;
+                        if (fallbackMasks.length > 0) {
+                            await gapi.client.classroom.courses.courseWork.patch({
+                                courseId: courseId,
+                                id: activeAssignment.gClassroomAssignmentId,
+                                updateMask: fallbackMasks.join(","),
+                                resource: courseWorkPatch
+                            });
+                        }
+                    } else {
+                        throw gcErr;
+                    }
+                }
 
                 payload.assignedStudentIds = selectedStudentIds;
             }
@@ -2958,7 +2984,7 @@ initialiseClassroomStudentSelector();
 
         } catch (e) {
             status.innerText = "";
-            alert("Error updating assignment: " + (e.message || e));
+            alert("Error updating assignment: " + getErrorMessage(e));
         }
     }
 
@@ -2972,7 +2998,7 @@ initialiseClassroomStudentSelector();
                 await db.collection("passages").add(data);
                 alert("Template duplicated successfully!");
             }
-        } catch (e) { alert("Error: " + e.message); }
+        } catch (e) { alert("Error: " + getErrorMessage(e)); }
     }
 
     async function moveToBin(id, event) {
@@ -2988,7 +3014,7 @@ initialiseClassroomStudentSelector();
                 await db.collection("passages").doc(id).delete();
                 alert("Template moved to Recycle Bin.");
             }
-        } catch (e) { alert("Error: " + e.message); }
+        } catch (e) { alert("Error: " + getErrorMessage(e)); }
     }
 
     async function loadRecycleBin() {
@@ -3065,7 +3091,7 @@ initialiseClassroomStudentSelector();
                 }
             }
         } catch (e) { 
-            binList.innerHTML = `<div style="padding:15px; color:red;">Error loading Recycle Bin elements: ${e.message}</div>`; 
+            binList.innerHTML = `<div style="padding:15px; color:red;">Error loading Recycle Bin elements: ${getErrorMessage(e)}</div>`; 
         }
     }
 
@@ -3080,7 +3106,7 @@ initialiseClassroomStudentSelector();
                 alert("Template restored successfully!");
                 loadRecycleBin();
             }
-        } catch (e) { alert("Error: " + e.message); }
+        } catch (e) { alert("Error: " + getErrorMessage(e)); }
     }
 
     async function permanentlyDeleteTemplate(id) {
@@ -3088,7 +3114,7 @@ initialiseClassroomStudentSelector();
         try { 
             await db.collection("recycle_bin").doc(id).delete(); 
             loadRecycleBin(); 
-        } catch (e) { alert("Error: " + e.message); }
+        } catch (e) { alert("Error: " + getErrorMessage(e)); }
     }
 
     async function cleanOldRecycleBinItems() {
@@ -3168,13 +3194,11 @@ initialiseClassroomStudentSelector();
             document.getElementById('unseen-2-title').value = assignment.unseenQ2Title || '';
         }
 
-        // Set course select
         const courseSelect = document.getElementById('course-select');
         if (assignment.courseId) {
             courseSelect.value = assignment.courseId;
         }
 
-        // Pre-fill due date input
         const dueDateInput = document.getElementById('due-date-input');
         if (assignment.dueDate) {
             const d = new Date(assignment.dueDate);
@@ -3188,12 +3212,10 @@ initialiseClassroomStudentSelector();
             dueDateInput.value = "";
         }
 
-        // Load GC topics
         if (assignment.courseId) {
             await loadGoogleClassroomTopics(assignment.courseId);
         }
 
-        // Fetch current courseWork settings from Google Classroom
         if (assignment.courseId) {
             await loadClassroomStudents(assignment.courseId);
 
@@ -3260,7 +3282,7 @@ initialiseClassroomStudentSelector();
             
             alert("Assignment successfully deleted from both systems!");
         } catch (e) { 
-            alert("Error during dual deletion process: " + (e.message || e)); 
+            alert("Error during dual deletion process: " + getErrorMessage(e)); 
         }
     };
 
