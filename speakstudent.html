@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Speaking practxice</title>
+    <title>Speaking practice</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #f5f7fa; color: #2c3e50; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .container { max-width: 800px; width: 100%; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; margin-top: 20px; }
@@ -301,7 +301,7 @@
             studentEmail = cachedEmail;
             studentName = cachedName;
             
-            document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
+            document.getElementById('student-name').innerText = `Logged in: \${studentName}`;
             document.getElementById('auth-card').classList.add('hidden');
             
             loadAssignmentAndCheckStatus();
@@ -339,7 +339,7 @@
     };
 
     function handleLoginSuccess(accessToken) {
-        fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
+        fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=\${accessToken}`)
             .then(res => {
                 if (!res.ok) throw new Error("Failed to contact Google API");
                 return res.json();
@@ -367,7 +367,7 @@
                 localStorage.setItem('studentName', studentName);
                 localStorage.setItem('sessionExpiresAt', (Date.now() + 7 * 24 * 60 * 60 * 1000).toString());
 
-                document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
+                document.getElementById('student-name').innerText = `Logged in: \${studentName}`;
                 document.getElementById('auth-card').classList.add('hidden');
                 
                 if (document.getElementById('app-container').classList.contains('hidden') && 
@@ -452,7 +452,6 @@
                 if (!querySnapshot.empty) {
                     const subData = querySnapshot.docs[0].data();
 
-                    // Render task title & badge on completed view
                     document.getElementById('completed-task-title').innerText = assignmentTitle;
                     const badgeEl = document.getElementById('completed-task-type-badge');
                     if (isRolePlayOnly) {
@@ -528,7 +527,7 @@
                         }
                     } else {
                         document.getElementById('accuracy-stats-row').classList.remove('hidden');
-                        document.getElementById('completed-accuracy').innerText = `${computedAccuracy}%`;
+                        document.getElementById('completed-accuracy').innerText = `\${computedAccuracy}%`;
                         
                         if (computedGrade !== null) {
                             document.getElementById('completed-score').innerText = `${computedGrade} /${maxGrade}`;
@@ -650,7 +649,7 @@
         const words = currentText.split(/\s+/);
 
         words.forEach(word => {
-            const cleanWord = word.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "").toLowerCase();
+            const cleanWord = word.replace(/[.,\/#!\$%\^&\*;:{}=\-_`~()?¿¡]/g, "").toLowerCase();
             const span = document.createElement('span');
             span.className = 'word';
             span.innerText = word + ' '; 
@@ -660,7 +659,7 @@
                 speakTargetWord(cleanWord);
                 
                 if (currentStepIndex < sentences.length) {
-                    const trackingKey = `Word: ${cleanWord}`;
+                    const trackingKey = `Word: \${cleanWord}`;
                     if (!sentenceAttemptScores[currentStepIndex].hintsUsed.includes(trackingKey)) {
                         sentenceAttemptScores[currentStepIndex].hintsUsed.push(trackingKey);
                     }
@@ -731,12 +730,12 @@
         
         const scenarioBox = document.getElementById('roleplay-scenario');
         if (roleplayScenario && roleplayScenario.trim() !== "") {
-            scenarioBox.innerHTML = `Listen to the question and record your answer to each prompt.<br><strong>Scenario:</strong> ${roleplayScenario}`;
+            scenarioBox.innerHTML = `Listen to the question and record your answer to each prompt.<br><strong>Scenario:</strong> \${roleplayScenario}`;
         } else {
             scenarioBox.innerHTML = `Listen to the question and record your answer to each prompt.`;
         }
 
-        document.getElementById('roleplay-turn-title').innerText = `Teacher Prompt ${roleplayIndex + 1}`;
+        document.getElementById('roleplay-turn-title').innerText = `Teacher Prompt \${roleplayIndex + 1}`;
         document.getElementById('roleplay-prompt-text').innerText = currentTurn.prompt || "Listen to the target prompt structure.";
         document.getElementById('roleplay-cue-text').innerText = currentTurn.cue || currentTurn.instruction || "Respond appropriately using vocabulary options.";
         
@@ -864,9 +863,12 @@
             }
 
             try {
+                // Capture current step index BEFORE recording begins to prevent index shift
+                const stepAtStart = currentStepIndex;
+
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 
-                const recorderOptions = { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 24000 };
+                const recorderOptions = { mimeType: 'audio/webm', audioBitsPerSecond: 24000 };
                 try {
                     mediaRecorder = new MediaRecorder(stream, recorderOptions);
                 } catch(e) {
@@ -880,17 +882,21 @@
                 };
 
                 mediaRecorder.onstop = async () => {
+                    if (audioChunks.length === 0) return;
+                    
                     const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    if (audioBlob.size === 0) return;
+
                     const base64Audio = await convertBlobToBase64(audioBlob);
                     
-                    if (currentStepIndex < sentences.length) {
-                        sentenceAttemptScores[currentStepIndex].audio = base64Audio;
-                    } else if (currentStepIndex < sentences.length + unseenQuestions.length) {
-                        const unseenIndex = currentStepIndex - sentences.length;
+                    if (stepAtStart < sentences.length) {
+                        sentenceAttemptScores[stepAtStart].audio = base64Audio;
+                    } else if (stepAtStart < sentences.length + unseenQuestions.length) {
+                        const unseenIndex = stepAtStart - sentences.length;
                         unseenResponses[unseenIndex].audio = base64Audio;
                         document.getElementById('unseen-feedback').innerText = "✓ Your response has been recorded.";
                     } else {
-                        const roleplayIndex = currentStepIndex - (sentences.length + unseenQuestions.length);
+                        const roleplayIndex = stepAtStart - (sentences.length + unseenQuestions.length);
                         roleplayResponses[roleplayIndex].audio = base64Audio;
                         document.getElementById('roleplay-feedback').innerText = "✓ Your response has been recorded.";
                     }
@@ -936,7 +942,7 @@
     }
 
     function calculateAccuracy(spokenText) {
-        const targetText = sentences[currentStepIndex].toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "");
+        const targetText = sentences[currentStepIndex].toLowerCase().replace(/[.,\/#!\$%\^&\*;:{}=\-_`~()?¿¡]/g, "");
         const inputWords = spokenText.toLowerCase().split(/\s+/).map(w => w.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, ""));
         const targetWords = targetText.split(/\s+/);
 
@@ -1096,6 +1102,10 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
             }
             return { blue: "", orange: trimmed };
         }
+
+        function isValidAudio(src) {
+            return typeof src === 'string' && src.trim().length > 30 && !src.endsWith('base64,');
+        }
         
         if (isRolePlay) {
             if (feedbackHeader) feedbackHeader.innerText = "🎭 Role Play Feedback";
@@ -1208,7 +1218,7 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
 
                 const audioDiv = document.createElement('div');
                 audioDiv.style.cssText = "flex: 0 0 auto;";
-                if (rpAudio) {
+                if (isValidAudio(rpAudio)) {
                     audioDiv.innerHTML = `<audio controls src="${rpAudio}" style="height: 32px; width: 220px;"></audio>`;
                 } else {
                     audioDiv.innerHTML = `<span style="color: #94a3b8; font-size: 11px; font-style: italic;">No audio recorded</span>`;
@@ -1408,7 +1418,7 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                                 Sentence ${sNum}: <span style="font-weight: 500; color: #2c3e50; font-style: italic;">"${sText.trim()}"</span>
                             </div>
                             <div style="flex: 0 0 auto;">
-                                ${audioSource ? `<audio controls src="\${audioSource}" style="height: 32px; width: 220px;"></audio>` : `<span style="color: #94a3b8; font-size: 11px; font-style: italic;">No audio recorded</span>`}
+                                ${isValidAudio(audioSource) ? `<audio controls src="\${audioSource}" style="height: 32px; width: 220px;"></audio>` : `<span style="color: #94a3b8; font-size: 11px; font-style: italic;">No audio recorded</span>`}
                             </div>
                         </div>
                     `;
@@ -1438,7 +1448,7 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 u1CommentElement.style.cssText = "background: transparent; border-left: none; padding: 0; margin: 8px 0 0 0; display: block;";
 
                 const u1Audio = studentUnseen[0]?.audio || studentUnseen[0]?.audioUrl || "";
-                if (u1Audio) {
+                if (isValidAudio(u1Audio)) {
                     const u1AudioDiv = document.createElement('div');
                     u1AudioDiv.style.marginBottom = '8px';
                     u1AudioDiv.innerHTML = `<audio controls src="${u1Audio}" style="height: 32px; width: 100%; max-width: 260px;"></audio>`;
@@ -1479,7 +1489,7 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 u2CommentElement.style.cssText = "background: transparent; border-left: none; padding: 0; margin: 8px 0 0 0; display: block;";
 
                 const u2Audio = studentUnseen[1]?.audio || studentUnseen[1]?.audioUrl || "";
-                if (u2Audio) {
+                if (isValidAudio(u2Audio)) {
                     const u2AudioDiv = document.createElement('div');
                     u2AudioDiv.style.marginBottom = '8px';
                     u2AudioDiv.innerHTML = `<audio controls src="${u2Audio}" style="height: 32px; width: 100%; max-width: 260px;"></audio>`;
