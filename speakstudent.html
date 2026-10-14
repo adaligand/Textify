@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Speaking practicec</title>
+    <title>Speaking practice</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #f5f7fa; color: #2c3e50; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .container { max-width: 800px; width: 100%; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; margin-top: 20px; }
@@ -107,11 +107,11 @@
     <p>You have already submitted this assignment!</p>
     
     <div id="accuracy-stats-row" style="font-size: 16px; margin-bottom: 20px; color: #7f8c8d;">
-        Your overall percentage was: <span id="completed-accuracy" style="font-weight: bold; color: #1abc9c;">--%</span>
+        Your average accuracy was: <span id="completed-accuracy" style="font-weight: bold; color: #1abc9c;">--%</span>
     </div>
     
     <div style="font-size: 24px; margin: 20px 0; font-weight: bold; color: #2c3e50;">
-        Overall Grade: <span id="completed-score" style="color: #2ecc71;">--</span>
+        Overall Grade: <span id="completed-score" style="color: #2ecc71;">-- / 12</span>
     </div>
     
     <div id="feedback-card" class="feedback-container hidden">
@@ -447,81 +447,25 @@
                 if (!querySnapshot.empty) {
                     const subData = querySnapshot.docs[0].data();
                     
-                    let computedGrade = null;
-                    const gradeKeys = ['overallGrade', 'totalGrade', 'finalGrade', 'grade', 'teacherGrade', 'overallScore', 'totalScore'];
-                    for (const key of gradeKeys) {
-                        if (subData[key] !== undefined && subData[key] !== null && subData[key] !== "") {
-                            computedGrade = Number(subData[key]);
-                            if (!isNaN(computedGrade)) break;
-                        }
-                    }
-
-                    if (computedGrade === null || isNaN(computedGrade)) {
-                        if (isRolePlayOnly) {
-                            if (Array.isArray(subData.rolePlayMarks) && subData.rolePlayMarks.length > 0) {
-                                computedGrade = subData.rolePlayMarks.reduce((acc, curr) => acc + (Number(curr) || 0), 0);
-                            }
-                        } else {
-                            if (subData.rubricGrade !== undefined || subData.unseen1Grade !== undefined || subData.unseen2Grade !== undefined) {
-                                computedGrade = (Number(subData.rubricGrade) || 0) + (Number(subData.unseen1Grade) || 0) + (Number(subData.unseen2Grade) || 0);
-                            }
-                        }
-                    }
-
-                    let maxGrade = subData.maxGrade || subData.maxScore || subData.totalPossible;
-                    if (!maxGrade) {
-                        if (isRolePlayOnly) {
-                            maxGrade = (roleplayTurns && roleplayTurns.length > 0) ? (roleplayTurns.length * 2) : 10;
-                        } else {
-                            const unseenMax = (unseenQuestions && unseenQuestions.length > 0) ? (unseenQuestions.length * 2) : 4;
-                            maxGrade = 8 + unseenMax;
-                        }
-                    }
-
-                    let computedAccuracy = null;
-                    const accuracyKeys = ['overallPercentage', 'teacherAccuracy', 'finalAccuracy', 'teacherScore', 'overallAccuracy', 'accuracy'];
-                    for (const key of accuracyKeys) {
-                        if (subData[key] !== undefined && subData[key] !== null && subData[key] !== "") {
-                            const val = Number(subData[key]);
-                            if (!isNaN(val)) {
-                                computedAccuracy = val;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (computedAccuracy === null && computedGrade !== null && !isNaN(computedGrade) && maxGrade > 0) {
-                        computedAccuracy = Math.round((computedGrade / maxGrade) * 100);
-                    }
-
-                    if (computedAccuracy === null) {
-                        computedAccuracy = subData.score !== undefined ? subData.score : 0;
-                    }
-
                     if (isRolePlayOnly) {
                         document.getElementById('accuracy-stats-row').classList.add('hidden');
-                        if (computedGrade !== null && !isNaN(computedGrade)) {
-                            document.getElementById('completed-score').innerText = `${computedGrade} /${maxGrade}`;
+                        if (subData.overallGrade !== undefined) {
+                            document.getElementById('completed-score').innerText = `\${subData.overallGrade} / 10`;
                         } else {
                             document.getElementById('completed-score').innerText = `Pending Grading`;
                         }
                     } else {
                         document.getElementById('accuracy-stats-row').classList.remove('hidden');
-                        document.getElementById('completed-accuracy').innerText = `\${computedAccuracy}%`;
+                        document.getElementById('completed-accuracy').innerText = `\${subData.score || 0}%`;
                         
-                        if (computedGrade !== null && !isNaN(computedGrade)) {
-                            document.getElementById('completed-score').innerText = `${computedGrade} /${maxGrade}`;
+                        if (subData.overallGrade !== undefined) {
+                            document.getElementById('completed-score').innerText = `\${subData.overallGrade} / 12`;
                         } else {
                             document.getElementById('completed-score').innerText = `Pending Grading`;
                         }
                     }
 
-                    try {
-                        showStudentFeedbackBreakdown(subData, isRolePlayOnly);
-                    } catch (fbErr) {
-                        console.error("Feedback breakdown render error:", fbErr);
-                    }
-
+                    showStudentFeedbackBreakdown(subData, isRolePlayOnly);
                     document.getElementById('completed-card').classList.remove('hidden');
                     document.getElementById('app-container').classList.add('hidden');
                 } else {
@@ -1028,12 +972,12 @@
     };
 
 function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
-    const data = submissionDocData || {};
+    const data = submissionDocData;
     const rubricBlock = document.getElementById('rubric-feedback-block');
     const commentElement = document.getElementById('student-rubric-comment');
     const feedbackHeader = document.getElementById('feedback-header');
 
-    // Known dropdown markscheme descriptors
+    // List of standard dropdown descriptors across Role Play, Read Aloud, and Unseen Questions
     const knownDescriptors = [
         "No response or nothing of merit matching the speaking markscheme.",
         "Pronunciation is limited in clarity; lapses in SSCs often cause the message to break down.",
@@ -1091,143 +1035,151 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
         commentElement.style.padding = '0';
         commentElement.style.margin = '0';
 
-        const studentRoleplay = data.roleplayResponses || data.rolePlayResponses || [];
-        const savedMarks = data.rolePlayMarks || [];
-
         let mainComment = data.teacherComment || "";
-        
-        let promptComments = {};
-        let introductionHeadingText = "";
-
-        if (mainComment) {
+        if (!mainComment) {
+            commentElement.innerText = "No written feedback provided yet.";
+            commentElement.style.background = '#f0f4f8';
+            commentElement.style.borderLeft = '3px solid #3498db';
+            commentElement.style.padding = '8px 12px';
+            commentElement.style.borderRadius = '4px';
+            commentElement.style.fontStyle = 'italic';
+        } else {
             const lines = mainComment.split('\n');
-            let currentIdx = -1;
+            
+            const cardsGrid = document.createElement('div');
+            cardsGrid.style.display = 'grid';
+            cardsGrid.style.gridTemplateColumns = '1fr';
+            cardsGrid.style.gap = '15px';
+            cardsGrid.style.marginTop = '15px';
+            
+            let introductionHeadingText = "";
+            let cardsList = [];
+            let currentCardObj = null;
 
             lines.forEach(line => {
-                const trimmed = line.trim();
-                if (!trimmed) return;
+                const trimmedLine = line.trim();
+                if (!trimmedLine) return;
 
-                const match = trimmed.match(/(?:•|\*|-)?\s*(Statement Prompt \d+|Turn \d+|Prompt \d+):\s*([0-9./\s]+Marks?)\s*-\s*(.*)/i);
+                const match = trimmedLine.match(/(?:•|\*|-)?\s*(Statement Prompt \d+|Turn \d+|Prompt \d+):\s*([0-9./\s]+Marks?)\s*-\s*(.*)/i);
+                
                 if (match) {
-                    const pTitle = match[1].trim();
-                    const numMatch = pTitle.match(/\d+/);
+                    const promptTitle = match[1].trim();
+                    const promptScore = match[2].trim();
+                    const promptFeedback = match[3].trim();
+                    
+                    const numMatch = promptTitle.match(/\d+/);
+                    const cleanTitle = numMatch ? `Prompt ${numMatch[0]}` : promptTitle;
+                    
+                    let cueText = "";
                     if (numMatch) {
-                        currentIdx = parseInt(numMatch[0], 10) - 1;
-                        promptComments[currentIdx] = {
-                            score: match[2].trim(),
-                            feedback: [match[3].trim()]
-                        };
+                        const turnIdx = parseInt(numMatch[0]) - 1;
+                        if (typeof roleplayTurns !== 'undefined' && roleplayTurns[turnIdx]) {
+                            cueText = roleplayTurns[turnIdx].cue || roleplayTurns[turnIdx].student || roleplayTurns[turnIdx].instruction || "";
+                        }
                     }
-                } else if (currentIdx >= 0 && promptComments[currentIdx]) {
-                    if (!trimmed.includes('-----') && !trimmed.toLowerCase().includes('overall score') && !trimmed.includes('★')) {
-                        promptComments[currentIdx].feedback.push(trimmed);
-                    } else {
-                        currentIdx = -1;
-                    }
+
+                    currentCardObj = {
+                        cleanTitle: cleanTitle,
+                        cueText: cueText,
+                        score: promptScore,
+                        feedbackLines: promptFeedback ? [promptFeedback] : []
+                    };
+                    cardsList.push(currentCardObj);
                 } else {
-                    if (!trimmed.includes('-----') && !trimmed.toLowerCase().includes('overall score') && !trimmed.includes('★')) {
-                        introductionHeadingText += (introductionHeadingText ? " " : "") + trimmed;
+                    if (trimmedLine.includes('-----') || trimmedLine.toLowerCase().includes('overall score') || trimmedLine.includes('★')) {
+                        currentCardObj = null; 
+                    } else if (currentCardObj) {
+                        currentCardObj.feedbackLines.push(trimmedLine);
+                    } else {
+                        introductionHeadingText += trimmedLine + " ";
                     }
                 }
             });
-        }
 
-        const cardsGrid = document.createElement('div');
-        cardsGrid.style.display = 'grid';
-        cardsGrid.style.gridTemplateColumns = '1fr';
-        cardsGrid.style.gap = '15px';
-        cardsGrid.style.marginTop = '15px';
-
-        const numTurns = (typeof roleplayTurns !== 'undefined' && roleplayTurns && roleplayTurns.length > 0) 
-            ? roleplayTurns.length 
-            : Math.max(5, studentRoleplay.length, savedMarks.length);
-
-        for (let i = 0; i < numTurns; i++) {
-            const turnData = (typeof roleplayTurns !== 'undefined' && roleplayTurns[i]) ? roleplayTurns[i] : {};
-            const cueText = turnData.cue || turnData.student || turnData.instruction || "";
-            const promptTitle = `Prompt ${i + 1}`;
-
-            const rpRecord = studentRoleplay[i] || {};
-            const rpAudio = rpRecord.audio || rpRecord.audioUrl || "";
-
-            let markText = "-- / 2 Marks";
-            if (promptComments[i] && promptComments[i].score) {
-                markText = promptComments[i].score;
-            } else if (savedMarks[i] !== undefined) {
-                markText = `${savedMarks[i]} / 2 Marks`;
-            }
-
-            let combinedFeedback = "";
-            if (promptComments[i] && promptComments[i].feedback) {
-                combinedFeedback = promptComments[i].feedback.join('\n').trim();
-            } else if (savedMarks[i] !== undefined) {
-                const val = savedMarks[i];
-                if (val === 0) combinedFeedback = "No rewardable communication.";
-                else if (val === 1) combinedFeedback = "Response partially communicated with syntax ambiguity.";
-                else if (val === 2) combinedFeedback = "Fully statement communicated smoothly.";
-            }
-
-            const subCard = document.createElement('div');
-            subCard.className = 'breakdown-item';
-            subCard.style.cssText = "background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); text-align: left;";
-
-            const flexHeader = document.createElement('div');
-            flexHeader.style.cssText = "display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 15px; flex-wrap: wrap;";
-
-            const labelSpan = document.createElement('span');
-            labelSpan.className = 'breakdown-label';
-            labelSpan.style.cssText = "flex: 1; min-width: 180px;";
-            labelSpan.innerText = cueText ? `📖 ${promptTitle}: ${cueText}` : `📖 ${promptTitle}`;
-
-            const audioDiv = document.createElement('div');
-            audioDiv.style.cssText = "flex: 0 0 auto;";
-            if (rpAudio) {
-                audioDiv.innerHTML = `<audio controls src="${rpAudio}" style="height: 28px; width: 220px;"></audio>`;
-            } else {
-                audioDiv.innerHTML = `<span style="color: #e74c3c; font-size: 11px; font-style: italic;">No audio recorded</span>`;
-            }
-
-            const scoreSpan = document.createElement('span');
-            scoreSpan.className = 'breakdown-score';
-            scoreSpan.innerText = markText;
-
-            flexHeader.appendChild(labelSpan);
-            flexHeader.appendChild(audioDiv);
-            flexHeader.appendChild(scoreSpan);
-            subCard.appendChild(flexHeader);
-
-            if (combinedFeedback) {
+            cardsList.forEach(cardData => {
+                const subCard = document.createElement('div');
+                subCard.className = 'breakdown-item';
+                subCard.style.background = 'white';
+                subCard.style.border = '1px solid #e2e8f0';
+                subCard.style.borderRadius = '8px';
+                subCard.style.padding = '15px';
+                subCard.style.boxShadow = '0 1px 3px rgba(0,0,0,0.02)';
+                subCard.style.textAlign = 'left';
+                
+                const flexHeader = document.createElement('div');
+                flexHeader.style.display = 'flex';
+                flexHeader.style.justifyContent = 'space-between';
+                flexHeader.style.alignItems = 'center';
+                flexHeader.style.width = '100%';
+                
+                const labelSpan = document.createElement('span');
+                labelSpan.className = 'breakdown-label';
+                labelSpan.innerText = cardData.cueText ? `📖 ${cardData.cleanTitle}: ${cardData.cueText}` : `📖 ${cardData.cleanTitle}`;
+                
+                const scoreSpan = document.createElement('span');
+                scoreSpan.className = 'breakdown-score';
+                scoreSpan.innerText = cardData.score;
+                
+                flexHeader.appendChild(labelSpan);
+                flexHeader.appendChild(scoreSpan);
+                subCard.appendChild(flexHeader);
+                
+                const combinedFeedback = cardData.feedbackLines.join('\n').trim();
                 const splitRes = splitDescriptorAndNotes(combinedFeedback);
 
+                // 1. Blue Box for Dropdown Markscheme Feedback
                 if (splitRes.blue) {
                     const blueBox = document.createElement('div');
-                    blueBox.style.cssText = "margin-top: 10px; padding: 8px 12px; background: #f0f4f8; border-left: 3px solid #3498db; border-radius: 4px; font-size: 13px; line-height: 1.4; color: #2c3e50; font-style: italic;";
+                    blueBox.style.margin = '8px 0 0 0';
+                    blueBox.style.padding = '8px 12px';
+                    blueBox.style.background = '#f0f4f8';
+                    blueBox.style.borderLeft = '3px solid #3498db';
+                    blueBox.style.borderRadius = '4px';
+                    blueBox.style.fontSize = '13px';
+                    blueBox.style.lineHeight = '1.4';
+                    blueBox.style.color = '#2c3e50';
+                    blueBox.style.fontStyle = 'italic';
                     blueBox.innerText = `"${splitRes.blue}"`;
                     subCard.appendChild(blueBox);
                 }
 
+                // 2. Orange Box for Custom Teacher Notes
                 if (splitRes.orange) {
                     const orangeBox = document.createElement('div');
-                    orangeBox.style.cssText = "margin-top: 8px; padding: 8px 12px; background: #fffbe6; border-left: 3px solid #e67e22; border-radius: 4px; font-size: 12px; line-height: 1.4; color: #d35400;";
+                    orangeBox.style.margin = '8px 0 0 0';
+                    orangeBox.style.padding = '8px 12px';
+                    orangeBox.style.background = '#fffbe6';
+                    orangeBox.style.borderLeft = '3px solid #e67e22';
+                    orangeBox.style.borderRadius = '4px';
+                    orangeBox.style.fontSize = '12px';
+                    orangeBox.style.lineHeight = '1.4';
+                    orangeBox.style.color = '#d35400';
                     orangeBox.innerHTML = `💬 <strong>Teacher Note:</strong> ${splitRes.orange}`;
                     subCard.appendChild(orangeBox);
                 }
+                
+                cardsGrid.appendChild(subCard);
+            });
+            
+            if (introductionHeadingText.trim()) {
+                const infoLabel = document.createElement('p');
+                infoLabel.style.fontSize = '14px';
+                infoLabel.style.color = '#64748b';
+                infoLabel.style.marginBottom = '12px';
+                infoLabel.style.fontWeight = '500';
+                infoLabel.innerText = introductionHeadingText.trim();
+                commentElement.appendChild(infoLabel);
             }
-
-            cardsGrid.appendChild(subCard);
+            
+            if (cardsGrid.children.length > 0) {
+                commentElement.appendChild(cardsGrid);
+            } else {
+                rubricBlock.style.background = 'white';
+                rubricBlock.style.border = '1px solid #e2e8f0';
+                rubricBlock.style.padding = '15px';
+                commentElement.innerText = mainComment;
+            }
         }
-
-        if (introductionHeadingText.trim()) {
-            const infoLabel = document.createElement('p');
-            infoLabel.style.fontSize = '14px';
-            infoLabel.style.color = '#64748b';
-            infoLabel.style.marginBottom = '12px';
-            infoLabel.style.fontWeight = '500';
-            infoLabel.innerText = introductionHeadingText.trim();
-            commentElement.appendChild(infoLabel);
-        }
-
-        commentElement.appendChild(cardsGrid);
         document.getElementById('feedback-card').classList.remove('hidden');
     } else {
         // --- READ ALOUD FEEDBACK DISPLAY ---
@@ -1247,7 +1199,7 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
         document.getElementById('student-unseen1-grade').innerText = `${data.unseen1Grade ?? 0} / 2`;
         document.getElementById('student-unseen2-grade').innerText = `${data.unseen2Grade ?? 0} / 2`;
 
-        // Dynamic Unseen Titles
+        // Update Unseen Question Titles dynamically
         const q1Title = (typeof unseenQuestions !== 'undefined' && unseenQuestions && unseenQuestions[0] && unseenQuestions[0].title) ? unseenQuestions[0].title : "Question 1";
         const q2Title = (typeof unseenQuestions !== 'undefined' && unseenQuestions && unseenQuestions[1] && unseenQuestions[1].title) ? unseenQuestions[1].title : "Question 2";
 
@@ -1358,14 +1310,7 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
             }
         }
 
-        const studentSentences = data.sentence || data.sentences || data.sentenceScores || data.sentenceAttemptScores || [];
-
-        // Fallback sentence array if empty in global scope
-        if ((!sentences || sentences.length === 0) && studentSentences.length > 0) {
-            sentences = studentSentences.map((_, i) => `Sentence ${i + 1}`);
-        }
-
-        // 2. Sentence Cards Breakdown with Student Audio Playback Controls
+        // 2. Sentence Cards Breakdown
         if (typeof sentences !== 'undefined' && sentences && sentences.length > 0) {
             const sentenceContainer = document.createElement('div');
             sentenceContainer.style.display = 'flex';
@@ -1378,9 +1323,6 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 const noteObj = sentenceNotes[sNum];
                 const customNotes = noteObj ? noteObj.notes.join('\n').trim() : "";
 
-                const sentRecord = studentSentences[idx] || {};
-                const audioSource = sentRecord.audio || sentRecord.audioUrl || (typeof sentRecord === 'string' ? sentRecord : "");
-
                 const sCard = document.createElement('div');
                 sCard.className = 'breakdown-item';
                 sCard.style.background = '#ffffff';
@@ -1390,13 +1332,8 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 sCard.style.textAlign = 'left';
 
                 let cardHtml = `
-                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap;">
-                        <div style="font-size: 13px; font-weight: bold; color: #34495e; flex: 1; min-width: 200px;">
-                            Sentence ${sNum}: <span style="font-weight: 500; color: #2c3e50; font-style: italic;">"${sText.trim()}"</span>
-                        </div>
-                        <div style="flex: 0 0 auto;">
-                            ${audioSource ? `<audio controls src="\${audioSource}" style="height: 28px; width: 220px;"></audio>` : `<span style="color: #e74c3c; font-size: 11px; font-style: italic;">No audio recorded</span>`}
-                        </div>
+                    <div style="font-size: 13px; font-weight: bold; color: #34495e;">
+                        Sentence ${sNum}: <span style="font-weight: 500; color: #2c3e50; font-style: italic;">"${sText.trim()}"</span>
                     </div>
                 `;
 
@@ -1415,32 +1352,11 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
             commentElement.appendChild(sentenceContainer);
         }
 
-        // 3. Unseen Question Feedback (Audio Controls + Split Blue / Orange)
-        const unseenResponsesList = data.unseenResponses || [];
-
+        // 3. Unseen Question Feedback (Split Blue / Orange)
         const u1CommentElement = document.getElementById('student-unseen1-comment');
         const u1Text = unseen1CommentText || data.unseen1Comment || data.unseen1Feedback || "";
         if (u1CommentElement) {
             u1CommentElement.innerHTML = '';
-            u1CommentElement.className = '';
-            u1CommentElement.style.background = 'transparent';
-            u1CommentElement.style.borderLeft = 'none';
-            u1CommentElement.style.padding = '0';
-            u1CommentElement.style.margin = '8px 0 0 0';
-
-            const u1Audio = unseenResponsesList[0]?.audio || unseenResponsesList[0]?.audioUrl || "";
-            if (u1Audio) {
-                const u1AudioDiv = document.createElement('div');
-                u1AudioDiv.style.marginBottom = '8px';
-                u1AudioDiv.innerHTML = `<audio controls src="${u1Audio}" style="height: 28px; width: 100%; max-width: 260px;"></audio>`;
-                u1CommentElement.appendChild(u1AudioDiv);
-            } else {
-                const noAudioDiv = document.createElement('div');
-                noAudioDiv.style.marginBottom = '8px';
-                noAudioDiv.innerHTML = `<span style="color: #e74c3c; font-size: 11px; font-style: italic;">No audio recorded</span>`;
-                u1CommentElement.appendChild(noAudioDiv);
-            }
-
             const u1Res = splitDescriptorAndNotes(u1Text);
             
             if (u1Res.blue) {
@@ -1470,17 +1386,7 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 u1CommentElement.appendChild(oBox);
             }
             if (!u1Res.blue && !u1Res.orange) {
-                const defBox = document.createElement('div');
-                defBox.style.padding = '8px 12px';
-                defBox.style.background = '#f0f4f8';
-                defBox.style.borderLeft = '3px solid #3498db';
-                defBox.style.borderRadius = '4px';
-                defBox.style.fontSize = '13px';
-                defBox.style.lineHeight = '1.4';
-                defBox.style.color = '#2c3e50';
-                defBox.style.fontStyle = 'italic';
-                defBox.innerText = '"Response fully communicated."';
-                u1CommentElement.appendChild(defBox);
+                u1CommentElement.innerText = "Response communicated.";
             }
             u1CommentElement.style.display = 'block';
         }
@@ -1489,25 +1395,6 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
         const u2Text = unseen2CommentText || data.unseen2Comment || data.unseen2Feedback || "";
         if (u2CommentElement) {
             u2CommentElement.innerHTML = '';
-            u2CommentElement.className = '';
-            u2CommentElement.style.background = 'transparent';
-            u2CommentElement.style.borderLeft = 'none';
-            u2CommentElement.style.padding = '0';
-            u2CommentElement.style.margin = '8px 0 0 0';
-
-            const u2Audio = unseenResponsesList[1]?.audio || unseenResponsesList[1]?.audioUrl || "";
-            if (u2Audio) {
-                const u2AudioDiv = document.createElement('div');
-                u2AudioDiv.style.marginBottom = '8px';
-                u2AudioDiv.innerHTML = `<audio controls src="${u2Audio}" style="height: 28px; width: 100%; max-width: 260px;"></audio>`;
-                u2CommentElement.appendChild(u2AudioDiv);
-            } else {
-                const noAudioDiv = document.createElement('div');
-                noAudioDiv.style.marginBottom = '8px';
-                noAudioDiv.innerHTML = `<span style="color: #e74c3c; font-size: 11px; font-style: italic;">No audio recorded</span>`;
-                u2CommentElement.appendChild(noAudioDiv);
-            }
-
             const u2Res = splitDescriptorAndNotes(u2Text);
             
             if (u2Res.blue) {
@@ -1537,17 +1424,7 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 u2CommentElement.appendChild(oBox);
             }
             if (!u2Res.blue && !u2Res.orange) {
-                const defBox = document.createElement('div');
-                defBox.style.padding = '8px 12px';
-                defBox.style.background = '#f0f4f8';
-                defBox.style.borderLeft = '3px solid #3498db';
-                defBox.style.borderRadius = '4px';
-                defBox.style.fontSize = '13px';
-                defBox.style.lineHeight = '1.4';
-                defBox.style.color = '#2c3e50';
-                defBox.style.fontStyle = 'italic';
-                defBox.innerText = '"Response fully communicated."';
-                u2CommentElement.appendChild(defBox);
+                u2CommentElement.innerText = "Response communicated.";
             }
             u2CommentElement.style.display = 'block';
         }
