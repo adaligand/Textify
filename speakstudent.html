@@ -271,6 +271,11 @@
                         scope: SCOPES,
                         hd: 'cedarsupper.co.uk', 
                         callback: (tokenResponse) => {
+                            if (tokenResponse.error) {
+                                if (tokenResponse.error === 'popup_closed_by_user' || tokenResponse.error === 'interaction_required') return;
+                                alert("Google Sign-In Error: " + (tokenResponse.error_description || tokenResponse.error));
+                                return;
+                            }
                             if (tokenResponse.access_token) {
                                 handleLoginSuccess(tokenResponse.access_token);
                             }
@@ -296,16 +301,10 @@
             studentEmail = cachedEmail;
             studentName = cachedName;
             
-            document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
+            document.getElementById('student-name').innerText = `Logged in: \${studentName}`;
             document.getElementById('auth-card').classList.add('hidden');
             
             loadAssignmentAndCheckStatus();
-
-            setTimeout(() => {
-                if (tokenClient) {
-                    try { tokenClient.requestAccessToken({ prompt: 'none' }); } catch (e) {}
-                }
-            }, 2000);
         }
     }
 
@@ -334,9 +333,11 @@
     };
 
     function handleLoginSuccess(accessToken) {
-        fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
+        fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer \${accessToken}` }
+        })
             .then(res => {
-                if (!res.ok) throw new Error("Failed to contact Google API");
+                if (!res.ok) throw new Error("Failed to contact Google API (" + res.status + ")");
                 return res.json();
             })
             .then(async (data) => {
@@ -362,7 +363,7 @@
                 localStorage.setItem('studentName', studentName);
                 localStorage.setItem('sessionExpiresAt', (Date.now() + 7 * 24 * 60 * 60 * 1000).toString());
 
-                document.getElementById('student-name').innerText = `Logged in: ${studentName}`;
+                document.getElementById('student-name').innerText = `Logged in: \${studentName}`;
                 document.getElementById('auth-card').classList.add('hidden');
                 
                 if (document.getElementById('app-container').classList.contains('hidden') && 
@@ -372,12 +373,13 @@
             })
             .catch(err => {
                 console.error("Profile fetch error:", err);
+                alert("Login failed: Could not retrieve account details. Please ensure you are logged into your @cedarsupper.co.uk school Google account.");
             });
     }
 
     async function loadAssignmentAndCheckStatus() {
         if (!assignmentId) {
-            alert("No assignment parameters detected. Navigate from Classroom.");
+            alert("No assignment parameters detected. Please access this exercise from Google Classroom.");
             return;
         }
 
@@ -450,16 +452,16 @@
                     if (isRolePlayOnly) {
                         document.getElementById('accuracy-stats-row').classList.add('hidden');
                         if (subData.overallGrade !== undefined) {
-                            document.getElementById('completed-score').innerText = `${subData.overallGrade} / 10`;
+                            document.getElementById('completed-score').innerText = `\${subData.overallGrade} / 10`;
                         } else {
                             document.getElementById('completed-score').innerText = `Pending Grading`;
                         }
                     } else {
                         document.getElementById('accuracy-stats-row').classList.remove('hidden');
-                        document.getElementById('completed-accuracy').innerText = `${subData.score || 0}%`;
+                        document.getElementById('completed-accuracy').innerText = `\${subData.score || 0}%`;
                         
                         if (subData.overallGrade !== undefined) {
-                            document.getElementById('completed-score').innerText = `${subData.overallGrade} / 12`;
+                            document.getElementById('completed-score').innerText = `\${subData.overallGrade} / 12`;
                         } else {
                             document.getElementById('completed-score').innerText = `Pending Grading`;
                         }
@@ -572,7 +574,7 @@
         const words = currentText.split(/\s+/);
 
         words.forEach(word => {
-            const cleanWord = word.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "").toLowerCase();
+            const cleanWord = word.replace(/[.,\/#!\$%\^&\*;:{}=\-_`~()?¿¡]/g, "").toLowerCase();
             const span = document.createElement('span');
             span.className = 'word';
             span.innerText = word + ' '; 
@@ -582,7 +584,7 @@
                 speakTargetWord(cleanWord);
                 
                 if (currentStepIndex < sentences.length) {
-                    const trackingKey = `Word: ${cleanWord}`;
+                    const trackingKey = `Word: \${cleanWord}`;
                     if (!sentenceAttemptScores[currentStepIndex].hintsUsed.includes(trackingKey)) {
                         sentenceAttemptScores[currentStepIndex].hintsUsed.push(trackingKey);
                     }
@@ -653,12 +655,12 @@
         
         const scenarioBox = document.getElementById('roleplay-scenario');
         if (roleplayScenario && roleplayScenario.trim() !== "") {
-            scenarioBox.innerHTML = `Listen to the question and record your answer to each prompt.<br><strong>Scenario:</strong> ${roleplayScenario}`;
+            scenarioBox.innerHTML = `Listen to the question and record your answer to each prompt.<br><strong>Scenario:</strong> \${roleplayScenario}`;
         } else {
             scenarioBox.innerHTML = `Listen to the question and record your answer to each prompt.`;
         }
 
-        document.getElementById('roleplay-turn-title').innerText = `Teacher Prompt ${roleplayIndex + 1}`;
+        document.getElementById('roleplay-turn-title').innerText = `Teacher Prompt \${roleplayIndex + 1}`;
         document.getElementById('roleplay-prompt-text').innerText = currentTurn.prompt || "Listen to the target prompt structure.";
         document.getElementById('roleplay-cue-text').innerText = currentTurn.cue || currentTurn.instruction || "Respond appropriately using vocabulary options.";
         
@@ -858,7 +860,7 @@
     }
 
     function calculateAccuracy(spokenText) {
-        const targetText = sentences[currentStepIndex].toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, "");
+        const targetText = sentences[currentStepIndex].toLowerCase().replace(/[.,\/#!\$%\^&\*;:{}=\-_`~()?¿¡]/g, "");
         const inputWords = spokenText.toLowerCase().split(/\s+/).map(w => w.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?¿¡]/g, ""));
         const targetWords = targetText.split(/\s+/);
 
@@ -977,7 +979,6 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
     const commentElement = document.getElementById('student-rubric-comment');
     const feedbackHeader = document.getElementById('feedback-header');
 
-    // List of standard dropdown descriptors across Role Play, Read Aloud, and Unseen Questions
     const knownDescriptors = [
         "No response or nothing of merit matching the speaking markscheme.",
         "Pronunciation is limited in clarity; lapses in SSCs often cause the message to break down.",
@@ -1035,6 +1036,8 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
         commentElement.style.padding = '0';
         commentElement.style.margin = '0';
 
+        const studentRoleplay = data.roleplayResponses || data.rolePlayResponses || [];
+
         let mainComment = data.teacherComment || "";
         if (!mainComment) {
             commentElement.innerText = "No written feedback provided yet.";
@@ -1069,16 +1072,15 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                     
                     const numMatch = promptTitle.match(/\d+/);
                     const cleanTitle = numMatch ? `Prompt ${numMatch[0]}` : promptTitle;
+                    const turnIdx = numMatch ? (parseInt(numMatch[0], 10) - 1) : cardsList.length;
                     
                     let cueText = "";
-                    if (numMatch) {
-                        const turnIdx = parseInt(numMatch[0]) - 1;
-                        if (typeof roleplayTurns !== 'undefined' && roleplayTurns[turnIdx]) {
-                            cueText = roleplayTurns[turnIdx].cue || roleplayTurns[turnIdx].student || roleplayTurns[turnIdx].instruction || "";
-                        }
+                    if (typeof roleplayTurns !== 'undefined' && roleplayTurns[turnIdx]) {
+                        cueText = roleplayTurns[turnIdx].cue || roleplayTurns[turnIdx].student || roleplayTurns[turnIdx].instruction || "";
                     }
 
                     currentCardObj = {
+                        turnIdx: turnIdx,
                         cleanTitle: cleanTitle,
                         cueText: cueText,
                         score: promptScore,
@@ -1111,23 +1113,38 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 flexHeader.style.justifyContent = 'space-between';
                 flexHeader.style.alignItems = 'center';
                 flexHeader.style.width = '100%';
+                flexHeader.style.gap = '15px';
+                flexHeader.style.flexWrap = 'wrap';
                 
                 const labelSpan = document.createElement('span');
                 labelSpan.className = 'breakdown-label';
+                labelSpan.style.flex = '1';
+                labelSpan.style.minWidth = '200px';
                 labelSpan.innerText = cardData.cueText ? `📖 ${cardData.cleanTitle}: ${cardData.cueText}` : `📖 ${cardData.cleanTitle}`;
                 
+                const rpRecord = studentRoleplay[cardData.turnIdx] || {};
+                const rpAudio = rpRecord.audio || rpRecord.audioUrl || "";
+
+                const audioDiv = document.createElement('div');
+                audioDiv.style.flex = '0 0 auto';
+                if (rpAudio) {
+                    audioDiv.innerHTML = `<audio controls src="${rpAudio}" style="height: 22px; width: 100%; max-width: 220px;"></audio>`;
+                } else {
+                    audioDiv.innerHTML = `<span style="color: #e74c3c; font-size: 11px; font-style: italic;">No audio recorded</span>`;
+                }
+
                 const scoreSpan = document.createElement('span');
                 scoreSpan.className = 'breakdown-score';
                 scoreSpan.innerText = cardData.score;
                 
                 flexHeader.appendChild(labelSpan);
+                flexHeader.appendChild(audioDiv);
                 flexHeader.appendChild(scoreSpan);
                 subCard.appendChild(flexHeader);
                 
                 const combinedFeedback = cardData.feedbackLines.join('\n').trim();
                 const splitRes = splitDescriptorAndNotes(combinedFeedback);
 
-                // 1. Blue Box for Dropdown Markscheme Feedback
                 if (splitRes.blue) {
                     const blueBox = document.createElement('div');
                     blueBox.style.margin = '8px 0 0 0';
@@ -1143,7 +1160,6 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                     subCard.appendChild(blueBox);
                 }
 
-                // 2. Orange Box for Custom Teacher Notes
                 if (splitRes.orange) {
                     const orangeBox = document.createElement('div');
                     orangeBox.style.margin = '8px 0 0 0';
@@ -1182,7 +1198,6 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
         }
         document.getElementById('feedback-card').classList.remove('hidden');
     } else {
-        // --- READ ALOUD FEEDBACK DISPLAY ---
         if (feedbackHeader) feedbackHeader.innerText = "📖 Read Aloud Feedback";
 
         rubricBlock.style.background = 'white';
@@ -1199,7 +1214,6 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
         document.getElementById('student-unseen1-grade').innerText = `${data.unseen1Grade ?? 0} / 2`;
         document.getElementById('student-unseen2-grade').innerText = `${data.unseen2Grade ?? 0} / 2`;
 
-        // Update Unseen Question Titles dynamically
         const q1Title = (typeof unseenQuestions !== 'undefined' && unseenQuestions && unseenQuestions[0] && unseenQuestions[0].title) ? unseenQuestions[0].title : "Question 1";
         const q2Title = (typeof unseenQuestions !== 'undefined' && unseenQuestions && unseenQuestions[1] && unseenQuestions[1].title) ? unseenQuestions[1].title : "Question 2";
 
@@ -1209,6 +1223,40 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
         }
         if (unseenItems[1] && unseenItems[1].querySelector('.breakdown-label')) {
             unseenItems[1].querySelector('.breakdown-label').innerText = `🎧 Q2: ${q2Title}`;
+        }
+
+        const unseenResponsesList = data.unseenResponses || [];
+        
+        if (unseenItems[0]) {
+            let audioElem1 = unseenItems[0].querySelector('.unseen-audio-player');
+            if (!audioElem1) {
+                audioElem1 = document.createElement('div');
+                audioElem1.className = 'unseen-audio-player';
+                audioElem1.style.marginTop = '6px';
+                audioElem1.style.marginBottom = '6px';
+                const commentEl = unseenItems[0].querySelector('#student-unseen1-comment');
+                unseenItems[0].insertBefore(audioElem1, commentEl);
+            }
+            const u1Audio = unseenResponsesList[0]?.audio || unseenResponsesList[0]?.audioUrl || "";
+            audioElem1.innerHTML = u1Audio 
+                ? `<audio controls src="${u1Audio}" style="height: 22px; width: 100%; max-width: 220px;"></audio>` 
+                : `<span style="color: #e74c3c; font-size: 11px; font-style: italic;">No audio recorded</span>`;
+        }
+
+        if (unseenItems[1]) {
+            let audioElem2 = unseenItems[1].querySelector('.unseen-audio-player');
+            if (!audioElem2) {
+                audioElem2 = document.createElement('div');
+                audioElem2.className = 'unseen-audio-player';
+                audioElem2.style.marginTop = '6px';
+                audioElem2.style.marginBottom = '6px';
+                const commentEl = unseenItems[1].querySelector('#student-unseen2-comment');
+                unseenItems[1].insertBefore(audioElem2, commentEl);
+            }
+            const u2Audio = unseenResponsesList[1]?.audio || unseenResponsesList[1]?.audioUrl || "";
+            audioElem2.innerHTML = u2Audio 
+                ? `<audio controls src="${u2Audio}" style="height: 22px; width: 100%; max-width: 220px;"></audio>` 
+                : `<span style="color: #e74c3c; font-size: 11px; font-style: italic;">No audio recorded</span>`;
         }
 
         commentElement.innerHTML = '';
@@ -1276,7 +1324,6 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
             });
         }
 
-        // 1. General Feedback Split (Blue Box for Descriptor, Orange Box for Teacher Notes)
         if (generalFeedback) {
             const genSplit = splitDescriptorAndNotes(generalFeedback);
 
@@ -1310,8 +1357,13 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
             }
         }
 
-        // 2. Sentence Cards Breakdown
+        if ((!sentences || sentences.length === 0) && (data.sentence || data.sentences || data.sentenceScores)) {
+            const studentSentencesArr = data.sentence || data.sentences || data.sentenceScores;
+            sentences = studentSentencesArr.map((_, i) => `Sentence ${i + 1}`);
+        }
+
         if (typeof sentences !== 'undefined' && sentences && sentences.length > 0) {
+            const studentSentences = data.sentence || data.sentences || data.sentenceScores || [];
             const sentenceContainer = document.createElement('div');
             sentenceContainer.style.display = 'flex';
             sentenceContainer.style.flexDirection = 'column';
@@ -1323,6 +1375,9 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 const noteObj = sentenceNotes[sNum];
                 const customNotes = noteObj ? noteObj.notes.join('\n').trim() : "";
 
+                const sentRecord = studentSentences[idx] || {};
+                const audioSource = sentRecord.audio || sentRecord.audioUrl || "";
+
                 const sCard = document.createElement('div');
                 sCard.className = 'breakdown-item';
                 sCard.style.background = '#ffffff';
@@ -1332,8 +1387,13 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 sCard.style.textAlign = 'left';
 
                 let cardHtml = `
-                    <div style="font-size: 13px; font-weight: bold; color: #34495e;">
-                        Sentence ${sNum}: <span style="font-weight: 500; color: #2c3e50; font-style: italic;">"${sText.trim()}"</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap;">
+                        <div style="font-size: 13px; font-weight: bold; color: #34495e; flex: 1; min-width: 200px;">
+                            Sentence ${sNum}: <span style="font-weight: 500; color: #2c3e50; font-style: italic;">"${sText.trim()}"</span>
+                        </div>
+                        <div style="flex: 0 0 auto;">
+                            ${audioSource ? `<audio controls src="\${audioSource}" style="height: 22px; width: 100%; max-width: 220px;"></audio>` : `<span style="color: #e74c3c; font-size: 11px; font-style: italic;">No audio recorded</span>`}
+                        </div>
                     </div>
                 `;
 
@@ -1352,11 +1412,15 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
             commentElement.appendChild(sentenceContainer);
         }
 
-        // 3. Unseen Question Feedback (Split Blue / Orange)
         const u1CommentElement = document.getElementById('student-unseen1-comment');
         const u1Text = unseen1CommentText || data.unseen1Comment || data.unseen1Feedback || "";
         if (u1CommentElement) {
             u1CommentElement.innerHTML = '';
+            u1CommentElement.style.background = 'transparent';
+            u1CommentElement.style.borderLeft = 'none';
+            u1CommentElement.style.padding = '0';
+            u1CommentElement.style.margin = '4px 0 0 0';
+
             const u1Res = splitDescriptorAndNotes(u1Text);
             
             if (u1Res.blue) {
@@ -1386,7 +1450,17 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 u1CommentElement.appendChild(oBox);
             }
             if (!u1Res.blue && !u1Res.orange) {
-                u1CommentElement.innerText = "Response communicated.";
+                const defBox = document.createElement('div');
+                defBox.style.padding = '8px 12px';
+                defBox.style.background = '#f0f4f8';
+                defBox.style.borderLeft = '3px solid #3498db';
+                defBox.style.borderRadius = '4px';
+                defBox.style.fontSize = '13px';
+                defBox.style.lineHeight = '1.4';
+                defBox.style.color = '#2c3e50';
+                defBox.style.fontStyle = 'italic';
+                defBox.innerText = '"Response communicated."';
+                u1CommentElement.appendChild(defBox);
             }
             u1CommentElement.style.display = 'block';
         }
@@ -1395,6 +1469,11 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
         const u2Text = unseen2CommentText || data.unseen2Comment || data.unseen2Feedback || "";
         if (u2CommentElement) {
             u2CommentElement.innerHTML = '';
+            u2CommentElement.style.background = 'transparent';
+            u2CommentElement.style.borderLeft = 'none';
+            u2CommentElement.style.padding = '0';
+            u2CommentElement.style.margin = '4px 0 0 0';
+
             const u2Res = splitDescriptorAndNotes(u2Text);
             
             if (u2Res.blue) {
@@ -1424,7 +1503,17 @@ function showStudentFeedbackBreakdown(submissionDocData, isRolePlay) {
                 u2CommentElement.appendChild(oBox);
             }
             if (!u2Res.blue && !u2Res.orange) {
-                u2CommentElement.innerText = "Response communicated.";
+                const defBox = document.createElement('div');
+                defBox.style.padding = '8px 12px';
+                defBox.style.background = '#f0f4f8';
+                defBox.style.borderLeft = '3px solid #3498db';
+                defBox.style.borderRadius = '4px';
+                defBox.style.fontSize = '13px';
+                defBox.style.lineHeight = '1.4';
+                defBox.style.color = '#2c3e50';
+                defBox.style.fontStyle = 'italic';
+                defBox.innerText = '"Response communicated."';
+                u2CommentElement.appendChild(defBox);
             }
             u2CommentElement.style.display = 'block';
         }
