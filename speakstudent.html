@@ -111,7 +111,7 @@
     </div>
     
     <div style="font-size: 24px; margin: 20px 0; font-weight: bold; color: #2c3e50;">
-        Overall Grade: <span id="completed-score" style="color: #2ecc71;">-- / 12</span>
+        Overall Grade: <span id="completed-score" style="color: #2ecc71;">--</span>
     </div>
     
     <div id="feedback-card" class="feedback-container hidden">
@@ -449,10 +449,41 @@
                 if (!querySnapshot.empty) {
                     const subData = querySnapshot.docs[0].data();
                     
+                    let computedGrade = null;
+                    const gradeKeys = ['overallGrade', 'totalGrade', 'finalGrade', 'grade', 'teacherGrade', 'overallScore', 'totalScore'];
+                    for (const key of gradeKeys) {
+                        if (subData[key] !== undefined && subData[key] !== null && subData[key] !== "") {
+                            computedGrade = Number(subData[key]);
+                            if (!isNaN(computedGrade)) break;
+                        }
+                    }
+
+                    if (computedGrade === null || isNaN(computedGrade)) {
+                        if (isRolePlayOnly) {
+                            if (Array.isArray(subData.rolePlayMarks) && subData.rolePlayMarks.length > 0) {
+                                computedGrade = subData.rolePlayMarks.reduce((acc, curr) => acc + (Number(curr) || 0), 0);
+                            }
+                        } else {
+                            if (subData.rubricGrade !== undefined || subData.unseen1Grade !== undefined || subData.unseen2Grade !== undefined) {
+                                computedGrade = (Number(subData.rubricGrade) || 0) + (Number(subData.unseen1Grade) || 0) + (Number(subData.unseen2Grade) || 0);
+                            }
+                        }
+                    }
+
+                    let maxGrade = subData.maxGrade || subData.maxScore || subData.totalPossible;
+                    if (!maxGrade) {
+                        if (isRolePlayOnly) {
+                            maxGrade = (roleplayTurns && roleplayTurns.length > 0) ? (roleplayTurns.length * 2) : 10;
+                        } else {
+                            const unseenMax = (unseenQuestions && unseenQuestions.length > 0) ? (unseenQuestions.length * 2) : 4;
+                            maxGrade = 8 + unseenMax;
+                        }
+                    }
+
                     if (isRolePlayOnly) {
                         document.getElementById('accuracy-stats-row').classList.add('hidden');
-                        if (subData.overallGrade !== undefined) {
-                            document.getElementById('completed-score').innerText = `\${subData.overallGrade} / 10`;
+                        if (computedGrade !== null && !isNaN(computedGrade)) {
+                            document.getElementById('completed-score').innerText = `${computedGrade} /${maxGrade}`;
                         } else {
                             document.getElementById('completed-score').innerText = `Pending Grading`;
                         }
@@ -460,8 +491,8 @@
                         document.getElementById('accuracy-stats-row').classList.remove('hidden');
                         document.getElementById('completed-accuracy').innerText = `\${subData.score || 0}%`;
                         
-                        if (subData.overallGrade !== undefined) {
-                            document.getElementById('completed-score').innerText = `\${subData.overallGrade} / 12`;
+                        if (computedGrade !== null && !isNaN(computedGrade)) {
+                            document.getElementById('completed-score').innerText = `${computedGrade} /${maxGrade}`;
                         } else {
                             document.getElementById('completed-score').innerText = `Pending Grading`;
                         }
