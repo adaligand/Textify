@@ -274,6 +274,238 @@
         if (!rawAudio) return "";
         let src = String(rawAudio).trim();
         if (src.length < 20) return "";
+        
+        // If it's already an HTTP, HTTPS, or Blob URL, return directly
+        if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("blob:")) {
+            return src;
+        }
+
+        try {
+            let mimeType = "audio/webm";
+            let base64Data = src;
+
+            if (src.startsWith("data:")) {
+                const commaIdx = src.indexOf(",");
+                if (commaIdx !== -1) {
+                    const header = src.substring(0, commaIdx);
+                    base64Data = src.substring(commaIdx + 1);
+                    
+                    const mimeMatch = header.match(/data:([^;]+)/);
+                    if (mimeMatch && mimeMatch[1]) {
+                        mimeType = mimeMatch[1];
+                    }
+                }
+            }
+
+            // Convert Base64 string to Uint8Array and create a native Blob URL
+            const cleanBase64 = base64Data.replace(/\s/g, '');
+            const binaryString = window.atob(cleanBase64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            const blob = new Blob([bytes], { type: mimeType });
+            return URL.createObjectURL(blob);
+        } catch (e) {
+            console.error("Base64 audio conversion error:", e);
+            return src.startsWith("data:") ? src : "data:audio/webm;base64," + src;
+        }
+    }
+
+    function extractAudioFromRecord(record) {
+        if (!record) return "";
+        if (typeof record === 'string') return formatAudioSrc(record);
+        if (typeof record === 'object') {
+            const candidate = record.audio || record.audioUrl || record.audioData || record.recording || record.url || "";
+            if (candidate) return formatAudioSrc(candidate);
+            if (Array.isArray(record.attempts) && record.attempts.length > 0) {
+                const lastAttempt = record.attempts[record.attempts.length - 1];
+                if (typeof lastAttempt === 'string') return formatAudioSrc(lastAttempt);
+                if (typeof lastAttempt === 'object') {
+                    const attAudio = lastAttempt.audio || lastAttempt.audioUrl || lastAttempt.audioData || lastAttempt.recording || lastAttempt.url || "";
+                    if (attAudio) return formatAudioSrc(attAudio);
+                }
+            }
+        }
+        return "";
+    }
+
+    function initGoogleClient() {
+        try {
+            if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+                if (!tokenClient) {
+                    tokenClient = google.accounts.oauth2.initTokenClient({
+                        client_id: CLIENT_ID,
+                        scope: SCOPES,
+                        hd: 'cedarsupper.co.uk', 
+                        callback: (tokenResponse) => {
+                            if (tokenResponse.access_token) {
+                                handleLoginSuccess(tokenResponse.access_token);
+                            }
+                        },
+                    });
+                }
+                checkStoredSession();
+                return tokenClient;
+            } else {
+                return null;
+            }
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function checkStoredSession() {
+        const cachedEmail = localStorage.getItem('studentEmail');
+        const cachedName = localStorage.getItem('studentName');
+        const sessionExpiresAt = localStorage.getItem('sessionExpiresAt');
+
+        if (cachedEmail && cachedName && sessionExpiresAt && Date.now() < parseInt(sessionExpiresAt)) {
+            studentEmail = cachedEmail;
+            studentName = cachedName;
+            
+            document.getElementById('student-name').innerText = "Logged in: " + studentName;
+            document.getElementById('auth-card').classList.add('hidden');
+            
+            loadAssignmentAndCheckStatus();
+
+            setTimeout(() => {
+                if (tokenClient) {
+                    try { tokenClient.requestAccessToken({ prompt: 'none' }); } catch (e) {}
+                }
+            }, 2000);
+        }
+    }
+
+    document.getElementById('auth-btn').onclick = () => {
+        const client = tokenClient || initGoogleClient();
+        if (client) {
+            try {
+                client.re border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s;">Log Out</button>
+        </div>
+        <span id="step-indicator" style="font-weight: bold; color: #1abc9c;">Step 1 of 1</span>
+    </div>
+
+    <div class="progress-bar">
+        <div id="progress-fill" class="progress-fill"></div>
+    </div>
+
+    <h2 id="passage-title" style="margin-top: 0; color: #2c3e50;">Practice Assignment</h2>
+    
+    <div id="standard-sentences-workspace">
+        <p style="color: #7f8c8d; font-size: 14px; margin-bottom: 10px;">🔊 Tap/Click a word to hear it pronounced. Hover to translate.</p>
+        <div>
+            <button id="play-full-sentence-btn" class="audio-playback-trigger">🐢 Listen to Full Sentence (Slow)</button>
+        </div>
+        <div id="sentence-container" class="sentence-box"></div>
+    </div>
+
+    <div id="unseen-questions-workspace" class="hidden">
+        <div class="unseen-instruction">
+            <p>Listen closely to the question below, then record your answer.</p>
+        </div>
+        <div>
+            <button id="unseen-play-btn" class="audio-playback-trigger">▶ Play Audio Question</button>
+            <audio id="unseen-audio-source" style="display:none;"></audio>
+        </div>
+        <div id="unseen-feedback" class="feedback" style="margin-top:10px; color: #1abc9c; font-weight: bold;"></div>
+    </div>
+
+    <div id="roleplay-workspace" class="hidden">
+        <div class="unseen-instruction">
+            <p id="roleplay-scenario" style="font-style: italic; background: #ebf5fb; padding: 12px; border-left: 4px solid #3498db; border-radius: 6px; color: #2c3e50; text-align: left; margin-bottom: 20px;"></p>
+        </div>
+        <div style="background: white; border: 1px solid #e2e8f0; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); text-align: left; margin-bottom: 20px;">
+            <h4 style="margin-top: 0; color: #34495e;" id="roleplay-turn-title">Teacher Prompt 1</h4>
+            <div style="margin-bottom: 15px;">
+                <span id="roleplay-prompt-label" style="font-weight: bold; color: #7f8c8d; display: none; font-size: 12px; text-transform: uppercase;">Your Partner Says:</span>
+                <p id="roleplay-prompt-text" style="font-size: 18px; margin: 5px 0; font-weight: 600; color: #2c3e50; display: none;"></p>
+                <button id="roleplay-play-btn" class="audio-playback-trigger" style="margin-top: 8px; padding: 8px 16px; font-size: 14px;">▶ Play Audio</button>
+                <audio id="roleplay-audio-source" style="display:none;"></audio>
+            </div>
+
+            <div id="roleplay-cue-container" style="background: #fdfefe; border: 1px dashed #e67e22; padding: 12px; border-radius: 6px;">
+                <span style="font-weight: bold; color: #e67e22; display: block; font-size: 12px; text-transform: uppercase;">Your Prompt:</span>
+                <p id="roleplay-cue-text" style="font-size: 15px; margin: 5px 0; color: #34495e; line-height: 1.4;"></p>
+            </div>
+        </div>
+        <div id="roleplay-feedback" class="feedback" style="margin-top:10px; color: #1abc9c; font-weight: bold;"></div>
+    </div>
+
+    <div class="feedback" id="feedback-msg"></div>
+    <div class="history-text" id="attempts-history-msg"></div>
+
+    <div class="nav-buttons">
+        <button id="prev-btn" class="btn btn-nav" disabled>◀ Back</button>
+        <button id="record-btn" class="btn btn-record">🎤 Start Recording</button>
+        <button id="next-btn" class="btn btn-nav">Next ▶</button>
+    </div>
+    
+    <button id="submit-btn" class="btn btn-submit hidden" style="margin-top: 20px; width: 100%;">Submit Assignment</button>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyDnfndrVR5reVNxLc7pGwxp6910_0L5P98",
+        authDomain: "speakaton-6b95a.firebaseapp.com",
+        projectId: "speakaton-6b95a",
+        storageBucket: "speakaton-6b95a.appspot.com",
+        messagingSenderId: "162949632188",
+        appId: "1:162949632188:web:eb981bcf305b346d99c0b9"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    const CLIENT_ID = '162949632188-fifdjjtug2mqu5uc80r2fdrqfacvkkrg.apps.googleusercontent.com';
+    const SCOPES = 'openid email profile';
+
+    let tokenClient = null;
+    let studentEmail = "";
+    let studentName = "";
+    let assignmentId = "";
+    let assignmentTitle = ""; 
+    let courseId = ""; 
+    let gClassroomAssignmentId = ""; 
+    
+    let sentences = [];
+    let unseenQuestions = []; 
+    let roleplayTurns = [];
+    let roleplayScenario = "";
+    
+    let totalSteps = 0; 
+    let currentStepIndex = 0; 
+    
+    let sentenceAttemptScores = []; 
+    let unseenResponses = []; 
+    let roleplayResponses = [];
+    let hintsUsed = [];
+
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    let currentLanguageCode = "fr";  
+    const languageLocales = {
+        "fr": "fr-FR",
+        "de": "de-DE",
+        "es": "es-ES"
+    };
+
+    const translationCache = {};
+
+    const urlParams = new URLSearchParams(window.location.search);
+    assignmentId = urlParams.get('assignmentId') || urlParams.get('passageId') || ""; 
+    courseId = urlParams.get('courseId') || "";
+
+    function formatAudioSrc(rawAudio) {
+        if (!rawAudio) return "";
+        let src = String(rawAudio).trim();
+        if (src.length < 20) return "";
         if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("blob:")) {
             return src;
         }
