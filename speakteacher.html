@@ -1082,311 +1082,309 @@
         });
     }
 
-    function renderReadAloudFilters() {
-        const langRow = document.getElementById('ra-lang-row');
-        langRow.innerHTML = '';
-        
-        const languages = Object.keys(readAloudDataStructure).sort();
-        if(languages.length === 0) {
-            langRow.innerHTML = '<p style="color:#7f8c8d; font-size:13px;">No Read Aloud scripts discovered in database store.</p>';
-            return;
-        }
-
-        languages.forEach(lang => {
-            const btn = document.createElement('button');
-            btn.className = `pill-btn ${selRaLang === lang ? 'lang-active' : ''}`;
-            btn.innerHTML = `${getLanguageFlag(lang)} <span>${getLanguageName(lang)}</span>`;
-            btn.onclick = () => {
-                selRaLang = lang; selRaYear = null; selRaTopic = null; selRaTier = 'all';
-                renderReadAloudFilters();
-            };
-            langRow.appendChild(btn);
-        });
-
-        const yearBlock = document.getElementById('ra-year-block');
-        const topicBlock = document.getElementById('ra-topic-block');
-        const tierBlock = document.getElementById('ra-tier-block');
-        const tasksBlock = document.getElementById('ra-tasks-block');
-
-        if (!selRaLang) {
-            yearBlock.classList.add('hidden'); topicBlock.classList.add('hidden'); if(tierBlock) tierBlock.classList.add('hidden'); tasksBlock.classList.add('hidden');
-            return;
-        }
-
-        yearBlock.classList.remove('hidden');
-        const yearRow = document.getElementById('ra-year-row');
-        yearRow.innerHTML = '';
-        
-        const years = Object.keys(readAloudDataStructure[selRaLang] || {}).sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
-        years.forEach(year => {
-            const btn = document.createElement('button');
-            btn.className = `pill-btn ${selRaYear === year ? 'year-active' : ''}`;
-            btn.innerHTML = `🏫 ${year}`;
-            btn.onclick = () => {
-                selRaYear = year; selRaTopic = null; selRaTier = 'all';
-                renderReadAloudFilters();
-            };
-            yearRow.appendChild(btn);
-        });
-
-        if (!selRaYear) {
-            topicBlock.classList.add('hidden'); if(tierBlock) tierBlock.classList.add('hidden'); tasksBlock.classList.add('hidden');
-            return;
-        }
-
-        topicBlock.classList.remove('hidden');
-        const topicRow = document.getElementById('ra-topic-row');
-        topicRow.innerHTML = '';
-
-        const topics = Object.keys(readAloudDataStructure[selRaLang][selRaYear] || {}).sort();
-        topics.forEach(topic => {
-            const btn = document.createElement('button');
-            btn.className = `pill-btn ${selRaTopic === topic ? 'topic-active' : ''}`;
-            btn.innerHTML = `📁 ${topic}`;
-            btn.onclick = () => {
-                selRaTopic = topic; selRaTier = 'all';
-                renderReadAloudFilters();
-            };
-            topicRow.appendChild(btn);
-        });
-
-        if (!selRaTopic) {
-            if(tierBlock) tierBlock.classList.add('hidden');
-            tasksBlock.classList.add('hidden');
-            return;
-        }
-
-        // GCSE Tier Filter Logic
-        if (selRaYear === 'GCSE') {
-            if (tierBlock) {
-                tierBlock.classList.remove('hidden');
-                const tierRow = document.getElementById('ra-tier-row');
-                tierRow.innerHTML = '';
-
-                const tiers = [
-                    { id: 'all', label: 'All Tiers' },
-                    { id: 'foundation', label: 'Foundation' },
-                    { id: 'higher', label: 'Higher' }
-                ];
-
-                tiers.forEach(tierObj => {
-                    const btn = document.createElement('button');
-                    btn.className = `pill-btn ${selRaTier === tierObj.id ? 'tier-active' : ''}`;
-                    btn.innerHTML = tierObj.label;
-                    btn.onclick = () => {
-                        selRaTier = tierObj.id;
-                        renderReadAloudFilters();
-                    };
-                    tierRow.appendChild(btn);
-                });
-            }
-        } else {
-            if (tierBlock) tierBlock.classList.add('hidden');
-            selRaTier = 'all';
-        }
-
-        tasksBlock.classList.remove('hidden');
-        const tasksGrid = document.getElementById('ra-tasks-grid');
-        tasksGrid.innerHTML = '';
-
-        let matchedTasks = readAloudDataStructure[selRaLang][selRaYear][selRaTopic] || [];
-        if (selRaYear === 'GCSE' && selRaTier !== 'all') {
-            matchedTasks = matchedTasks.filter(task => (task.tier || '').toLowerCase() === selRaTier.toLowerCase());
-        }
-
-        matchedTasks.sort((a,b) => a.title.localeCompare(b.title)).forEach(task => {
-            const card = document.createElement('div');
-            card.className = 'bank-task-card';
-            const tierLetter = (task.tier === 'higher') ? 'H' : 'F'; 
-
-            const matchingAssigns = allAssignments.filter(assign => 
-                assign.title === task.title && 
-                assign.activityType === (task.activityType || 'read_aloud') && 
-                assign.language === (task.language || 'fr') && 
-                assign.tier === (task.tier || 'foundation') && 
-                assign.yearGroup === task.yearGroup && 
-                assign.topic === task.topic
-            );
-
-            const assignedClasses = matchingAssigns.map(assign => {
-                const course = allCourses.find(c => c.id === assign.courseId);
-                return course ? course.name : "Assigned Class";
-            });
-
-            let classHtml = '';
-            if (assignedClasses.length > 0) {
-                classHtml = assignedClasses.map(clsName => 
-                    `<span style="background: #fffbe6; border: 1px solid #ffe58f; padding: 2px 5px; border-radius: 4px; font-size: 11px; color: #d46b08; font-weight: 600; display: inline-block; white-space: nowrap;">📋 ${clsName}</span>`
-                ).join('');
-            }
-
-            card.innerHTML = `
-                <div class="bank-task-info">
-                    <div class="bank-task-title"><span class="badge tier">${tierLetter}</span> ${task.title}</div>
-                    <div class="bank-task-classes-container">${classHtml}</div>
-                </div>
-                <div class="task-actions" style="margin-top: 2px;">
-                    <button class="task-action-btn" data-tooltip="Edit" title="Edit" onclick="loadTemplateIntoEditor('${task.id}')">📝</button>
-                    <button class="task-action-btn" data-tooltip="Duplicate" title="Duplicate" onclick="duplicateTemplate('${task.id}', event)">📋</button>
-                    <button class="task-action-btn" data-tooltip="Delete" title="Delete" onclick="moveToBin('${task.id}', event)">🗑️</button>
-                </div>
-            `;
-            tasksGrid.appendChild(card);
-        });
+   function renderReadAloudFilters() {
+    const langRow = document.getElementById('ra-lang-row');
+    langRow.innerHTML = '';
+    
+    const languages = Object.keys(readAloudDataStructure).sort();
+    if(languages.length === 0) {
+        langRow.innerHTML = '<p style="color:#7f8c8d; font-size:13px;">No Read Aloud scripts discovered in database store.</p>';
+        return;
     }
 
-    function renderRolePlayFilters() {
-        const langRow = document.getElementById('rp-lang-row');
-        langRow.innerHTML = '';
-        
-        const languages = Object.keys(rolePlayDataStructure).sort();
-        if(languages.length === 0) {
-            langRow.innerHTML = '<p style="color:#7f8c8d; font-size:13px;">No conversational role plays discovered in database store.</p>';
-            return;
-        }
+    languages.forEach(lang => {
+        const btn = document.createElement('button');
+        btn.className = `pill-btn ${selRaLang === lang ? 'lang-active' : ''}`;
+        btn.innerHTML = `${getLanguageFlag(lang)} <span>${getLanguageName(lang)}</span>`;
+        btn.onclick = () => {
+            selRaLang = lang; selRaYear = null; selRaTopic = null; selRaTier = 'all';
+            renderReadAloudFilters();
+        };
+        langRow.appendChild(btn);
+    });
 
-        languages.forEach(lang => {
-            const btn = document.createElement('button');
-            btn.className = `pill-btn ${selRpLang === lang ? 'lang-active' : ''}`;
-            btn.innerHTML = `${getLanguageFlag(lang)} <span>${getLanguageName(lang)}</span>`;
-            btn.onclick = () => {
-                selRpLang = lang; selRpYear = null; selRpTopic = null; selRpTier = 'all';
-                renderRolePlayFilters();
-            };
-            langRow.appendChild(btn);
-        });
+    const yearBlock = document.getElementById('ra-year-block');
+    const topicBlock = document.getElementById('ra-topic-block');
+    const tierBlock = document.getElementById('ra-tier-block');
+    const tasksBlock = document.getElementById('ra-tasks-block');
 
-        const yearBlock = document.getElementById('rp-year-block');
-        const topicBlock = document.getElementById('rp-topic-block');
-        const tierBlock = document.getElementById('rp-tier-block');
-        const tasksBlock = document.getElementById('rp-tasks-block');
-
-        if (!selRpLang) {
-            yearBlock.classList.add('hidden'); topicBlock.classList.add('hidden'); if(tierBlock) tierBlock.classList.add('hidden'); tasksBlock.classList.add('hidden');
-            return;
-        }
-
-        yearBlock.classList.remove('hidden');
-        const yearRow = document.getElementById('rp-year-row');
-        yearRow.innerHTML = '';
-        
-        const years = Object.keys(rolePlayDataStructure[selRpLang] || {}).sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
-        years.forEach(year => {
-            const btn = document.createElement('button');
-            btn.className = `pill-btn ${selRpYear === year ? 'year-active' : ''}`;
-            btn.innerHTML = `🏫 ${year}`;
-            btn.onclick = () => {
-                selRpYear = year; selRpTopic = null; selRpTier = 'all';
-                renderRolePlayFilters();
-            };
-            yearRow.appendChild(btn);
-        });
-
-        if (!selRpYear) {
-            topicBlock.classList.add('hidden'); if(tierBlock) tierBlock.classList.add('hidden'); tasksBlock.classList.add('hidden');
-            return;
-        }
-
-        topicBlock.classList.remove('hidden');
-        const topicRow = document.getElementById('rp-topic-row');
-        topicRow.innerHTML = '';
-
-        const topics = Object.keys(rolePlayDataStructure[selRpLang][selRpYear] || {}).sort();
-        topics.forEach(topic => {
-            const btn = document.createElement('button');
-            btn.className = `pill-btn ${selRpTopic === topic ? 'topic-active' : ''}`;
-            btn.innerHTML = `📁 ${topic}`;
-            btn.onclick = () => {
-                selRpTopic = topic; selRpTier = 'all';
-                renderRolePlayFilters();
-            };
-            topicRow.appendChild(btn);
-        });
-
-        if (!selRpTopic) {
-            if(tierBlock) tierBlock.classList.add('hidden');
-            tasksBlock.classList.add('hidden');
-            return;
-        }
-
-        // GCSE Tier Filter Logic
-        if (selRpYear === 'GCSE') {
-            if (tierBlock) {
-                tierBlock.classList.remove('hidden');
-                const tierRow = document.getElementById('rp-tier-row');
-                tierRow.innerHTML = '';
-
-                const tiers = [
-                    { id: 'all', label: 'All Tiers' },
-                    { id: 'foundation', label: 'Foundation' },
-                    { id: 'higher', label: 'Higher' }
-                ];
-
-                tiers.forEach(tierObj => {
-                    const btn = document.createElement('button');
-                    btn.className = `pill-btn ${selRpTier === tierObj.id ? 'tier-active' : ''}`;
-                    btn.innerHTML = tierObj.label;
-                    btn.onclick = () => {
-                        selRpTier = tierObj.id;
-                        renderRolePlayFilters();
-                    };
-                    tierRow.appendChild(btn);
-                });
-            }
-        } else {
-            if (tierBlock) tierBlock.classList.add('hidden');
-            selRpTier = 'all';
-        }
-
-        tasksBlock.classList.remove('hidden');
-        const tasksGrid = document.getElementById('rp-tasks-grid');
-        tasksGrid.innerHTML = '';
-
-        let matchedTasks = rolePlayDataStructure[selRpLang][selRpYear][selRpTopic] || [];
-        if (selRpYear === 'GCSE' && selRpTier !== 'all') {
-            matchedTasks = matchedTasks.filter(task => (task.tier || '').toLowerCase() === selRpTier.toLowerCase());
-        }
-
-        matchedTasks.sort((a,b) => a.title.localeCompare(b.title)).forEach(task => {
-            const card = document.createElement('div');
-            card.className = 'bank-task-card';
-            const tierLetter = (task.tier === 'higher') ? 'H' : 'F'; 
-
-            const matchingAssigns = allAssignments.filter(assign => 
-                assign.title === task.title && 
-                assign.activityType === (task.activityType || 'role_play') && 
-                assign.language === (task.language || 'fr') && 
-                assign.tier === (task.tier || 'foundation') && 
-                assign.yearGroup === task.yearGroup && 
-                assign.topic === task.topic
-            );
-
-            const assignedClasses = matchingAssigns.map(assign => {
-                const course = allCourses.find(c => c.id === assign.courseId);
-                return course ? course.name : "Assigned Class";
-            });
-
-            let classHtml = '';
-            if (assignedClasses.length > 0) {
-                classHtml = assignedClasses.map(clsName => 
-                    `<span style="background: #fffbe6; border: 1px solid #ffe58f; padding: 2px 5px; border-radius: 4px; font-size: 11px; color: #d46b08; font-weight: 600; display: inline-block; white-space: nowrap;">📋 ${clsName}</span>`
-                ).join('');
-            }
-
-            card.innerHTML = `
-                <div class="bank-task-info">
-                    <div class="bank-task-title"><span class="badge tier">${tierLetter}</span>${task.title}</div>
-                    <div class="bank-task-classes-container">${classHtml}</div>
-                </div>
-                <div class="task-actions" style="margin-top: 2px;">
-                    <button class="task-action-btn" data-tooltip="Edit" title="Edit" onclick="loadTemplateIntoEditor('${task.id}')">📝</button>
-                    <button class="task-action-btn" data-tooltip="Duplicate" title="Duplicate" onclick="duplicateTemplate('${task.id}', event)">📋</button>
-                    <button class="task-action-btn" data-tooltip="Delete" title="Delete" onclick="moveToBin('${task.id}', event)">🗑️</button>
-                </div>
-            `;
-            tasksGrid.appendChild(card);
-        });
+    if (!selRaLang) {
+        yearBlock.classList.add('hidden'); topicBlock.classList.add('hidden'); if(tierBlock) tierBlock.classList.add('hidden'); tasksBlock.classList.add('hidden');
+        return;
     }
+
+    yearBlock.classList.remove('hidden');
+    const yearRow = document.getElementById('ra-year-row');
+    yearRow.innerHTML = '';
+    
+    const years = Object.keys(readAloudDataStructure[selRaLang] || {}).sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
+    years.forEach(year => {
+        const btn = document.createElement('button');
+        btn.className = `pill-btn ${selRaYear === year ? 'year-active' : ''}`;
+        btn.innerHTML = `🏫 ${year}`;
+        btn.onclick = () => {
+            selRaYear = year; selRaTopic = null; selRaTier = 'all';
+            renderReadAloudFilters();
+        };
+        yearRow.appendChild(btn);
+    });
+
+    if (!selRaYear) {
+        topicBlock.classList.add('hidden'); if(tierBlock) tierBlock.classList.add('hidden'); tasksBlock.classList.add('hidden');
+        return;
+    }
+
+    topicBlock.classList.remove('hidden');
+    const topicRow = document.getElementById('ra-topic-row');
+    topicRow.innerHTML = '';
+
+    const topics = Object.keys(readAloudDataStructure[selRaLang][selRaYear] || {}).sort();
+    topics.forEach(topic => {
+        const btn = document.createElement('button');
+        btn.className = `pill-btn ${selRaTopic === topic ? 'topic-active' : ''}`;
+        btn.innerHTML = `📁 ${topic}`;
+        btn.onclick = () => {
+            selRaTopic = topic; selRaTier = 'all';
+            renderReadAloudFilters();
+        };
+        topicRow.appendChild(btn);
+    });
+
+    if (!selRaTopic) {
+        if(tierBlock) tierBlock.classList.add('hidden');
+        tasksBlock.classList.add('hidden');
+        return;
+    }
+
+    if (selRaYear === 'GCSE') {
+        if (tierBlock) {
+            tierBlock.classList.remove('hidden');
+            const tierRow = document.getElementById('ra-tier-row');
+            tierRow.innerHTML = '';
+
+            const tiers = [
+                { id: 'all', label: 'All Tiers' },
+                { id: 'foundation', label: 'Foundation' },
+                { id: 'higher', label: 'Higher' }
+            ];
+
+            tiers.forEach(tierObj => {
+                const btn = document.createElement('button');
+                btn.className = `pill-btn ${selRaTier === tierObj.id ? 'tier-active' : ''}`;
+                btn.innerHTML = tierObj.label;
+                btn.onclick = () => {
+                    selRaTier = tierObj.id;
+                    renderReadAloudFilters();
+                };
+                tierRow.appendChild(btn);
+            });
+        }
+    } else {
+        if (tierBlock) tierBlock.classList.add('hidden');
+        selRaTier = 'all';
+    }
+
+    tasksBlock.classList.remove('hidden');
+    const tasksGrid = document.getElementById('ra-tasks-grid');
+    tasksGrid.innerHTML = '';
+
+    let matchedTasks = readAloudDataStructure[selRaLang][selRaYear][selRaTopic] || [];
+    if (selRaYear === 'GCSE' && selRaTier !== 'all') {
+        matchedTasks = matchedTasks.filter(task => (task.tier || '').toLowerCase() === selRaTier.toLowerCase());
+    }
+
+    matchedTasks.sort((a,b) => a.title.localeCompare(b.title)).forEach(task => {
+        const card = document.createElement('div');
+        card.className = 'bank-task-card';
+        const tierLetter = (task.tier === 'higher') ? 'H' : 'F'; 
+
+        const matchingAssigns = allAssignments.filter(assign => 
+            assign.title === task.title && 
+            assign.activityType === (task.activityType || 'read_aloud') && 
+            assign.language === (task.language || 'fr') && 
+            assign.tier === (task.tier || 'foundation') && 
+            assign.yearGroup === task.yearGroup && 
+            assign.topic === task.topic
+        );
+
+        const assignedClasses = matchingAssigns.map(assign => {
+            const course = allCourses.find(c => c.id === assign.courseId);
+            return (course && course.name) ? course.name : (assign.courseName || assign.courseCode || "Assigned Class");
+        });
+
+        let classHtml = '';
+        if (assignedClasses.length > 0) {
+            classHtml = assignedClasses.map(clsName => 
+                `<span style="background: #fffbe6; border: 1px solid #ffe58f; padding: 2px 5px; border-radius: 4px; font-size: 11px; color: #d46b08; font-weight: 600; display: inline-block; white-space: nowrap;">📋 ${clsName}</span>`
+            ).join('');
+        }
+
+        card.innerHTML = `
+            <div class="bank-task-info">
+                <div class="bank-task-title"><span class="badge tier">${tierLetter}</span> ${task.title}</div>
+                <div class="bank-task-classes-container">${classHtml}</div>
+            </div>
+            <div class="task-actions" style="margin-top: 2px;">
+                <button class="task-action-btn" data-tooltip="Edit" title="Edit" onclick="loadTemplateIntoEditor('${task.id}')">📝</button>
+                <button class="task-action-btn" data-tooltip="Duplicate" title="Duplicate" onclick="duplicateTemplate('${task.id}', event)">📋</button>
+                <button class="task-action-btn" data-tooltip="Delete" title="Delete" onclick="moveToBin('${task.id}', event)">🗑️</button>
+            </div>
+        `;
+        tasksGrid.appendChild(card);
+    });
+}
+
+  function renderRolePlayFilters() {
+    const langRow = document.getElementById('rp-lang-row');
+    langRow.innerHTML = '';
+    
+    const languages = Object.keys(rolePlayDataStructure).sort();
+    if(languages.length === 0) {
+        langRow.innerHTML = '<p style="color:#7f8c8d; font-size:13px;">No conversational role plays discovered in database store.</p>';
+        return;
+    }
+
+    languages.forEach(lang => {
+        const btn = document.createElement('button');
+        btn.className = `pill-btn ${selRpLang === lang ? 'lang-active' : ''}`;
+        btn.innerHTML = `${getLanguageFlag(lang)} <span>${getLanguageName(lang)}</span>`;
+        btn.onclick = () => {
+            selRpLang = lang; selRpYear = null; selRpTopic = null; selRpTier = 'all';
+            renderRolePlayFilters();
+        };
+        langRow.appendChild(btn);
+    });
+
+    const yearBlock = document.getElementById('rp-year-block');
+    const topicBlock = document.getElementById('rp-topic-block');
+    const tierBlock = document.getElementById('rp-tier-block');
+    const tasksBlock = document.getElementById('rp-tasks-block');
+
+    if (!selRpLang) {
+        yearBlock.classList.add('hidden'); topicBlock.classList.add('hidden'); if(tierBlock) tierBlock.classList.add('hidden'); tasksBlock.classList.add('hidden');
+        return;
+    }
+
+    yearBlock.classList.remove('hidden');
+    const yearRow = document.getElementById('rp-year-row');
+    yearRow.innerHTML = '';
+    
+    const years = Object.keys(rolePlayDataStructure[selRpLang] || {}).sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
+    years.forEach(year => {
+        const btn = document.createElement('button');
+        btn.className = `pill-btn ${selRpYear === year ? 'year-active' : ''}`;
+        btn.innerHTML = `🏫 ${year}`;
+        btn.onclick = () => {
+            selRpYear = year; selRpTopic = null; selRpTier = 'all';
+            renderRolePlayFilters();
+        };
+        yearRow.appendChild(btn);
+    });
+
+    if (!selRpYear) {
+        topicBlock.classList.add('hidden'); if(tierBlock) tierBlock.classList.add('hidden'); tasksBlock.classList.add('hidden');
+        return;
+    }
+
+    topicBlock.classList.remove('hidden');
+    const topicRow = document.getElementById('rp-topic-row');
+    topicRow.innerHTML = '';
+
+    const topics = Object.keys(rolePlayDataStructure[selRpLang][selRpYear] || {}).sort();
+    topics.forEach(topic => {
+        const btn = document.createElement('button');
+        btn.className = `pill-btn ${selRpTopic === topic ? 'topic-active' : ''}`;
+        btn.innerHTML = `📁 ${topic}`;
+        btn.onclick = () => {
+            selRpTopic = topic; selRpTier = 'all';
+            renderRolePlayFilters();
+        };
+        topicRow.appendChild(btn);
+    });
+
+    if (!selRpTopic) {
+        if(tierBlock) tierBlock.classList.add('hidden');
+        tasksBlock.classList.add('hidden');
+        return;
+    }
+
+    if (selRpYear === 'GCSE') {
+        if (tierBlock) {
+            tierBlock.classList.remove('hidden');
+            const tierRow = document.getElementById('rp-tier-row');
+            tierRow.innerHTML = '';
+
+            const tiers = [
+                { id: 'all', label: 'All Tiers' },
+                { id: 'foundation', label: 'Foundation' },
+                { id: 'higher', label: 'Higher' }
+            ];
+
+            tiers.forEach(tierObj => {
+                const btn = document.createElement('button');
+                btn.className = `pill-btn ${selRpTier === tierObj.id ? 'tier-active' : ''}`;
+                btn.innerHTML = tierObj.label;
+                btn.onclick = () => {
+                    selRpTier = tierObj.id;
+                    renderRolePlayFilters();
+                };
+                tierRow.appendChild(btn);
+            });
+        }
+    } else {
+        if (tierBlock) tierBlock.classList.add('hidden');
+        selRpTier = 'all';
+    }
+
+    tasksBlock.classList.remove('hidden');
+    const tasksGrid = document.getElementById('rp-tasks-grid');
+    tasksGrid.innerHTML = '';
+
+    let matchedTasks = rolePlayDataStructure[selRpLang][selRpYear][selRpTopic] || [];
+    if (selRpYear === 'GCSE' && selRpTier !== 'all') {
+        matchedTasks = matchedTasks.filter(task => (task.tier || '').toLowerCase() === selRpTier.toLowerCase());
+    }
+
+    matchedTasks.sort((a,b) => a.title.localeCompare(b.title)).forEach(task => {
+        const card = document.createElement('div');
+        card.className = 'bank-task-card';
+        const tierLetter = (task.tier === 'higher') ? 'H' : 'F'; 
+
+        const matchingAssigns = allAssignments.filter(assign => 
+            assign.title === task.title && 
+            assign.activityType === (task.activityType || 'role_play') && 
+            assign.language === (task.language || 'fr') && 
+            assign.tier === (task.tier || 'foundation') && 
+            assign.yearGroup === task.yearGroup && 
+            assign.topic === task.topic
+        );
+
+        const assignedClasses = matchingAssigns.map(assign => {
+            const course = allCourses.find(c => c.id === assign.courseId);
+            return (course && course.name) ? course.name : (assign.courseName || assign.courseCode || "Assigned Class");
+        });
+
+        let classHtml = '';
+        if (assignedClasses.length > 0) {
+            classHtml = assignedClasses.map(clsName => 
+                `<span style="background: #fffbe6; border: 1px solid #ffe58f; padding: 2px 5px; border-radius: 4px; font-size: 11px; color: #d46b08; font-weight: 600; display: inline-block; white-space: nowrap;">📋 ${clsName}</span>`
+            ).join('');
+        }
+
+        card.innerHTML = `
+            <div class="bank-task-info">
+                <div class="bank-task-title"><span class="badge tier">${tierLetter}</span>${task.title}</div>
+                <div class="bank-task-classes-container">${classHtml}</div>
+            </div>
+            <div class="task-actions" style="margin-top: 2px;">
+                <button class="task-action-btn" data-tooltip="Edit" title="Edit" onclick="loadTemplateIntoEditor('${task.id}')">📝</button>
+                <button class="task-action-btn" data-tooltip="Duplicate" title="Duplicate" onclick="duplicateTemplate('${task.id}', event)">📋</button>
+                <button class="task-action-btn" data-tooltip="Delete" title="Delete" onclick="moveToBin('${task.id}', event)">🗑️</button>
+            </div>
+        `;
+        tasksGrid.appendChild(card);
+    });
+}
 
     function syncLiveAssignments() {
         db.collection("assignments").onSnapshot((snapshot) => {
