@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Speaking - Teacher</title>
+    <title>Speakingc - Teacher</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; display: flex; flex-direction: column; min-height: 100vh; }
         
@@ -1507,57 +1507,49 @@
         }
     }
 
-    async function loadCourses() {
-        try {
-            await ensureClassroomToken();
-            const response = await gapi.client.classroom.courses.list({ 
-                teacherId: 'me',
-                courseStates: ['ACTIVE'],
-                pageSize: 30 
-            });
-            
-            allCourses = response.result.courses || [];
-            const filterCourse = document.getElementById('filter-course');
-            filterCourse.innerHTML = '<option value="">-- Choose a Course --</option>';
-            
-            const sortedCourses = [...allCourses].sort((a, b) => a.name.localeCompare(b.name));
-            sortedCourses.forEach(course => {
-                const opt = document.createElement('option');
-                opt.value = course.id;
-                opt.textContent = course.name;
-                filterCourse.appendChild(opt);
-            });
+   async function loadCourses() {
+    try {
+        await ensureClassroomToken();
+        const response = await gapi.client.classroom.courses.list({ 
+            teacherId: 'me',
+            courseStates: ['ACTIVE'],
+            pageSize: 30 
+        });
+        
+        allCourses = response.result.courses || [];
+        const filterCourse = document.getElementById('filter-course');
+        filterCourse.innerHTML = '<option value="">-- Choose a Course --</option>';
+        
+        const sortedCourses = [...allCourses].sort((a, b) => a.name.localeCompare(b.name));
+        sortedCourses.forEach(course => {
+            const opt = document.createElement('option');
+            opt.value = course.id;
+            opt.textContent = course.name;
+            filterCourse.appendChild(opt);
+        });
 
-            const select = document.getElementById('course-select');
-            select.innerHTML = '';
-            sortedCourses.forEach(course => {
-                const opt = document.createElement('option');
-                opt.value = course.id;
-                opt.textContent = course.name;
-                select.appendChild(opt);
-            });
+        const select = document.getElementById('course-select');
+        select.innerHTML = '';
+        sortedCourses.forEach(course => {
+            const opt = document.createElement('option');
+            opt.value = course.id;
+            opt.textContent = course.name;
+            select.appendChild(opt);
+        });
 
-            if (sortedCourses.length > 0) {
-                select.value = sortedCourses[0].id;
-                loadClassroomStudents(sortedCourses[0].id);
-                loadGoogleClassroomTopics(sortedCourses[0].id);
-            }
-            if (typeof renderReadAloudFilters === 'function' && selRaLang) renderReadAloudFilters();
-            if (typeof renderRolePlayFilters === 'function' && selRpLang) renderRolePlayFilters();
-        } catch (e) {
-            console.warn("Could not load Google Classroom courses automatically:", e);
+        if (sortedCourses.length > 0) {
+            select.value = sortedCourses[0].id;
+            loadClassroomStudents(sortedCourses[0].id);
+            loadGoogleClassroomTopics(sortedCourses[0].id);
         }
+        
+        if (typeof renderReadAloudFilters === 'function') renderReadAloudFilters();
+        if (typeof renderRolePlayFilters === 'function') renderRolePlayFilters();
+    } catch (e) {
+        console.warn("Could not load Google Classroom courses automatically:", e);
     }
+}
 
-    const filterCourse = document.getElementById('filter-course');
-    const filterTask = document.getElementById('filter-task');
-
-    filterCourse.onchange = () => {
-        updateClassroomDropdownFilters();
-        renderDynamicMetrics();
-    };
-
-    filterTask.onchange = renderDynamicMetrics;
 
     function updateClassroomDropdownFilters() {
         const selectedCourseId = filterCourse.value;
@@ -2838,312 +2830,320 @@ initialiseClassroomStudentSelector();
     };
 
     async function publishNewAssignmentToClassroom() {
-        const courseId = document.getElementById('course-select').value;
-        const status = document.getElementById('status');
-        const dueDateVal = document.getElementById('due-date-input').value;
-        const gcTopicSelect = document.getElementById('gc-topic-select');
-        const gcTopicInput = document.getElementById('gc-topic-input');
+    const courseId = document.getElementById('course-select').value;
+    const status = document.getElementById('status');
+    const dueDateVal = document.getElementById('due-date-input').value;
+    const gcTopicSelect = document.getElementById('gc-topic-select');
+    const gcTopicInput = document.getElementById('gc-topic-input');
+    
+    if (!courseId || courseId.startsWith("Loading")) {
+        alert("Select standard classroom feed courses first.");
+        return;
+    }
+
+    try {
+        await ensureClassroomToken();
+    } catch (err) {
+        alert("Google Classroom re-authorization required: " + getErrorMessage(err));
+        return;
+    }
+    
+    status.innerText = "Processing workspace publishing profiles...";
+    
+    try {
+        const savedId = await saveTemplateData();
+        if (!savedId) { status.innerText = ""; return; }
         
-        if (!courseId || courseId.startsWith("Loading")) {
-            alert("Select standard classroom feed courses first.");
+        const templateDoc = await db.collection("passages").doc(currentTemplateId).get();
+        if (!templateDoc.exists) return;
+        const data = templateDoc.data();
+        
+        const isRolePlay = (data.activityType === 'role_play');
+        const targetPoints = isRolePlay ? 10 : 12;
+
+        const currentDomain = window.location.origin + window.location.pathname.replace(/teacher/i, 'student');
+
+        let finalGCTopicId = null;
+        if (gcTopicSelect.value === '__NEW__') {
+            const newTopicName = gcTopicInput.value.trim();
+            if (!newTopicName) {
+                alert("Please provide a name for the new Google Classroom topic.");
+                status.innerText = "";
+                return;
+            }
+            status.innerText = "Creating new topic in Google Classroom...";
+            const topicResponse = await gapi.client.classroom.courses.topics.create({
+                courseId: courseId,
+                resource: { name: newTopicName }
+            });
+            finalGCTopicId = topicResponse.result.topicId;
+        } else if (gcTopicSelect.value) {
+            finalGCTopicId = gcTopicSelect.value;
+        }
+
+        status.innerText = "Publishing assignment...";
+
+        const tempAssignmentDocRef = db.collection("assignments").doc();
+        const firestoreAssignmentId = tempAssignmentDocRef.id; 
+        const studentUrl = `${currentDomain}?assignmentId=${firestoreAssignmentId}&courseId=${courseId}`;
+
+        let gcDueDate = null, gcDueTime = null;
+        if (dueDateVal) {
+            const dateObj = new Date(dueDateVal);
+            gcDueDate = { year: dateObj.getFullYear(), month: dateObj.getMonth() + 1, day: dateObj.getDate() };
+            gcDueTime = { hours: dateObj.getHours(), minutes: dateObj.getMinutes(), seconds: 0, nanos: 0 };
+        }
+
+        if (!studentSelectorCourseId || studentSelectorCourseId !== courseId) {
+            await loadClassroomStudents(courseId);
+        }
+
+        const selectedStudentIds = [...selectedClassroomStudentIds];
+
+        if (selectedStudentIds.length === 0) {
+            alert("Please select at least one student before posting the assignment.");
+            status.innerText = "";
             return;
         }
 
-        try {
-            await ensureClassroomToken();
-        } catch (err) {
-            alert("Google Classroom re-authorization required: " + getErrorMessage(err));
+        const allStudentIds = classroomStudents.map(student => student.userId);
+
+        const assigningToEntireClass =
+            allStudentIds.length > 0 &&
+            selectedStudentIds.length === allStudentIds.length &&
+            selectedStudentIds.every(id => allStudentIds.includes(id));
+
+        const tierBadge = (data.tier === 'higher') ? 'Ⓗ' : 'Ⓕ';
+
+        const courseWorkResource = {
+            title: isRolePlay
+                ? `🎭 RP ${tierBadge}: ${data.title}`
+                : `📖 RA ${tierBadge}: ${data.title}`,
+
+            description: isRolePlay ?
+                `Interactive Conversational Speaking Task Dialog Workspace.\n\nInstructions:\n- Listen carefully to the TTS teacher voice cue prompt lines.\n- Record your corresponding answer response statements sequentially.\n- Total points breakdown: Graded out of 10 marks.` :
+                `Practice reading aloud fluently and address unseen audio task variations.\n\nInstructions:\n- Max accuracy metrics generated from passage profile.\n- Complete 2 unseen questions at terminal stages.\n- Total points breakdown: Graded out of 12 marks.`,
+
+            workType: 'ASSIGNMENT',
+
+            assigneeMode: assigningToEntireClass
+                ? 'ALL_STUDENTS'
+                : 'INDIVIDUAL_STUDENTS',
+
+            state: 'DRAFT',
+
+            maxPoints: targetPoints,
+
+            materials: [{
+                link: {
+                    url: studentUrl,
+                    title: isRolePlay
+                        ? "Role Play Conversation Workspace Link"
+                        : "Read Aloud Reading Workspace Link"
+                }
+            }]
+        };
+
+        if (!assigningToEntireClass) {
+            courseWorkResource.individualStudentsOptions = {
+                studentIds: selectedStudentIds
+            };
+        }
+        if (gcDueDate && gcDueTime) {
+            courseWorkResource.dueDate = gcDueDate;
+            courseWorkResource.dueTime = gcDueTime;
+        }
+
+        if (finalGCTopicId) {
+            courseWorkResource.topicId = finalGCTopicId;
+        }
+
+        const response = await gapi.client.classroom.courses.courseWork.create({ courseId: courseId, resource: courseWorkResource });
+        const gClassroomAssignmentId = response.result.id;
+
+        await gapi.client.classroom.courses.courseWork.patch({
+            courseId: courseId, id: gClassroomAssignmentId, updateMask: "state", resource: { state: 'PUBLISHED' }
+        });
+
+        const selectedCourseObj = allCourses.find(c => c.id === courseId);
+        const selectedCourseName = selectedCourseObj ? selectedCourseObj.name : "";
+
+        let baseAssignmentPayload = {
+            id: firestoreAssignmentId,             
+            gClassroomAssignmentId: gClassroomAssignmentId, 
+            courseId: courseId,
+            courseName: selectedCourseName,
+            activityType: data.activityType || 'read_aloud',
+            title: data.title,
+            language: data.language || 'fr',
+            tier: data.tier || 'foundation',
+            yearGroup: data.yearGroup,
+            topic: data.topic,
+            assignedStudentIds: selectedStudentIds,
+            dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null, 
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        if (isRolePlay) {
+            baseAssignmentPayload.rolePlayPrompts = data.rolePlayPrompts || [];
+            baseAssignmentPayload.scenario = data.scenario || '';
+        } else {
+            baseAssignmentPayload.text = data.text || '';
+            baseAssignmentPayload.unseenQ1Title = data.unseenQ1Title || '';
+            baseAssignmentPayload.unseenQ2Title = data.unseenQ2Title || '';
+        }
+
+        await tempAssignmentDocRef.set(baseAssignmentPayload);
+
+        status.innerText = "Task assigned on Google Classroom.";
+        document.getElementById('due-date-input').value = "";
+        setTimeout(() => { 
+            status.innerText = ""; 
+            if (isRolePlay) {
+                showSection('role-play-bank-section');
+            } else {
+                showSection('read-aloud-bank-section');
+            }
+        }, 2500);
+        
+    } catch (e) {
+        status.innerText = "";
+        alert("Classroom connection failed: " + getErrorMessage(e));
+    }
+}
+
+ async function updateLiveAssignmentInClassroomAndFirestore() {
+    const courseId = document.getElementById('course-select').value;
+    const status = document.getElementById('status');
+    const dueDateVal = document.getElementById('due-date-input').value;
+    const gcTopicSelect = document.getElementById('gc-topic-select');
+    const gcTopicInput = document.getElementById('gc-topic-input');
+
+    if (!currentAssignmentId) {
+        alert("No active assignment selected for editing.");
+        return;
+    }
+
+    try {
+        await ensureClassroomToken();
+    } catch (err) {
+        alert("Google Classroom re-authorization required: " + getErrorMessage(err));
+        return;
+    }
+
+    const activeAssignment = allAssignments.find(a => a.id === currentAssignmentId);
+    if (!activeAssignment) return;
+
+    status.innerText = "Syncing changes with Google Classroom & updating assignment...";
+
+    try {
+        const activityType = document.getElementById('activity-type-input').value;
+        const language = document.getElementById('language-input').value;
+        const tier = document.getElementById('tier-input').value;
+        const yearGroup = document.getElementById('year-input').value;
+        const topicSelectVal = document.getElementById('topic-select').value;
+        let topic = (topicSelectVal === '__NEW__') ? document.getElementById('topic-input').value.trim() : topicSelectVal;
+        const title = document.getElementById('title-input').value.trim();
+
+        if (!yearGroup || !topic || !title) {
+            alert("Please complete Title, Year Group, and Topic.");
+            status.innerText = "";
             return;
         }
-        
-        status.innerText = "Processing workspace publishing profiles...";
-        
-        try {
-            const savedId = await saveTemplateData();
-            if (!savedId) { status.innerText = ""; return; }
-            
-            const templateDoc = await db.collection("passages").doc(currentTemplateId).get();
-            if (!templateDoc.exists) return;
-            const data = templateDoc.data();
-            
-            const isRolePlay = (data.activityType === 'role_play');
-            const targetPoints = isRolePlay ? 10 : 12;
 
-            const currentDomain = window.location.origin + window.location.pathname.replace(/teacher/i, 'student');
+        const isRolePlay = (activityType === 'role_play');
+        const selectedCourseObj = allCourses.find(c => c.id === courseId);
+        const selectedCourseName = selectedCourseObj ? selectedCourseObj.name : "";
 
+        let payload = {
+            activityType,
+            language,
+            tier,
+            yearGroup,
+            topic,
+            title,
+            courseId,
+            courseName: selectedCourseName,
+            dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        if (isRolePlay) {
+            let rolePlayPrompts = [];
+            for (let i = 1; i <= 5; i++) {
+                rolePlayPrompts.push({
+                    teacher: document.getElementById(`rp-teacher-${i}`).value.trim(),
+                    student: document.getElementById(`rp-student-${i}`).value.trim()
+                });
+            }
+            payload.rolePlayPrompts = rolePlayPrompts;
+            payload.scenario = document.getElementById('rp-scenario-input').value.trim();
+        } else {
+            payload.text = document.getElementById('text-input').value.trim();
+            payload.unseenQ1Title = document.getElementById('unseen-1-title').value.trim();
+            payload.unseenQ2Title = document.getElementById('unseen-2-title').value.trim();
+        }
+
+        if (activeAssignment.gClassroomAssignmentId) {
             let finalGCTopicId = null;
             if (gcTopicSelect.value === '__NEW__') {
                 const newTopicName = gcTopicInput.value.trim();
-                if (!newTopicName) {
-                    alert("Please provide a name for the new Google Classroom topic.");
-                    status.innerText = "";
-                    return;
+                if (newTopicName) {
+                    const topicResponse = await gapi.client.classroom.courses.topics.create({
+                        courseId: courseId,
+                        resource: { name: newTopicName }
+                    });
+                    finalGCTopicId = topicResponse.result.topicId;
                 }
-                status.innerText = "Creating new topic in Google Classroom...";
-                const topicResponse = await gapi.client.classroom.courses.topics.create({
-                    courseId: courseId,
-                    resource: { name: newTopicName }
-                });
-                finalGCTopicId = topicResponse.result.topicId;
             } else if (gcTopicSelect.value) {
                 finalGCTopicId = gcTopicSelect.value;
             }
 
-            status.innerText = "Publishing assignment...";
+            const courseWorkPatch = {};
+            const updateMasks = [];
 
-            const tempAssignmentDocRef = db.collection("assignments").doc();
-            const firestoreAssignmentId = tempAssignmentDocRef.id; 
-            const studentUrl = `${currentDomain}?assignmentId=${firestoreAssignmentId}&courseId=${courseId}`;
+            const tierBadge = (tier === 'higher') ? 'Ⓗ' : 'Ⓕ';
+            courseWorkPatch.title = isRolePlay 
+                ? `🎭 RP ${tierBadge}: ${title}` 
+                : `📖 RA ${tierBadge}: ${title}`;
+            updateMasks.push("title");
 
-            let gcDueDate = null, gcDueTime = null;
             if (dueDateVal) {
                 const dateObj = new Date(dueDateVal);
-                gcDueDate = { year: dateObj.getFullYear(), month: dateObj.getMonth() + 1, day: dateObj.getDate() };
-                gcDueTime = { hours: dateObj.getHours(), minutes: dateObj.getMinutes(), seconds: 0, nanos: 0 };
-            }
-
-            if (!studentSelectorCourseId || studentSelectorCourseId !== courseId) {
-                await loadClassroomStudents(courseId);
-            }
-
-            const selectedStudentIds = [...selectedClassroomStudentIds];
-
-            if (selectedStudentIds.length === 0) {
-                alert("Please select at least one student before posting the assignment.");
-                status.innerText = "";
-                return;
-            }
-
-            const allStudentIds = classroomStudents.map(student => student.userId);
-
-            const assigningToEntireClass =
-                allStudentIds.length > 0 &&
-                selectedStudentIds.length === allStudentIds.length &&
-                selectedStudentIds.every(id => allStudentIds.includes(id));
-
-            const tierBadge = (data.tier === 'higher') ? 'Ⓗ' : 'Ⓕ';
-
-            const courseWorkResource = {
-                title: isRolePlay
-                    ? `🎭 RP ${tierBadge}: ${data.title}`
-                    : `📖 RA ${tierBadge}: ${data.title}`,
-
-                description: isRolePlay ?
-                    `Interactive Conversational Speaking Task Dialog Workspace.\n\nInstructions:\n- Listen carefully to the TTS teacher voice cue prompt lines.\n- Record your corresponding answer response statements sequentially.\n- Total points breakdown: Graded out of 10 marks.` :
-                    `Practice reading aloud fluently and address unseen audio task variations.\n\nInstructions:\n- Max accuracy metrics generated from passage profile.\n- Complete 2 unseen questions at terminal stages.\n- Total points breakdown: Graded out of 12 marks.`,
-
-                workType: 'ASSIGNMENT',
-
-                assigneeMode: assigningToEntireClass
-                    ? 'ALL_STUDENTS'
-                    : 'INDIVIDUAL_STUDENTS',
-
-                state: 'DRAFT',
-
-                maxPoints: targetPoints,
-
-                materials: [{
-                    link: {
-                        url: studentUrl,
-                        title: isRolePlay
-                            ? "Role Play Conversation Workspace Link"
-                            : "Read Aloud Reading Workspace Link"
-                    }
-                }]
-            };
-
-            if (!assigningToEntireClass) {
-                courseWorkResource.individualStudentsOptions = {
-                    studentIds: selectedStudentIds
-                };
-            }
-            if (gcDueDate && gcDueTime) {
-                courseWorkResource.dueDate = gcDueDate;
-                courseWorkResource.dueTime = gcDueTime;
+                courseWorkPatch.dueDate = { year: dateObj.getFullYear(), month: dateObj.getMonth() + 1, day: dateObj.getDate() };
+                courseWorkPatch.dueTime = { hours: dateObj.getHours(), minutes: dateObj.getMinutes(), seconds: 0, nanos: 0 };
+                updateMasks.push("dueDate", "dueTime");
             }
 
             if (finalGCTopicId) {
-                courseWorkResource.topicId = finalGCTopicId;
+                courseWorkPatch.topicId = finalGCTopicId;
+                updateMasks.push("topicId");
             }
 
-            const response = await gapi.client.classroom.courses.courseWork.create({ courseId: courseId, resource: courseWorkResource });
-            const gClassroomAssignmentId = response.result.id;
-
-            await gapi.client.classroom.courses.courseWork.patch({
-                courseId: courseId, id: gClassroomAssignmentId, updateMask: "state", resource: { state: 'PUBLISHED' }
-            });
-
-            let baseAssignmentPayload = {
-                id: firestoreAssignmentId,             
-                gClassroomAssignmentId: gClassroomAssignmentId, 
-                courseId: courseId,
-                activityType: data.activityType || 'read_aloud',
-                title: data.title,
-                language: data.language || 'fr',
-                tier: data.tier || 'foundation',
-                yearGroup: data.yearGroup,
-                topic: data.topic,
-                assignedStudentIds: selectedStudentIds,
-                dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null, 
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            if (isRolePlay) {
-                baseAssignmentPayload.rolePlayPrompts = data.rolePlayPrompts || [];
-                baseAssignmentPayload.scenario = data.scenario || '';
-            } else {
-                baseAssignmentPayload.text = data.text || '';
-                baseAssignmentPayload.unseenQ1Title = data.unseenQ1Title || '';
-                baseAssignmentPayload.unseenQ2Title = data.unseenQ2Title || '';
+            if (updateMasks.length > 0) {
+                await gapi.client.classroom.courses.courseWork.patch({
+                    courseId: courseId,
+                    id: activeAssignment.gClassroomAssignmentId,
+                    updateMask: updateMasks.join(","),
+                    resource: courseWorkPatch
+                });
             }
+        }
 
-            await tempAssignmentDocRef.set(baseAssignmentPayload);
+        await db.collection("assignments").doc(currentAssignmentId).update(payload);
 
-            status.innerText = "Task assigned on Google Classroom.";
-            document.getElementById('due-date-input').value = "";
-            setTimeout(() => { 
-                status.innerText = ""; 
-                if (isRolePlay) {
-                    showSection('role-play-bank-section');
-                } else {
-                    showSection('read-aloud-bank-section');
-                }
-            }, 2500);
-            
-        } catch (e) {
+        status.innerText = "Assignment updated & synced with Google Classroom!";
+        setTimeout(() => {
             status.innerText = "";
-            alert("Classroom connection failed: " + getErrorMessage(e));
-        }
+            showSection('submissions-section');
+            renderDynamicMetrics();
+        }, 1800);
+
+    } catch (e) {
+        status.innerText = "";
+        alert("Error updating assignment: " + getErrorMessage(e));
     }
-
-    async function updateLiveAssignmentInClassroomAndFirestore() {
-        const courseId = document.getElementById('course-select').value;
-        const status = document.getElementById('status');
-        const dueDateVal = document.getElementById('due-date-input').value;
-        const gcTopicSelect = document.getElementById('gc-topic-select');
-        const gcTopicInput = document.getElementById('gc-topic-input');
-
-        if (!currentAssignmentId) {
-            alert("No active assignment selected for editing.");
-            return;
-        }
-
-        try {
-            await ensureClassroomToken();
-        } catch (err) {
-            alert("Google Classroom re-authorization required: " + getErrorMessage(err));
-            return;
-        }
-
-        const activeAssignment = allAssignments.find(a => a.id === currentAssignmentId);
-        if (!activeAssignment) return;
-
-        status.innerText = "Syncing changes with Google Classroom & updating assignment...";
-
-        try {
-            const activityType = document.getElementById('activity-type-input').value;
-            const language = document.getElementById('language-input').value;
-            const tier = document.getElementById('tier-input').value;
-            const yearGroup = document.getElementById('year-input').value;
-            const topicSelectVal = document.getElementById('topic-select').value;
-            let topic = (topicSelectVal === '__NEW__') ? document.getElementById('topic-input').value.trim() : topicSelectVal;
-            const title = document.getElementById('title-input').value.trim();
-
-            if (!yearGroup || !topic || !title) {
-                alert("Please complete Title, Year Group, and Topic.");
-                status.innerText = "";
-                return;
-            }
-
-            const isRolePlay = (activityType === 'role_play');
-
-            let payload = {
-                activityType,
-                language,
-                tier,
-                yearGroup,
-                topic,
-                title,
-                dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            if (isRolePlay) {
-                let rolePlayPrompts = [];
-                for (let i = 1; i <= 5; i++) {
-                    rolePlayPrompts.push({
-                        teacher: document.getElementById(`rp-teacher-${i}`).value.trim(),
-                        student: document.getElementById(`rp-student-${i}`).value.trim()
-                    });
-                }
-                payload.rolePlayPrompts = rolePlayPrompts;
-                payload.scenario = document.getElementById('rp-scenario-input').value.trim();
-            } else {
-                payload.text = document.getElementById('text-input').value.trim();
-                payload.unseenQ1Title = document.getElementById('unseen-1-title').value.trim();
-                payload.unseenQ2Title = document.getElementById('unseen-2-title').value.trim();
-            }
-
-            if (activeAssignment.gClassroomAssignmentId) {
-                let finalGCTopicId = null;
-                if (gcTopicSelect.value === '__NEW__') {
-                    const newTopicName = gcTopicInput.value.trim();
-                    if (newTopicName) {
-                        const topicResponse = await gapi.client.classroom.courses.topics.create({
-                            courseId: courseId,
-                            resource: { name: newTopicName }
-                        });
-                        finalGCTopicId = topicResponse.result.topicId;
-                    }
-                } else if (gcTopicSelect.value) {
-                    finalGCTopicId = gcTopicSelect.value;
-                }
-
-                const courseWorkPatch = {};
-                const updateMasks = [];
-
-                const tierBadge = (tier === 'higher') ? 'Ⓗ' : 'Ⓕ';
-                courseWorkPatch.title = isRolePlay 
-                    ? `🎭 RP ${tierBadge}: ${title}` 
-                    : `📖 RA ${tierBadge}: ${title}`;
-                updateMasks.push("title");
-
-                if (dueDateVal) {
-                    const dateObj = new Date(dueDateVal);
-                    courseWorkPatch.dueDate = { year: dateObj.getFullYear(), month: dateObj.getMonth() + 1, day: dateObj.getDate() };
-                    courseWorkPatch.dueTime = { hours: dateObj.getHours(), minutes: dateObj.getMinutes(), seconds: 0, nanos: 0 };
-                    updateMasks.push("dueDate", "dueTime");
-                }
-
-                if (finalGCTopicId) {
-                    courseWorkPatch.topicId = finalGCTopicId;
-                    updateMasks.push("topicId");
-                }
-
-                if (updateMasks.length > 0) {
-                    await gapi.client.classroom.courses.courseWork.patch({
-                        courseId: courseId,
-                        id: activeAssignment.gClassroomAssignmentId,
-                        updateMask: updateMasks.join(","),
-                        resource: courseWorkPatch
-                    });
-                }
-            }
-
-            await db.collection("assignments").doc(currentAssignmentId).update(payload);
-
-            status.innerText = "Assignment updated & synced with Google Classroom!";
-            setTimeout(() => {
-                status.innerText = "";
-                showSection('submissions-section');
-                renderDynamicMetrics();
-            }, 1800);
-
-        } catch (e) {
-            status.innerText = "";
-            alert("Error updating assignment: " + getErrorMessage(e));
-        }
-    }
+}
 
     async function duplicateTemplate(id, event) {
         event.stopPropagation();
