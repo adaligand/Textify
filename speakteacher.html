@@ -152,7 +152,7 @@
             <button id="header-bin-btn" class="nav-btn">🗑️ Recycle Bin</button>
         </div>
 
-        <button id="logout-btn">🔓Sign Out</button>
+        <button id="logout-btn">🔓 Sign Out</button>
     </div>
 
     <div id="login-card" class="card">
@@ -304,7 +304,7 @@
             <select id="year-input" style="margin: 0;" required>
                 <option value="Year 9">Year 9</option>
                 <option value="GCSE">GCSE</option>
-                           </select>
+            </select>
             
             <select id="topic-select" style="margin: 0;" required>
                 <option value="__NEW__">➕ Create new topic</option>
@@ -533,7 +533,6 @@
         </div>
     </div>
 
-
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://apis.google.com/js/api.js"></script>
@@ -555,7 +554,6 @@
     
     let tokenClient = null;
     let gapiLoaded = false;
-    let refreshTimeoutId = null;
     let currentTemplateId = null;     
     let currentAssignmentId = null;   
     let activeEditorMode = "template"; 
@@ -570,7 +568,6 @@
     let selRaLang = null, selRaYear = null, selRaTopic = null;
     let selRpLang = null, selRpYear = null, selRpTopic = null;
 
-    // Helper: Formats Google API and standard JavaScript error objects into human-readable text
     function getErrorMessage(e) {
         if (!e) return "Unknown error occurred.";
         if (typeof e === 'string') return e;
@@ -585,6 +582,67 @@
         }
     }
 
+    function saveTokenToLocalStorage(token, expiresInSeconds) {
+        const seconds = parseInt(expiresInSeconds) || 3600;
+        const expiryTime = Date.now() + (seconds * 1000);
+        localStorage.setItem('oauth_token', token);
+        localStorage.setItem('oauth_token_expiry', expiryTime);
+    }
+
+    function getValidAccessToken() {
+        const savedToken = localStorage.getItem('oauth_token');
+        const tokenExpiry = localStorage.getItem('oauth_token_expiry');
+        if (savedToken && tokenExpiry && Date.now() < parseInt(tokenExpiry) - 60000) {
+            return savedToken;
+        }
+        return null;
+    }
+
+    function ensureClassroomToken() {
+        return new Promise((resolve, reject) => {
+            const token = getValidAccessToken();
+            if (token) {
+                if (typeof gapi !== 'undefined' && gapi.client) {
+                    gapi.client.setToken({ access_token: token });
+                }
+                resolve(token);
+                return;
+            }
+
+            if (!tokenClient) gisInit();
+
+            if (!tokenClient) {
+                reject(new Error("Google Authorization client not initialized. Please click 'Sign In with Google Classroom'."));
+                return;
+            }
+
+            const oldCallback = tokenClient.callback;
+            tokenClient.callback = (tokenResponse) => {
+                tokenClient.callback = oldCallback;
+                if (tokenResponse.error) {
+                    reject(new Error("Google Classroom authorization was cancelled or failed: " + getErrorMessage(tokenResponse.error)));
+                    return;
+                }
+                if (tokenResponse.access_token) {
+                    saveTokenToLocalStorage(tokenResponse.access_token, tokenResponse.expires_in);
+                    if (typeof gapi !== 'undefined' && gapi.client) {
+                        gapi.client.setToken({ access_token: tokenResponse.access_token });
+                    }
+                    resolve(tokenResponse.access_token);
+                } else {
+                    reject(new Error("Failed to obtain Google Classroom access token."));
+                }
+            };
+
+            try {
+                tokenClient.requestAccessToken({ prompt: '' });
+            } catch (err) {
+                tokenClient.callback = oldCallback;
+                reject(err);
+            }
+        });
+    }
+
     function gisInit() {
         try {
             if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
@@ -594,8 +652,6 @@
                     callback: (tokenResponse) => {
                         if (tokenResponse.error) {
                             if (tokenResponse.error === 'immediate_failed' || tokenResponse.error === 'consent_required') {
-                                document.getElementById('login-card').classList.remove('hidden');
-                                document.getElementById('auth-header').classList.add('hidden');
                                 return;
                             }
                             alert("Google Auth Error: " + getErrorMessage(tokenResponse.error));
@@ -642,7 +698,7 @@
                     return;
                 }
                 
-                handleLoginSuccess(token);
+                handleLoginSuccess(token, email);
             } else {
                 alert("Security Error: Could not verify your email identity.");
                 clearTokenAndLogOut();
@@ -657,39 +713,36 @@
     function clearTokenAndLogOut() {
         localStorage.removeItem('oauth_token');
         localStorage.removeItem('oauth_token_expiry');
-        if (typeof forceLogout === 'function') {
-            forceLogout();
-        } else {
-            document.getElementById('login-card').classList.remove('hidden');
-            if (document.getElementById('auth-header')) {
-                document.getElementById('auth-header').classList.add('hidden');
-            }
-        }
+        localStorage.removeItem('teacherEmail');
+        localStorage.removeItem('teacherSessionExpiresAt');
+        forceLogout();
     }
 
     function checkAuthAndLoad() {
-        const savedToken = localStorage.getItem('oauth_token');
-        const tokenExpiry = localStorage.getItem('oauth_token_expiry');
+        const savedTeacherEmail = localStorage.getItem('teacherEmail');
+        const sessionExpiresAt = localStorage.getItem('teacherSessionExpiresAt');
 
-        if (savedToken && tokenExpiry) {
-            const remainingTime = parseInt(tokenExpiry) - Date.now();
-            if (remainingTime > 60000) { 
-                gapi.client.setToken({ access_token: savedToken });
-                verifyUserAndProceed(savedToken);
-                
-                if (refreshTimeoutId) clearTimeout(refreshTimeoutId);
-                const delay = remainingTime - 300000; 
-                if (delay > 0) {
-                    refreshTimeoutId = setTimeout(attemptTokenRefresh, delay);
-                } else {
-                    attemptTokenRefresh();
-                }
-            } else {
-                attemptTokenRefresh();
+        if (savedTeacherEmail && sessionExpiresAt && Date.now() < parseInt(sessionExpiresAt)) {
+            document.getElementById('login-card').classList.add('hidden');
+            document.getElementById('auth-header').classList.remove('hidden');
+            showSection('main-menu-section'); 
+            document.getElementById('user-info').innerText = `Logged in: ${savedTeacherEmail}`;
+
+            const validToken = getValidAccessToken();
+            if (validToken && typeof gapi !== 'undefined' && gapi.client) {
+                gapi.client.setToken({ access_token: validToken });
+                loadCourses();
             }
-        } else {
-            document.getElementById('login-card').classList.remove('hidden');
+
+            listenToTemplateCollection();
+            syncLiveAssignments();
+            syncSubmissions();
+            cleanOldRecycleBinItems();
+            return;
         }
+
+        document.getElementById('login-card').classList.remove('hidden');
+        document.getElementById('auth-header').classList.add('hidden');
     }
 
     function gapiStart() {
@@ -701,38 +754,6 @@
                 }
             });
         });
-    }
-
-    function saveTokenToLocalStorage(token, expiresInSeconds) {
-        const seconds = parseInt(expiresInSeconds) || 3600;
-        const expiryTime = Date.now() + (seconds * 1000);
-        localStorage.setItem('oauth_token', token);
-        localStorage.setItem('oauth_token_expiry', expiryTime);
-
-        if (refreshTimeoutId) clearTimeout(refreshTimeoutId);
-        const delay = (seconds - 300) * 1000; 
-        if (delay > 0) {
-            refreshTimeoutId = setTimeout(attemptTokenRefresh, delay);
-        }
-    }
-
-    function attemptTokenRefresh(forceInteractive = false) {
-        if (tokenClient) {
-            try {
-                if (forceInteractive) {
-                    tokenClient.requestAccessToken({ prompt: '' }); 
-                } else {
-                    tokenClient.requestAccessToken({ prompt: 'none' });
-                }
-            } catch (err) {
-                if (!forceInteractive) {
-                    attemptTokenRefresh(true);
-                } else {
-                    document.getElementById('login-card').classList.remove('hidden');
-                    document.getElementById('auth-header').classList.add('hidden');
-                }
-            }
-        }
     }
 
     window.onload = () => {
@@ -847,6 +868,7 @@
         gcTopicInput.value = '';
 
         try {
+            await ensureClassroomToken();
             const response = await gapi.client.classroom.courses.topics.list({ courseId: courseId });
             const topics = response.result.topic || [];
             
@@ -893,7 +915,30 @@
         }
     }
 
-    function handleLoginSuccess(accessToken) {
+    function handleLoginSuccess(accessToken, verifiedEmail) {
+        const setTeacherState = (email) => {
+            const expire24h = Date.now() + (24 * 60 * 60 * 1000);
+            localStorage.setItem('teacherEmail', email);
+            localStorage.setItem('teacherSessionExpiresAt', expire24h.toString());
+
+            document.getElementById('login-card').classList.add('hidden');
+            document.getElementById('auth-header').classList.remove('hidden');
+            
+            showSection('main-menu-section'); 
+            document.getElementById('user-info').innerText = `Logged in: ${email}`;
+            
+            loadCourses();
+            listenToTemplateCollection();
+            syncLiveAssignments();
+            syncSubmissions();
+            cleanOldRecycleBinItems(); 
+        };
+
+        if (verifiedEmail) {
+            setTeacherState(verifiedEmail);
+            return;
+        }
+
         fetch(`https://www.googleapis.com/oauth2/v2/userinfo?access_token=${accessToken}`)
             .then(res => {
                 if (!res.ok) throw new Error("Unauthorized");
@@ -904,29 +949,24 @@
                     const email = data.email.toLowerCase();
                     if (!email.endsWith("@cedarsupper.co.uk")) {
                         alert("Access Denied. Only @cedarsupper.co.uk professional teacher accounts are authorized.");
-                        forceLogout();
+                        clearTokenAndLogOut();
                         return;
                     }
-
-                    document.getElementById('login-card').classList.add('hidden');
-                    document.getElementById('auth-header').classList.remove('hidden');
-                    
-                    showSection('main-menu-section'); 
-                    document.getElementById('user-info').innerText = `Logged in: ${data.email}`;
-                    
-                    loadCourses();
-                    listenToTemplateCollection();
-                    syncLiveAssignments();
-                    syncSubmissions();
-                    cleanOldRecycleBinItems(); 
+                    setTeacherState(email);
                 }
-            }).catch(() => attemptTokenRefresh());
+            }).catch(() => {
+                const savedTeacherEmail = localStorage.getItem('teacherEmail');
+                if (savedTeacherEmail) {
+                    setTeacherState(savedTeacherEmail);
+                }
+            });
     }
 
     function forceLogout() {
-        if (refreshTimeoutId) clearTimeout(refreshTimeoutId);
         localStorage.removeItem('oauth_token');
         localStorage.removeItem('oauth_token_expiry');
+        localStorage.removeItem('teacherEmail');
+        localStorage.removeItem('teacherSessionExpiresAt');
         window.location.reload();
     }
 
@@ -1309,6 +1349,13 @@
             return;
         }
 
+        try {
+            await ensureClassroomToken();
+        } catch (err) {
+            alert("Google Classroom authentication is required to sync grades: " + getErrorMessage(err));
+            return;
+        }
+
         const activeAssignment = allAssignments.find(a => a.id === selectedAssignmentId);
         if (!activeAssignment || !activeAssignment.gClassroomAssignmentId) {
             alert("No linked Google Classroom assignment found for this database task.");
@@ -1385,12 +1432,15 @@
         }
     }
 
-    function loadCourses() {
-        gapi.client.classroom.courses.list({ 
-            teacherId: 'me',
-            courseStates: ['ACTIVE'],
-            pageSize: 30 
-        }).then((response) => {
+    async function loadCourses() {
+        try {
+            await ensureClassroomToken();
+            const response = await gapi.client.classroom.courses.list({ 
+                teacherId: 'me',
+                courseStates: ['ACTIVE'],
+                pageSize: 30 
+            });
+            
             allCourses = response.result.courses || [];
             const filterCourse = document.getElementById('filter-course');
             filterCourse.innerHTML = '<option value="">-- Choose a Course --</option>';
@@ -1419,7 +1469,9 @@
             }
             if (typeof renderReadAloudFilters === 'function' && selRaLang) renderReadAloudFilters();
             if (typeof renderRolePlayFilters === 'function' && selRpLang) renderRolePlayFilters();
-        });
+        } catch (e) {
+            console.warn("Could not load Google Classroom courses automatically:", e);
+        }
     }
 
     const filterCourse = document.getElementById('filter-course');
@@ -1455,7 +1507,6 @@
         filterTask.disabled = false;
         filterTask.innerHTML = '<option value="">-- Choose an Assignment --</option>';
 
-        // Sort assignments by creation/assigned date (newest tasks assigned at the top)
         const sortedAssigns = classSpecificAssignments.sort((a, b) => {
             const getMillis = (obj) => {
                 if (!obj || !obj.timestamp) return 0;
@@ -1752,7 +1803,7 @@
             }
             const courseWorkId = activeAssignment.gClassroomAssignmentId;
 
-            let accessToken = gapi.auth && gapi.auth.getToken() ? gapi.auth.getToken().access_token : localStorage.getItem('oauth_token');
+            let accessToken = await ensureClassroomToken();
             if (!accessToken) throw new Error("Teacher credentials missing.");
 
             const studentEmail = subObj.studentEmail.toLowerCase();
@@ -2247,7 +2298,6 @@
         document.getElementById('assign-section-desc').innerText = "Select a class to publish and post this template instantly as an interactive speaking activity.";
         document.getElementById('assign-btn').innerText = "Post Assignment to Classroom";
 
-        // Enable student selector for new template assignment mode
         const allStudentsBtn = document.getElementById('all-students-btn');
         if (allStudentsBtn) {
             allStudentsBtn.disabled = false;
@@ -2345,7 +2395,6 @@
             activeEditorMode = "template";
             currentTemplateId = id;
 
-            // Enable student selector for template assignment creation
             const allStudentsBtn = document.getElementById('all-students-btn');
             if (allStudentsBtn) {
                 allStudentsBtn.disabled = false;
@@ -2436,10 +2485,6 @@
             alert("Error: " + getErrorMessage(e));
         }
     }
-
-// ============================================================
-// GOOGLE CLASSROOM STUDENT TARGETING & EDITING
-// ============================================================
 
 let classroomStudents = [];
 let selectedClassroomStudentIds = [];
@@ -2608,6 +2653,7 @@ async function loadClassroomStudents(courseId) {
     }
 
     try {
+        await ensureClassroomToken();
         let allStudents = [];
         let pageToken = null;
 
@@ -2685,7 +2731,7 @@ function selectAllClassroomStudents() {
 }
 
 function openStudentSelector() {
-    if (activeEditorMode === "assignment") return; // Prevent expanding selector in edit assignment mode
+    if (activeEditorMode === "assignment") return;
     const panel = document.getElementById('student-selector-panel');
 
     if (!panel) return;
@@ -2727,6 +2773,13 @@ initialiseClassroomStudentSelector();
             alert("Select standard classroom feed courses first.");
             return;
         }
+
+        try {
+            await ensureClassroomToken();
+        } catch (err) {
+            alert("Google Classroom re-authorization required: " + getErrorMessage(err));
+            return;
+        }
         
         status.innerText = "Processing workspace publishing profiles...";
         
@@ -2742,8 +2795,6 @@ initialiseClassroomStudentSelector();
             const targetPoints = isRolePlay ? 10 : 12;
 
             const currentDomain = window.location.origin + window.location.pathname.replace(/teacher/i, 'student');
-            const activeToken = localStorage.getItem('oauth_token');
-            if (activeToken) gapi.client.setToken({ access_token: activeToken });
 
             let finalGCTopicId = null;
             if (gcTopicSelect.value === '__NEW__') {
@@ -2890,7 +2941,6 @@ initialiseClassroomStudentSelector();
         }
     }
 
-    // Update Live Assignment in Classroom and Firestore without losing work or duplicating tasks
     async function updateLiveAssignmentInClassroomAndFirestore() {
         const courseId = document.getElementById('course-select').value;
         const status = document.getElementById('status');
@@ -2900,6 +2950,13 @@ initialiseClassroomStudentSelector();
 
         if (!currentAssignmentId) {
             alert("No active assignment selected for editing.");
+            return;
+        }
+
+        try {
+            await ensureClassroomToken();
+        } catch (err) {
+            alert("Google Classroom re-authorization required: " + getErrorMessage(err));
             return;
         }
 
@@ -2953,9 +3010,6 @@ initialiseClassroomStudentSelector();
             }
 
             if (activeAssignment.gClassroomAssignmentId) {
-                const activeToken = localStorage.getItem('oauth_token');
-                if (activeToken) gapi.client.setToken({ access_token: activeToken });
-
                 let finalGCTopicId = null;
                 if (gcTopicSelect.value === '__NEW__') {
                     const newTopicName = gcTopicInput.value.trim();
@@ -3169,7 +3223,6 @@ initialiseClassroomStudentSelector();
         document.getElementById('assign-section-desc').innerText = "Amend title, topic, or due date. (Student assignees are locked by Google Classroom once published).";
         document.getElementById('assign-btn').innerText = "🔄 Update Assignment & Sync Classroom";
 
-        // Visually lock and disable student selector when editing live assignments
         const allStudentsBtn = document.getElementById('all-students-btn');
         if (allStudentsBtn) {
             allStudentsBtn.disabled = true;
@@ -3253,13 +3306,11 @@ initialiseClassroomStudentSelector();
 
         if (assignment.courseId) {
             await loadGoogleClassroomTopics(assignment.courseId);
-        }
-
-        if (assignment.courseId) {
             await loadClassroomStudents(assignment.courseId);
 
             if (assignment.gClassroomAssignmentId) {
                 try {
+                    await ensureClassroomToken();
                     const cwRes = await gapi.client.classroom.courses.courseWork.get({
                         courseId: assignment.courseId,
                         id: assignment.gClassroomAssignmentId
@@ -3304,6 +3355,7 @@ initialiseClassroomStudentSelector();
         if (!selectedId || !confirm("Are you sure you want to delete this assignment from BOTH the Dashboard and Google Classroom?")) return;
         
         try {
+            await ensureClassroomToken();
             const assignment = allAssignments.find(a => a.id === selectedId);
             
             if (assignment && assignment.courseId && assignment.gClassroomAssignmentId) {
