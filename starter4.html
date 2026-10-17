@@ -2438,12 +2438,14 @@ function getCellAt(r, c) {
 /* =========================
    WORKSHEET GENERATOR (IMPROVED)
 ========================= */
+/* =========================
+   WORKSHEET GENERATOR
+========================= */
 function generateWorksheet() {
     const activityOrder = ['study', 'match', 'nospaces', 'jumbled', 'gap-en', 'gap-t', 'vowels', 'cons', 'faulty', 'trans-en', 'trans-target'];
     
     // Exercise Instructions Dictionary
     const activityInstructions = {
-        'study': 'Study the sentence builder table below.',
         'match': 'Match each target language sentence (1–10) with its correct English translation (A–J).',
         'nospaces': 'Rewrite the sentences separating the words and adding correct spaces and punctuation.',
         'jumbled': 'Reorder the words to form correct target language sentences.',
@@ -2480,7 +2482,6 @@ function generateWorksheet() {
 
     const getBalancedSelection = (limit) => {
         let selection = [];
-        
         let tempBuckets = bucketList.map(b => {
             let shuffledSents = [...b.sentences].sort(() => 0.5 - Math.random());
             return { ...b, sentences: shuffledSents };
@@ -2502,21 +2503,47 @@ function generateWorksheet() {
         return selection;
     };
 
-    let contentHtml = "";
-    let answerKeyHtml = "<br clear='all' style='page-break-before:always' /><div><div class='exercise-title-box'>Answer Key</div>";
+    const docTitle = document.getElementById('builder-title')?.value || "Sentence Builder";
+    const docLang = meta.lang || document.getElementById('meta-lang')?.value || "French";
+    const docYear = meta.year || document.getElementById('meta-year')?.value || "Year 9";
+
+    // 1. TOP HEADER BLOCK & STUDENT INFO TABLE
+    let contentHtml = `
+        <div class="header-block">
+            <div class="doc-main-title">${docTitle.toUpperCase()} <span class="doc-sub-info">${docLang} | ${docYear}</span></div>
+            <table class="student-info-table">
+                <tr>
+                    <td><b>Name:</b> ___________________________</td>
+                    <td><b>Class:</b> ____________</td>
+                    <td><b>Date:</b> ____________</td>
+                </tr>
+            </table>
+        </div>
+    `;
+
+    let answerKeyHtml = "<br clear='all' style='page-break-before:always' /><div class='answer-key-section'><div class='exercise-title-box'><div class='ex-title'>Answer Key</div></div>";
+
+    let exerciseCounter = 1;
 
     selected.forEach(type => {
         const labelEl = document.querySelector(`label[for="chk-${type}"]`);
-        const label = labelEl ? labelEl.innerText : type;
-        const instruction = activityInstructions[type] || "";
+        const rawLabel = labelEl ? labelEl.innerText : type;
+        
+        let isStudy = (type === 'study');
+        let boxTitle = isStudy ? "Sentence Table" : `Exercise ${exerciseCounter}: ${rawLabel}`;
+        if (!isStudy) exerciseCounter++;
+
+        // NO instructions for Sentence Table
+        const instruction = isStudy ? "" : (activityInstructions[type] || "");
 
         let activityHtml = `
             <div class="activity-container">
-                <div class="exercise-title-box">${label}</div>
-                <p class="exercise-instruction">${instruction}</p>
+                <div class="exercise-title-box">
+                    <div class="ex-title">${boxTitle}</div>
+                    ${instruction ? `<div class="ex-instruction">\${instruction}</div>` : ''}
+                </div>
         `;
-        
-        let isStudy = (type === 'study');
+
         const countDropdown = document.getElementById('sentence-count');
         const chosenLimit = countDropdown ? parseInt(countDropdown.value, 10) : 20;
 
@@ -2525,11 +2552,12 @@ function generateWorksheet() {
 
         let activityAnswersHtml = "";
         if (!isStudy) {
-            activityAnswersHtml += `<h3>${label}</h3><ol class="answer-list">`;
+            activityAnswersHtml += `<div class="ak-group"><h3>${boxTitle}</h3><ol class="answer-list">`;
         }
 
         if (type === 'study') {
-            activityHtml += `<table class="sentence-grid-table"><tr><th>Target Language</th><th>English</th></tr>`;
+            // Sentence Table (Font 10)
+            activityHtml += `<table class="sentence-grid-table"><tr><th>Target Language</th><th>English Translation</th></tr>`;
             currentSents.forEach(s => {
                 activityHtml += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`;
             });
@@ -2538,7 +2566,11 @@ function generateWorksheet() {
             let shuf = [...currentSents].sort(() => 0.5 - Math.random());
             activityHtml += `<table class="match-table">`;
             currentSents.forEach((s, i) => {
-                activityHtml += `<tr><td style="border:none; padding: 2pt 0;">${i+1}. ${s.t}</td><td style="border:none; width:35pt; text-align:center; padding: 2pt 0;">[ &nbsp; ]</td><td style="border:none; padding: 2pt 0;">${String.fromCharCode(65+i)}. ${shuf[i].tr}</td></tr>`;
+                activityHtml += `<tr>
+                    <td style="width:45%; padding: 5pt 0;"><b>${i+1}.</b> ${s.t}</td>
+                    <td style="width:10%; text-align:center; padding: 5pt 0;">[ &nbsp; ]</td>
+                    <td style="width:45%; padding: 5pt 0;"><b>${String.fromCharCode(65+i)}.</b> ${shuf[i].tr}</td>
+                </tr>`;
                 
                 let matchIndex = shuf.indexOf(s);
                 let correctLetter = String.fromCharCode(65 + matchIndex);
@@ -2546,15 +2578,14 @@ function generateWorksheet() {
             });
             activityHtml += `</table>`;
         } else {
+            // Exercises (Font 12 + Writing Lines)
             currentSents.forEach((s, i) => {
                 let out = s.t, hint = `<span class="blue">(${s.tr})</span>`;
                 let answerText = s.t; 
-                let includeWritingLine = true; // Default underline prompt
                 
                 if (type === 'vowels' || type === 'cons') {
                     let pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
                     out = s.t.split(' ').map(word => word.replace(pattern, '_').replace(/_(?=_)/g, '_ ')).join('&nbsp;&nbsp;');
-                    includeWritingLine = false; // NO writing line for vowel/consonant exercises
                 }
                 else if (type === 'nospaces') out = s.t.replace(/\s+/g, '').toLowerCase();
                 else if (type === 'jumbled') out = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
@@ -2574,18 +2605,15 @@ function generateWorksheet() {
                     answerText = s.tr; 
                 }
                 else if (type === 'trans-target') { out = `<span class="blue">${s.tr}</span>`; hint = ""; }
-                
                 else if (type === 'faulty') {
                     let faultyEnglish = s.tr; 
                     let segments = s.parts || s.details || [];
                     
                     if (segments.length > 0) {
                         let sabotageableParts = [];
-                        
                         segments.forEach(p => {
                             let cell = getCellAt(p.r, p.c);
                             if (!cell || !cell.items) return;
-                            
                             let correctEngWord = (p.tr || "").trim();
                             if (!correctEngWord) return;
                             
@@ -2598,32 +2626,25 @@ function generateWorksheet() {
                             });
                             
                             if (wrongWords.length > 0) {
-                                sabotageableParts.push({
-                                    correctWord: correctEngWord,
-                                    wrongWords: wrongWords
-                                });
+                                sabotageableParts.push({ correctWord: correctEngWord, wrongWords });
                             }
                         });
                         
                         if (sabotageableParts.length > 0) {
                             let chosen = sabotageableParts[Math.floor(Math.random() * sabotageableParts.length)];
                             let wrongWord = chosen.wrongWords[Math.floor(Math.random() * chosen.wrongWords.length)];
-                            let escapedTarget = chosen.correctWord.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                            let escapedTarget = chosen.correctWord.replace(/[-\/\\^\$*+?.()|[\]{}]/g, '\\$&');
                             let replacementRegex = new RegExp(escapedTarget, 'i');
                             faultyEnglish = faultyEnglish.replace(replacementRegex, wrongWord);
                         }
                     }
                     
-                    activityHtml += `<p class="activity-item">${i+1}. ${s.t} = <span class="blue">${faultyEnglish}</span><br>__________________________________________________________________</p>`;
+                    activityHtml += `<div class="exercise-item-wrapper"><p class="exercise-item"><b>${i+1}.</b> ${s.t} = <span class="blue">${faultyEnglish}</span></p><div class="item-underline"></div></div>`;
                     activityAnswersHtml += `<li>${s.t} = <span class="blue">${s.tr}</span></li>`;
                     return;
                 }
                 
-                if (includeWritingLine) {
-                    activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}<br>__________________________________________________________________</p>`;
-                } else {
-                    activityHtml += `<p class="activity-item">${i+1}. ${out} ${hint}</p>`;
-                }
+                activityHtml += `<div class="exercise-item-wrapper"><p class="exercise-item"><b>${i+1}.</b> ${out} ${hint}</p><div class="item-underline"></div></div>`;
                 activityAnswersHtml += `<li>${answerText}</li>`;
             });
         }
@@ -2631,7 +2652,7 @@ function generateWorksheet() {
         contentHtml += activityHtml;
 
         if (!isStudy) {
-            activityAnswersHtml += `</ol>`;
+            activityAnswersHtml += `</ol></div>`;
             answerKeyHtml += activityAnswersHtml;
         }
     });
@@ -2639,64 +2660,75 @@ function generateWorksheet() {
     answerKeyHtml += `</div>`; 
     contentHtml += answerKeyHtml; 
 
-    const header = `
-        <html>
+    // FULL DOCUMENT WRAPPER WITH WORD PRINT VIEW XML
+    const fullDoc = `
+        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
         <head>
+        <meta charset="utf-8">
+        <!--[if gte mso 9]>
+        <xml>
+         <w:WordDocument>
+          <w:View>Print</w:View>
+          <w:Zoom>100</w:Zoom>
+         </w:WordDocument>
+        </xml>
+        <![endif]-->
         <style>
-            @page { size: A4 landscape; margin: 1cm; } 
-            body { font-family: Arial, sans-serif; font-size: 10pt; color: #000; } 
-            p { margin: 0; padding: 0; font-size: 10pt; line-height: 1.2; }
-            .activity-item { margin-top: 2pt; margin-bottom: 3pt; font-size: 10pt; line-height: 1.3; } 
-            .blue { color: #2980b9; font-style: italic; } 
+            @page { size: A4 portrait; margin: 2cm; } 
+            body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12pt; color: #1e293b; line-height: 1.4; } 
             
-            /* Exercise Title Box - Font 12 */
+            /* Header Block */
+            .header-block { margin-bottom: 18pt; }
+            .doc-main-title { font-size: 16pt; font-weight: bold; text-transform: uppercase; color: #0f172a; margin-bottom: 8pt; }
+            .doc-sub-info { font-size: 11pt; font-weight: normal; text-transform: none; color: #64748b; margin-left: 10px; }
+            .student-info-table { width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; margin-top: 6pt; background-color: #fafafa; }
+            .student-info-table td { border: 1px solid #cbd5e1; padding: 6pt 10pt; font-size: 10pt; font-weight: normal; color: #334155; }
+
+            /* Shaded Exercise Title Box with Purple Accent Bar */
             .exercise-title-box { 
-                font-size: 12pt; 
-                font-weight: bold; 
-                border: 1.5pt solid #000; 
-                padding: 3pt 8pt; 
-                display: inline-block; 
-                margin-bottom: 4pt; 
-                margin-top: 6pt;
-                background-color: #f1f5f9;
+                background-color: #f8fafc; 
+                border-left: 4px solid #8b5cf6; 
+                border-top: 1px solid #e2e8f0;
+                border-right: 1px solid #e2e8f0;
+                border-bottom: 1px solid #e2e8f0;
+                padding: 8pt 12pt; 
+                margin-top: 16pt;
+                margin-bottom: 12pt;
             } 
-            
-            .exercise-instruction { 
-                font-size: 10pt; 
-                font-style: italic; 
-                margin-bottom: 6pt; 
-                color: #333; 
-            } 
+            .ex-title { font-size: 12pt; font-weight: bold; color: #1e293b; }
+            .ex-instruction { font-size: 10pt; font-style: italic; color: #64748b; margin-top: 3pt; } 
 
-            /* Sentence Grid Table - Compact Minimal Space */
-            .sentence-grid-table { 
-                width: 100%; 
-                border-collapse: collapse; 
-                margin-bottom: 8pt; 
-            } 
-            .sentence-grid-table td, .sentence-grid-table th { 
-                border: 1px solid #000; 
-                padding: 3pt 5pt; 
-                font-size: 10pt; 
-            } 
+            /* Sentence Table (Font 10) */
+            .sentence-grid-table { width: 100%; border-collapse: collapse; margin-bottom: 12pt; } 
+            .sentence-grid-table th { border: 1px solid #cbd5e1; padding: 5pt 8pt; font-size: 10pt; background-color: #f1f5f9; text-align: left; font-weight: bold; }
+            .sentence-grid-table td { border: 1px solid #cbd5e1; padding: 4pt 8pt; font-size: 10pt; } 
 
-            .match-table { width: 100%; border-collapse: collapse; margin-bottom: 8pt; }
-            .match-table td { font-size: 10pt; }
+            /* Exercises (Font 12 + Student Response Space) */
+            .exercise-container { page-break-inside: avoid; margin-bottom: 16pt; } 
+            .exercise-item-wrapper { margin-bottom: 14pt; page-break-inside: avoid; }
+            .exercise-item { font-size: 12pt; margin: 0; padding-bottom: 4pt; color: #0f172a; line-height: 1.5; } 
+            .item-underline { border-bottom: 0.75pt solid #cbd5e1; height: 1px; width: 100%; margin-top: 4pt; }
 
-            .activity-container { page-break-inside: avoid; margin-bottom: 14pt; } 
-            h3 { font-size: 11pt; margin-bottom: 3pt; margin-top: 10pt; } 
-            .answer-list { margin-top: 0; margin-bottom: 0; padding-left: 18px; font-size: 10pt; line-height: 1.2; }
-            .answer-list li { margin: 0; padding: 0; font-size: 10pt; }
+            .match-table { width: 100%; border-collapse: collapse; margin-bottom: 12pt; font-size: 12pt; }
+            .match-table td { font-size: 12pt; border-bottom: 0.5pt solid #f1f5f9; }
+
+            /* Answer Key (Font 10) */
+            .answer-key-section { font-size: 10pt; }
+            .ak-group { margin-bottom: 12pt; }
+            .ak-group h3 { font-size: 10pt; font-weight: bold; margin-bottom: 4pt; margin-top: 8pt; color: #334155; }
+            .answer-list { margin: 0; padding-left: 20px; font-size: 10pt; line-height: 1.3; }
+            .answer-list li { font-size: 10pt; margin-bottom: 2pt; }
+
+            .blue { color: #2980b9; font-style: italic; } 
         </style>
         </head>
         <body>${contentHtml}</body>
         </html>
     `;
     
-    saveAs(new Blob(['\ufeff', header], { type: 'application/msword' }), "Worksheet.doc");
+    saveAs(new Blob(['\ufeff', fullDoc], { type: 'application/msword' }), `${docTitle}_Worksheet.doc`);
     closeModals();
 }
-
 function toggleMode(m) {
     currentMode = (currentMode === m) ? null : m;
     
