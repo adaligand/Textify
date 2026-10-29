@@ -525,55 +525,33 @@ button:hover, .btn:hover {
     overflow-y: auto;
 }
 
-/* COMPACT STUDENT PORTAL & UNIFORM EXERCISE HEIGHT */
+/* COMPACT STUDENT PORTAL & INTERACTIVE GAME ELEMENTS */
 .student-card {
     background: white;
     padding: 12px 16px;
     border-radius: 10px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    margin-bottom: 12px;
-}
-
-#student-active-exercise-card {
-    min-height: 500px;
-    max-height: 75vh;
-    display: flex;
-    flex-direction: column;
-    box-sizing: border-box;
-}
-
-#exercise-interactive-area {
-    flex: 1;
-    overflow-y: auto;
-    padding-right: 4px;
-    margin-top: 6px;
+    margin-bottom: 10px;
 }
 
 .student-item-block {
     background: #f8fafc;
-    padding: 6px 10px;
+    padding: 5px 8px;
     border-radius: 6px;
     border: 1px solid #e2e8f0;
-    margin-bottom: 6px;
-}
-
-.tl-sentence {
-    font-size: 15px;
-    line-height: 1.4;
-    font-weight: 600;
-    color: #0f172a;
+    margin-bottom: 5px;
 }
 
 .interactive-tile {
     display: inline-block;
-    padding: 4px 9px;
+    padding: 3px 8px;
     margin: 2px;
     background: #f1f5f9;
     border: 1.5px solid #cbd5e1;
     border-radius: 6px;
     cursor: pointer;
     font-weight: 600;
-    font-size: 14px;
+    font-size: 13px;
     transition: all 0.15s ease;
     user-select: none;
 }
@@ -585,7 +563,7 @@ button:hover, .btn:hover {
 
 .interactive-tile.selected {
     background: #cce5ff;
-    border-color: #3399ff;
+    border-color: #33399ff;
 }
 
 .interactive-tile.correct-match {
@@ -602,9 +580,9 @@ button:hover, .btn:hover {
 
 /* NARROWER LETTER INPUT BOX FOR VOWELS / CONSONANTS */
 .letter-box {
-    width: 16px;
-    height: 24px;
-    font-size: 15px;
+    width: 15px;
+    height: 20px;
+    font-size: 14px;
     font-weight: bold;
     text-align: center;
     border: none;
@@ -625,32 +603,40 @@ button:hover, .btn:hover {
     border-bottom-color: #ef4444;
 }
 
-/* NO SPACES INTERACTIVE GAME STYLING (MATCHING STANDALONE GAME) */
+/* NO SPACES INTERACTIVE GAME STYLING */
 .no-spaces-interactive-line {
     background: white;
-    padding: 6px 10px;
+    padding: 4px 8px;
     border: 1px solid #cbd5e1;
     border-radius: 6px;
     font-weight: bold;
-    font-size: 15px;
-    line-height: 1.5;
-    word-wrap: break-word;
-    white-space: pre-wrap;
 }
 
-.no-spaces-interactive-line .space-span,
+.no-spaces-interactive-line .space-span {
+    display: inline-block;
+    cursor: pointer !important;
+    vertical-align: middle;
+    user-select: none;
+}
+
 .no-spaces-interactive-line .letter-span {
     cursor: pointer !important;
     user-select: none;
     font-size: 15px;
-    line-height: 1.5;
+    line-height: 1.4;
 }
 
 .no-spaces-interactive-line .space-inner {
+    display: none;
     background-color: #d1fae5;
     border-bottom: 2px solid #10b981;
     border-radius: 2px;
-    padding: 0 1px;
+    padding: 0 2px;
+}
+
+.no-spaces-interactive-line .space-inner.revealed-space {
+    display: inline !important;
+    visibility: visible !important;
 }
 
 /* SUBMISSIONS TABLE */
@@ -830,7 +816,7 @@ th { background: #f1f5f9; color: #334155; }
             <div id="ref-table-body" style="display:none; margin-top:10px;"></div>
         </div>
 
-        <!-- DYNAMIC UNIFORM HEIGHT EXERCISE WORKFLOW CONTAINER (Gated behind login) -->
+        <!-- DYNAMIC SINGLE EXERCISE WORKFLOW CONTAINER (Gated behind login) -->
         <div id="student-active-exercise-card" class="student-card" style="display:none;"></div>
 
         <!-- ON-SCREEN SPECIAL CHARACTER KEYBOARD -->
@@ -1169,7 +1155,7 @@ window.onload = async () => {
                 document.getElementById('student-display-email').innerText = `(${currentUser.email})`;
                 
                 // Show exercise containers only after successful login
-                document.getElementById('student-active-exercise-card').style.display = 'flex';
+                document.getElementById('student-active-exercise-card').style.display = 'block';
                 document.getElementById('student-nav-actions').style.display = 'flex';
 
                 loadStudentTask(assignmentId);
@@ -1260,7 +1246,7 @@ async function studentLogin() {
         document.getElementById('student-display-email').innerText = `(${currentUser.email})`;
 
         // Show task view upon successful sign in
-        document.getElementById('student-active-exercise-card').style.display = 'flex';
+        document.getElementById('student-active-exercise-card').style.display = 'block';
         document.getElementById('student-nav-actions').style.display = 'flex';
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -2677,96 +2663,76 @@ function getCellAt(r, c) {
 }
 
 /* =========================
-   FAULTY TRANSLATION GENERATOR WITH ROBUST FALLBACK
+   CELL-SPECIFIC FAULTY TRANSLATION DISTRACTOR LOGIC
 ========================= */
-function generateFaultySentenceObj(sentence, allSentences = []) {
-    if (!sentence) return null;
-    const target = sentence.t || "";
-    const correctTr = sentence.tr || "";
-    if (!correctTr) return null;
+function isEligibleForFaulty(sentence) {
+    if (!sentence || !sentence.parts || sentence.parts.length === 0) return false;
+    return sentence.parts.some(p => {
+        const cell = getCellAt(p.r, p.c);
+        if (!cell || !cell.items) return false;
+        const validTrs = cell.items.filter(it => it.tr && it.tr.trim() !== "");
+        return validTrs.length > 1;
+    });
+}
 
-    let faultyTr = "";
+function generateFaultySentenceObj(sentence) {
+    if (!sentence || !sentence.parts) return null;
 
-    // Strategy 1: Attempt cell multi-item distractor swap if sentence parts are present
-    if (sentence.parts && Array.isArray(sentence.parts) && sentence.parts.length > 0) {
-        const multiItemParts = sentence.parts.filter(p => {
-            const cell = getCellAt(p.r, p.c);
-            if (!cell || !cell.items) return false;
-            const validTrs = cell.items.filter(it => it.tr && it.tr.trim() !== "");
-            return validTrs.length > 1;
-        });
+    const multiItemParts = sentence.parts.filter(p => {
+        const cell = getCellAt(p.r, p.c);
+        if (!cell || !cell.items) return false;
+        const validTrs = cell.items.filter(it => it.tr && it.tr.trim() !== "");
+        return validTrs.length > 1;
+    });
 
-        if (multiItemParts.length > 0) {
-            const chosenPart = multiItemParts[Math.floor(Math.random() * multiItemParts.length)];
-            const cell = getCellAt(chosenPart.r, chosenPart.c);
+    if (multiItemParts.length === 0) return null;
 
-            const origTr = (chosenPart.tr || "").trim();
-            const alternatives = cell.items
-                .map(it => (it.tr || "").trim())
-                .filter(tr => tr && tr.toLowerCase() !== origTr.toLowerCase());
+    const chosenPart = multiItemParts[Math.floor(Math.random() * multiItemParts.length)];
+    const cell = getCellAt(chosenPart.r, chosenPart.c);
 
-            if (alternatives.length > 0) {
-                const distractor = alternatives[Math.floor(Math.random() * alternatives.length)];
-                if (origTr && correctTr.includes(origTr)) {
-                    faultyTr = correctTr.replace(origTr, distractor);
-                }
-            }
-        }
-    }
+    const origTr = (chosenPart.tr || "").trim();
+    const alternatives = cell.items
+        .map(it => (it.tr || "").trim())
+        .filter(tr => tr && tr.toLowerCase() !== origTr.toLowerCase());
 
-    // Strategy 2: Robust Fallback if Strategy 1 unavailable or yielded no change
-    if (!faultyTr) {
-        const words = correctTr.split(' ');
-        
-        let otherWords = [];
-        if (Array.isArray(allSentences) && allSentences.length > 0) {
-            allSentences.forEach(otherS => {
-                if (otherS.tr && otherS.tr !== correctTr) {
-                    otherS.tr.split(' ').forEach(w => {
-                        const cleanW = w.replace(/[.,!?;:]/g, '');
-                        if (cleanW.length > 3 && !correctTr.toLowerCase().includes(cleanW.toLowerCase())) {
-                            otherWords.push(cleanW);
-                        }
-                    });
-                }
-            });
-        }
+    if (alternatives.length === 0) return null;
 
-        if (words.length > 2) {
-            let candidateIndices = [];
-            words.forEach((w, idx) => {
-                if (w.length > 2 && !['and', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of'].includes(w.toLowerCase())) {
-                    candidateIndices.push(idx);
-                }
-            });
-
-            let swapIdx = candidateIndices.length > 0 
-                ? candidateIndices[Math.floor(Math.random() * candidateIndices.length)]
-                : Math.floor(Math.random() * words.length);
-
-            if (otherWords.length > 0) {
-                const randomOtherWord = otherWords[Math.floor(Math.random() * otherWords.length)];
-                words[swapIdx] = randomOtherWord;
-                faultyTr = words.join(' ');
-            } else {
-                const idxToSwap = Math.floor(Math.random() * (words.length - 1));
-                const temp = words[idxToSwap];
-                words[idxToSwap] = words[idxToSwap + 1];
-                words[idxToSwap + 1] = temp;
-                faultyTr = words.join(' ');
-            }
-        } else if (words.length === 2) {
-            faultyTr = `${words[1]} ${words[0]}`;
-        } else {
-            faultyTr = `${correctTr} not`;
-        }
+    const faultyDistractor = alternatives[Math.floor(Math.random() * alternatives.length)];
+    
+    let faultyTr = sentence.tr;
+    if (origTr && faultyTr.includes(origTr)) {
+        faultyTr = faultyTr.replace(origTr, faultyDistractor);
+    } else {
+        faultyTr = faultyTr + " (" + faultyDistractor + ")";
     }
 
     return {
-        target: target,
-        correctTr: correctTr,
+        target: sentence.t,
+        correctTr: sentence.tr,
         faultyTr: faultyTr
     };
+}
+
+function getOrGenerateFaultyTr(sentence) {
+    if (!sentence) return "";
+    if (sentence.faultyTr && sentence.faultyTr.trim() !== "") {
+        return sentence.faultyTr.trim();
+    }
+    if (typeof generateFaultySentenceObj === 'function') {
+        const faultyObj = generateFaultySentenceObj(sentence);
+        if (faultyObj && faultyObj.faultyTr) return faultyObj.faultyTr;
+    }
+    if (sentence.tr) {
+        const words = sentence.tr.trim().split(' ');
+        if (words.length > 1) {
+            const temp = words[0];
+            words[0] = words[words.length - 1];
+            words[words.length - 1] = temp;
+            return words.join(' ');
+        }
+        return sentence.tr + " (faulty)";
+    }
+    return "";
 }
 
 /* =========================
@@ -2778,8 +2744,6 @@ function renderPerActivitySentenceBoxes() {
     const allSentences = getAssembledSentences();
 
     const checkedBoxes = Array.from(document.querySelectorAll('#activity-list input:checked'));
-    
-    // Exclude 'study' (Sentence Table) from exercise customization list
     const exerciseBoxes = checkedBoxes.filter(cb => cb.value !== 'study');
 
     if (exerciseBoxes.length === 0) {
@@ -2790,11 +2754,15 @@ function renderPerActivitySentenceBoxes() {
     let html = '';
     const usedSentenceTexts = new Set();
 
-    exerciseBoxes.forEach((cb, actIdx) => {
+    exerciseBoxes.forEach((cb) => {
         const actId = cb.value;
         const actLabel = document.querySelector(`label[for="${cb.id}"]`)?.innerText || actId;
 
         let availablePool = [...allSentences];
+        if (actId === 'faulty') {
+            availablePool = availablePool.filter(isEligibleForFaulty);
+        }
+
         let unusedPool = availablePool.filter(s => !usedSentenceTexts.has(s.t.trim()));
         let actSents = [];
 
@@ -2809,6 +2777,19 @@ function renderPerActivitySentenceBoxes() {
 
         actSents.forEach(s => usedSentenceTexts.add(s.t.trim()));
 
+        if (actId === 'faulty' && actSents.length === 0) {
+            html += `
+                <div class="act-sentence-card" id="act-card-${actId}">
+                    <div class="act-card-header" style="background:#fee2e2;">
+                        <span>⚠️ ${actLabel} (0 Eligible Sentences)</span>
+                    </div>
+                    <div class="act-card-body" style="display:block; color:#b91c1c;">
+                        None of your grid cells contain alternative translations. Add multiple target/translation rows into grid cells to enable Faulty Translation options.
+                    </div>
+                </div>`;
+            return;
+        }
+
         html += `
             <div class="act-sentence-card" id="act-card-${actId}">
                 <div class="act-card-header" onclick="toggleActivityCollapse('${actId}')">
@@ -2816,13 +2797,27 @@ function renderPerActivitySentenceBoxes() {
                     <span id="arrow-${actId}" style="font-size:14px; font-weight:bold;">▶</span>
                 </div>
                 <div id="act-body-${actId}" class="act-card-body" data-activity-id="${actId}" style="display:none;">
-                    ${actSents.map((s, idx) => `
-                        <div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
-                            <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
-                            <input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;">
-                            <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;">
-                        </div>
-                    `).join('')}
+                    ${actSents.map((s, idx) => {
+                        if (actId === 'faulty') {
+                            const faultyVal = s.faultyTr || getOrGenerateFaultyTr(s);
+                            return `
+                                <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
+                                    <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
+                                    <input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" placeholder="Target Language" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" placeholder="Correct English" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <input type="text" class="edit-faulty-tr" value="${faultyVal.replace(/"/g, '&quot;')}" placeholder="Faulty English" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">
+                                </div>
+                            `;
+                        } else {
+                            return `
+                                <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
+                                    <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
+                                    <input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">
+                                </div>
+                            `;
+                        }
+                    }).join('')}
                 </div>
             </div>`;
     });
@@ -3014,9 +3009,14 @@ async function publishTaskToClassroom() {
                 bodyEl.querySelectorAll('div').forEach(row => {
                     const t = row.querySelector('.edit-t')?.value.trim();
                     const tr = row.querySelector('.edit-tr')?.value.trim();
+                    const faultyTr = row.querySelector('.edit-faulty-tr')?.value.trim();
                     if (t && tr) {
                         const matchedObj = allSentences.find(s => s.t.trim() === t) || { t, tr, parts: [] };
-                        sents.push(matchedObj);
+                        const finalObj = { ...matchedObj, t, tr };
+                        if (actId === 'faulty') {
+                            finalObj.faultyTr = faultyTr || getOrGenerateFaultyTr(finalObj);
+                        }
+                        sents.push(finalObj);
                     }
                 });
             }
@@ -3094,7 +3094,7 @@ function getActivityInstruction(type, lang) {
         'gap-t': `Fill in the missing ${lang} word.`,
         'vowels': 'Fill in the missing vowels.',
         'cons': 'Fill in the missing consonants.',
-        'faulty': 'Type the corrected English translation below.',
+        'faulty': 'Type the corrected English sentence.',
         'trans-en': `Translate the ${lang} sentence into English.`,
         'trans-target': `Translate the English sentence into ${lang}.`
     };
@@ -3155,13 +3155,13 @@ function renderCurrentStudentExercise() {
     const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
 
     let html = `
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1.5px solid #e2e8f0; padding-bottom:6px; margin-bottom:8px;">
-            <h3 style="margin:0; font-size:16px; color:#0f172a;">Exercise ${studentCurrentExIndex + 1} of ${studentExerciseTypes.length}: ${actTitle}</h3>
-            <span style="background:#e2e8f0; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:bold; color:#475569;">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1.5px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
+            <h3 style="margin:0; font-size:17px; color:#0f172a;">Exercise ${studentCurrentExIndex + 1} of ${studentExerciseTypes.length}: ${actTitle}</h3>
+            <span style="background:#e2e8f0; padding:3px 8px; border-radius:12px; font-size:12px; font-weight:bold; color:#475569;">
                 ${sents.length} Items
             </span>
         </div>
-        <p style="color:#64748b; font-style:italic; font-size:13px; margin-top:0; margin-bottom:8px;">${actInstruction}</p>
+        <p style="color:#64748b; font-style:italic; font-size:13px; margin-top:0; margin-bottom:14px;">${actInstruction}</p>
         <div id="exercise-interactive-area"></div>
     `;
 
@@ -3176,21 +3176,21 @@ function renderCurrentStudentExercise() {
         let shuffledTarget = [...sents].map((s, idx) => ({ t: s.t, id: idx })).sort(() => 0.5 - Math.random());
 
         let mHtml = `
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:4px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-top:10px;">
                 <div>
-                    <h4 style="margin-top:0; margin-bottom:6px; font-size:13px; color:#334155;">${docLang}</h4>
+                    <h4 style="margin-top:0; margin-bottom:8px; font-size:14px; color:#334155;">${docLang}</h4>
                     <div id="match-target-col">
                         ${shuffledTarget.map(item => `<div class="interactive-tile match-t-tile" data-id="${item.id}">${item.t}</div>`).join('')}
                     </div>
                 </div>
                 <div>
-                    <h4 style="margin-top:0; margin-bottom:6px; font-size:13px; color:#334155;">English</h4>
+                    <h4 style="margin-top:0; margin-bottom:8px; font-size:14px; color:#334155;">English</h4>
                     <div id="match-eng-col">
                         ${shuffledEng.map(item => `<div class="interactive-tile match-tr-tile" data-id="${item.id}">${item.tr}</div>`).join('')}
                     </div>
                 </div>
             </div>
-            <div id="match-feedback" style="margin-top:6px; font-weight:bold; min-height:18px; font-size:13px;"></div>
+            <div id="match-feedback" style="margin-top:10px; font-weight:bold; min-height:20px;"></div>
         `;
         area.innerHTML = mHtml;
 
@@ -3219,14 +3219,14 @@ function renderCurrentStudentExercise() {
         sents.forEach((s, idx) => {
             const words = s.t.split(' ').sort(() => 0.5 - Math.random());
             jHtml += `
-                <div class="student-item-block" data-idx="${idx}">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px;">
-                        <span style="font-size:13px; color:#475569;">${idx + 1}. ${s.tr}</span>
+                <div class="student-item-block" data-idx="${idx}" style="background:#f8fafc; padding:8px 12px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px;">
+                        <span style="font-weight:bold; color:#1e293b; font-size:14px;">${idx + 1}. ${s.tr}</span>
                     </div>
-                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                        <div class="jumble-answer-slot" style="min-height:32px; min-width:200px; padding:2px 4px; background:white; border:2px dashed #cbd5e1; border-radius:6px; display:flex; align-items:center; flex-wrap:wrap; gap:4px; flex:1;"></div>
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <div class="jumble-answer-slot" style="min-height:36px; min-width:220px; padding:3px 6px; background:white; border:2px dashed #cbd5e1; border-radius:6px; display:flex; align-items:center; flex-wrap:wrap; gap:4px; flex:1;"></div>
                         <div class="jumble-word-bank" style="display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
-                            ${words.map(w => `<span class="interactive-tile jumble-word-tile">${w}</span>`).join('')}
+                            ${words.map(w => `<span class="interactive-tile jumble-word-tile" style="padding:4px 8px; font-size:14px; margin:2px;">${w}</span>`).join('')}
                         </div>
                     </div>
                 </div>
@@ -3255,23 +3255,23 @@ function renderCurrentStudentExercise() {
 
         sents.forEach((s, itemIdx) => {
             let sentenceChars = s.t.split('');
-            let formattedSentence = sentenceChars.map((char, index, arr) => {
+            let formattedSentence = sentenceChars.map((char, charIdx, arr) => {
                 if (char === ' ') {
-                    const prevChar = arr[index - 1];
-                    const nextChar = arr[index + 1];
+                    const prevChar = arr[charIdx - 1];
+                    const nextChar = arr[charIdx + 1];
                     if (punctuation.includes(prevChar) || punctuation.includes(nextChar)) {
-                        return `<span class='letter-span' data-index='${index}'>&nbsp;</span>`;
+                        return `<span class='letter-span' data-index='${charIdx}'>&nbsp;</span>`;
                     } else {
                         return `<span class='space-span' onclick='check_nospace_click(event, this, ${itemIdx})'><span class='space-inner' style='display:none'>&nbsp;</span></span>`;
                     }
                 } else {
-                    return `<span class='letter-span' data-index='${index}' onclick='check_nospace_click(event, this, ${itemIdx})'>${char}</span>`;
+                    return `<span class='letter-span' data-index='${charIdx}' onclick='check_nospace_click(event, this, ${itemIdx})'>${char}</span>`;
                 }
             }).join('');
 
             nsHtml += `
                 <div class="student-item-block" data-idx="${itemIdx}" data-wrong-clicks="0">
-                    <p style="margin:0 0 4px 0; color:#475569; font-size:13px; font-weight:600;">${itemIdx + 1}. ${s.tr}</p>
+                    <p style="margin:0 0 3px 0; font-weight:bold; color:#1e293b; font-size:13px;">${itemIdx + 1}. ${s.tr}</p>
                     <div class="no-spaces-interactive-line">
                         ${formattedSentence}
                     </div>
@@ -3283,9 +3283,9 @@ function renderCurrentStudentExercise() {
     else if (actType === 'vowels') {
         let vHtml = '';
         sents.forEach((s, idx) => {
-            let rowHtml = `<div class="student-item-block" data-idx="${idx}">
-                <p style="margin:0 0 2px 0; color:#475569; font-size:13px;">${idx + 1}. ${s.tr}</p>
-                <div class="tl-sentence">`;
+            let rowHtml = `<div class="student-item-block" data-idx="${idx}" style="margin-bottom:10px;">
+                <p style="margin:0 0 4px 0; font-weight:bold; font-size:14px;">${idx + 1}. ${s.tr}</p>
+                <div style="font-size:18px; line-height:2;">`;
 
             const words = s.t.split(' ');
             words.forEach((word, wIdx) => {
@@ -3298,7 +3298,7 @@ function renderCurrentStudentExercise() {
                     }
                 }
                 if (wIdx < words.length - 1) {
-                    rowHtml += `<span style="display:inline-block; width: 14px;"></span>`;
+                    rowHtml += `<span style="display:inline-block; width: 18px;"></span>`;
                 }
             });
 
@@ -3312,9 +3312,9 @@ function renderCurrentStudentExercise() {
     else if (actType === 'cons') {
         let cHtml = '';
         sents.forEach((s, idx) => {
-            let rowHtml = `<div class="student-item-block" data-idx="${idx}">
-                <p style="margin:0 0 2px 0; color:#475569; font-size:13px;">${idx + 1}. ${s.tr}</p>
-                <div class="tl-sentence">`;
+            let rowHtml = `<div class="student-item-block" data-idx="${idx}" style="margin-bottom:10px;">
+                <p style="margin:0 0 4px 0; font-weight:bold; font-size:14px;">${idx + 1}. ${s.tr}</p>
+                <div style="font-size:18px; line-height:2;">`;
 
             const words = s.t.split(' ');
             words.forEach((word, wIdx) => {
@@ -3327,7 +3327,7 @@ function renderCurrentStudentExercise() {
                     }
                 }
                 if (wIdx < words.length - 1) {
-                    rowHtml += `<span style="display:inline-block; width: 14px;"></span>`;
+                    rowHtml += `<span style="display:inline-block; width: 18px;"></span>`;
                 }
             });
 
@@ -3348,12 +3348,12 @@ function renderCurrentStudentExercise() {
             const words = targetSentence.split(' ');
             const randIdx = Math.floor(Math.random() * words.length);
             const correctWord = words[randIdx].replace(/[.,!?;:]/g, '');
-            words[randIdx] = `<input type="text" class="gap-inline-input" data-correct="${correctWord.replace(/"/g, '&quot;')}" style="padding:2px 6px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold; width:100px; margin:0 2px; font-size:14px;">`;
+            words[randIdx] = `<input type="text" class="gap-inline-input" data-correct="${correctWord.replace(/"/g, '&quot;')}" style="padding:3px 6px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold; width:110px; margin:0 3px;">`;
 
             gHtml += `
-                <div class="student-item-block" data-idx="${idx}">
-                    <p style="margin:0 0 2px 0; font-size:13px; color:#475569;">${idx + 1}. Reference: <b>${promptLabel}</b></p>
-                    <div class="tl-sentence" style="background:white; padding:4px 8px; border-radius:4px; border:1px solid #e2e8f0;">
+                <div class="student-item-block" data-idx="${idx}" style="margin-bottom:10px; font-size:14px;">
+                    <p style="margin:0 0 4px 0;"><b>${idx + 1}.</b> Prompt: <b>${promptLabel}</b></p>
+                    <div style="padding:6px 10px; background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0;">
                         ${words.join(' ')}
                     </div>
                 </div>
@@ -3368,28 +3368,21 @@ function renderCurrentStudentExercise() {
             let answerRef = '';
 
             if (actType === 'faulty') {
-                const faultyObj = generateFaultySentenceObj(s, sents);
-                const faultyStr = faultyObj ? faultyObj.faultyTr : (s.tr + " incorrectly");
-                promptText = `
-                    <div style="margin-bottom:4px;">
-                        <div class="tl-sentence">${idx + 1}. ${s.t}</div>
-                        <div style="font-size:13px; color:#dc2626; margin-top:2px; background:#fef2f2; padding:3px 6px; border-radius:4px; border:1px solid #fecaca; display:inline-block;">
-                            <b>Faulty English to correct:</b> <span style="text-decoration:line-through; font-weight:600;">${faultyStr}</span>
-                        </div>
-                    </div>`;
+                const faultyText = getOrGenerateFaultyTr(s);
+                promptText = `Target Language (${docLang}): <b>${s.t}</b><br><span style="color:#b91c1c; font-weight:600; font-size:13px;">Faulty English to correct: "${faultyText}"</span>`;
                 answerRef = s.tr;
             } else if (actType === 'trans-en') {
-                promptText = `<div class="tl-sentence" style="margin-bottom:4px;">${idx + 1}. ${s.t}</div>`;
+                promptText = `Translate into English: <b>${s.t}</b>`;
                 answerRef = s.tr;
             } else if (actType === 'trans-target') {
-                promptText = `<div style="font-size:14px; font-weight:bold; color:#1e293b; margin-bottom:4px;">${idx + 1}. ${s.tr}</div>`;
+                promptText = `Translate into ${docLang}: <b>${s.tr}</b>`;
                 answerRef = s.t;
             }
 
             tHtml += `
-                <div class="student-item-block" data-idx="${idx}" data-correct="${answerRef.replace(/"/g, '&quot;')}">
-                    ${promptText}
-                    <input type="text" class="full-typing-input" placeholder="Type correct answer here..." style="width:100%; padding:5px 8px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box; font-size:14px;">
+                <div class="student-item-block" data-idx="${idx}" data-correct="${answerRef.replace(/"/g, '&quot;')}" style="margin-bottom:10px;">
+                    <label style="display:block; margin-bottom:4px; font-size:14px;"><b>${idx + 1}.</b> ${promptText}</label>
+                    <input type="text" class="full-typing-input" placeholder="Type answer here..." style="width:100%; padding:6px 10px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
                 </div>
             `;
         });
@@ -3406,9 +3399,6 @@ function renderCurrentStudentExercise() {
     }
 }
 
-/* =========================
-   NO SPACES INTERACTIVE CLICK HANDLER (MATCHES STANDALONE GAME)
-========================= */
 function check_nospace_click(e, element, itemIdx) {
     if (e) e.stopPropagation();
     const block = element.closest('.student-item-block');
@@ -3419,8 +3409,10 @@ function check_nospace_click(e, element, itemIdx) {
     const checkAdjacent = (sibling) => {
         if (sibling && sibling.classList.contains('space-span')) {
             const spaceInner = sibling.querySelector('.space-inner');
-            if (spaceInner && (spaceInner.style.display === 'none' || getComputedStyle(spaceInner).display === 'none')) {
+            if (spaceInner && (spaceInner.style.display === 'none' || spaceInner.style.visibility === 'hidden') && !spaceInner.classList.contains('revealed-space')) {
                 spaceInner.style.display = 'inline';
+                spaceInner.style.visibility = 'visible';
+                spaceInner.classList.add('revealed-space');
                 isCorrectClick = true;
             }
         }
@@ -3433,7 +3425,7 @@ function check_nospace_click(e, element, itemIdx) {
     }
 
     if (!isCorrectClick) {
-        if (!element.classList.contains('space-span') || (element.querySelector('.space-inner') && (element.querySelector('.space-inner').style.display === 'none' || getComputedStyle(element.querySelector('.space-inner')).display === 'none'))) {
+        if (!element.classList.contains('space-span') || element.querySelector('.space-inner').style.display === 'none') {
             block.dataset.wrongClicks = parseInt(block.dataset.wrongClicks || "0", 10) + 1;
             element.style.color = '#ef4444';
             setTimeout(() => { element.style.color = ''; }, 400);
@@ -3543,7 +3535,7 @@ function saveStudentCurrentExerciseResponses() {
     } else if (actType === 'nospaces') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
-            const unrevealed = Array.from(block.querySelectorAll('.space-inner')).filter(sp => sp.style.display === 'none' || getComputedStyle(sp).display === 'none');
+            const unrevealed = block.querySelectorAll('.space-inner:not(.revealed-space)');
             const wrongClicks = parseInt(block.dataset.wrongClicks || "0", 10);
             
             const isFullyCorrect = (unrevealed.length === 0) && (wrongClicks === 0);
