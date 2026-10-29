@@ -2676,35 +2676,43 @@ function isEligibleForFaulty(sentence) {
 }
 
 function generateFaultySentenceObj(sentence) {
-    if (!sentence || !sentence.parts) return null;
+    if (!sentence || !sentence.parts || sentence.parts.length === 0) return null;
 
-    const multiItemParts = sentence.parts.filter(p => {
+    const eligibleParts = [];
+
+    sentence.parts.forEach((p, partIdx) => {
         const cell = getCellAt(p.r, p.c);
-        if (!cell || !cell.items) return false;
-        const validTrs = cell.items.filter(it => it.tr && it.tr.trim() !== "");
-        return validTrs.length > 1;
+        if (!cell || !cell.items) return;
+
+        const origTr = (p.tr || "").trim();
+        if (!origTr) return;
+
+        const validTrs = cell.items
+            .map(it => (it.tr || "").trim())
+            .filter(tr => tr && tr.toLowerCase() !== origTr.toLowerCase());
+
+        if (validTrs.length > 0) {
+            eligibleParts.push({
+                partIdx: partIdx,
+                origTr: origTr,
+                alternatives: validTrs
+            });
+        }
     });
 
-    if (multiItemParts.length === 0) return null;
+    if (eligibleParts.length === 0) return null;
 
-    const chosenPart = multiItemParts[Math.floor(Math.random() * multiItemParts.length)];
-    const cell = getCellAt(chosenPart.r, chosenPart.c);
+    const chosen = eligibleParts[Math.floor(Math.random() * eligibleParts.length)];
+    const chosenDistractor = chosen.alternatives[Math.floor(Math.random() * chosen.alternatives.length)];
 
-    const origTr = (chosenPart.tr || "").trim();
-    const alternatives = cell.items
-        .map(it => (it.tr || "").trim())
-        .filter(tr => tr && tr.toLowerCase() !== origTr.toLowerCase());
+    const newTrParts = sentence.parts.map((p, idx) => {
+        if (idx === chosen.partIdx) {
+            return chosenDistractor;
+        }
+        return (p.tr || "").trim();
+    });
 
-    if (alternatives.length === 0) return null;
-
-    const faultyDistractor = alternatives[Math.floor(Math.random() * alternatives.length)];
-    
-    let faultyTr = sentence.tr;
-    if (origTr && faultyTr.includes(origTr)) {
-        faultyTr = faultyTr.replace(origTr, faultyDistractor);
-    } else {
-        faultyTr = faultyTr + " (" + faultyDistractor + ")";
-    }
+    const faultyTr = newTrParts.filter(Boolean).join(" ");
 
     return {
         target: sentence.t,
@@ -2718,21 +2726,11 @@ function getOrGenerateFaultyTr(sentence) {
     if (sentence.faultyTr && sentence.faultyTr.trim() !== "") {
         return sentence.faultyTr.trim();
     }
-    if (typeof generateFaultySentenceObj === 'function') {
-        const faultyObj = generateFaultySentenceObj(sentence);
-        if (faultyObj && faultyObj.faultyTr) return faultyObj.faultyTr;
+    const faultyObj = generateFaultySentenceObj(sentence);
+    if (faultyObj && faultyObj.faultyTr) {
+        return faultyObj.faultyTr;
     }
-    if (sentence.tr) {
-        const words = sentence.tr.trim().split(' ');
-        if (words.length > 1) {
-            const temp = words[0];
-            words[0] = words[words.length - 1];
-            words[words.length - 1] = temp;
-            return words.join(' ');
-        }
-        return sentence.tr + " (faulty)";
-    }
-    return "";
+    return sentence.tr || "";
 }
 
 /* =========================
@@ -3340,21 +3338,63 @@ function renderCurrentStudentExercise() {
     }
     else if (actType === 'gap-en' || actType === 'gap-t') {
         let gHtml = '';
+        const usedGapWords = new Set();
+
         sents.forEach((s, idx) => {
             const isTarget = (actType === 'gap-t');
             const targetSentence = isTarget ? s.t : s.tr;
             const promptLabel = isTarget ? s.tr : s.t;
 
-            const words = targetSentence.split(' ');
-            const randIdx = Math.floor(Math.random() * words.length);
-            const correctWord = words[randIdx].replace(/[.,!?;:]/g, '');
-            words[randIdx] = `<input type="text" class="gap-inline-input" data-correct="${correctWord.replace(/"/g, '&quot;')}" style="padding:3px 6px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold; width:110px; margin:0 3px;">`;
+            const tokens = targetSentence.split(' ');
+
+            const candidates = [];
+            tokens.forEach((tok, tIdx) => {
+                const clean = tok.replace(/[.,!?;:'"«»()]/g, '').trim();
+                if (clean.length >= 2) {
+                    const cleanLower = clean.toLowerCase();
+                    if (!usedGapWords.has(cleanLower)) {
+                        candidates.push({ tIdx, clean, cleanLower });
+                    }
+                }
+            });
+
+            let chosen = null;
+            if (candidates.length > 0) {
+                chosen = candidates[Math.floor(Math.random() * candidates.length)];
+            } else {
+                const fallbackCandidates = [];
+                tokens.forEach((tok, tIdx) => {
+                    const clean = tok.replace(/[.,!?;:'"«»()]/g, '').trim();
+                    if (clean.length >= 2) {
+                        fallbackCandidates.push({ tIdx, clean, cleanLower: clean.toLowerCase() });
+                    }
+                });
+                if (fallbackCandidates.length > 0) {
+                    chosen = fallbackCandidates[Math.floor(Math.random() * fallbackCandidates.length)];
+                } else if (tokens.length > 0) {
+                    const tIdx = Math.floor(Math.random() * tokens.length);
+                    const clean = tokens[tIdx].replace(/[.,!?;:'"«»()]/g, '').trim();
+                    chosen = { tIdx, clean, cleanLower: clean.toLowerCase() };
+                }
+            }
+
+            if (chosen) {
+                usedGapWords.add(chosen.cleanLower);
+                const chosenIdx = chosen.tIdx;
+                const correctWord = chosen.clean;
+                const origToken = tokens[chosenIdx];
+
+                const leadPunct = origToken.match(/^[.,!?;:'"«»()]+/)?.[0] || '';
+                const trailPunct = origToken.match(/[.,!?;:'"«»()]+$/)?.[0] || '';
+
+                tokens[chosenIdx] = `${leadPunct}<input type="text" class="gap-inline-input" data-correct="${correctWord.replace(/"/g, '&quot;')}" style="padding:3px 6px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold; width:110px; margin:0 3px;">${trailPunct}`;
+            }
 
             gHtml += `
                 <div class="student-item-block" data-idx="${idx}" style="margin-bottom:10px; font-size:14px;">
                     <p style="margin:0 0 4px 0;"><b>${idx + 1}.</b> Prompt: <b>${promptLabel}</b></p>
                     <div style="padding:6px 10px; background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0;">
-                        ${words.join(' ')}
+                        ${tokens.join(' ')}
                     </div>
                 </div>
             `;
@@ -3368,7 +3408,7 @@ function renderCurrentStudentExercise() {
             let answerRef = '';
 
             if (actType === 'faulty') {
-                const faultyText = getOrGenerateFaultyTr(s);
+                const faultyText = s.faultyTr || getOrGenerateFaultyTr(s);
                 promptText = `Target Language (${docLang}): <b>${s.t}</b><br><span style="color:#b91c1c; font-weight:600; font-size:13px;">Faulty English to correct: "${faultyText}"</span>`;
                 answerRef = s.tr;
             } else if (actType === 'trans-en') {
