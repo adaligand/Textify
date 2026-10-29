@@ -248,7 +248,7 @@ body {
 
 .toolbar button.active-mode {
     background-color: #d1d5db !important; 
-    color: #1f2937 !important;
+    color: #1f2f37 !important;
     border: 2px solid #9ca3af !important;
     box-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.2) !important;
     transform: translateY(2px) !important;
@@ -754,7 +754,7 @@ th { background: #f1f5f9; color: #334155; }
         </div>
     </div>
 
-    <div class="student-card" style="display:flex; gap:15px;">
+    <div class="student-card" style="display:flex; gap:15px; margin-bottom:15px;">
         <div style="flex:1;">
             <label><b>Classroom Course:</b></label>
             <select id="sub-filter-course" style="width:100%; padding:8px; margin-top:5px;" onchange="loadCourseAssignments(this.value)"></select>
@@ -762,6 +762,24 @@ th { background: #f1f5f9; color: #334155; }
         <div style="flex:1;">
             <label><b>Assignment:</b></label>
             <select id="sub-filter-assignment" style="width:100%; padding:8px; margin-top:5px;" onchange="renderStudentSubmissionsTable()"></select>
+        </div>
+    </div>
+
+    <!-- Active Assignment Banner (Visible even with 0 submissions) -->
+    <div id="active-assignment-info" style="display:none; margin-bottom: 20px; padding: 15px; border-radius: 8px; background-color: #fdf6e2; border: 1px solid #f39c12; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <strong id="active-task-title" style="color: #d35400; font-size: 16px;">Active Assignment</strong>
+                <span id="submission-counter-badge" style="background: #e67e22; color: white; padding: 4px 10px; border-radius: 12px; font-weight: bold; font-size: 13px;">
+                    📥 0 Submitted
+                </span>
+            </div>
+            <div id="active-task-metadata" style="font-size: 12px; color: #7f8c8d; margin-top: 4px;">Language: -- | Topic: --</div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button id="sync-all-classroom-grades-btn" onclick="syncAllClassroomGrades()" class="btn-info" style="font-size: 12px; padding: 6px 12px; height:auto;">🔄 Sync Grades to Classroom</button>
+            <button id="edit-assigned-task-btn" onclick="editCurrentAssignment()" class="btn-purple" style="font-size: 12px; padding: 6px 12px; background: #f39c12; height:auto;">📝 Edit Assignment</button>
+            <button id="delete-assigned-task-btn" onclick="deleteCurrentAssignment()" class="btn-danger" style="font-size: 12px; padding: 6px 12px; height:auto;">🗑️ Delete Assignment</button>
         </div>
     </div>
 
@@ -936,7 +954,13 @@ th { background: #f1f5f9; color: #334155; }
             <option value="">-- No Topic --</option>
         </select>
 
-        <button onclick="publishTaskToClassroom()" class="btn-purple" style="width:100%; height:42px; font-size:15px;">📢 Publish Assignment Now</button>
+        <label><b>Due Date & Time (Optional):</b></label>
+        <input type="datetime-local" id="gc-due-date" style="width:100%; padding:8px; margin:5px 0 12px 0; box-sizing:border-box;">
+
+        <label><b>Schedule Publication Date & Time (Optional - Schedule for later):</b></label>
+        <input type="datetime-local" id="gc-schedule-date" style="width:100%; padding:8px; margin:5px 0 12px 0; box-sizing:border-box;">
+
+        <button id="gc-publish-btn" onclick="publishTaskToClassroom()" class="btn-purple" style="width:100%; height:42px; font-size:15px;">📢 Publish Assignment Now</button>
     </div>
 </div>
 
@@ -967,6 +991,7 @@ let currentDocId = null;
 let currentStudentAssignment = null;
 let activeInputForVK = null;
 let tokenClient = null;
+let editingAssignmentId = null;
 
 // Student Interactive Task Progress State
 let studentExerciseTypes = [];
@@ -1065,7 +1090,6 @@ function ensureClassroomToken(forcePrompt = false) {
             };
             try {
                 const reqConfig = {};
-                // Bind token request explicitly to school account email if logged in
                 if (currentUser && currentUser.email) {
                     reqConfig.hint = currentUser.email;
                 } else {
@@ -1101,7 +1125,6 @@ async function ensureGapiClassroomLoaded() {
     return !!(gapi.client && gapi.client.classroom);
 }
 
-// SETUP VIRTUAL KEYBOARD (ONLY FOR TARGET LANGUAGE TYPING EXERCISES)
 function setupVirtualKeyboard(lang, actType) {
     const bar = document.getElementById('virtual-keyboard-bar');
     if (!bar) return;
@@ -1144,14 +1167,10 @@ function insertVirtualChar(char) {
 /* =========================
    INITIALIZATION & AUTH
 ========================= */
-/* =========================
-   FIXED: WINDOW.ONLOAD
-   (No popups triggered on page load)
-========================= */
 window.onload = async () => {
     gisInit();
 
-    // Load GAPI client silently in the background without requesting tokens
+    // Load GAPI client silently in the background without requesting tokens or popups
     if (window.gapi) {
         gapi.load('client', () => {
             gapi.client.init({}).then(() => {
@@ -1235,7 +1254,6 @@ async function login() {
         if (result.credential && result.credential.accessToken) {
             localStorage.setItem('oauth_token', result.credential.accessToken);
             localStorage.setItem('oauth_token_expiry', Date.now() + (3600 * 1000));
-            // Removed ensureClassroomToken(true) here to prevent triggering a second sign-in popup
         }
 
         document.getElementById('user-display').innerText = email;
@@ -1265,7 +1283,6 @@ async function studentLogin() {
         document.getElementById('student-display-name').innerText = currentUser.displayName || 'Student';
         document.getElementById('student-display-email').innerText = `(${currentUser.email})`;
 
-        // Show task view upon successful sign in
         document.getElementById('student-active-exercise-card').style.display = 'block';
         document.getElementById('student-nav-actions').style.display = 'flex';
 
@@ -2521,6 +2538,13 @@ function openPreview() {
 }
 
 function openActivityMenu() {
+    editingAssignmentId = null;
+    const btn = document.getElementById('gc-publish-btn');
+    if (btn) btn.innerText = "📢 Publish Assignment Now";
+    
+    document.getElementById('gc-due-date').value = "";
+    document.getElementById('gc-schedule-date').value = "";
+
     const currentLang = meta.lang || document.getElementById('meta-lang')?.value || "Target Language";
     
     const list = [
@@ -2846,7 +2870,6 @@ function renderPerActivitySentenceBoxes() {
     container.innerHTML = html;
 }
 
-// Helper to locate candidate words and wrap with asterisks
 function addAsteriskToGapWord(sentenceStr, usedGapWords) {
     if (!sentenceStr || sentenceStr.includes('*')) return sentenceStr;
 
@@ -2986,7 +3009,7 @@ function generateWorksheet() {
 }
 
 /* =========================
-   GOOGLE CLASSROOM ASSIGNMENT PUBLISHING
+   GOOGLE CLASSROOM ASSIGNMENT PUBLISHING & EDITING
 ========================= */
 async function openClassroomPublishSection() {
     const assignFields = document.getElementById('classroom-assign-fields');
@@ -3007,7 +3030,6 @@ async function openClassroomPublishSection() {
         try {
             res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
         } catch (authErr) {
-            // Token rejected (likely personal account token cached) — purge and re-authorize with account picker
             console.warn("Classroom API rejected current token, requesting account selection...", authErr);
             localStorage.removeItem('oauth_token');
             localStorage.removeItem('oauth_token_expiry');
@@ -3027,7 +3049,7 @@ async function openClassroomPublishSection() {
 
     } catch (err) {
         console.error("Classroom Error:", err);
-        alert("Classroom Connection Error: " + (err.message || "Failed to load Google Classroom courses. Make sure you select your @cedarsupper.co.uk account when prompted."));
+        alert("Classroom Connection Error: " + (err.message || "Failed to load Google Classroom courses."));
     }
 }
 
@@ -3086,27 +3108,117 @@ async function publishTaskToClassroom() {
         }
     });
 
+    const title = document.getElementById('builder-title').value || "Sentence Practice";
+    const maxPoints = totalSentencesCount * 2;
+    const dueDateVal = document.getElementById('gc-due-date').value;
+    const scheduleDateVal = document.getElementById('gc-schedule-date').value;
+    const topicId = document.getElementById('gc-topic-select').value;
+
+    let gcDueDate = null, gcDueTime = null;
+    if (dueDateVal) {
+        const dateObj = new Date(dueDateVal);
+        gcDueDate = { year: dateObj.getFullYear(), month: dateObj.getMonth() + 1, day: dateObj.getDate() };
+        gcDueTime = { hours: dateObj.getHours(), minutes: dateObj.getMinutes(), seconds: 0, nanos: 0 };
+    }
+
+    let gcScheduledTime = null;
+    if (scheduleDateVal) {
+        gcScheduledTime = new Date(scheduleDateVal).toISOString();
+    }
+
+    await ensureGapiClassroomLoaded();
+
+    // IF EDITING AN EXISTING ASSIGNMENT
+    if (editingAssignmentId) {
+        try {
+            const assignDoc = await db.collection("assignments").doc(editingAssignmentId).get();
+            const existingData = assignDoc.data();
+
+            const updatePayload = {
+                title: title,
+                selectedActivities: selectedActivities,
+                sentencesPerActivity: structuredSentencesPerActivity,
+                maxPoints: maxPoints > 0 ? maxPoints : 20,
+                dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
+                scheduleDate: scheduleDateVal ? new Date(scheduleDateVal).toISOString() : null,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            await db.collection("assignments").doc(editingAssignmentId).update(updatePayload);
+
+            if (existingData && existingData.gClassroomAssignmentId && existingData.courseId) {
+                const cwPatch = { title: `🧩 ${title}`, maxPoints: maxPoints > 0 ? maxPoints : 20 };
+                const updateMasks = ["title", "maxPoints"];
+
+                if (gcDueDate && gcDueTime) {
+                    cwPatch.dueDate = gcDueDate;
+                    cwPatch.dueTime = gcDueTime;
+                    updateMasks.push("dueDate", "dueTime");
+                }
+
+                if (gcScheduledTime) {
+                    cwPatch.scheduledTime = gcScheduledTime;
+                    updateMasks.push("scheduledTime");
+                }
+
+                if (topicId) {
+                    cwPatch.topicId = topicId;
+                    updateMasks.push("topicId");
+                }
+
+                await gapi.client.classroom.courses.courseWork.patch({
+                    courseId: existingData.courseId,
+                    id: existingData.gClassroomAssignmentId,
+                    updateMask: updateMasks.join(","),
+                    resource: cwPatch
+                });
+            }
+
+            alert("✅ Assignment updated and synced with Google Classroom!");
+            editingAssignmentId = null;
+            closeModals();
+            renderStudentSubmissionsTable();
+            return;
+        } catch (e) {
+            alert("Error updating assignment: " + e.message);
+            return;
+        }
+    }
+
+    // IF CREATING A NEW ASSIGNMENT
     const assignmentRef = db.collection("assignments").doc();
     const assignmentId = assignmentRef.id;
     const studentUrl = `${window.location.origin}${window.location.pathname}?assignmentId=${assignmentId}`;
-    const title = document.getElementById('builder-title').value || "Sentence Practice";
-
-    const maxPoints = totalSentencesCount * 2;
 
     const cwPayload = {
         title: `🧩 ${title}`,
         description: `Complete the interactive sentence practice online.`,
         workType: 'ASSIGNMENT',
-        state: 'PUBLISHED',
         maxPoints: maxPoints > 0 ? maxPoints : 20,
         materials: [{ link: { url: studentUrl, title: "Interactive Sentence Task" } }]
     };
 
-    const topicId = document.getElementById('gc-topic-select').value;
+    if (gcDueDate && gcDueTime) {
+        cwPayload.dueDate = gcDueDate;
+        cwPayload.dueTime = gcDueTime;
+    }
+
     if (topicId) cwPayload.topicId = topicId;
 
-    await ensureGapiClassroomLoaded();
+    if (gcScheduledTime) {
+        cwPayload.scheduledTime = gcScheduledTime;
+        cwPayload.state = 'DRAFT';
+    } else {
+        cwPayload.state = 'PUBLISHED';
+    }
+
     const res = await gapi.client.classroom.courses.courseWork.create({ courseId: courseId, resource: cwPayload });
+
+    if (!gcScheduledTime) {
+        await gapi.client.classroom.courses.courseWork.patch({
+            courseId: courseId, id: res.result.id, updateMask: "state", resource: { state: 'PUBLISHED' }
+        });
+    }
 
     await assignmentRef.set({
         id: assignmentId,
@@ -3118,10 +3230,12 @@ async function publishTaskToClassroom() {
         selectedActivities: selectedActivities,
         sentencesPerActivity: structuredSentencesPerActivity,
         maxPoints: maxPoints > 0 ? maxPoints : 20,
+        dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
+        scheduleDate: scheduleDateVal ? new Date(scheduleDateVal).toISOString() : null,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    alert("🎉 Assignment successfully posted to Google Classroom!");
+    alert(gcScheduledTime ? "📅 Assignment scheduled for publication on Google Classroom!" : "🎉 Assignment successfully posted to Google Classroom!");
     closeModals();
 }
 
@@ -3187,7 +3301,6 @@ async function loadStudentTask(assignmentId) {
         refHtml += '</tbody></table>';
         document.getElementById('ref-table-body').innerHTML = refHtml;
     } else {
-        // Hides reference table when 'study' is not selected
         document.getElementById('student-reference-banner').style.display = 'none';
     }
 
@@ -3406,37 +3519,35 @@ function renderCurrentStudentExercise() {
 
         setupAutoAdvanceInputs(area, '.cons-input');
     }
-else if (actType === 'gap-en' || actType === 'gap-t') {
-    let gHtml = '';
+    else if (actType === 'gap-en' || actType === 'gap-t') {
+        let gHtml = '';
 
-    sents.forEach((s, idx) => {
-        const isTarget = (actType === 'gap-t');
-        let fullSentence = isTarget ? s.t : s.tr;
-        const promptLabel = isTarget ? s.tr : s.t;
+        sents.forEach((s, idx) => {
+            const isTarget = (actType === 'gap-t');
+            let fullSentence = isTarget ? s.t : s.tr;
+            const promptLabel = isTarget ? s.tr : s.t;
 
-        let displaySentence = fullSentence;
-        let gapWord = "";
+            let displaySentence = fullSentence;
+            let gapWord = "";
 
-        // Check if asterisks *word* exist
-        const match = fullSentence.match(/\*([^*]+)\*/);
-        if (match) {
-            gapWord = match[1];
-            displaySentence = fullSentence.replace(`*${gapWord}*`, `<input type="text" class="gap-inline-input" data-correct="${gapWord.replace(/"/g, '&quot;')}" style="padding:3px 6px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold; width:110px; margin:0 3px;">`);
-        } else {
-            // Fallback if no asterisks found
-            displaySentence = fullSentence;
-        }
+            const match = fullSentence.match(/\*([^*]+)\*/);
+            if (match) {
+                gapWord = match[1];
+                displaySentence = fullSentence.replace(`*${gapWord}*`, `<input type="text" class="gap-inline-input" data-correct="${gapWord.replace(/"/g, '&quot;')}" style="padding:3px 6px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold; width:110px; margin:0 3px;">`);
+            } else {
+                displaySentence = fullSentence;
+            }
 
-        gHtml += `
-            <div class="student-item-block" data-idx="${idx}" style="margin-bottom:10px; font-size:14px;">
-                <p style="margin:0 0 4px 0;"><b>${idx + 1}.</b> Prompt: <b>${promptLabel}</b></p>
-                <div style="padding:6px 10px; background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0;">
-                    ${displaySentence}
-                </div>
-            </div>`;
-    });
-    area.innerHTML = gHtml;
-}
+            gHtml += `
+                <div class="student-item-block" data-idx="${idx}" style="margin-bottom:10px; font-size:14px;">
+                    <p style="margin:0 0 4px 0;"><b>${idx + 1}.</b> Prompt: <b>${promptLabel}</b></p>
+                    <div style="padding:6px 10px; background:#f8fafc; border-radius:6px; border:1px solid #e2e8f0;">
+                        ${displaySentence}
+                    </div>
+                </div>`;
+        });
+        area.innerHTML = gHtml;
+    }
     else {
         let tHtml = '';
         sents.forEach((s, idx) => {
@@ -3744,7 +3855,7 @@ async function submitStudentWork() {
 }
 
 /* =========================
-   TEACHER SUBMISSIONS DASHBOARD & ANSWERS INSPECTOR
+   TEACHER SUBMISSIONS DASHBOARD & EDITING
 ========================= */
 async function loadTeacherSubmissions() {
     const courseSelect = document.getElementById('sub-filter-course');
@@ -3814,6 +3925,7 @@ async function loadCourseAssignments(courseId) {
         const snap = await query.get();
         if (snap.empty) {
             assignSelect.innerHTML = '<option value="">No assignments found</option>';
+            document.getElementById('active-assignment-info').style.display = 'none';
             return;
         }
 
@@ -3828,19 +3940,44 @@ async function loadCourseAssignments(courseId) {
     }
 }
 
-function renderStudentSubmissionsTable() {
+async function renderStudentSubmissionsTable() {
     const assignmentId = document.getElementById('sub-filter-assignment').value;
     const tbody = document.getElementById('submissions-table-body');
+    const infoBanner = document.getElementById('active-assignment-info');
 
     if (!assignmentId) {
+        if (infoBanner) infoBanner.style.display = 'none';
         tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748b;">Select an assignment to view grades.</td></tr>`;
         return;
     }
 
+    const assignDoc = await db.collection("assignments").doc(assignmentId).get();
+    if (assignDoc.exists) {
+        const assign = assignDoc.data();
+        if (infoBanner) {
+            infoBanner.style.display = 'flex';
+            document.getElementById('active-task-title').innerText = assign.title || "Untitled Assignment";
+            
+            let metaText = `Language: ${assign.lang || 'N/A'} | Max Score: ${assign.maxPoints || 20}`;
+            if (assign.dueDate) {
+                metaText += ` | Due: ${new Date(assign.dueDate).toLocaleString([], {dateStyle:'short', timeStyle:'short'})}`;
+            }
+            if (assign.scheduleDate) {
+                metaText += ` | Scheduled: ${new Date(assign.scheduleDate).toLocaleString([], {dateStyle:'short', timeStyle:'short'})}`;
+            }
+            document.getElementById('active-task-metadata').innerText = metaText;
+        }
+    }
+
     db.collection("submissions").where("assignmentId", "==", assignmentId).onSnapshot(snap => {
         tbody.innerHTML = '';
+        
+        const subCount = snap.size;
+        const counterBadge = document.getElementById('submission-counter-badge');
+        if (counterBadge) counterBadge.innerText = `📥 ${subCount} Submitted`;
+
         if (snap.empty) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;">No student submissions found for this task yet.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748b; padding:20px;">No student submissions found for this task yet.</td></tr>`;
             return;
         }
 
@@ -3864,6 +4001,115 @@ function renderStudentSubmissionsTable() {
             `;
         });
     });
+}
+
+async function editCurrentAssignment() {
+    const assignmentId = document.getElementById('sub-filter-assignment').value;
+    if (!assignmentId) return alert("Select an assignment first.");
+
+    const doc = await db.collection("assignments").doc(assignmentId).get();
+    if (!doc.exists) return alert("Assignment not found.");
+
+    const assign = doc.data();
+    editingAssignmentId = assignmentId;
+
+    openActivityMenu();
+
+    document.getElementById('builder-title').value = assign.title || '';
+    
+    const selActs = assign.selectedActivities || [];
+    document.querySelectorAll('#activity-list input').forEach(cb => {
+        cb.checked = selActs.includes(cb.value);
+    });
+    
+    renderPerActivitySentenceBoxes();
+
+    if (assign.sentencesPerActivity) {
+        Object.keys(assign.sentencesPerActivity).forEach(actId => {
+            const bodyEl = document.getElementById(`act-body-${actId}`);
+            if (bodyEl) {
+                const sents = assign.sentencesPerActivity[actId];
+                const rows = bodyEl.querySelectorAll('div');
+                sents.forEach((s, idx) => {
+                    if (rows[idx]) {
+                        const tInput = rows[idx].querySelector('.edit-t');
+                        const trInput = rows[idx].querySelector('.edit-tr');
+                        const faultyInput = rows[idx].querySelector('.edit-faulty-tr');
+                        if (tInput) tInput.value = s.t || '';
+                        if (trInput) trInput.value = s.tr || '';
+                        if (faultyInput && s.faultyTr) faultyInput.value = s.faultyTr;
+                    }
+                });
+            }
+        });
+    }
+
+    openClassroomPublishSection();
+
+    if (assign.courseId) document.getElementById('gc-course-select').value = assign.courseId;
+    
+    if (assign.dueDate) {
+        const d = new Date(assign.dueDate);
+        const pad = (n) => String(n).padStart(2, '0');
+        document.getElementById('gc-due-date').value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } else {
+        document.getElementById('gc-due-date').value = '';
+    }
+
+    if (assign.scheduleDate) {
+        const d = new Date(assign.scheduleDate);
+        const pad = (n) => String(n).padStart(2, '0');
+        document.getElementById('gc-schedule-date').value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } else {
+        document.getElementById('gc-schedule-date').value = '';
+    }
+
+    document.getElementById('gc-publish-btn').innerText = "🔄 Update Assignment & Sync Classroom";
+}
+
+async function deleteCurrentAssignment() {
+    const assignmentId = document.getElementById('sub-filter-assignment').value;
+    if (!assignmentId) return alert("Select an assignment first.");
+
+    if (!confirm("Are you sure you want to delete this assignment from Google Classroom and your dashboard?")) return;
+
+    try {
+        const doc = await db.collection("assignments").doc(assignmentId).get();
+        if (doc.exists) {
+            const assign = doc.data();
+            if (assign.courseId && assign.gClassroomAssignmentId) {
+                await ensureGapiClassroomLoaded();
+                await gapi.client.classroom.courses.courseWork.delete({
+                    courseId: assign.courseId,
+                    id: assign.gClassroomAssignmentId
+                });
+            }
+        }
+
+        await db.collection("assignments").doc(assignmentId).delete();
+        alert("Assignment deleted successfully!");
+        
+        document.getElementById('active-assignment-info').style.display = 'none';
+        const courseId = document.getElementById('sub-filter-course').value;
+        loadCourseAssignments(courseId);
+    } catch (e) {
+        alert("Error deleting assignment: " + e.message);
+    }
+}
+
+async function syncAllClassroomGrades() {
+    const assignmentId = document.getElementById('sub-filter-assignment').value;
+    if (!assignmentId) return alert("Select an assignment first.");
+
+    const snap = await db.collection("submissions").where("assignmentId", "==", assignmentId).get();
+    if (snap.empty) return alert("No submissions to sync.");
+
+    let synced = 0;
+    for (let doc of snap.docs) {
+        await saveAndSyncGrade(doc.id);
+        synced++;
+    }
+    alert(`Sync completed for ${synced} submission(s)!`);
 }
 
 async function inspectStudentAnswers(subId) {
