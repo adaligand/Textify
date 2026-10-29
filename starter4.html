@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars Builder</title>
+    <title>Cedars Builder & Interactive Classroom</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -557,7 +557,7 @@ button:hover, .btn:hover {
 
 .interactive-tile.selected {
     background: #cce5ff;
-    border-color: #3399ff;
+    border-color: #33399ff;
 }
 
 .interactive-tile.correct-match {
@@ -572,17 +572,19 @@ button:hover, .btn:hover {
     color: #991b1b;
 }
 
+/* NARROWER LETTER INPUT BOX FOR VOWELS / CONSONANTS */
 .letter-box {
-    width: 24px;
-    height: 32px;
-    font-size: 20px;
+    width: 16px;
+    height: 28px;
+    font-size: 18px;
     font-weight: bold;
     text-align: center;
     border: none;
     border-bottom: 2px solid #334155;
     background: transparent;
-    margin: 0 2px;
+    margin: 0 1px;
     outline: none;
+    padding: 0;
 }
 
 .letter-box.correct-input {
@@ -595,7 +597,7 @@ button:hover, .btn:hover {
     border-bottom-color: #ef4444;
 }
 
-/* NO SPACES INTERACTIVE GAME STYLING - TEXT CURSOR FOR WORDS AND SPACES */
+/* NO SPACES INTERACTIVE GAME STYLING */
 .no-spaces-interactive-line .space-span, 
 .no-spaces-interactive-line .letter-span {
     cursor: text !important;
@@ -1060,14 +1062,14 @@ async function ensureGapiClassroomLoaded() {
     return !!(gapi.client && gapi.client.classroom);
 }
 
-// SETUP VIRTUAL KEYBOARD (ONLY FOR TYPING EXERCISES)
+// SETUP VIRTUAL KEYBOARD (ONLY FOR TARGET LANGUAGE TYPING EXERCISES)
 function setupVirtualKeyboard(lang, actType) {
     const bar = document.getElementById('virtual-keyboard-bar');
     if (!bar) return;
 
-    // Do NOT show keyboard for non-typing exercises
-    const nonTypingActivities = ['match', 'nospaces', 'jumbled', 'study'];
-    if (nonTypingActivities.includes(actType)) {
+    // Do NOT show keyboard for non-typing or English-typing exercises
+    const noKeyboardActivities = ['match', 'nospaces', 'jumbled', 'study', 'gap-en', 'faulty', 'trans-en'];
+    if (noKeyboardActivities.includes(actType)) {
         bar.style.display = 'none';
         return;
     }
@@ -2978,7 +2980,7 @@ function renderCurrentStudentExercise() {
     const actTitle = getCleanActivityTitle(actType, docLang);
     const actInstruction = getActivityInstruction(actType, docLang);
 
-    // Setup virtual keyboard rules (only shown when typing is required)
+    // Setup virtual keyboard rules (only shown when target language typing is required)
     setupVirtualKeyboard(docLang, actType);
 
     const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
@@ -2999,7 +3001,7 @@ function renderCurrentStudentExercise() {
 
     const area = document.getElementById('exercise-interactive-area');
 
-    // 1. MATCH UP INTERACTIVE
+    // 1. MATCH UP INTERACTIVE (TILES DISAPPEAR UPON SUCCESSFUL MATCH)
     if (actType === 'match') {
         let matchState = { selectedTarget: null, selectedEng: null, matchedCount: 0 };
 
@@ -3077,7 +3079,7 @@ function renderCurrentStudentExercise() {
             });
         });
     }
-    // 3. NO SPACES INTERACTIVE (TEXT CURSOR)
+    // 3. NO SPACES INTERACTIVE (PRECISE CLICK REVEAL)
     else if (actType === 'nospaces') {
         let nsHtml = '';
         const punctuation = ['.', ',', ';', ':', '!', '?', "'"];
@@ -3109,7 +3111,7 @@ function renderCurrentStudentExercise() {
         });
         area.innerHTML = nsHtml;
     }
-    // 4. MISSING VOWELS INTERACTIVE (WITH BIGGER WORD GAPS)
+    // 4. MISSING VOWELS INTERACTIVE (NARROW INPUT BOXES)
     else if (actType === 'vowels') {
         let vHtml = '';
         sents.forEach((s, idx) => {
@@ -3127,7 +3129,6 @@ function renderCurrentStudentExercise() {
                         rowHtml += `<span style="font-weight:600;">${char}</span>`;
                     }
                 }
-                // Wide gap between words
                 if (wIdx < words.length - 1) {
                     rowHtml += `<span style="display:inline-block; width: 24px;"></span>`;
                 }
@@ -3140,7 +3141,7 @@ function renderCurrentStudentExercise() {
 
         setupAutoAdvanceInputs(area, '.vowel-input');
     }
-    // 5. MISSING CONSONANTS INTERACTIVE (WITH BIGGER WORD GAPS)
+    // 5. MISSING CONSONANTS INTERACTIVE (NARROW INPUT BOXES)
     else if (actType === 'cons') {
         let cHtml = '';
         sents.forEach((s, idx) => {
@@ -3158,7 +3159,6 @@ function renderCurrentStudentExercise() {
                         rowHtml += `<span style="font-weight:600;">${char}</span>`;
                     }
                 }
-                // Wide gap between words
                 if (wIdx < words.length - 1) {
                     rowHtml += `<span style="display:inline-block; width: 24px;"></span>`;
                 }
@@ -3195,8 +3195,17 @@ function renderCurrentStudentExercise() {
         });
         area.innerHTML = gHtml;
     }
-    // 7. FULL TYPING ACTIVITIES (Faulty, Trans-EN, Trans-Target)
+    // 7. FULL TYPING ACTIVITIES (Faulty [Blue with Real Wrong Word], Trans-EN, Trans-Target)
     else {
+        // Collect English distractor words from all sentences in this exercise
+        const allEngWords = [];
+        sents.forEach(otherS => {
+            const cleanWords = (otherS.tr || '').replace(/[.,!?;:]/g, '').split(/\s+/);
+            cleanWords.forEach(w => {
+                if (w.length > 2) allEngWords.push(w);
+            });
+        });
+
         let tHtml = '';
         sents.forEach((s, idx) => {
             let promptText = '';
@@ -3204,8 +3213,38 @@ function renderCurrentStudentExercise() {
 
             if (actType === 'faulty') {
                 const words = s.tr.split(' ');
-                if (words.length > 2) words[Math.floor(Math.random() * words.length)] = '[wrong]';
-                promptText = `Correct translation for: <b>${s.t}</b> <br><span style="color:#ef4444; font-style:italic;">(Faulty: ${words.join(' ')})</span>`;
+                if (words.length > 0) {
+                    let candidateIndices = [];
+                    words.forEach((w, i) => {
+                        const clean = w.replace(/[.,!?;:]/g, '');
+                        if (clean.length > 2) candidateIndices.push(i);
+                    });
+                    if (candidateIndices.length === 0) candidateIndices = words.map((_, i) => i);
+
+                    const targetIdx = candidateIndices[Math.floor(Math.random() * candidateIndices.length)];
+                    const origWord = words[targetIdx];
+                    const origClean = origWord.replace(/[.,!?;:]/g, '');
+                    const punctuation = origWord.substring(origClean.length);
+
+                    const distractors = allEngWords.filter(w => w.toLowerCase() !== origClean.toLowerCase());
+                    let wrongWord = "wrong";
+                    if (distractors.length > 0) {
+                        wrongWord = distractors[Math.floor(Math.random() * distractors.length)];
+                    } else {
+                        const fallbackDistractors = ["cat", "house", "blue", "always", "brother", "happy", "never"];
+                        wrongWord = fallbackDistractors[Math.floor(Math.random() * fallbackDistractors.length)];
+                    }
+
+                    if (origClean.length > 0 && origClean[0] === origClean[0].toUpperCase()) {
+                        wrongWord = wrongWord.charAt(0).toUpperCase() + wrongWord.slice(1);
+                    } else {
+                        wrongWord = wrongWord.toLowerCase();
+                    }
+
+                    words[targetIdx] = wrongWord + punctuation;
+                }
+
+                promptText = `Correct translation for: <b>${s.t}</b> <br><span class="blue">(Faulty: ${words.join(' ')})</span>`;
                 answerRef = s.tr;
             } else if (actType === 'trans-en') {
                 promptText = `Translate into English: <b>${s.t}</b>`;
@@ -3236,35 +3275,21 @@ function renderCurrentStudentExercise() {
     }
 }
 
-// Interactive "No Spaces" gap-reveal click handler
+// Precise "No Spaces" gap-reveal click handler (Only reveals exact space clicked)
 function check_nospace_click(element, itemIdx) {
-    let isCorrectClick = false;
-
-    const checkAdjacent = (sibling) => {
-        if (sibling && sibling.classList.contains('space-span')) {
-            const spaceInner = sibling.querySelector('.space-inner');
-            if (spaceInner && spaceInner.style.display === 'none') {
-                spaceInner.style.display = 'inline-block';
-                isCorrectClick = true;
-            }
-        }
-    };
-
-    checkAdjacent(element.previousElementSibling);
-    checkAdjacent(element.nextElementSibling);
-    if (element.classList.contains('space-span')) {
-        checkAdjacent(element);
-    }
-
     const block = element.closest('.student-item-block');
     if (!block) return;
 
-    if (!isCorrectClick) {
-        if (!element.classList.contains('space-span') || element.querySelector('.space-inner').style.display === 'none') {
-            block.dataset.wrongClicks = parseInt(block.dataset.wrongClicks || "0", 10) + 1;
-            element.style.color = '#ef4444';
-            setTimeout(() => { element.style.color = ''; }, 400);
+    if (element.classList.contains('space-span')) {
+        const spaceInner = element.querySelector('.space-inner');
+        if (spaceInner && spaceInner.style.display === 'none') {
+            spaceInner.style.display = 'inline-block';
         }
+    } else {
+        // Clicked on a letter instead of a space slot -> Wrong attempt
+        block.dataset.wrongClicks = parseInt(block.dataset.wrongClicks || "0", 10) + 1;
+        element.style.color = '#ef4444';
+        setTimeout(() => { element.style.color = ''; }, 400);
     }
 }
 
@@ -3274,25 +3299,34 @@ function checkMatchPair(state, sents) {
         const idTr = state.selectedEng.dataset.id;
         const feedback = document.getElementById('match-feedback');
 
+        const targetEl = state.selectedTarget;
+        const engEl = state.selectedEng;
+
         if (idT === idTr) {
             feedback.style.color = '#10b981';
             feedback.innerText = 'Correct Pair! 🎉';
-            state.selectedTarget.classList.add('correct-match');
-            state.selectedEng.classList.add('correct-match');
+            targetEl.classList.add('correct-match');
+            engEl.classList.add('correct-match');
             state.matchedCount++;
+
+            // Matched tiles disappear after brief success feedback
+            setTimeout(() => {
+                targetEl.style.display = 'none';
+                engEl.style.display = 'none';
+            }, 400);
         } else {
             feedback.style.color = '#ef4444';
             feedback.innerText = 'Incorrect pair. Try again!';
-            state.selectedTarget.classList.add('wrong-match');
-            state.selectedEng.classList.add('wrong-match');
+            targetEl.classList.add('wrong-match');
+            engEl.classList.add('wrong-match');
             setTimeout(() => {
-                state.selectedTarget?.classList.remove('wrong-match', 'selected');
-                state.selectedEng?.classList.remove('wrong-match', 'selected');
+                targetEl?.classList.remove('wrong-match', 'selected');
+                engEl?.classList.remove('wrong-match', 'selected');
             }, 800);
         }
 
-        state.selectedTarget.classList.remove('selected');
-        state.selectedEng.classList.remove('selected');
+        targetEl.classList.remove('selected');
+        engEl.classList.remove('selected');
         state.selectedTarget = null;
         state.selectedEng = null;
     }
@@ -3335,7 +3369,7 @@ function saveStudentCurrentExerciseResponses() {
     if (actType === 'match') {
         sents.forEach((s, idx) => {
             const tile = area.querySelector(`.match-t-tile[data-id="${idx}"]`);
-            const isDone = tile && tile.classList.contains('correct-match');
+            const isDone = tile && (tile.classList.contains('correct-match') || tile.style.display === 'none');
             responses.push({
                 prompt: s.t,
                 studentAnswer: isDone ? s.tr : '(Unmatched)',
