@@ -992,6 +992,7 @@ let currentStudentAssignment = null;
 let activeInputForVK = null;
 let tokenClient = null;
 let editingAssignmentId = null;
+window.editingSavedSentencesMap = null;
 
 // Student Interactive Task Progress State
 let studentExerciseTypes = [];
@@ -2539,6 +2540,8 @@ function openPreview() {
 
 function openActivityMenu() {
     editingAssignmentId = null;
+    window.editingSavedSentencesMap = null;
+    
     const btn = document.getElementById('gc-publish-btn');
     if (btn) btn.innerText = "📢 Publish Assignment Now";
     
@@ -2770,11 +2773,8 @@ function getOrGenerateFaultyTr(sentence) {
 /* =========================
    PER-EXERCISE COLLAPSIBLE SENTENCE BOXES
 ========================= */
-function renderPerActivitySentenceBoxes() {
-    const exerciseLimit = parseInt(document.getElementById('sentence-count').value, 10);
+function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
     const container = document.getElementById('per-activity-sentences-container');
-    const allSentences = getAssembledSentences();
-
     const checkedBoxes = Array.from(document.querySelectorAll('#activity-list input:checked'));
     const exerciseBoxes = checkedBoxes.filter(cb => cb.value !== 'study');
 
@@ -2783,6 +2783,14 @@ function renderPerActivitySentenceBoxes() {
         return;
     }
 
+    if (overrideSentencesMap) {
+        window.editingSavedSentencesMap = overrideSentencesMap;
+    }
+
+    const savedMap = window.editingSavedSentencesMap || null;
+    const exerciseLimit = parseInt(document.getElementById('sentence-count').value, 10);
+    const allSentences = getAssembledSentences();
+
     let html = '';
     const usedSentenceTexts = new Set();
 
@@ -2790,24 +2798,29 @@ function renderPerActivitySentenceBoxes() {
         const actId = cb.value;
         const actLabel = document.querySelector(`label[for="${cb.id}"]`)?.innerText || actId;
 
-        let availablePool = [...allSentences];
-        if (actId === 'faulty') {
-            availablePool = availablePool.filter(isEligibleForFaulty);
-        }
-
-        let unusedPool = availablePool.filter(s => !usedSentenceTexts.has(s.t.trim()));
         let actSents = [];
 
-        if (unusedPool.length >= exerciseLimit) {
-            actSents = unusedPool.slice(0, exerciseLimit);
+        if (savedMap && savedMap[actId] && savedMap[actId].length > 0) {
+            actSents = savedMap[actId];
         } else {
-            actSents = [...unusedPool];
-            const remainingNeeded = exerciseLimit - actSents.length;
-            const fallbackPool = availablePool.filter(s => !actSents.some(already => already.t.trim() === s.t.trim()));
-            actSents = actSents.concat(fallbackPool.slice(0, remainingNeeded));
+            let availablePool = [...allSentences];
+            if (actId === 'faulty') {
+                availablePool = availablePool.filter(isEligibleForFaulty);
+            }
+
+            let unusedPool = availablePool.filter(s => !usedSentenceTexts.has(s.t.trim()));
+
+            if (unusedPool.length >= exerciseLimit) {
+                actSents = unusedPool.slice(0, exerciseLimit);
+            } else {
+                actSents = [...unusedPool];
+                const remainingNeeded = exerciseLimit - actSents.length;
+                const fallbackPool = availablePool.filter(s => !actSents.some(already => already.t.trim() === s.t.trim()));
+                actSents = actSents.concat(fallbackPool.slice(0, remainingNeeded));
+            }
         }
 
-        actSents.forEach(s => usedSentenceTexts.add(s.t.trim()));
+        actSents.forEach(s => { if (s && s.t) usedSentenceTexts.add(s.t.trim()); });
         const usedGapWords = new Set();
 
         if (actId === 'faulty' && actSents.length === 0) {
@@ -2832,25 +2845,25 @@ function renderPerActivitySentenceBoxes() {
                 <div id="act-body-${actId}" class="act-card-body" data-activity-id="${actId}" style="display:none;">
                     ${actSents.map((s, idx) => {
                         if (actId === 'faulty') {
-                            const faultyVal = s.faultyTr || generateFaultySentenceObj(s) || s.tr;
+                            const faultyVal = s.faultyTr || generateFaultySentenceObj(s) || s.tr || '';
                             return `
                                 <div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
                                     <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
-                                    <input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" placeholder="Correct Target" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-weight:600;">
+                                    <input type="text" class="edit-t" value="${(s.t||'').replace(/"/g, '&quot;')}" placeholder="Correct Target" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-weight:600;">
                                     <input type="text" class="edit-faulty-tr" value="${faultyVal.replace(/"/g, '&quot;')}" placeholder="Faulty English Translation" style="flex:1; padding:5px; border:1px solid #fca5a5; background:#fef2f2; color:#b91c1c; border-radius:4px; font-weight:600;">
                                 </div>`;
                         } else if (actId === 'gap-en' || actId === 'gap-t') {
                             const isTarget = (actId === 'gap-t');
-                            const fullSentence = isTarget ? s.t : s.tr;
-                            const markedSentence = addAsteriskToGapWord(fullSentence, usedGapWords);
+                            const fullSentence = isTarget ? (s.t||'') : (s.tr||'');
+                            const markedSentence = fullSentence.includes('*') ? fullSentence : addAsteriskToGapWord(fullSentence, usedGapWords);
 
                             return `
                                 <div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
                                     <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
                                     ${isTarget 
                                         ? `<input type="text" class="edit-t" value="${markedSentence.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold;" placeholder="Target (with *gap*)">
-                                           <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;" placeholder="English Prompt">`
-                                        : `<input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;" placeholder="Target Prompt">
+                                           <input type="text" class="edit-tr" value="${(s.tr||'').replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;" placeholder="English Prompt">`
+                                        : `<input type="text" class="edit-t" value="${(s.t||'').replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;" placeholder="Target Prompt">
                                            <input type="text" class="edit-tr" value="${markedSentence.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold;" placeholder="English (with *gap*)">`
                                     }
                                 </div>`;
@@ -2858,8 +2871,8 @@ function renderPerActivitySentenceBoxes() {
                             return `
                                 <div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
                                     <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
-                                    <input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;">
-                                    <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <input type="text" class="edit-t" value="${(s.t||'').replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <input type="text" class="edit-tr" value="${(s.tr||'').replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;">
                                 </div>`;
                         }
                     }).join('')}
@@ -3141,6 +3154,7 @@ async function publishTaskToClassroom() {
                 maxPoints: maxPoints > 0 ? maxPoints : 20,
                 dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
                 scheduleDate: scheduleDateVal ? new Date(scheduleDateVal).toISOString() : null,
+                topicId: topicId || null,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
 
@@ -3232,6 +3246,7 @@ async function publishTaskToClassroom() {
         maxPoints: maxPoints > 0 ? maxPoints : 20,
         dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
         scheduleDate: scheduleDateVal ? new Date(scheduleDateVal).toISOString() : null,
+        topicId: topicId || null,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
@@ -3291,7 +3306,6 @@ async function loadStudentTask(assignmentId) {
     const perActSentences = currentStudentAssignment.sentencesPerActivity || {};
     const hasStudySelected = selectedActivities.includes('study');
 
-    // Explicitly check selectedActivities AND hide the banner if 'study' was not selected
     if (hasStudySelected && perActSentences['study'] && perActSentences['study'].length > 0) {
         document.getElementById('student-reference-banner').style.display = 'block';
         let refHtml = '<table style="width:100%; border-collapse:collapse;"><thead><tr><th>Target Language</th><th>English Translation</th></tr></thead><tbody>';
@@ -4013,41 +4027,69 @@ async function editCurrentAssignment() {
     const assign = doc.data();
     editingAssignmentId = assignmentId;
 
-    openActivityMenu();
+    const currentLang = assign.lang || meta.lang || "Target Language";
+    
+    const list = [
+        {id:'study', label:'Sentence Table (Reference)'}, 
+        {id:'match', label:'Match up'}, 
+        {id:'nospaces', label:'No Spaces'}, 
+        {id:'jumbled', label:'Unjumble'}, 
+        {id:'gap-en', label:'Gap Fill (English)'}, 
+        {id:'gap-t', label:`Gap Fill (${currentLang})`}, 
+        {id:'vowels', label:'Missing Vowels'}, 
+        {id:'cons', label:'Missing Consonants'}, 
+        {id:'faulty', label:'Faulty Translation'}, 
+        {id:'trans-en', label:'Translate (English)'}, 
+        {id:'trans-target', label:`Translate (${currentLang})`}
+    ];
+
+    document.getElementById('activity-list').innerHTML = list.map(a => `
+        <div class="activity-row">
+            <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
+            <label for="chk-${a.id}" style="cursor:pointer; font-weight:500;">${a.label}</label>
+        </div>
+    `).join('');
 
     document.getElementById('builder-title').value = assign.title || '';
     
+    // Pre-check selected activity boxes
     const selActs = assign.selectedActivities || [];
     document.querySelectorAll('#activity-list input').forEach(cb => {
         cb.checked = selActs.includes(cb.value);
     });
-    
-    renderPerActivitySentenceBoxes();
 
+    // Detect and set sentence count dropdown
+    let detectedCount = 10;
     if (assign.sentencesPerActivity) {
-        Object.keys(assign.sentencesPerActivity).forEach(actId => {
-            const bodyEl = document.getElementById(`act-body-${actId}`);
-            if (bodyEl) {
-                const sents = assign.sentencesPerActivity[actId];
-                const rows = bodyEl.querySelectorAll('div');
-                sents.forEach((s, idx) => {
-                    if (rows[idx]) {
-                        const tInput = rows[idx].querySelector('.edit-t');
-                        const trInput = rows[idx].querySelector('.edit-tr');
-                        const faultyInput = rows[idx].querySelector('.edit-faulty-tr');
-                        if (tInput) tInput.value = s.t || '';
-                        if (trInput) trInput.value = s.tr || '';
-                        if (faultyInput && s.faultyTr) faultyInput.value = s.faultyTr;
-                    }
-                });
+        for (let actKey in assign.sentencesPerActivity) {
+            if (actKey !== 'study' && assign.sentencesPerActivity[actKey].length > 0) {
+                detectedCount = assign.sentencesPerActivity[actKey].length;
+                break;
             }
-        });
+        }
+    }
+    const sentCountSelect = document.getElementById('sentence-count');
+    if (sentCountSelect) sentCountSelect.value = String(detectedCount);
+
+    // Render exercise sentence boxes using stored saved sentences
+    renderPerActivitySentenceBoxes(assign.sentencesPerActivity || null);
+
+    document.getElementById('activity-menu').style.display = 'block'; 
+    document.getElementById('overlay').style.display = 'block';
+
+    // Await Google Classroom Publish Section to populate course dropdown
+    await openClassroomPublishSection();
+
+    // Pre-populate Classroom options AFTER courses are loaded
+    if (assign.courseId) {
+        document.getElementById('gc-course-select').value = assign.courseId;
+        await loadCourseTopics(assign.courseId);
+        if (assign.topicId) {
+            document.getElementById('gc-topic-select').value = assign.topicId;
+        }
     }
 
-    openClassroomPublishSection();
-
-    if (assign.courseId) document.getElementById('gc-course-select').value = assign.courseId;
-    
+    // Pre-populate Due Date & Schedule Date
     if (assign.dueDate) {
         const d = new Date(assign.dueDate);
         const pad = (n) => String(n).padStart(2, '0');
@@ -4064,7 +4106,8 @@ async function editCurrentAssignment() {
         document.getElementById('gc-schedule-date').value = '';
     }
 
-    document.getElementById('gc-publish-btn').innerText = "🔄 Update Assignment & Sync Classroom";
+    const gcBtn = document.getElementById('gc-publish-btn');
+    if (gcBtn) gcBtn.innerText = "🔄 Update Assignment & Sync Classroom";
 }
 
 async function deleteCurrentAssignment() {
