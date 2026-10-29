@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars Builder & Interactive Classroom</title>
+    <title>Cedars Builder</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -378,8 +378,9 @@ button:hover { background: #f1f5f9; }
     box-shadow: 0 15px 50px rgba(0,0,0,0.4);
     display: none;
     z-index: 2000;
-    width: 650px;
-    max-height: 85vh;
+    width: 850px;
+    max-width: 92vw;
+    max-height: 90vh;
     overflow-y: auto;
 }
 
@@ -468,6 +469,36 @@ button:hover { background: #f1f5f9; }
 }
 
 .bottom-ui * { pointer-events: auto; }
+
+/* COLLAPSIBLE EXERCISE SENTENCE CARDS */
+.act-sentence-card {
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    background: white;
+    overflow: hidden;
+}
+
+.act-card-header {
+    background: #f8fafc;
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    font-weight: 600;
+    color: #1e293b;
+    border-bottom: 1px solid #e2e8f0;
+    user-select: none;
+}
+
+.act-card-header:hover { background: #f1f5f9; }
+
+.act-card-body {
+    padding: 12px;
+    max-height: 220px;
+    overflow-y: auto;
+}
 
 /* STUDENT PORTAL & VIRTUAL KEYBOARD */
 .student-card {
@@ -704,13 +735,13 @@ th { background: #f1f5f9; color: #334155; }
 </div>
 
 <!-- OPTIONS / ASSIGNMENT MENU MODAL -->
-<div id="activity-menu" class="modal" style="width:700px;">
+<div id="activity-menu" class="modal">
     <h2>📜 Worksheet & Interactive Task Options</h2>
     
     <div style="background:#f1f5f9; padding:15px; border-radius:8px; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
         <div>
-            <label><b>Sentences Count:</b></label>
-            <select id="sentence-count" onchange="refreshSentencePreviewList()">
+            <label><b>Sentences Count per Exercise:</b></label>
+            <select id="sentence-count" onchange="renderPerActivitySentenceBoxes()">
                 <option value="5">5</option>
                 <option value="6">6</option>
                 <option value="7">7</option>
@@ -724,13 +755,15 @@ th { background: #f1f5f9; color: #334155; }
         </div>
     </div>
 
-    <!-- Editable Sentences Pre-Assign Section -->
-    <div style="background:#fff; border:1px solid #cbd5e1; padding:15px; border-radius:8px; margin-bottom:15px; max-height:180px; overflow-y:auto;">
-        <h4 style="margin-top:0;">📝 Check & Edit Sentences Before Assigning</h4>
-        <div id="editable-sentences-list"></div>
-    </div>
+    <!-- Activity Selection List -->
+    <div id="activity-list" style="margin-bottom:20px;"></div>
 
-    <div id="activity-list"></div>
+    <!-- Per-Exercise Collapsible Editable Sentences Section -->
+    <div style="margin-top:20px;">
+        <h3 style="margin-bottom:10px; color:#0f172a;">📝 Sentence Customization per Exercise</h3>
+        <p style="color:#64748b; font-size:13px; margin-top:0; margin-bottom:12px;">Click any exercise header below to expand or collapse its sentence list.</p>
+        <div id="per-activity-sentences-container"></div>
+    </div>
 
     <div style="margin-top: 25px; display: flex; gap: 12px;">
         <button onclick="generateWorksheet()" class="btn-info" style="flex:1; height: 45px; font-size: 16px;">📄 Download Word Worksheet</button>
@@ -741,15 +774,15 @@ th { background: #f1f5f9; color: #334155; }
     <!-- Google Classroom Assign Section -->
     <div id="classroom-assign-fields" style="display:none; margin-top:20px; border-top:2px solid #e2e8f0; padding-top:15px;">
         <h3>🏫 Publish to Google Classroom</h3>
-        <label>Select Course:</label>
+        <label><b>Select Course:</b></label>
         <select id="gc-course-select" style="width:100%; padding:8px; margin:5px 0 15px 0;" onchange="loadCourseTopics(this.value)"></select>
 
-        <label>Classroom Topic:</label>
+        <label><b>Classroom Topic:</b></label>
         <select id="gc-topic-select" style="width:100%; padding:8px; margin:5px 0 15px 0;">
             <option value="">-- No Topic --</option>
         </select>
 
-        <button onclick="publishTaskToClassroom()" class="btn-purple" style="width:100%; height:45px;">📢 Publish Assignment Now</button>
+        <button onclick="publishTaskToClassroom()" class="btn-purple" style="width:100%; height:45px; font-size:16px;">📢 Publish Assignment Now</button>
     </div>
 </div>
 
@@ -916,7 +949,9 @@ async function login() {
         currentUser = result.user;
         if (result.credential && result.credential.accessToken) {
             localStorage.setItem('oauth_token', result.credential.accessToken);
-            gapi.client.setToken({ access_token: result.credential.accessToken });
+            if (window.gapi && gapi.client) {
+                gapi.client.setToken({ access_token: result.credential.accessToken });
+            }
         }
 
         document.getElementById('user-display').innerText = email;
@@ -1880,6 +1915,7 @@ function syncSize(el) {
 
 function toggleAllActivities(master) {
     document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
+    renderPerActivitySentenceBoxes();
 }
 
 function handleKey(e, r, cIdx, i, type) {
@@ -2374,7 +2410,7 @@ async function handlePDFImport(event) {
 }
 
 /* =========================
-    & PREVIEW
+    PREVIEW & OPTIONS MENU
 ========================= */
 function openPreview() {
     const sentences = getAssembledSentences();
@@ -2388,7 +2424,7 @@ function openActivityMenu() {
     const currentLang = meta.lang || document.getElementById('meta-lang')?.value || "Target Language";
     
     const list = [
-        {id:'study', label:'Sentence Table'}, 
+        {id:'study', label:'Sentence Table (Reference)'}, 
         {id:'match', label:'Match up'}, 
         {id:'nospaces', label:'No Spaces'}, 
         {id:'jumbled', label:'Unjumble'}, 
@@ -2400,9 +2436,15 @@ function openActivityMenu() {
         {id:'trans-en', label:'Translate (English)'}, 
         {id:'trans-target', label:`Translate (${currentLang})`}
     ];
-    document.getElementById('activity-list').innerHTML = list.map(a => `<div class="activity-row"><input type="checkbox" value="${a.id}" id="chk-${a.id}"><label for="chk-${a.id}" style="cursor:pointer">${a.label}</label></div>`).join('');
+
+    document.getElementById('activity-list').innerHTML = list.map(a => `
+        <div class="activity-row">
+            <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
+            <label for="chk-${a.id}" style="cursor:pointer; font-weight:500;">${a.label}</label>
+        </div>
+    `).join('');
     
-    refreshSentencePreviewList();
+    renderPerActivitySentenceBoxes();
     document.getElementById('activity-menu').style.display = 'block'; 
     document.getElementById('overlay').style.display = 'block';
 }
@@ -2542,17 +2584,82 @@ function getCellAt(r, c) {
     return cell;
 }
 
-function refreshSentencePreviewList() {
+/* =========================
+   PER-EXERCISE COLLAPSIBLE SENTENCE BOXES
+========================= */
+function renderPerActivitySentenceBoxes() {
     const limit = parseInt(document.getElementById('sentence-count').value, 10);
-    const sentences = getAssembledSentences().slice(0, limit);
-    
-    const container = document.getElementById('editable-sentences-list');
-    container.innerHTML = sentences.map((s, idx) => `
-        <div style="display:flex; gap:8px; margin-bottom:6px;">
-            <input type="text" class="edit-t" value="${s.t}" style="flex:1; padding:4px;">
-            <input type="text" class="edit-tr" value="${s.tr}" style="flex:1; padding:4px;">
-        </div>
-    `).join('');
+    const container = document.getElementById('per-activity-sentences-container');
+    const allSentences = getAssembledSentences();
+
+    const checkedBoxes = Array.from(document.querySelectorAll('#activity-list input:checked'));
+
+    if (checkedBoxes.length === 0) {
+        container.innerHTML = '<div style="color:#64748b; font-style:italic; padding:10px;">Select at least one activity above to customize its sentences.</div>';
+        return;
+    }
+
+    let html = '';
+
+    checkedBoxes.forEach((cb, actIdx) => {
+        const actId = cb.value;
+        const actLabel = document.querySelector(`label[for="${cb.id}"]`)?.innerText || actId;
+
+        if (actId === 'study') {
+            html += `
+                <div class="act-sentence-card">
+                    <div class="act-card-header" onclick="toggleActivityCollapse('${actId}')">
+                        <span>📊 ${actLabel} (Sentence Reference Table)</span>
+                        <span id="arrow-${actId}">▼</span>
+                    </div>
+                    <div id="act-body-${actId}" class="act-card-body">
+                        <p style="color:#64748b; margin:0; font-size:13px;">Sentence Table will be rendered at the start of student tasks as a reference overview.</p>
+                    </div>
+                </div>`;
+            return;
+        }
+
+        // Rotate & slice sentences per exercise
+        let actSents = [...allSentences];
+        if (actSents.length > 1) {
+            const offset = (actIdx * 3) % actSents.length;
+            actSents = actSents.slice(offset).concat(actSents.slice(0, offset));
+        }
+        actSents = actSents.slice(0, limit);
+
+        html += `
+            <div class="act-sentence-card" id="act-card-${actId}">
+                <div class="act-card-header" onclick="toggleActivityCollapse('${actId}')">
+                    <span>✏️ ${actLabel} (${actSents.length} Sentences)</span>
+                    <span id="arrow-${actId}" style="font-size:14px; font-weight:bold;">▼</span>
+                </div>
+                <div id="act-body-${actId}" class="act-card-body" data-activity-id="${actId}">
+                    ${actSents.map((s, idx) => `
+                        <div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
+                            <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
+                            <input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" style="flex:1; padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
+                            <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" style="flex:1; padding:6px; border:1px solid #cbd5e1; border-radius:4px;">
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+    });
+
+    container.innerHTML = html;
+}
+
+function toggleActivityCollapse(actId) {
+    const body = document.getElementById(`act-body-${actId}`);
+    const arrow = document.getElementById(`arrow-${actId}`);
+    if (!body) return;
+
+    if (body.style.display === 'none') {
+        body.style.display = 'block';
+        if (arrow) arrow.innerText = '▼';
+    } else {
+        body.style.display = 'none';
+        if (arrow) arrow.innerText = '▲';
+    }
 }
 
 /* =========================
@@ -2565,62 +2672,12 @@ function generateWorksheet() {
     var docLang = meta.lang || document.getElementById('meta-lang')?.value || "Target Language";
     var docYear = meta.year || document.getElementById('meta-year')?.value || "Year 9";
 
-    var activityInstructions = {
-        'match': 'Match each ' + docLang + ' sentence (1–10) with its correct English translation (A–J).',
-        'nospaces': 'Rewrite the sentences adding correct spaces between the words.',
-        'jumbled': 'Reorder the words to form correct ' + docLang + ' sentences.',
-        'gap-en': 'Fill in the missing English words in the translations.',
-        'gap-t': 'Fill in the missing ' + docLang + ' words in each sentence.',
-        'vowels': 'Fill in the missing vowels to complete the sentences.',
-        'cons': 'Fill in the missing consonants to complete the sentences.',
-        'faulty': 'Find and correct the mistake in each English translation.',
-        'trans-en': 'Translate the following ' + docLang + ' sentences into English.',
-        'trans-target': 'Translate the following English sentences into ' + docLang + '.'
-    };
-
     var selected = activityOrder.filter(function(id) {
         var el = document.getElementById('chk-' + id);
         return el && el.checked;
     });
     
     if (selected.length === 0) return alert("Select at least one activity!");
-
-    var allSentences = getAssembledSentences();
-    if (allSentences.length === 0) return alert("No sentences found!");
-
-    var rowBuckets = {};
-    allSentences.forEach(function(s) {
-        var r = s.originRow;
-        if (!rowBuckets[r]) rowBuckets[r] = [];
-        rowBuckets[r].push(s);
-    });
-
-    var bucketList = Object.keys(rowBuckets).map(function(r) {
-        return { rowIndex: parseInt(r), sentences: rowBuckets[r] };
-    });
-
-    var getBalancedSelection = function(limit) {
-        var selection = [];
-        var tempBuckets = bucketList.map(function(b) {
-            var shuffledSents = [...b.sentences].sort(function() { return 0.5 - Math.random(); });
-            return { rowIndex: b.rowIndex, sentences: shuffledSents };
-        });
-
-        var bucketPointer = 0;
-        while (selection.length < limit) {
-            var activeBuckets = tempBuckets.filter(function(b) { return b.sentences.length > 0; });
-            if (activeBuckets.length === 0) break;
-            
-            if (tempBuckets[bucketPointer].sentences.length === 0) {
-                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
-                continue;
-            }
-
-            selection.push(tempBuckets[bucketPointer].sentences.shift());
-            bucketPointer = (bucketPointer + 1) % tempBuckets.length;
-        }
-        return selection;
-    };
 
     var contentHtml = 
         '<div class="header-block">' +
@@ -2634,187 +2691,60 @@ function generateWorksheet() {
             '</table>' +
         '</div>';
 
-    var answerKeyHtml = "<br clear='all' style='page-break-before:always' /><div class='answer-key-section'><table class='exercise-title-table'><tr><td><div class='ex-title'>Answer Key</div></td></tr></table>";
-
     var exerciseCounter = 1;
 
     selected.forEach(function(type) {
         var labelEl = document.querySelector('label[for="chk-' + type + '"]');
         var rawLabel = labelEl ? labelEl.innerText : type;
-        
         var cleanLabel = rawLabel.replace(/\bTL\b/g, docLang).replace(/Target Language/gi, docLang);
 
         var isStudy = (type === 'study');
         var boxTitle = isStudy ? "Sentence Table" : ("Exercise " + exerciseCounter + ": " + cleanLabel);
         if (!isStudy) exerciseCounter++;
 
-        var textInstruction = isStudy ? "" : (activityInstructions[type] || "");
-        var instructionMarkup = textInstruction ? ('<div class="ex-instruction">' + textInstruction + '</div>') : '';
+        var bodyEl = document.getElementById('act-body-' + type);
+        var customSents = [];
+        if (bodyEl) {
+            bodyEl.querySelectorAll('div').forEach(row => {
+                const tInput = row.querySelector('.edit-t');
+                const trInput = row.querySelector('.edit-tr');
+                if (tInput && trInput) {
+                    customSents.push({ t: tInput.value.trim(), tr: trInput.value.trim() });
+                }
+            });
+        }
+        if (customSents.length === 0) customSents = getAssembledSentences().slice(0, 10);
 
         var activityHtml = 
             '<div class="activity-container">' +
                 '<table class="exercise-title-table">' +
-                    '<tr>' +
-                        '<td>' +
-                            '<div class="ex-title">' + boxTitle + '</div>' +
-                            instructionMarkup +
-                        '</td>' +
-                    '</tr>' +
+                    '<tr><td><div class="ex-title">' + boxTitle + '</div></td></tr>' +
                 '</table>';
-
-        var countDropdown = document.getElementById('sentence-count');
-        var chosenLimit = countDropdown ? parseInt(countDropdown.value, 10) : 10;
-
-        var currentSents = getBalancedSelection(isStudy ? chosenLimit : 10);
-        currentSents.sort(function(a, b) { return a.originRow - b.originRow; });
-
-        var activityAnswersHtml = "";
-        if (!isStudy) {
-            activityAnswersHtml += '<div class="ak-group"><h3>' + boxTitle + '</h3><ol class="answer-list">';
-        }
 
         if (type === 'study') {
             activityHtml += '<table class="sentence-grid-table"><tr><th>' + docLang + '</th><th>English Translation</th></tr>';
-            currentSents.forEach(function(s) {
-                activityHtml += '<tr><td style="padding:1pt 5pt; mso-para-margin:0pt;"><b>' + s.t + '</b></td><td class="blue" style="padding:1pt 5pt; mso-para-margin:0pt;">' + s.tr + '</td></tr>';
-            });
-            activityHtml += '</table>';
-        } else if (type === 'match') {
-            var shuf = [...currentSents].sort(function() { return 0.5 - Math.random(); });
-            activityHtml += '<table class="match-table">';
-            currentSents.forEach(function(s, i) {
-                activityHtml += '<tr>' +
-                    '<td style="width:45%; padding: 3pt 0;"><b>' + (i+1) + '.</b> ' + s.t + '</td>' +
-                    '<td style="width:10%; text-align:center; padding: 3pt 0;">[ &nbsp; ]</td>' +
-                    '<td style="width:45%; padding: 3pt 0;"><b>' + String.fromCharCode(65+i) + '.</b> ' + shuf[i].tr + '</td>' +
-                '</tr>';
-                
-                var matchIndex = shuf.indexOf(s);
-                var correctLetter = String.fromCharCode(65 + matchIndex);
-                activityAnswersHtml += '<li>' + correctLetter + '</li>';
+            customSents.forEach(function(s) {
+                activityHtml += '<tr><td style="padding:1pt 5pt;"><b>' + s.t + '</b></td><td class="blue" style="padding:1pt 5pt;">' + s.tr + '</td></tr>';
             });
             activityHtml += '</table>';
         } else {
-            var needsWritingLine = ['nospaces', 'jumbled', 'faulty', 'trans-en', 'trans-target'].includes(type);
-
-            currentSents.forEach(function(s, i) {
-                var out = s.t, hint = '<span class="blue">(' + s.tr + ')</span>';
-                var answerText = s.t; 
-                
-                if (type === 'vowels' || type === 'cons') {
-                    var pattern = (type === 'vowels') ? /[aeiouàéèíóúü]/gi : /[bcdfghjklmnpqrstvwxyz]/gi;
-                    out = s.t.split(' ').map(function(word) { return word.replace(pattern, ' __ '); }).join('&nbsp;&nbsp;');
-                }
-                else if (type === 'nospaces') {
-                    out = s.t.replace(/\s+/g, '').toLowerCase();
-                }
-                else if (type === 'jumbled') {
-                    out = s.t.split(' ').sort(function() { return 0.5 - Math.random(); }).join(' / ');
-                }
-                else if (type === 'gap-t') { 
-                    var w = s.t.split(' '); 
-                    w[Math.floor(Math.random() * w.length)] = "___________"; 
-                    out = w.join(' '); 
-                }
-                else if (type === 'gap-en') { 
-                    var w2 = s.tr.split(' '); 
-                    w2[Math.floor(Math.random() * w2.length)] = "___________"; 
-                    out = s.t; 
-                    hint = '<span class="blue">(' + w2.join(' ') + ')</span>'; 
-                    answerText = s.tr; 
-                }
-                else if (type === 'trans-en') { 
-                    out = s.t; 
-                    hint = ""; 
-                    answerText = s.tr; 
-                }
-                else if (type === 'trans-target') { 
-                    out = '<span class="blue">' + s.tr + '</span>'; 
-                    hint = ""; 
-                }
-                else if (type === 'faulty') {
-                    var faultyEnglish = s.tr; 
-                    var segments = s.parts || s.details || [];
-                    
-                    if (segments.length > 0) {
-                        var sabotageableParts = [];
-                        segments.forEach(function(p) {
-                            var cell = getCellAt(p.r, p.c);
-                            if (!cell || !cell.items) return;
-                            var correctEngWord = (p.tr || "").trim();
-                            if (!correctEngWord) return;
-                            
-                            var wrongWords = [];
-                            cell.items.forEach(function(item) {
-                                var w = (item.tr || "").trim();
-                                if (w && w.toLowerCase() !== correctEngWord.toLowerCase()) {
-                                    wrongWords.push(w);
-                                }
-                            });
-                            
-                            if (wrongWords.length > 0) {
-                                sabotageableParts.push({ correctWord: correctEngWord, wrongWords: wrongWords });
-                            }
-                        });
-                        
-                        if (sabotageableParts.length > 0) {
-                            var chosen = sabotageableParts[Math.floor(Math.random() * sabotageableParts.length)];
-                            var wrongWord = chosen.wrongWords[Math.floor(Math.random() * chosen.wrongWords.length)];
-                            var escapedTarget = chosen.correctWord.replace(/[-\/\\^\$*+?.()|[\]{}]/g, '\\$&');
-                            var replacementRegex = new RegExp(escapedTarget, 'i');
-                            faultyEnglish = faultyEnglish.replace(replacementRegex, wrongWord);
-                        }
-                    }
-                    
-                    activityHtml += 
-                        '<div class="exercise-item-wrapper">' +
-                            '<p class="exercise-item"><b>' + (i+1) + '.</b> ' + s.t + ' = <span class="blue">' + faultyEnglish + '</span></p>' +
-                            '<p class="writing-line">&nbsp;</p>' +
-                        '</div>';
-                    activityAnswersHtml += '<li>' + s.t + ' = <span class="blue">' + s.tr + '</span></li>';
-                    return;
-                }
-                
+            customSents.forEach(function(s, i) {
                 activityHtml += 
                     '<div class="exercise-item-wrapper">' +
-                        '<p class="exercise-item"><b>' + (i+1) + '.</b> ' + out + ' ' + hint + '</p>' +
-                        (needsWritingLine ? '<p class="writing-line">&nbsp;</p>' : '') +
+                        '<p class="exercise-item"><b>' + (i+1) + '.</b> ' + s.t + ' <span class="blue">(' + s.tr + ')</span></p>' +
+                        '<p class="writing-line">&nbsp;</p>' +
                     '</div>';
-                activityAnswersHtml += '<li>' + answerText + '</li>';
             });
         }
         activityHtml += '</div>';
         contentHtml += activityHtml;
-
-        if (!isStudy) {
-            activityAnswersHtml += '</ol></div>';
-            answerKeyHtml += activityAnswersHtml;
-        }
     });
-
-    answerKeyHtml += '</div>'; 
-    contentHtml += answerKeyHtml; 
 
     var fullDoc = 
         '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-        '<head>' +
-        '<meta charset="utf-8">' +
-        '<style>' +
-            '@page { size: A4 portrait; margin: 2cm; } ' +
-            'body { font-family: "Segoe UI", Arial, sans-serif; font-size: 12pt; color: #1e293b; line-height: 1.35; } ' +
-            '.doc-main-title { font-size: 16pt; font-weight: bold; text-transform: uppercase; color: #0f172a; margin-bottom: 8pt; } ' +
-            '.student-info-table { width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; margin-top: 6pt; background-color: #fafafa; } ' +
-            '.student-info-table td { border: 1px solid #cbd5e1; padding: 5pt 10pt; font-size: 10pt; } ' +
-            '.exercise-title-table { width: 100%; border-collapse: collapse; margin-top: 14pt; margin-bottom: 10pt; } ' +
-            '.exercise-title-table td { background-color: #f8fafc; border-left: 4px solid #8b5cf6; border: 1px solid #e2e8f0; padding: 6pt 10pt; } ' +
-            '.ex-title { font-size: 12pt; font-weight: bold; color: #1e293b; } ' +
-            '.exercise-item { font-size: 12pt; margin: 0; color: #0f172a; } ' +
-            '.writing-line { border-bottom: 1pt solid #94a3b8; margin-top: 16pt; margin-bottom: 4pt; } ' +
-            '.blue { color: #2980b9; font-style: italic; } ' +
-        '</style>' +
-        '</head>' +
-        '<body>' + contentHtml + '</body>' +
-        '</html>';
+        '<head><meta charset="utf-8">' +
+        '<style>body { font-family: "Segoe UI", Arial, sans-serif; } .blue { color: #2980b9; font-style: italic; }</style>' +
+        '</head><body>' + contentHtml + '</body></html>';
     
     saveAs(new Blob(['\ufeff', fullDoc], { type: 'application/msword' }), docTitle + '_Worksheet.doc');
     closeModals();
@@ -2824,58 +2754,92 @@ function generateWorksheet() {
    GOOGLE CLASSROOM ASSIGNMENT PUBLISHING
 ========================= */
 async function openClassroomPublishSection() {
-    if (!gapi.client || !gapi.client.classroom) {
-        return alert("Google Classroom API is loading. Please try again in 5 seconds.");
+    const assignFields = document.getElementById('classroom-assign-fields');
+    assignFields.style.display = 'block';
+    assignFields.scrollIntoView({ behavior: 'smooth' });
+
+    try {
+        let token = localStorage.getItem('oauth_token');
+        if (token && window.gapi && gapi.client) {
+            gapi.client.setToken({ access_token: token });
+        }
+
+        if (!window.gapi || !gapi.client || !gapi.client.classroom) {
+            alert("Google Classroom API loading... Please wait 3 seconds and click again.");
+            return;
+        }
+
+        const select = document.getElementById('gc-course-select');
+        select.innerHTML = '<option value="">Loading courses...</option>';
+
+        const res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
+        const courses = res.result.courses || [];
+
+        if (courses.length === 0) {
+            select.innerHTML = '<option value="">No active Google Classroom courses found.</option>';
+            return;
+        }
+
+        select.innerHTML = '<option value="">-- Choose Course --</option>' + 
+            courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+    } catch (err) {
+        console.error("Classroom Error:", err);
+        alert("Classroom Connection Error: " + (err.message || "Please re-authenticate with Google."));
     }
-    
-    const res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
-    const courses = res.result.courses || [];
-
-    const select = document.getElementById('gc-course-select');
-    select.innerHTML = '<option value="">-- Choose Course --</option>' + 
-        courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-
-    document.getElementById('classroom-assign-fields').style.display = 'block';
 }
 
 async function loadCourseTopics(courseId) {
     if (!courseId) return;
-    const res = await gapi.client.classroom.courses.topics.list({ courseId: courseId });
-    const topics = res.result.topic || [];
-    const select = document.getElementById('gc-topic-select');
-    select.innerHTML = '<option value="">-- No Topic --</option>' + 
-        topics.map(t => `<option value="${t.topicId}">${t.name}</option>`).join('');
+    try {
+        const res = await gapi.client.classroom.courses.topics.list({ courseId: courseId });
+        const topics = res.result.topic || [];
+        const select = document.getElementById('gc-topic-select');
+        select.innerHTML = '<option value="">-- No Topic --</option>' + 
+            topics.map(t => `<option value="${t.topicId}">${t.name}</option>`).join('');
+    } catch (e) {
+        console.warn("Topic error:", e);
+    }
 }
 
 async function publishTaskToClassroom() {
     const courseId = document.getElementById('gc-course-select').value;
-    if (!courseId) return alert("Select a course.");
-
-    const customSentences = [];
-    document.querySelectorAll('#editable-sentences-list > div').forEach(row => {
-        customSentences.push({
-            t: row.querySelector('.edit-t').value.trim(),
-            tr: row.querySelector('.edit-tr').value.trim()
-        });
-    });
+    if (!courseId) return alert("Select a Google Classroom course.");
 
     const selectedActivities = Array.from(document.querySelectorAll('#activity-list input:checked')).map(c => c.value);
     if (selectedActivities.length === 0) return alert("Select at least one activity!");
+
+    const structuredSentencesPerActivity = {};
+    let totalSentencesCount = 0;
+
+    selectedActivities.forEach(actId => {
+        const bodyEl = document.getElementById(`act-body-${actId}`);
+        const sents = [];
+        if (bodyEl) {
+            bodyEl.querySelectorAll('div').forEach(row => {
+                const t = row.querySelector('.edit-t')?.value.trim();
+                const tr = row.querySelector('.edit-tr')?.value.trim();
+                if (t && tr) sents.push({ t, tr });
+            });
+        }
+        structuredSentencesPerActivity[actId] = sents;
+        totalSentencesCount += sents.length;
+    });
 
     const assignmentRef = db.collection("assignments").doc();
     const assignmentId = assignmentRef.id;
     const studentUrl = `${window.location.origin}${window.location.pathname}?assignmentId=${assignmentId}`;
     const title = document.getElementById('builder-title').value || "Sentence Practice";
 
-    const maxPoints = selectedActivities.length * customSentences.length * 2;
+    const maxPoints = totalSentencesCount * 2;
 
     const cwPayload = {
         title: `🧩 ${title}`,
-        description: `Complete the interactive sentence builder practice.`,
+        description: `Complete the interactive sentence practice online.`,
         workType: 'ASSIGNMENT',
         state: 'PUBLISHED',
-        maxPoints: maxPoints,
-        materials: [{ link: { url: studentUrl, title: "Interactive Sentence Builder Task" } }]
+        maxPoints: maxPoints > 0 ? maxPoints : 20,
+        materials: [{ link: { url: studentUrl, title: "Interactive Sentence Task" } }]
     };
 
     const topicId = document.getElementById('gc-topic-select').value;
@@ -2890,8 +2854,8 @@ async function publishTaskToClassroom() {
         title: title,
         lang: document.getElementById('meta-lang').value || meta.lang || "French",
         selectedActivities: selectedActivities,
-        customSentences: customSentences,
-        maxPoints: maxPoints,
+        sentencesPerActivity: structuredSentencesPerActivity,
+        maxPoints: maxPoints > 0 ? maxPoints : 20,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
@@ -2904,7 +2868,7 @@ async function publishTaskToClassroom() {
 ========================= */
 function getCleanActivityTitle(type, lang) {
     const map = {
-        'study': 'Sentence Table',
+        'study': 'Sentence Reference Table',
         'match': 'Match Up',
         'nospaces': 'No Spaces',
         'jumbled': 'Unjumble Sentences',
@@ -2921,6 +2885,7 @@ function getCleanActivityTitle(type, lang) {
 
 function getActivityInstruction(type, lang) {
     const map = {
+        'study': 'Review the sentence patterns below before completing the exercises.',
         'match': `Match each ${lang} sentence with its correct English translation.`,
         'nospaces': 'Rewrite the sentence adding correct spaces between the words.',
         'jumbled': `Reorder the words to form correct ${lang} sentences.`,
@@ -2948,7 +2913,7 @@ async function loadStudentTask(assignmentId) {
     const container = document.getElementById('student-activities-container');
     container.innerHTML = '';
 
-    const masterSentences = currentStudentAssignment.customSentences || [];
+    const perActSentences = currentStudentAssignment.sentencesPerActivity || {};
 
     currentStudentAssignment.selectedActivities.forEach((actType, actIndex) => {
         const block = document.createElement('div');
@@ -2961,16 +2926,18 @@ async function loadStudentTask(assignmentId) {
         let content = `<h3 style="margin-top:0; color:#1e293b; border-bottom:2px solid #e2e8f0; padding-bottom:8px;">Activity ${actIndex + 1}: ${titleText}</h3>`;
         content += `<p style="color:#64748b; font-style:italic; margin-bottom:15px;">${instructionText}</p>`;
 
-        // Rotate and shuffle sentences so each exercise uses different sentence sets/orders
-        let exerciseSentences = [...masterSentences];
-        if (exerciseSentences.length > 1) {
-            const shiftOffset = (actIndex * 3) % exerciseSentences.length;
-            exerciseSentences = exerciseSentences.slice(shiftOffset).concat(exerciseSentences.slice(0, shiftOffset));
-            exerciseSentences.sort(() => 0.5 - Math.random());
-        }
+        const exerciseSentences = perActSentences[actType] || currentStudentAssignment.customSentences || [];
 
-        // 1. MATCH UP EXERCISE
-        if (actType === 'match') {
+        // 1. SENTENCE REFERENCE TABLE
+        if (actType === 'study') {
+            content += '<table style="width:100%; border-collapse:collapse;"><thead><tr><th>Target Language</th><th>English Translation</th></tr></thead><tbody>';
+            exerciseSentences.forEach(s => {
+                content += `<tr><td><b>${s.t}</b></td><td class="blue">${s.tr}</td></tr>`;
+            });
+            content += 'tbody></table>';
+        }
+        // 2. MATCH UP EXERCISE
+        else if (actType === 'match') {
             const shuffledEnglish = [...exerciseSentences].sort(() => 0.5 - Math.random());
             let optionsTableHtml = '<div style="background:#f8fafc; border:1px solid #e2e8f0; margin-bottom:15px; border-radius:6px; padding:12px;"><b style="display:block; margin-bottom:6px; color:#334155;">Translation Options:</b>';
             shuffledEnglish.forEach((s, idx) => {
@@ -2993,7 +2960,7 @@ async function loadStudentTask(assignmentId) {
                     </div>`;
             });
         } 
-        // ALL OTHER DYNAMIC EXERCISES
+        // 3. ALL OTHER EXERCISE TYPES
         else {
             exerciseSentences.forEach((s, qIdx) => {
                 let questionHtml = "";
@@ -3079,6 +3046,8 @@ async function submitStudentWork() {
     let possible = 0;
 
     document.querySelectorAll('.student-exercise-block').forEach(block => {
+        if (block.dataset.type === 'study') return; // Reference table not graded
+
         block.querySelectorAll('.question-row').forEach(q => {
             possible += 2;
             const inputEl = q.querySelector('.student-answer-input');
