@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars Builder & Interactive Classroom</title>
+    <title>Cedars Builder</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -1097,8 +1097,29 @@ async function login() {
 }
 
 async function reauthGoogleClassroom() {
-    await login();
-    loadTeacherSubmissions();
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
+    provider.addScope('https://www.googleapis.com/auth/classroom.coursework.students');
+    provider.addScope('https://www.googleapis.com/auth/classroom.topics');
+    
+    // Force Google to prompt for account selection and scope consent
+    provider.setCustomParameters({
+        prompt: 'consent select_account'
+    });
+
+    try {
+        const result = await auth.signInWithPopup(provider);
+        if (result.credential && result.credential.accessToken) {
+            localStorage.setItem('oauth_token', result.credential.accessToken);
+            if (window.gapi && gapi.client) {
+                gapi.client.setToken({ access_token: result.credential.accessToken });
+            }
+            alert("🔑 Successfully re-authorized with Google Classroom!");
+            await loadTeacherSubmissions();
+        }
+    } catch (e) {
+        alert("Re-authorization failed: " + e.message);
+    }
 }
 
 // Student Login Function
@@ -3316,29 +3337,44 @@ async function loadTeacherSubmissions() {
     const courseSelect = document.getElementById('sub-filter-course');
     const assignSelect = document.getElementById('sub-filter-assignment');
     
-    courseSelect.innerHTML = '<option value="">Loading courses...</option>';
+    courseSelect.innerHTML = '<option value="">Loading live Classroom courses...</option>';
     assignSelect.innerHTML = '<option value="">-- Choose Assignment --</option>';
 
     let loadedFromApi = false;
 
-    // 1. Try fetching from Google Classroom API
     try {
         const isLoaded = await ensureGapiClassroomLoaded();
-        if (isLoaded && gapi.client.classroom) {
-            const res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
+        const token = localStorage.getItem('oauth_token');
+        
+        if (isLoaded && token) {
+            gapi.client.setToken({ access_token: token });
+            
+            const res = await gapi.client.classroom.courses.list({ 
+                teacherId: 'me', 
+                courseStates: ['ACTIVE'] 
+            });
+
             const courses = res.result.courses || [];
             
             if (courses.length > 0) {
                 courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>' + 
                     courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
                 loadedFromApi = true;
+            } else {
+                alert("Google Classroom connected, but 0 active courses were found for this account.");
             }
+        } else {
+            alert("No active Google Classroom token found. Please click '🔑 Re-authorize Classroom'.");
         }
     } catch (err) {
-        console.warn("Classroom API call failed, attempting Firestore fallback:", err);
+        console.error("Google Classroom API Failure:", err);
+        const errMsg = err.result?.error?.message || err.message || JSON.stringify(err);
+        
+        // Show exact error reason to diagnose domain blocking
+        alert(`⚠️ Google Classroom API Error (${err.status || 'Failed'}): ${errMsg}\n\nFalling back to saved Firestore records.`);
     }
 
-    // 2. Firestore Fallback: Populate courses from published assignments if API is unauthenticated
+    // Fallback if API call fails
     if (!loadedFromApi) {
         try {
             const snap = await db.collection("assignments").get();
@@ -3346,27 +3382,26 @@ async function loadTeacherSubmissions() {
             snap.forEach(doc => {
                 const data = doc.data();
                 if (data.courseId) {
-                    const name = data.courseName || `Course (${data.courseId})`;
+                    const name = data.courseName || `Saved Course (${data.courseId})`;
                     courseMap.set(data.courseId, name);
                 }
             });
 
             if (courseMap.size > 0) {
-                let optionsHtml = '<option value="">-- All Classroom Courses --</option>';
+                let optionsHtml = '<option value="">-- All Saved Assignments --</option>';
                 courseMap.forEach((name, id) => {
                     optionsHtml += `<option value="${id}">${name}</option>`;
                 });
                 courseSelect.innerHTML = optionsHtml;
             } else {
-                courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>';
+                courseSelect.innerHTML = '<option value="">-- No Courses Found --</option>';
             }
         } catch (e) {
             console.error("Firestore fallback error:", e);
-            courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>';
         }
     }
 
-    loadCourseAssignments('');
+    loadCourseAssignments(courseSelect.value);
 }
 
 async function loadCourseAssignments(courseId) {
