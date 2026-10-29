@@ -765,7 +765,7 @@ th { background: #f1f5f9; color: #334155; }
         </div>
     </div>
 
-    <!-- Active Assignment Banner (Visible even with 0 submissions) -->
+    <!-- Active Assignment Banner -->
     <div id="active-assignment-info" style="display:none; margin-bottom: 20px; padding: 15px; border-radius: 8px; background-color: #fdf6e2; border: 1px solid #f39c12; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
         <div>
             <div style="display: flex; align-items: center; gap: 10px;">
@@ -807,7 +807,7 @@ th { background: #f1f5f9; color: #334155; }
 <div id="student-portal-page" class="page">
     <div style="max-width:850px; margin:0 auto; padding:15px;">
         
-        <!-- Student Auth Landing Header (Gated Task View) -->
+        <!-- Student Auth Landing Header -->
         <div class="student-card" id="student-auth-header" style="text-align:center; padding:30px 20px;">
             <h2 id="student-task-title" style="margin-top:0;">Interactive Language Activity</h2>
             <p style="color:#64748b; font-size:15px;">Please sign in with your Cedars Google Account (@cedarsupper.co.uk) to access and complete your assignment.</p>
@@ -825,7 +825,7 @@ th { background: #f1f5f9; color: #334155; }
             </div>
         </div>
 
-        <!-- REFERENCE TABLE BANNER IF 'STUDY' IS SELECTED (Gated behind login) -->
+        <!-- REFERENCE TABLE BANNER IF 'STUDY' IS SELECTED -->
         <div id="student-reference-banner" style="display:none;" class="student-card">
             <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleReferenceTable()">
                 <h3 style="margin:0; color:#0f172a; font-size:16px;">📖 Sentence Reference Table</h3>
@@ -834,13 +834,23 @@ th { background: #f1f5f9; color: #334155; }
             <div id="ref-table-body" style="display:none; margin-top:10px;"></div>
         </div>
 
-        <!-- DYNAMIC SINGLE EXERCISE WORKFLOW CONTAINER (Gated behind login) -->
+        <!-- DYNAMIC MARKSHEET REVIEW VIEW (When assignment is already completed) -->
+        <div id="student-marksheet-card" class="student-card" style="display:none; border:2px solid #10b981;">
+            <div style="background:#d1fae5; padding:15px; border-radius:8px; border:1px solid #a7f3d0; margin-bottom:15px;">
+                <h3 style="margin:0 0 6px 0; color:#065f46;">✅ Assignment Completed & Marked</h3>
+                <p style="margin:0; color:#047857; font-size:14px;">Review your score, teacher feedback, and itemized exercise corrections below.</p>
+            </div>
+            <div id="marksheet-summary-header" style="background:#f8fafc; padding:12px; border-radius:8px; border:1px solid #cbd5e1; margin-bottom:15px;"></div>
+            <div id="marksheet-report-content"></div>
+        </div>
+
+        <!-- DYNAMIC SINGLE EXERCISE WORKFLOW CONTAINER -->
         <div id="student-active-exercise-card" class="student-card" style="display:none;"></div>
 
         <!-- ON-SCREEN SPECIAL CHARACTER KEYBOARD -->
         <div id="virtual-keyboard-bar" style="background:transparent; padding:6px 0; border-radius:8px; margin-bottom:10px; display:none; gap:6px; flex-wrap:wrap; justify-content:center;"></div>
 
-        <!-- STUDENT NAVIGATION ACTION BUTTONS (Gated behind login) -->
+        <!-- STUDENT NAVIGATION ACTION BUTTONS -->
         <div id="student-nav-actions" style="display:none; justify-content:space-between; gap:10px; margin-top:10px;">
             <button id="student-prev-ex-btn" onclick="prevStudentExercise()" class="btn-outline" style="display:none;">
                 ⬅️ Previous Exercise
@@ -957,7 +967,7 @@ th { background: #f1f5f9; color: #334155; }
         <label><b>Due Date & Time (Optional):</b></label>
         <input type="datetime-local" id="gc-due-date" style="width:100%; padding:8px; margin:5px 0 12px 0; box-sizing:border-box;">
 
-        <label><b>Schedule Publication Date & Time (Optional - Schedule for later):</b></label>
+        <label><b>Schedule Publication Date & Time (Optional):</b></label>
         <input type="datetime-local" id="gc-schedule-date" style="width:100%; padding:8px; margin:5px 0 12px 0; box-sizing:border-box;">
 
         <button id="gc-publish-btn" onclick="publishTaskToClassroom()" class="btn-purple" style="width:100%; height:42px; font-size:15px;">📢 Publish Assignment Now</button>
@@ -1030,6 +1040,36 @@ const LANGUAGE_KEYBOARDS = {
     'German':  ['ä', 'ö', 'ü', 'ß', 'Ä', 'Ö', 'Ü'],
     'EAL':     []
 };
+
+/* =========================
+   ROBUST GAP FILL PARSER
+========================= */
+function extractGapWord(sentenceStr) {
+    if (!sentenceStr) return { fullMatch: null, cleanGap: "" };
+
+    // 1. Asterisks *word*
+    let m = sentenceStr.match(/\*([^*]+)\*/);
+    if (m) {
+        let clean = m[1].replace(/^[.,!?;:'"«»()\s]+|[.,!?;:'"«»()\s]+$/g, '').trim();
+        return { fullMatch: m[0], cleanGap: clean };
+    }
+
+    // 2. Double quotes "word"
+    m = sentenceStr.match(/"([^"]+)"/);
+    if (m) {
+        let clean = m[1].replace(/^[.,!?;:'"«»()\s]+|[.,!?;:'"«»()\s]+$/g, '').trim();
+        return { fullMatch: m[0], cleanGap: clean };
+    }
+
+    // 3. Brackets [word]
+    m = sentenceStr.match(/\[([^\]]+)\]/);
+    if (m) {
+        let clean = m[1].replace(/^[.,!?;:'"«»()\s]+|[.,!?;:'"«»()\s]+$/g, '').trim();
+        return { fullMatch: m[0], cleanGap: clean };
+    }
+
+    return { fullMatch: null, cleanGap: "" };
+}
 
 /* =========================
    GOOGLE OAUTH & TOKEN MANAGEMENT
@@ -1171,7 +1211,6 @@ function insertVirtualChar(char) {
 window.onload = async () => {
     gisInit();
 
-    // Load GAPI client silently in the background without requesting tokens or popups
     if (window.gapi) {
         gapi.load('client', () => {
             gapi.client.init({}).then(() => {
@@ -1194,14 +1233,12 @@ window.onload = async () => {
                 document.getElementById('student-display-name').innerText = currentUser.displayName || 'Student';
                 document.getElementById('student-display-email').innerText = `(${currentUser.email})`;
                 
-                document.getElementById('student-active-exercise-card').style.display = 'block';
-                document.getElementById('student-nav-actions').style.display = 'flex';
-
                 loadStudentTask(assignmentId);
             } else {
                 document.getElementById('student-login-box').style.display = 'block';
                 document.getElementById('student-profile-badge').style.display = 'none';
                 document.getElementById('student-active-exercise-card').style.display = 'none';
+                document.getElementById('student-marksheet-card').style.display = 'none';
                 document.getElementById('student-reference-banner').style.display = 'none';
                 document.getElementById('student-nav-actions').style.display = 'none';
                 document.getElementById('virtual-keyboard-bar').style.display = 'none';
@@ -1283,9 +1320,6 @@ async function studentLogin() {
         document.getElementById('student-profile-badge').style.display = 'inline-block';
         document.getElementById('student-display-name').innerText = currentUser.displayName || 'Student';
         document.getElementById('student-display-email').innerText = `(${currentUser.email})`;
-
-        document.getElementById('student-active-exercise-card').style.display = 'block';
-        document.getElementById('student-nav-actions').style.display = 'flex';
 
         const urlParams = new URLSearchParams(window.location.search);
         const assignmentId = urlParams.get('assignmentId');
@@ -2855,7 +2889,7 @@ function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
                         } else if (actId === 'gap-en' || actId === 'gap-t') {
                             const isTarget = (actId === 'gap-t');
                             const fullSentence = isTarget ? (s.t||'') : (s.tr||'');
-                            const markedSentence = fullSentence.includes('*') ? fullSentence : addAsteriskToGapWord(fullSentence, usedGapWords);
+                            const markedSentence = extractGapWord(fullSentence).fullMatch ? fullSentence : addAsteriskToGapWord(fullSentence, usedGapWords);
 
                             return `
                                 <div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
@@ -2884,7 +2918,7 @@ function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
 }
 
 function addAsteriskToGapWord(sentenceStr, usedGapWords) {
-    if (!sentenceStr || sentenceStr.includes('*')) return sentenceStr;
+    if (!sentenceStr || extractGapWord(sentenceStr).fullMatch) return sentenceStr;
 
     const tokens = sentenceStr.split(' ');
     const candidates = [];
@@ -3122,7 +3156,8 @@ async function publishTaskToClassroom() {
     });
 
     const title = document.getElementById('builder-title').value || "Sentence Practice";
-    const maxPoints = totalSentencesCount * 2;
+    // Each exercise item is default out of 1 mark
+    const maxPoints = totalSentencesCount * 1;
     const dueDateVal = document.getElementById('gc-due-date').value;
     const scheduleDateVal = document.getElementById('gc-schedule-date').value;
     const topicId = document.getElementById('gc-topic-select').value;
@@ -3141,7 +3176,6 @@ async function publishTaskToClassroom() {
 
     await ensureGapiClassroomLoaded();
 
-    // IF EDITING AN EXISTING ASSIGNMENT
     if (editingAssignmentId) {
         try {
             const assignDoc = await db.collection("assignments").doc(editingAssignmentId).get();
@@ -3151,7 +3185,7 @@ async function publishTaskToClassroom() {
                 title: title,
                 selectedActivities: selectedActivities,
                 sentencesPerActivity: structuredSentencesPerActivity,
-                maxPoints: maxPoints > 0 ? maxPoints : 20,
+                maxPoints: maxPoints > 0 ? maxPoints : 10,
                 dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
                 scheduleDate: scheduleDateVal ? new Date(scheduleDateVal).toISOString() : null,
                 topicId: topicId || null,
@@ -3161,7 +3195,7 @@ async function publishTaskToClassroom() {
             await db.collection("assignments").doc(editingAssignmentId).update(updatePayload);
 
             if (existingData && existingData.gClassroomAssignmentId && existingData.courseId) {
-                const cwPatch = { title: `🧩 ${title}`, maxPoints: maxPoints > 0 ? maxPoints : 20 };
+                const cwPatch = { title: `🧩 ${title}`, maxPoints: maxPoints > 0 ? maxPoints : 10 };
                 const updateMasks = ["title", "maxPoints"];
 
                 if (gcDueDate && gcDueTime) {
@@ -3199,7 +3233,6 @@ async function publishTaskToClassroom() {
         }
     }
 
-    // IF CREATING A NEW ASSIGNMENT
     const assignmentRef = db.collection("assignments").doc();
     const assignmentId = assignmentRef.id;
     const studentUrl = `${window.location.origin}${window.location.pathname}?assignmentId=${assignmentId}`;
@@ -3208,7 +3241,7 @@ async function publishTaskToClassroom() {
         title: `🧩 ${title}`,
         description: `Complete the interactive sentence practice online.`,
         workType: 'ASSIGNMENT',
-        maxPoints: maxPoints > 0 ? maxPoints : 20,
+        maxPoints: maxPoints > 0 ? maxPoints : 10,
         materials: [{ link: { url: studentUrl, title: "Interactive Sentence Task" } }]
     };
 
@@ -3243,7 +3276,7 @@ async function publishTaskToClassroom() {
         lang: document.getElementById('meta-lang').value || meta.lang || "French",
         selectedActivities: selectedActivities,
         sentencesPerActivity: structuredSentencesPerActivity,
-        maxPoints: maxPoints > 0 ? maxPoints : 20,
+        maxPoints: maxPoints > 0 ? maxPoints : 10,
         dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
         scheduleDate: scheduleDateVal ? new Date(scheduleDateVal).toISOString() : null,
         topicId: topicId || null,
@@ -3255,7 +3288,7 @@ async function publishTaskToClassroom() {
 }
 
 /* =========================
-   STUDENT PORTAL & SEQUENTIAL INTERACTIVE EXERCISES
+   STUDENT PORTAL & MARKSHEET REVIEW
 ========================= */
 function getCleanActivityTitle(type, lang) {
     const map = {
@@ -3318,7 +3351,83 @@ async function loadStudentTask(assignmentId) {
         document.getElementById('student-reference-banner').style.display = 'none';
     }
 
+    // CHECK IF STUDENT HAS ALREADY SUBMITTED THIS ASSIGNMENT
+    if (currentUser && currentUser.email) {
+        const subSnap = await db.collection("submissions")
+            .where("assignmentId", "==", assignmentId)
+            .where("studentEmail", "==", currentUser.email.toLowerCase())
+            .get();
+
+        if (!subSnap.empty) {
+            const studentSub = subSnap.docs[0].data();
+            renderStudentMarksheetReview(studentSub);
+            return;
+        }
+    }
+
+    document.getElementById('student-marksheet-card').style.display = 'none';
+    document.getElementById('student-active-exercise-card').style.display = 'block';
+    document.getElementById('student-nav-actions').style.display = 'flex';
+
     renderCurrentStudentExercise();
+}
+
+function renderStudentMarksheetReview(sub) {
+    document.getElementById('student-active-exercise-card').style.display = 'none';
+    document.getElementById('student-nav-actions').style.display = 'none';
+    document.getElementById('virtual-keyboard-bar').style.display = 'none';
+
+    const marksheetCard = document.getElementById('student-marksheet-card');
+    marksheetCard.style.display = 'block';
+
+    const header = document.getElementById('marksheet-summary-header');
+    header.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+                <strong style="font-size:16px; color:#0f172a;">Your Overall Result:</strong><br>
+                <span style="font-size:22px; font-weight:bold; color:#10b981;">
+                    ${sub.overallGrade || sub.totalEarned} / ${sub.totalPossible} (${sub.percentage}%)
+                </span>
+            </div>
+            ${sub.teacherComment ? `<div style="background:#fff; padding:8px 12px; border-radius:6px; border:1px solid #cbd5e1; max-width:300px;"><b>Teacher Comment:</b><br><i>"${sub.teacherComment}"</i></div>` : ''}
+        </div>
+    `;
+
+    const content = document.getElementById('marksheet-report-content');
+    let html = '';
+
+    const report = sub.detailedReport || [];
+    if (report.length === 0) {
+        html = '<p style="color:#64748b;">No itemized answer details available for this submission.</p>';
+    } else {
+        report.forEach((act, actIdx) => {
+            html += `
+                <div style="border:1px solid #cbd5e1; border-radius:8px; margin-bottom:15px; overflow:hidden; background:white;">
+                    <div style="background:#f1f5f9; padding:10px 15px; font-weight:bold; color:#0f172a; border-bottom:1px solid #e2e8f0;">
+                        Exercise ${actIdx + 1}: ${act.activityTitle}
+                    </div>
+                    <div style="padding:12px;">
+                        ${(act.responses || []).map((r, i) => `
+                            <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
+                                <div style="flex:1;">
+                                    <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
+                                    <div style="color:${r.isCorrect ? '#10b981' : '#ef4444'}; margin-top:2px;">
+                                        <b>Your Answer:</b> ${r.studentAnswer}
+                                    </div>
+                                    ${!r.isCorrect ? `<div style="color:#2563eb; font-size:13px; margin-top:2px;"><b>Correction:</b> ${r.correctAnswer}</div>` : ''}
+                                </div>
+                                <div style="font-weight:bold; color:${r.isCorrect ? '#10b981' : '#ef4444'}; padding-left:10px;">
+                                    ${r.points} / 1 pt
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    content.innerHTML = html;
 }
 
 function toggleReferenceTable() {
@@ -3541,15 +3650,20 @@ function renderCurrentStudentExercise() {
             let fullSentence = isTarget ? s.t : s.tr;
             const promptLabel = isTarget ? s.tr : s.t;
 
-            let displaySentence = fullSentence;
-            let gapWord = "";
+            let { fullMatch, cleanGap } = extractGapWord(fullSentence);
 
-            const match = fullSentence.match(/\*([^*]+)\*/);
-            if (match) {
-                gapWord = match[1];
-                displaySentence = fullSentence.replace(`*${gapWord}*`, `<input type="text" class="gap-inline-input" data-correct="${gapWord.replace(/"/g, '&quot;')}" style="padding:3px 6px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold; width:110px; margin:0 3px;">`);
-            } else {
-                displaySentence = fullSentence;
+            let displaySentence = fullSentence;
+            if (!fullMatch) {
+                const autoMarked = addAsteriskToGapWord(fullSentence, new Set());
+                const res = extractGapWord(autoMarked);
+                fullMatch = res.fullMatch;
+                cleanGap = res.cleanGap;
+                if (fullMatch) displaySentence = autoMarked;
+            }
+
+            if (fullMatch && cleanGap) {
+                const inputHtml = `<input type="text" class="gap-inline-input" data-correct="${cleanGap.replace(/"/g, '&quot;')}" style="padding:3px 6px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold; width:120px; margin:0 3px;">`;
+                displaySentence = displaySentence.replace(fullMatch, inputHtml);
             }
 
             gHtml += `
@@ -3571,7 +3685,7 @@ function renderCurrentStudentExercise() {
             if (actType === 'faulty') {
                 const faultyText = s.faultyTr || getOrGenerateFaultyTr(s);
                 promptText = `Target Language (${docLang}): <b>${s.t}</b><br><span style="color:#b91c1c; font-weight:600; font-size:13px;">Faulty English to correct: "${faultyText}"</span>`;
-                answerRef = s.tr;
+                answerRef = s.tr; // Correct English translation!
             } else if (actType === 'trans-en') {
                 promptText = `Translate into English: <b>${s.t}</b>`;
                 answerRef = s.tr;
@@ -3715,7 +3829,7 @@ function saveStudentCurrentExerciseResponses() {
                 studentAnswer: isDone ? s.tr : '(Unmatched)',
                 correctAnswer: s.tr,
                 isCorrect: isDone,
-                points: isDone ? 2 : 0
+                points: isDone ? 1 : 0
             });
         });
     } else if (actType === 'jumbled') {
@@ -3730,7 +3844,7 @@ function saveStudentCurrentExerciseResponses() {
                 studentAnswer: studentText || '(Empty)',
                 correctAnswer: s.t,
                 isCorrect: isCorrect,
-                points: isCorrect ? 2 : 0
+                points: isCorrect ? 1 : 0
             });
         });
     } else if (actType === 'nospaces') {
@@ -3743,8 +3857,8 @@ function saveStudentCurrentExerciseResponses() {
             const isDoneWithMistakes = (unrevealed.length === 0) && (wrongClicks > 0);
 
             let points = 0;
-            if (isFullyCorrect) points = 2;
-            else if (isDoneWithMistakes) points = 1;
+            if (isFullyCorrect) points = 1;
+            else if (isDoneWithMistakes) points = 0.5;
 
             responses.push({
                 prompt: s.tr,
@@ -3765,7 +3879,7 @@ function saveStudentCurrentExerciseResponses() {
                 studentAnswer: allCorrect ? s.t : '(Incomplete/Incorrect letters)',
                 correctAnswer: s.t,
                 isCorrect: allCorrect,
-                points: allCorrect ? 2 : 0
+                points: allCorrect ? 1 : 0
             });
         });
     } else if (actType === 'gap-en' || actType === 'gap-t') {
@@ -3781,7 +3895,7 @@ function saveStudentCurrentExerciseResponses() {
                 studentAnswer: ans || '(Empty)',
                 correctAnswer: correct,
                 isCorrect: isCorrect,
-                points: isCorrect ? 2 : 0
+                points: isCorrect ? 1 : 0
             });
         });
     } else {
@@ -3792,14 +3906,14 @@ function saveStudentCurrentExerciseResponses() {
             const correct = block.dataset.correct || s.tr || s.t;
 
             const isExact = normalizeString(ans) === normalizeString(correct);
-            const isPartial = !isExact && ans.length > 0 && (correct.toLowerCase().includes(ans.toLowerCase()));
+            const isPartial = !isExact && ans.length > 0 && (normalizeString(correct).includes(normalizeString(ans)));
 
             responses.push({
                 prompt: s.t || s.tr,
                 studentAnswer: ans || '(Empty)',
                 correctAnswer: correct,
                 isCorrect: isExact,
-                points: isExact ? 2 : (isPartial ? 1 : 0)
+                points: isExact ? 1 : (isPartial ? 0.5 : 0)
             });
         });
     }
@@ -3824,7 +3938,7 @@ function prevStudentExercise() {
 }
 
 function normalizeString(str) {
-    return (str || "").toString().toLowerCase().trim().replace(/[.,!?;:]/g, '').replace(/\s+/g, ' ');
+    return (str || "").toString().toLowerCase().trim().replace(/[.,!?;:'"«»()]/g, '').replace(/\s+/g, ' ');
 }
 
 async function submitStudentWork() {
@@ -3840,7 +3954,7 @@ async function submitStudentWork() {
         const responses = studentAnswersState[actType] || [];
         responses.forEach(r => {
             earned += r.points;
-            possible += 2;
+            possible += 1;
         });
 
         detailedReport.push({
@@ -3852,7 +3966,7 @@ async function submitStudentWork() {
 
     const pct = possible > 0 ? Math.round((earned / possible) * 100) : 0;
 
-    await db.collection("submissions").add({
+    const subData = {
         assignmentId: currentStudentAssignment.id,
         courseId: currentStudentAssignment.courseId,
         studentName: currentUser.displayName || 'Student',
@@ -3863,9 +3977,14 @@ async function submitStudentWork() {
         percentage: pct,
         detailedReport: detailedReport,
         submittedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    };
+
+    await db.collection("submissions").add(subData);
 
     alert(`🎉 Activity Submitted Successfully!\nYour Score: ${earned} / ${possible} (${pct}%)`);
+    
+    // Render the Marksheet review view immediately
+    renderStudentMarksheetReview(subData);
 }
 
 /* =========================
@@ -3972,7 +4091,7 @@ async function renderStudentSubmissionsTable() {
             infoBanner.style.display = 'flex';
             document.getElementById('active-task-title').innerText = assign.title || "Untitled Assignment";
             
-            let metaText = `Language: ${assign.lang || 'N/A'} | Max Score: ${assign.maxPoints || 20}`;
+            let metaText = `Language: ${assign.lang || 'N/A'} | Max Score: ${assign.maxPoints || 10}`;
             if (assign.dueDate) {
                 metaText += ` | Due: ${new Date(assign.dueDate).toLocaleString([], {dateStyle:'short', timeStyle:'short'})}`;
             }
@@ -4008,7 +4127,10 @@ async function renderStudentSubmissionsTable() {
                         ${sub.totalEarned} / ${sub.totalPossible} (${sub.percentage}%)<br>
                         <button onclick="inspectStudentAnswers('${subId}')" class="btn-info" style="font-size:11px; padding:3px 8px; margin-top:4px;">🔍 View Answers</button>
                     </td>
-                    <td><input type="number" id="grade-${subId}" value="${sub.overallGrade}" style="width:60px; padding:4px;"> / ${sub.totalPossible}</td>
+                    <td>
+                        <input type="number" id="grade-${subId}" value="${sub.overallGrade !== undefined ? sub.overallGrade : sub.totalEarned}" style="width:50px; padding:4px;"> 
+                        / <input type="number" id="possible-${subId}" value="${sub.totalPossible}" style="width:50px; padding:4px;">
+                    </td>
                     <td><input type="text" id="comment-${subId}" value="${sub.teacherComment || ''}" style="width:100%; padding:4px;"></td>
                     <td><button onclick="saveAndSyncGrade('${subId}')" class="btn-purple" style="font-size:12px;">🚀 Sync to Classroom</button></td>
                 </tr>
@@ -4052,13 +4174,11 @@ async function editCurrentAssignment() {
 
     document.getElementById('builder-title').value = assign.title || '';
     
-    // Pre-check selected activity boxes
     const selActs = assign.selectedActivities || [];
     document.querySelectorAll('#activity-list input').forEach(cb => {
         cb.checked = selActs.includes(cb.value);
     });
 
-    // Detect and set sentence count dropdown
     let detectedCount = 10;
     if (assign.sentencesPerActivity) {
         for (let actKey in assign.sentencesPerActivity) {
@@ -4071,16 +4191,13 @@ async function editCurrentAssignment() {
     const sentCountSelect = document.getElementById('sentence-count');
     if (sentCountSelect) sentCountSelect.value = String(detectedCount);
 
-    // Render exercise sentence boxes using stored saved sentences
     renderPerActivitySentenceBoxes(assign.sentencesPerActivity || null);
 
     document.getElementById('activity-menu').style.display = 'block'; 
     document.getElementById('overlay').style.display = 'block';
 
-    // Await Google Classroom Publish Section to populate course dropdown
     await openClassroomPublishSection();
 
-    // Pre-populate Classroom options AFTER courses are loaded
     if (assign.courseId) {
         document.getElementById('gc-course-select').value = assign.courseId;
         await loadCourseTopics(assign.courseId);
@@ -4089,7 +4206,6 @@ async function editCurrentAssignment() {
         }
     }
 
-    // Pre-populate Due Date & Schedule Date
     if (assign.dueDate) {
         const d = new Date(assign.dueDate);
         const pad = (n) => String(n).padStart(2, '0');
@@ -4190,7 +4306,7 @@ async function inspectStudentAnswers(subId) {
                                     ${!r.isCorrect ? `<div style="color:#64748b; font-size:12px;"><b>Correct:</b> ${r.correctAnswer}</div>` : ''}
                                 </div>
                                 <div style="font-weight:bold; color:${r.isCorrect ? '#10b981' : '#ef4444'};">
-                                    ${r.points} / 2 pts
+                                    ${r.points} / 1 pt
                                 </div>
                             </div>
                         `).join('')}
@@ -4206,11 +4322,16 @@ async function inspectStudentAnswers(subId) {
 }
 
 async function saveAndSyncGrade(subId) {
-    const gradeVal = parseInt(document.getElementById(`grade-${subId}`).value, 10);
+    const gradeVal = parseFloat(document.getElementById(`grade-${subId}`).value);
+    const possibleVal = parseFloat(document.getElementById(`possible-${subId}`).value);
     const commentVal = document.getElementById(`comment-${subId}`).value.trim();
+
+    const pct = possibleVal > 0 ? Math.round((gradeVal / possibleVal) * 100) : 0;
 
     await db.collection("submissions").doc(subId).update({
         overallGrade: gradeVal,
+        totalPossible: possibleVal,
+        percentage: pct,
         teacherComment: commentVal
     });
 
