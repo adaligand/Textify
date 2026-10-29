@@ -2676,49 +2676,37 @@ function isEligibleForFaulty(sentence) {
 }
 
 function generateFaultySentenceObj(sentence) {
-    if (!sentence || !sentence.parts || sentence.parts.length === 0) return null;
+    if (!sentence || !sentence.parts) return null;
 
-    const eligibleParts = [];
-
-    sentence.parts.forEach((p, partIdx) => {
+    const multiItemParts = sentence.parts.filter(p => {
         const cell = getCellAt(p.r, p.c);
-        if (!cell || !cell.items) return;
-
-        const origTr = (p.tr || "").trim();
-        if (!origTr) return;
-
-        const validTrs = cell.items
-            .map(it => (it.tr || "").trim())
-            .filter(tr => tr && tr.toLowerCase() !== origTr.toLowerCase());
-
-        if (validTrs.length > 0) {
-            eligibleParts.push({
-                partIdx: partIdx,
-                origTr: origTr,
-                alternatives: validTrs
-            });
-        }
+        if (!cell || !cell.items) return false;
+        const validTrs = cell.items.filter(it => it.tr && it.tr.trim() !== "");
+        return validTrs.length > 1;
     });
 
-    if (eligibleParts.length === 0) return null;
+    if (multiItemParts.length === 0) return null;
 
-    const chosen = eligibleParts[Math.floor(Math.random() * eligibleParts.length)];
-    const chosenDistractor = chosen.alternatives[Math.floor(Math.random() * chosen.alternatives.length)];
+    const chosenPart = multiItemParts[Math.floor(Math.random() * multiItemParts.length)];
+    const cell = getCellAt(chosenPart.r, chosenPart.c);
 
-    const newTrParts = sentence.parts.map((p, idx) => {
-        if (idx === chosen.partIdx) {
-            return chosenDistractor;
-        }
-        return (p.tr || "").trim();
-    });
+    const origTr = (chosenPart.tr || "").trim();
+    const alternatives = cell.items
+        .map(it => (it.tr || "").trim())
+        .filter(tr => tr && tr.toLowerCase() !== origTr.toLowerCase());
 
-    const faultyTr = newTrParts.filter(Boolean).join(" ");
+    if (alternatives.length === 0) return null;
 
-    return {
-        target: sentence.t,
-        correctTr: sentence.tr,
-        faultyTr: faultyTr
-    };
+    const faultyDistractor = alternatives[Math.floor(Math.random() * alternatives.length)];
+    
+    let faultyTr = sentence.tr;
+    if (origTr && faultyTr.includes(origTr)) {
+        faultyTr = faultyTr.replace(origTr, faultyDistractor);
+    } else {
+        faultyTr = faultyTr + " (" + faultyDistractor + ")";
+    }
+
+    return faultyTr;
 }
 
 function getOrGenerateFaultyTr(sentence) {
@@ -2774,9 +2762,20 @@ function renderPerActivitySentenceBoxes() {
         }
 
         actSents.forEach(s => usedSentenceTexts.add(s.t.trim()));
-
-        // Track used gap words across sentences for this activity
         const usedGapWords = new Set();
+
+        if (actId === 'faulty' && actSents.length === 0) {
+            html += `
+                <div class="act-sentence-card" id="act-card-${actId}">
+                    <div class="act-card-header" style="background:#fee2e2;">
+                        <span>⚠️ ${actLabel} (0 Eligible Sentences)</span>
+                    </div>
+                    <div class="act-card-body" style="display:block; color:#b91c1c;">
+                        None of your grid cells contain alternative translations. Add multiple target/translation rows into grid cells to enable Faulty Translation options.
+                    </div>
+                </div>`;
+            return;
+        }
 
         html += `
             <div class="act-sentence-card" id="act-card-${actId}">
@@ -2787,13 +2786,12 @@ function renderPerActivitySentenceBoxes() {
                 <div id="act-body-${actId}" class="act-card-body" data-activity-id="${actId}" style="display:none;">
                     ${actSents.map((s, idx) => {
                         if (actId === 'faulty') {
-                            const faultyVal = s.faultyTr || getOrGenerateFaultyTr(s);
+                            const faultyVal = s.faultyTr || generateFaultySentenceObj(s) || s.tr;
                             return `
-                                <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
+                                <div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
                                     <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
-                                    <input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">
-                                    <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">
-                                    <input type="text" class="edit-faulty-tr" value="${faultyVal.replace(/"/g, '&quot;')}" placeholder="Faulty English" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px; color:#b91c1c;">
+                                    <input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" placeholder="Correct Target" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-weight:600;">
+                                    <input type="text" class="edit-faulty-tr" value="${faultyVal.replace(/"/g, '&quot;')}" placeholder="Faulty English Translation" style="flex:1; padding:5px; border:1px solid #fca5a5; background:#fef2f2; color:#b91c1c; border-radius:4px; font-weight:600;">
                                 </div>`;
                         } else if (actId === 'gap-en' || actId === 'gap-t') {
                             const isTarget = (actId === 'gap-t');
@@ -2801,21 +2799,21 @@ function renderPerActivitySentenceBoxes() {
                             const markedSentence = addAsteriskToGapWord(fullSentence, usedGapWords);
 
                             return `
-                                <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
+                                <div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
                                     <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
                                     ${isTarget 
-                                        ? `<input type="text" class="edit-t" value="${markedSentence.replace(/"/g, '&quot;')}" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold;">
-                                           <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">`
-                                        : `<input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">
-                                           <input type="text" class="edit-tr" value="${markedSentence.replace(/"/g, '&quot;')}" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold;">`
+                                        ? `<input type="text" class="edit-t" value="${markedSentence.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold;" placeholder="Target (with *gap*)">
+                                           <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;" placeholder="English Prompt">`
+                                        : `<input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;" placeholder="Target Prompt">
+                                           <input type="text" class="edit-tr" value="${markedSentence.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold;" placeholder="English (with *gap*)">`
                                     }
                                 </div>`;
                         } else {
                             return `
-                                <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
+                                <div style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
                                     <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
-                                    <input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">
-                                    <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" style="flex:1; padding:4px; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <input type="text" class="edit-t" value="${s.t.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <input type="text" class="edit-tr" value="${s.tr.replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;">
                                 </div>`;
                         }
                     }).join('')}
@@ -2835,18 +2833,13 @@ function addAsteriskToGapWord(sentenceStr, usedGapWords) {
 
     tokens.forEach((tok, idx) => {
         const clean = tok.replace(/[.,!?;:'"«»()]/g, '').trim();
-        if (clean.length >= 2) {
-            const cleanLower = clean.toLowerCase();
-            if (!usedGapWords.has(cleanLower)) {
-                candidates.push({ idx, clean, cleanLower, orig: tok });
-            }
+        if (clean.length >= 2 && !usedGapWords.has(clean.toLowerCase())) {
+            candidates.push({ idx, clean, cleanLower: clean.toLowerCase(), orig: tok });
         }
     });
 
-    let chosen = null;
-    if (candidates.length > 0) {
-        chosen = candidates[Math.floor(Math.random() * candidates.length)];
-    } else {
+    let chosen = candidates.length > 0 ? candidates[Math.floor(Math.random() * candidates.length)] : null;
+    if (!chosen) {
         tokens.forEach((tok, idx) => {
             const clean = tok.replace(/[.,!?;:'"«»()]/g, '').trim();
             if (clean.length >= 2) chosen = { idx, clean, cleanLower: clean.toLowerCase(), orig: tok };
