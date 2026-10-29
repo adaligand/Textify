@@ -490,6 +490,8 @@ button:hover { background: #f1f5f9; }
 }
 .vk-btn:hover { background: #475569; }
 
+.blue { color: var(--translation-blue); font-style: italic; }
+
 /* SUBMISSIONS TABLE */
 table { width: 100%; border-collapse: collapse; margin-top: 15px; }
 th, td { padding: 12px; border-bottom: 1px solid #cbd5e1; text-align: left; }
@@ -894,7 +896,7 @@ window.onload = async () => {
     });
 };
 
-// Teacher Login with integrated Classroom API Scopes (Prevents Double Logins)
+// Teacher Login with integrated Classroom API Scopes
 async function login() {
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
@@ -2898,8 +2900,41 @@ async function publishTaskToClassroom() {
 }
 
 /* =========================
-   STUDENT PORTAL & AUTO-MARKING
+   STUDENT PORTAL & DYNAMIC EXERCISES
 ========================= */
+function getCleanActivityTitle(type, lang) {
+    const map = {
+        'study': 'Sentence Table',
+        'match': 'Match Up',
+        'nospaces': 'No Spaces',
+        'jumbled': 'Unjumble Sentences',
+        'gap-en': 'Gap Fill (English)',
+        'gap-t': `Gap Fill (${lang})`,
+        'vowels': 'Missing Vowels',
+        'cons': 'Missing Consonants',
+        'faulty': 'Faulty Translation',
+        'trans-en': 'Translate to English',
+        'trans-target': `Translate to ${lang}`
+    };
+    return map[type] || type.toUpperCase();
+}
+
+function getActivityInstruction(type, lang) {
+    const map = {
+        'match': `Match each ${lang} sentence with its correct English translation.`,
+        'nospaces': 'Rewrite the sentence adding correct spaces between the words.',
+        'jumbled': `Reorder the words to form correct ${lang} sentences.`,
+        'gap-en': 'Type the missing English word.',
+        'gap-t': `Type the missing ${lang} word.`,
+        'vowels': 'Complete the sentence with all correct vowels.',
+        'cons': 'Complete the sentence with all correct consonants.',
+        'faulty': 'Type the correct English translation.',
+        'trans-en': `Translate the ${lang} sentence into English.`,
+        'trans-target': `Translate the English sentence into ${lang}.`
+    };
+    return map[type] || 'Complete the exercise below.';
+}
+
 async function loadStudentTask(assignmentId) {
     const doc = await db.collection("assignments").doc(assignmentId).get();
     if (!doc.exists) return alert("Assignment not found.");
@@ -2907,20 +2942,24 @@ async function loadStudentTask(assignmentId) {
     currentStudentAssignment = doc.data();
     document.getElementById('student-task-title').innerText = currentStudentAssignment.title;
 
-    setupVirtualKeyboard(currentStudentAssignment.lang);
+    const docLang = currentStudentAssignment.lang || "French";
+    setupVirtualKeyboard(docLang);
 
     const container = document.getElementById('student-activities-container');
     container.innerHTML = '';
 
     const masterSentences = currentStudentAssignment.customSentences || [];
 
-    // Ensure distinct/varied sentences per exercise block
     currentStudentAssignment.selectedActivities.forEach((actType, actIndex) => {
         const block = document.createElement('div');
         block.className = 'student-card student-exercise-block';
         block.dataset.type = actType;
 
-        let content = `<h3>Activity ${actIndex + 1}: ${actType.toUpperCase()}</h3>`;
+        const titleText = getCleanActivityTitle(actType, docLang);
+        const instructionText = getActivityInstruction(actType, docLang);
+
+        let content = `<h3 style="margin-top:0; color:#1e293b; border-bottom:2px solid #e2e8f0; padding-bottom:8px;">Activity ${actIndex + 1}: ${titleText}</h3>`;
+        content += `<p style="color:#64748b; font-style:italic; margin-bottom:15px;">${instructionText}</p>`;
 
         // Rotate and shuffle sentences so each exercise uses different sentence sets/orders
         let exerciseSentences = [...masterSentences];
@@ -2930,32 +2969,107 @@ async function loadStudentTask(assignmentId) {
             exerciseSentences.sort(() => 0.5 - Math.random());
         }
 
-        exerciseSentences.forEach((s, qIdx) => {
-            if (actType === 'match') {
+        // 1. MATCH UP EXERCISE
+        if (actType === 'match') {
+            const shuffledEnglish = [...exerciseSentences].sort(() => 0.5 - Math.random());
+            let optionsTableHtml = '<div style="background:#f8fafc; border:1px solid #e2e8f0; margin-bottom:15px; border-radius:6px; padding:12px;"><b style="display:block; margin-bottom:6px; color:#334155;">Translation Options:</b>';
+            shuffledEnglish.forEach((s, idx) => {
+                optionsTableHtml += `<div style="padding:2px 0;"><b>${String.fromCharCode(65 + idx)}.</b> ${s.tr}</div>`;
+            });
+            optionsTableHtml += '</div>';
+            content += optionsTableHtml;
+
+            exerciseSentences.forEach((s, qIdx) => {
+                const matchIndex = shuffledEnglish.findIndex(item => item.tr === s.tr);
+                const correctLetter = String.fromCharCode(65 + matchIndex);
+
                 content += `
-                    <div class="question-row" data-correct="${s.tr}" style="margin-bottom:12px;">
-                        <label>${qIdx + 1}. <b>${s.t}</b></label>
-                        <input type="text" placeholder="Type English translation..." style="width:100%; padding:8px; margin-top:4px; border:1px solid #cbd5e1; border-radius:4px;">
+                    <div class="question-row" data-correct="${correctLetter}" style="margin-bottom:12px; display:flex; align-items:center; gap:10px;">
+                        <label style="flex:1;"><b>${qIdx + 1}.</b> ${s.t}</label>
+                        <select class="student-answer-input" style="padding:8px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold;">
+                            <option value="">-- Match --</option>
+                            ${shuffledEnglish.map((_, idx) => `<option value="${String.fromCharCode(65 + idx)}">${String.fromCharCode(65 + idx)}</option>`).join('')}
+                        </select>
                     </div>`;
-            } else if (actType === 'jumbled') {
-                const jumbled = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
+            });
+        } 
+        // ALL OTHER DYNAMIC EXERCISES
+        else {
+            exerciseSentences.forEach((s, qIdx) => {
+                let questionHtml = "";
+                let correctAnswer = "";
+
+                if (actType === 'nospaces') {
+                    const noSpaces = s.t.replace(/\s+/g, '').toLowerCase();
+                    questionHtml = `<label><b>${qIdx + 1}.</b> Add spaces: <span style="font-family:monospace; font-size:16px; color:#2563eb; font-weight:bold;">${noSpaces}</span></label>`;
+                    correctAnswer = s.t;
+                } 
+                else if (actType === 'jumbled') {
+                    const jumbled = s.t.split(' ').sort(() => 0.5 - Math.random()).join(' / ');
+                    questionHtml = `<label><b>${qIdx + 1}.</b> Unjumble: <b>${jumbled}</b></label>`;
+                    correctAnswer = s.t;
+                }
+                else if (actType === 'gap-en') {
+                    const words = s.tr.split(' ');
+                    const randIdx = Math.floor(Math.random() * words.length);
+                    const missingWord = words[randIdx].replace(/[.,!?;:]/g, '');
+                    words[randIdx] = '___________';
+                    questionHtml = `<label><b>${qIdx + 1}.</b> ${s.t} = <span class="blue">(${words.join(' ')})</span></label>`;
+                    correctAnswer = missingWord;
+                }
+                else if (actType === 'gap-t') {
+                    const words = s.t.split(' ');
+                    const randIdx = Math.floor(Math.random() * words.length);
+                    const missingWord = words[randIdx].replace(/[.,!?;:]/g, '');
+                    words[randIdx] = '___________';
+                    questionHtml = `<label><b>${qIdx + 1}.</b> ${words.join(' ')} <span class="blue">(${s.tr})</span></label>`;
+                    correctAnswer = missingWord;
+                }
+                else if (actType === 'vowels') {
+                    const vowStr = s.t.replace(/[aeiouàéèíóúüÄÖÜäöü]/gi, '___');
+                    questionHtml = `<label><b>${qIdx + 1}.</b> Fill vowels: <b>${vowStr}</b> <span class="blue">(${s.tr})</span></label>`;
+                    correctAnswer = s.t;
+                }
+                else if (actType === 'cons') {
+                    const consStr = s.t.replace(/[bcdfghjklmnpqrstvwxyzß]/gi, '___');
+                    questionHtml = `<label><b>${qIdx + 1}.</b> Fill consonants: <b>${consStr}</b> <span class="blue">(${s.tr})</span></label>`;
+                    correctAnswer = s.t;
+                }
+                else if (actType === 'faulty') {
+                    let faultyTr = s.tr;
+                    const words = s.tr.split(' ');
+                    if (words.length > 2) {
+                        const swapIdx = Math.floor(Math.random() * words.length);
+                        words[swapIdx] = "[wrong]";
+                        faultyTr = words.join(' ');
+                    }
+                    questionHtml = `<label><b>${qIdx + 1}.</b> Correct mistake in: <b>${s.t}</b> <br><span style="color:#dc2626; font-style:italic;">(Faulty: ${faultyTr})</span></label>`;
+                    correctAnswer = s.tr;
+                }
+                else if (actType === 'trans-en') {
+                    questionHtml = `<label><b>${qIdx + 1}.</b> Translate to English: <b>${s.t}</b></label>`;
+                    correctAnswer = s.tr;
+                }
+                else if (actType === 'trans-target') {
+                    questionHtml = `<label><b>${qIdx + 1}.</b> Translate to ${docLang}: <span class="blue">(${s.tr})</span></label>`;
+                    correctAnswer = s.t;
+                }
+
                 content += `
-                    <div class="question-row" data-correct="${s.t}" style="margin-bottom:12px;">
-                        <label>${qIdx + 1}. [${jumbled}]</label>
-                        <input type="text" placeholder="Unjumble sentence..." style="width:100%; padding:8px; margin-top:4px; border:1px solid #cbd5e1; border-radius:4px;">
+                    <div class="question-row" data-correct="${correctAnswer.replace(/"/g, '&quot;')}" style="margin-bottom:12px;">
+                        ${questionHtml}
+                        <input type="text" class="student-answer-input" placeholder="Type answer..." style="width:100%; padding:8px; margin-top:4px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
                     </div>`;
-            } else {
-                content += `
-                    <div class="question-row" data-correct="${s.t}" style="margin-bottom:12px;">
-                        <label>${qIdx + 1}. Translate to Target Language: (${s.tr})</label>
-                        <input type="text" placeholder="Type sentence..." style="width:100%; padding:8px; margin-top:4px; border:1px solid #cbd5e1; border-radius:4px;">
-                    </div>`;
-            }
-        });
+            });
+        }
 
         block.innerHTML = content;
         container.appendChild(block);
     });
+}
+
+function normalizeString(str) {
+    return (str || "").toString().toLowerCase().trim().replace(/[.,!?;:]/g, '').replace(/\s+/g, ' ');
 }
 
 async function submitStudentWork() {
@@ -2967,18 +3081,19 @@ async function submitStudentWork() {
     document.querySelectorAll('.student-exercise-block').forEach(block => {
         block.querySelectorAll('.question-row').forEach(q => {
             possible += 2;
-            const ans = q.querySelector('input').value.trim().toLowerCase();
-            const correct = q.dataset.correct.trim().toLowerCase();
+            const inputEl = q.querySelector('.student-answer-input');
+            const ans = normalizeString(inputEl ? inputEl.value : '');
+            const correct = normalizeString(q.dataset.correct);
 
             if (ans === correct) {
                 earned += 2;
-            } else if (ans.length > 0 && correct.includes(ans)) {
+            } else if (ans.length > 0 && (correct.includes(ans) || ans.includes(correct))) {
                 earned += 1;
             }
         });
     });
 
-    const pct = Math.round((earned / possible) * 100);
+    const pct = possible > 0 ? Math.round((earned / possible) * 100) : 0;
 
     await db.collection("submissions").add({
         assignmentId: currentStudentAssignment.id,
