@@ -4048,86 +4048,91 @@ async function submitStudentWork() {
 async function loadTeacherSubmissions() {
     const courseSelect = document.getElementById('sub-filter-course');
     const assignSelect = document.getElementById('sub-filter-assignment');
-    
-    courseSelect.innerHTML = '<option value="">Loading courses...</option>';
-    assignSelect.innerHTML = '<option value="">-- Choose Assignment --</option>';
+    const tbody = document.getElementById('submissions-table-body');
+    const infoBanner = document.getElementById('active-assignment-info');
 
-    let loadedFromApi = false;
+    // Force clear previous view state, banner, and table
+    if (infoBanner) infoBanner.style.display = 'none';
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748b;">Select a course and assignment to view grades.</td></tr>`;
+
+    if (courseSelect) {
+        courseSelect.innerHTML = '<option value="">Loading courses...</option>';
+        courseSelect.value = "";
+    }
+    if (assignSelect) {
+        assignSelect.innerHTML = '<option value="">-- Choose Assignment --</option>';
+        assignSelect.value = "";
+    }
 
     try {
-        const isLoaded = await ensureGapiClassroomLoaded();
-        if (isLoaded && gapi.client.classroom) {
-            const res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
-            const courses = res.result.courses || [];
-            
-            if (courses.length > 0) {
-                courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>' + 
-                    courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-                loadedFromApi = true;
-            }
+        const loaded = await ensureGapiClassroomLoaded();
+        if (!loaded) {
+            if (courseSelect) courseSelect.innerHTML = '<option value="">Failed to connect to Classroom</option>';
+            return;
         }
-    } catch (err) {
-        console.warn("Classroom API call failed, attempting Firestore fallback:", err);
-    }
 
-    if (!loadedFromApi) {
-        try {
-            const snap = await db.collection("assignments").get();
-            const courseMap = new Map();
-            snap.forEach(doc => {
-                const data = doc.data();
-                if (data.courseId) {
-                    const name = data.courseName || `Course (${data.courseId})`;
-                    courseMap.set(data.courseId, name);
-                }
-            });
+        const res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: 'ACTIVE' });
+        const courses = res.result.courses || [];
 
-            if (courseMap.size > 0) {
-                let optionsHtml = '<option value="">-- All Classroom Courses --</option>';
-                courseMap.forEach((name, id) => {
-                    optionsHtml += `<option value="${id}">${name}</option>`;
-                });
-                courseSelect.innerHTML = optionsHtml;
-            } else {
-                courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>';
-            }
-        } catch (e) {
-            console.error("Firestore fallback error:", e);
-            courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>';
+        if (courses.length === 0) {
+            if (courseSelect) courseSelect.innerHTML = '<option value="">No active Google Classroom courses</option>';
+            return;
         }
-    }
 
-    loadCourseAssignments('');
+        if (courseSelect) {
+            courseSelect.innerHTML = '<option value="">-- Choose Classroom Course --</option>' +
+                courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            courseSelect.value = "";
+        }
+
+    } catch (e) {
+        if (courseSelect) courseSelect.innerHTML = `<option value="">Error loading courses: ${e.message}</option>`;
+    }
 }
 
 async function loadCourseAssignments(courseId) {
     const assignSelect = document.getElementById('sub-filter-assignment');
-    assignSelect.innerHTML = '<option value="">Loading assignments...</option>';
+    const infoBanner = document.getElementById('active-assignment-info');
+    const tbody = document.getElementById('submissions-table-body');
+
+    if (infoBanner) infoBanner.style.display = 'none';
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748b;">Select an assignment to view grades.</td></tr>`;
+
+    if (!courseId) {
+        if (assignSelect) {
+            assignSelect.innerHTML = '<option value="">-- Choose Assignment --</option>';
+            assignSelect.value = "";
+        }
+        return;
+    }
+
+    if (assignSelect) {
+        assignSelect.innerHTML = '<option value="">Loading tasks...</option>';
+    }
 
     try {
-        let query = db.collection("assignments");
-        if (courseId) {
-            query = query.where("courseId", "==", courseId);
-        }
-        
-        const snap = await query.get();
+        const snap = await db.collection("assignments")
+            .where("classroomCourseId", "==", courseId)
+            .get();
+
         if (snap.empty) {
-            assignSelect.innerHTML = '<option value="">No assignments found</option>';
-            document.getElementById('active-assignment-info').style.display = 'none';
+            if (assignSelect) {
+                assignSelect.innerHTML = '<option value="">No assignments found for this course</option>';
+                assignSelect.value = "";
+            }
             return;
         }
 
-        assignSelect.innerHTML = '<option value="">-- Choose Assignment --</option>';
-        snap.forEach(doc => {
-            const data = doc.data();
-            assignSelect.innerHTML += `<option value="${doc.id}">${data.title || 'Untitled Task'} (${data.lang || ''})</option>`;
-        });
-    } catch (err) {
-        console.error("Error loading assignments:", err);
-        assignSelect.innerHTML = '<option value="">Error loading assignments</option>';
+        if (assignSelect) {
+            assignSelect.innerHTML = '<option value="">-- Choose Assignment --</option>' +
+                snap.docs.map(doc => `<option value="${doc.id}">${doc.data().title || 'Untitled Assignment'}</option>`).join('');
+            assignSelect.value = "";
+        }
+
+    } catch (e) {
+        if (assignSelect) assignSelect.innerHTML = `<option value="">Error loading tasks: ${e.message}</option>`;
     }
 }
-
 async function renderStudentSubmissionsTable() {
     const assignmentId = document.getElementById('sub-filter-assignment').value;
     const tbody = document.getElementById('submissions-table-body');
