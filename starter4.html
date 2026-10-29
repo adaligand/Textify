@@ -693,7 +693,10 @@ th { background: #f1f5f9; color: #334155; }
     <div class="dashboard-card" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 25px;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <h2>📊 Student Submissions & Grade Export</h2>
-            <button onclick="showPage('library-page')" class="btn-outline">← Back to Dashboard</button>
+            <div style="display:flex; gap:10px;">
+                <button onclick="reauthGoogleClassroom()" class="btn-info" title="Refresh Google Classroom OAuth Permissions">🔑 Re-authorize Classroom</button>
+                <button onclick="showPage('library-page')" class="btn-outline">← Back to Dashboard</button>
+            </div>
         </div>
     </div>
 
@@ -955,6 +958,23 @@ function ensureGapiToken() {
     return false;
 }
 
+async function ensureGapiClassroomLoaded() {
+    if (!window.gapi) return false;
+    ensureGapiToken();
+    
+    if (window.gapi && gapi.client && !gapi.client.classroom) {
+        try {
+            await new Promise((resolve, reject) => {
+                gapi.client.load('classroom', 'v1').then(resolve).catch(reject);
+            });
+        } catch (e) {
+            console.warn("Could not load classroom API client:", e);
+            return false;
+        }
+    }
+    return !!(gapi.client && gapi.client.classroom);
+}
+
 function setupVirtualKeyboard(lang) {
     const bar = document.getElementById('virtual-keyboard-bar');
     const chars = LANGUAGE_KEYBOARDS[lang] || [];
@@ -1076,7 +1096,12 @@ async function login() {
     }
 }
 
-// Student Login Function (FIXED: currentUser reference)
+async function reauthGoogleClassroom() {
+    await login();
+    loadTeacherSubmissions();
+}
+
+// Student Login Function
 async function studentLogin() {
     const provider = new firebase.auth.GoogleAuthProvider();
     try {
@@ -2663,8 +2688,9 @@ async function openClassroomPublishSection() {
     ensureGapiToken();
 
     try {
-        if (!window.gapi || !gapi.client || !gapi.client.classroom) {
-            alert("Google Classroom API is initializing... Please wait 3 seconds and click again.");
+        const isLoaded = await ensureGapiClassroomLoaded();
+        if (!isLoaded) {
+            alert("Google Classroom API could not be loaded. Please re-authenticate.");
             return;
         }
 
@@ -2691,7 +2717,7 @@ async function openClassroomPublishSection() {
 async function loadCourseTopics(courseId) {
     if (!courseId) return;
     try {
-        ensureGapiToken();
+        await ensureGapiClassroomLoaded();
         const res = await gapi.client.classroom.courses.topics.list({ courseId: courseId });
         const topics = res.result.topic || [];
         const select = document.getElementById('gc-topic-select');
@@ -2703,7 +2729,10 @@ async function loadCourseTopics(courseId) {
 }
 
 async function publishTaskToClassroom() {
-    const courseId = document.getElementById('gc-course-select').value;
+    const courseSelect = document.getElementById('gc-course-select');
+    const courseId = courseSelect.value;
+    const courseName = courseSelect.options[courseSelect.selectedIndex]?.text || '';
+
     if (!courseId) return alert("Select a Google Classroom course.");
 
     const selectedActivities = Array.from(document.querySelectorAll('#activity-list input:checked')).map(c => c.value);
@@ -2752,13 +2781,14 @@ async function publishTaskToClassroom() {
     const topicId = document.getElementById('gc-topic-select').value;
     if (topicId) cwPayload.topicId = topicId;
 
-    ensureGapiToken();
+    await ensureGapiClassroomLoaded();
     const res = await gapi.client.classroom.courses.courseWork.create({ courseId: courseId, resource: cwPayload });
 
     await assignmentRef.set({
         id: assignmentId,
         gClassroomAssignmentId: res.result.id,
         courseId: courseId,
+        courseName: courseName,
         title: title,
         lang: document.getElementById('meta-lang').value || meta.lang || "French",
         selectedActivities: selectedActivities,
@@ -3289,21 +3319,51 @@ async function loadTeacherSubmissions() {
     courseSelect.innerHTML = '<option value="">Loading courses...</option>';
     assignSelect.innerHTML = '<option value="">-- Choose Assignment --</option>';
 
-    ensureGapiToken();
+    let loadedFromApi = false;
 
+    // 1. Try fetching from Google Classroom API
     try {
-        if (window.gapi && gapi.client && gapi.client.classroom) {
+        const isLoaded = await ensureGapiClassroomLoaded();
+        if (isLoaded && gapi.client.classroom) {
             const res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
             const courses = res.result.courses || [];
             
-            courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>' + 
-                courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-        } else {
-            courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>';
+            if (courses.length > 0) {
+                courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>' + 
+                    courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+                loadedFromApi = true;
+            }
         }
     } catch (err) {
-        console.warn("Classroom API call failed, falling back to Firestore assignments:", err);
-        courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>';
+        console.warn("Classroom API call failed, attempting Firestore fallback:", err);
+    }
+
+    // 2. Firestore Fallback: Populate courses from published assignments if API is unauthenticated
+    if (!loadedFromApi) {
+        try {
+            const snap = await db.collection("assignments").get();
+            const courseMap = new Map();
+            snap.forEach(doc => {
+                const data = doc.data();
+                if (data.courseId) {
+                    const name = data.courseName || `Course (${data.courseId})`;
+                    courseMap.set(data.courseId, name);
+                }
+            });
+
+            if (courseMap.size > 0) {
+                let optionsHtml = '<option value="">-- All Classroom Courses --</option>';
+                courseMap.forEach((name, id) => {
+                    optionsHtml += `<option value="${id}">${name}</option>`;
+                });
+                courseSelect.innerHTML = optionsHtml;
+            } else {
+                courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>';
+            }
+        } catch (e) {
+            console.error("Firestore fallback error:", e);
+            courseSelect.innerHTML = '<option value="">-- All Classroom Courses --</option>';
+        }
     }
 
     loadCourseAssignments('');
@@ -3439,7 +3499,7 @@ async function saveAndSyncGrade(subId) {
     const assignDoc = await db.collection("assignments").doc(sub.assignmentId).get();
     const assign = assignDoc.data();
 
-    ensureGapiToken();
+    await ensureGapiClassroomLoaded();
     const listRes = await gapi.client.classroom.courses.courseWork.studentSubmissions.list({
         courseId: assign.courseId,
         courseWorkId: assign.gClassroomAssignmentId
