@@ -1035,10 +1035,10 @@ function getValidAccessToken() {
     return null;
 }
 
-function ensureClassroomToken() {
+function ensureClassroomToken(forcePrompt = false) {
     return new Promise((resolve) => {
         const token = getValidAccessToken();
-        if (token) {
+        if (token && !forcePrompt) {
             if (window.gapi && gapi.client) {
                 gapi.client.setToken({ access_token: token });
             }
@@ -1063,7 +1063,21 @@ function ensureClassroomToken() {
                     resolve(null);
                 }
             };
-            try { tokenClient.requestAccessToken({ prompt: '' }); } catch (e) { resolve(null); }
+            try {
+                const reqConfig = {};
+                // Bind token request explicitly to school account email if logged in
+                if (currentUser && currentUser.email) {
+                    reqConfig.hint = currentUser.email;
+                } else {
+                    reqConfig.prompt = 'select_account';
+                }
+                if (forcePrompt) {
+                    reqConfig.prompt = 'select_account';
+                }
+                tokenClient.requestAccessToken(reqConfig);
+            } catch (e) { 
+                resolve(null); 
+            }
         } else {
             resolve(null);
         }
@@ -1200,13 +1214,16 @@ async function login() {
     provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
     provider.addScope('https://www.googleapis.com/auth/classroom.coursework.students');
     provider.addScope('https://www.googleapis.com/auth/classroom.topics');
+    
+    // FORCE GOOGLE TO SHOW THE ACCOUNT CHOOSER EVERY TIME
+    provider.setCustomParameters({ prompt: 'select_account' });
 
     try {
         const result = await auth.signInWithPopup(provider);
         const email = result.user.email.toLowerCase();
 
         if (!email.endsWith("@cedarsupper.co.uk")) {
-            alert("Access Denied");
+            alert("Access Denied: Please sign in with your official school email (@cedarsupper.co.uk).");
             await auth.signOut();
             return;
         }
@@ -1215,7 +1232,7 @@ async function login() {
         if (result.credential && result.credential.accessToken) {
             localStorage.setItem('oauth_token', result.credential.accessToken);
             localStorage.setItem('oauth_token_expiry', Date.now() + (3600 * 1000));
-            ensureClassroomToken();
+            ensureClassroomToken(true);
         }
 
         document.getElementById('user-display').innerText = email;
@@ -1223,7 +1240,7 @@ async function login() {
         renderLibrary();
 
     } catch (e) {
-        alert(e.message);
+        alert("Sign-in failed: " + e.message);
     }
 }
 
@@ -1259,6 +1276,8 @@ async function studentLogin() {
 }
 
 async function logout() {
+    localStorage.removeItem('oauth_token');
+    localStorage.removeItem('oauth_token_expiry');
     await auth.signOut();
     location.reload();
 }
@@ -2972,7 +2991,7 @@ async function openClassroomPublishSection() {
     assignFields.scrollIntoView({ behavior: 'smooth' });
 
     try {
-        const isLoaded = await ensureGapiClassroomLoaded();
+        let isLoaded = await ensureGapiClassroomLoaded();
         if (!isLoaded) {
             alert("Google Classroom API could not be loaded.");
             return;
@@ -2981,7 +3000,18 @@ async function openClassroomPublishSection() {
         const select = document.getElementById('gc-course-select');
         select.innerHTML = '<option value="">Loading courses...</option>';
 
-        const res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
+        let res;
+        try {
+            res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
+        } catch (authErr) {
+            // Token rejected (likely personal account token cached) — purge and re-authorize with account picker
+            console.warn("Classroom API rejected current token, requesting account selection...", authErr);
+            localStorage.removeItem('oauth_token');
+            localStorage.removeItem('oauth_token_expiry');
+            await ensureClassroomToken(true);
+            res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
+        }
+
         const courses = res.result.courses || [];
 
         if (courses.length === 0) {
@@ -2994,7 +3024,7 @@ async function openClassroomPublishSection() {
 
     } catch (err) {
         console.error("Classroom Error:", err);
-        alert("Classroom Connection Error: " + (err.message || "Failed to load Google Classroom courses."));
+        alert("Classroom Connection Error: " + (err.message || "Failed to load Google Classroom courses. Make sure you select your @cedarsupper.co.uk account when prompted."));
     }
 }
 
@@ -3029,29 +3059,29 @@ async function publishTaskToClassroom() {
     let totalSentencesCount = 0;
 
     selectedActivities.forEach(actId => {
-    if (actId === 'study') {
-        structuredSentencesPerActivity['study'] = allSentences.slice(0, tableLimit);
-    } else {
-        const bodyEl = document.getElementById(`act-body-${actId}`);
-        const sents = [];
-        if (bodyEl) {
-            bodyEl.querySelectorAll('div').forEach(row => {
-                const t = row.querySelector('.edit-t')?.value.trim();
-                const tr = row.querySelector('.edit-tr')?.value.trim();
-                const faultyTr = row.querySelector('.edit-faulty-tr')?.value.trim();
-                if (t && tr) {
-                    const itemObj = { t, tr };
-                    if (actId === 'faulty' && faultyTr) {
-                        itemObj.faultyTr = faultyTr;
+        if (actId === 'study') {
+            structuredSentencesPerActivity['study'] = allSentences.slice(0, tableLimit);
+        } else {
+            const bodyEl = document.getElementById(`act-body-${actId}`);
+            const sents = [];
+            if (bodyEl) {
+                bodyEl.querySelectorAll('div').forEach(row => {
+                    const t = row.querySelector('.edit-t')?.value.trim();
+                    const tr = row.querySelector('.edit-tr')?.value.trim();
+                    const faultyTr = row.querySelector('.edit-faulty-tr')?.value.trim();
+                    if (t) {
+                        const itemObj = { t, tr: tr || "" };
+                        if (actId === 'faulty' && faultyTr) {
+                            itemObj.faultyTr = faultyTr;
+                        }
+                        sents.push(itemObj);
                     }
-                    sents.push(itemObj);
-                }
-            });
+                });
+            }
+            structuredSentencesPerActivity[actId] = sents;
+            totalSentencesCount += sents.length;
         }
-        structuredSentencesPerActivity[actId] = sents;
-        totalSentencesCount += sents.length;
-    }
-});
+    });
 
     const assignmentRef = db.collection("assignments").doc();
     const assignmentId = assignmentRef.id;
