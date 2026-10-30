@@ -834,7 +834,18 @@ th { background: #f1f5f9; color: #334155; }
             <div id="ref-table-body" style="display:none; margin-top:10px;"></div>
         </div>
 
-        <!-- DYNAMIC MARKSHEET REVIEW VIEW -->
+        <!-- PENDING TEACHER REVIEW VIEW (HIDE INSTANT MARKING / SCORE) -->
+        <div id="student-pending-review-card" class="student-card" style="display:none; text-align:center; padding:30px; border:2px solid #3b82f6;">
+            <div style="background:#eff6ff; padding:20px; border-radius:8px; border:1px solid #bfdbfe;">
+                <h3 style="margin:0 0 10px 0; color:#1e40af; font-size:20px;">✅ Assignment Submitted Successfully!</h3>
+                <p style="margin:0; color:#1e3a8a; font-size:15px; line-height:1.5;">
+                    Your work has been submitted to your teacher for review.<br>
+                    Once your teacher has reviewed your answers and synced your grade, your overall result and detailed feedback will appear here.
+                </p>
+            </div>
+        </div>
+
+        <!-- DYNAMIC MARKSHEET REVIEW VIEW (RELEASED AFTER TEACHER REVIEW) -->
         <div id="student-marksheet-card" class="student-card" style="display:none; border:2px solid #10b981;">
             <div style="background:#d1fae5; padding:15px; border-radius:8px; border:1px solid #a7f3d0; margin-bottom:15px;">
                 <h3 style="margin:0 0 6px 0; color:#065f46;">✅ Assignment Completed & Marked</h3>
@@ -868,9 +879,9 @@ th { background: #f1f5f9; color: #334155; }
 <!-- OVERLAY & MODALS -->
 <div id="overlay" class="overlay" onclick="closeModals()"></div>
 
-<!-- INSPECT STUDENT ANSWERS MODAL -->
+<!-- INSPECT STUDENT ANSWERS MODAL (TEACHER EDIT SENTENCE MARKS /1) -->
 <div id="answers-modal" class="modal">
-    <h3 style="margin-top:0; color:#0f172a;">🔍 Submitted Answers Inspector</h3>
+    <h3 style="margin-top:0; color:#0f172a;">🔍 Submitted Answers & Sentence Marks Inspector</h3>
     <div id="answers-modal-content"></div>
     <button onclick="closeModals()" class="btn-outline" style="width:100%; margin-top:15px; height:40px;">Close</button>
 </div>
@@ -1244,6 +1255,7 @@ window.onload = async () => {
                 document.getElementById('student-profile-badge').style.display = 'none';
                 document.getElementById('student-active-exercise-card').style.display = 'none';
                 document.getElementById('student-marksheet-card').style.display = 'none';
+                document.getElementById('student-pending-review-card').style.display = 'none';
                 document.getElementById('student-reference-banner').style.display = 'none';
                 document.getElementById('student-nav-actions').style.display = 'none';
                 document.getElementById('virtual-keyboard-bar').style.display = 'none';
@@ -3376,22 +3388,40 @@ async function loadStudentTask(assignmentId) {
 
         if (!subSnap.empty) {
             const studentSub = subSnap.docs[0].data();
-            renderStudentMarksheetReview(studentSub);
+            
+            // If reviewed by teacher, show full marksheet with scores/answers. Otherwise show pending banner.
+            if (studentSub.isReviewed) {
+                renderStudentMarksheetReview(studentSub);
+            } else {
+                renderStudentPendingReviewCard(studentSub);
+            }
             return;
         }
     }
 
     document.getElementById('student-marksheet-card').style.display = 'none';
+    document.getElementById('student-pending-review-card').style.display = 'none';
     document.getElementById('student-active-exercise-card').style.display = 'block';
     document.getElementById('student-nav-actions').style.display = 'flex';
 
     renderCurrentStudentExercise();
 }
 
+function renderStudentPendingReviewCard(sub) {
+    document.getElementById('student-active-exercise-card').style.display = 'none';
+    document.getElementById('student-nav-actions').style.display = 'none';
+    document.getElementById('virtual-keyboard-bar').style.display = 'none';
+    document.getElementById('student-marksheet-card').style.display = 'none';
+
+    const pendingCard = document.getElementById('student-pending-review-card');
+    pendingCard.style.display = 'block';
+}
+
 function renderStudentMarksheetReview(sub) {
     document.getElementById('student-active-exercise-card').style.display = 'none';
     document.getElementById('student-nav-actions').style.display = 'none';
     document.getElementById('virtual-keyboard-bar').style.display = 'none';
+    document.getElementById('student-pending-review-card').style.display = 'none';
 
     const marksheetCard = document.getElementById('student-marksheet-card');
     marksheetCard.style.display = 'block';
@@ -3402,7 +3432,7 @@ function renderStudentMarksheetReview(sub) {
             <div>
                 <strong style="font-size:16px; color:#0f172a;">Your Overall Result:</strong><br>
                 <span style="font-size:22px; font-weight:bold; color:#10b981;">
-                    ${sub.overallGrade || sub.totalEarned} / ${sub.totalPossible} (${sub.percentage}%)
+                    ${sub.overallGrade !== undefined ? sub.overallGrade : sub.totalEarned} / ${sub.totalPossible} (${sub.percentage}%)
                 </span>
             </div>
             ${sub.teacherComment ? `<div style="background:#fff; padding:8px 12px; border-radius:6px; border:1px solid #cbd5e1; max-width:300px;"><b>Teacher Comment:</b><br><i>"${sub.teacherComment}"</i></div>` : ''}
@@ -3427,13 +3457,13 @@ function renderStudentMarksheetReview(sub) {
                             <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
                                 <div style="flex:1;">
                                     <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
-                                    <div style="color:${r.isCorrect ? '#10b981' : '#ef4444'}; margin-top:2px;">
+                                    <div style="color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
                                         <b>Your Answer:</b> ${r.studentAnswer}
                                     </div>
-                                    ${!r.isCorrect ? `<div style="color:#2563eb; font-weight:bold; font-size:13px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
+                                    ${r.points < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:13px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
                                 </div>
-                                <div style="font-weight:bold; color:${r.isCorrect ? '#10b981' : '#ef4444'}; padding-left:10px;">
-                                    ${r.points} / 1 pt
+                                <div style="font-weight:bold; color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; padding-left:10px;">
+                                    ${r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0)} / 1 pt
                                 </div>
                             </div>
                         `).join('')}
@@ -3701,7 +3731,7 @@ function renderCurrentStudentExercise() {
             if (actType === 'faulty') {
                 const faultyText = s.faultyTr || getOrGenerateFaultyTr(s);
                 promptText = `Target Language (${docLang}): <b>${s.t}</b><br><span style="color:#b91c1c; font-weight:600; font-size:13px;">Faulty English sentence to correct: "${faultyText}"</span>`;
-                answerRef = s.tr; // Evaluates against correct English translation!
+                answerRef = s.tr;
             } else if (actType === 'trans-en') {
                 promptText = `Translate into English: <b>${s.t}</b>`;
                 answerRef = s.tr;
@@ -4033,13 +4063,14 @@ async function submitStudentWork() {
         overallGrade: earned,
         percentage: pct,
         detailedReport: detailedReport,
+        isReviewed: false, // Student sees pending status until teacher reviews/syncs!
         submittedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
     await db.collection("submissions").add(subData);
 
-    alert(`🎉 Activity Submitted Successfully!\nYour Score: ${earned} / ${possible} (${pct}%)`);
-    renderStudentMarksheetReview(subData);
+    alert(`🎉 Activity Submitted Successfully!\nYour work has been submitted to your teacher for review.`);
+    renderStudentPendingReviewCard(subData);
 }
 
 /* =========================
@@ -4051,7 +4082,6 @@ async function loadTeacherSubmissions() {
     const tbody = document.getElementById('submissions-table-body');
     const infoBanner = document.getElementById('active-assignment-info');
 
-    // Force clear previous view state, banner, and table
     if (infoBanner) infoBanner.style.display = 'none';
     if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748b;">Select a course and assignment to view grades.</td></tr>`;
 
@@ -4111,9 +4141,17 @@ async function loadCourseAssignments(courseId) {
     }
 
     try {
-        const snap = await db.collection("assignments")
-            .where("classroomCourseId", "==", courseId)
+        // Query courseId field (matches Firestore assignments schema)
+        let snap = await db.collection("assignments")
+            .where("courseId", "==", courseId)
             .get();
+
+        if (snap.empty) {
+            // Fallback check for classroomCourseId if legacy assignments exist
+            snap = await db.collection("assignments")
+                .where("classroomCourseId", "==", courseId)
+                .get();
+        }
 
         if (snap.empty) {
             if (assignSelect) {
@@ -4133,6 +4171,7 @@ async function loadCourseAssignments(courseId) {
         if (assignSelect) assignSelect.innerHTML = `<option value="">Error loading tasks: ${e.message}</option>`;
     }
 }
+
 async function renderStudentSubmissionsTable() {
     const assignmentId = document.getElementById('sub-filter-assignment').value;
     const tbody = document.getElementById('submissions-table-body');
@@ -4185,7 +4224,7 @@ async function renderStudentSubmissionsTable() {
                     <td>${sub.submittedAt ? sub.submittedAt.toDate().toLocaleString() : 'Just now'}</td>
                     <td>
                         ${sub.totalEarned} / ${sub.totalPossible} (${sub.percentage}%)<br>
-                        <button onclick="inspectStudentAnswers('${subId}')" class="btn-info" style="font-size:11px; padding:3px 8px; margin-top:4px;">🔍 View Answers</button>
+                        <button onclick="inspectStudentAnswers('${subId}')" class="btn-info" style="font-size:11px; padding:3px 8px; margin-top:4px;">🔍 Edit Marks & Answers</button>
                     </td>
                     <td>
                         <input type="number" id="grade-${subId}" value="${sub.overallGrade !== undefined ? sub.overallGrade : sub.totalEarned}" style="width:50px; padding:4px;"> 
@@ -4387,29 +4426,87 @@ async function inspectStudentAnswers(subId) {
                         Exercise ${actIdx + 1}: ${act.activityTitle}
                     </div>
                     <div style="padding:12px;">
-                        ${(act.responses || []).map((r, i) => `
-                            <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
-                                <div style="flex:1;">
-                                    <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
-                                    <div style="color:${r.isCorrect ? '#10b981' : '#ef4444'}; margin-top:2px;">
-                                        <b>Student Answer:</b> ${r.studentAnswer}
+                        ${(act.responses || []).map((r, i) => {
+                            const currentScore = r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0);
+                            return `
+                                <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                                    <div style="flex:1;">
+                                        <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
+                                        <div style="color:${currentScore >= 1 ? '#10b981' : (currentScore > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
+                                            <b>Student Answer:</b> ${r.studentAnswer}
+                                        </div>
+                                        ${currentScore < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:12px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
                                     </div>
-                                    ${!r.isCorrect ? `<div style="color:#2563eb; font-weight:bold; font-size:12px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
+                                    <div style="display:flex; align-items:center; gap:4px; font-weight:bold; background:#f8fafc; padding:4px 8px; border-radius:6px; border:1px solid #cbd5e1;">
+                                        <input type="number" step="0.5" min="0" max="1" 
+                                            class="item-score-input" 
+                                            data-act-idx="${actIdx}" 
+                                            data-resp-idx="${i}" 
+                                            value="${currentScore}" 
+                                            style="width:50px; padding:4px; text-align:center; border:1px solid #94a3b8; border-radius:4px; font-weight:bold;">
+                                        <span>/ 1 pt</span>
+                                    </div>
                                 </div>
-                                <div style="font-weight:bold; color:${r.isCorrect ? '#10b981' : '#ef4444'};">
-                                    ${r.points} / 1 pt
-                                </div>
-                            </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
         });
+
+        html += `
+            <button onclick="saveItemizedMarks('${subId}')" class="btn-purple" style="width:100%; height:42px; font-size:15px; margin-top:10px;">
+                💾 Save Sentence Marks & Recalculate Total
+            </button>
+        `;
     }
 
     modalContent.innerHTML = html;
     document.getElementById('answers-modal').style.display = 'block';
     document.getElementById('overlay').style.display = 'block';
+}
+
+async function saveItemizedMarks(subId) {
+    const doc = await db.collection("submissions").doc(subId).get();
+    if (!doc.exists) return;
+
+    const sub = doc.data();
+    const detailedReport = sub.detailedReport || [];
+
+    const inputs = document.querySelectorAll('.item-score-input');
+    let newEarnedTotal = 0;
+
+    inputs.forEach(input => {
+        const actIdx = parseInt(input.dataset.actIdx, 10);
+        const respIdx = parseInt(input.dataset.respIdx, 10);
+        const scoreVal = parseFloat(input.value) || 0;
+
+        if (detailedReport[actIdx] && detailedReport[actIdx].responses[respIdx]) {
+            detailedReport[actIdx].responses[respIdx].points = scoreVal;
+            detailedReport[actIdx].responses[respIdx].isCorrect = (scoreVal >= 1);
+            newEarnedTotal += scoreVal;
+        }
+    });
+
+    const totalPossible = sub.totalPossible || 10;
+    const pct = totalPossible > 0 ? Math.round((newEarnedTotal / totalPossible) * 100) : 0;
+
+    try {
+        await db.collection("submissions").doc(subId).update({
+            detailedReport: detailedReport,
+            totalEarned: newEarnedTotal,
+            overallGrade: newEarnedTotal,
+            percentage: pct,
+            isReviewed: true
+        });
+
+        alert(`✅ Sentence marks saved successfully!\nUpdated Total Score: ${newEarnedTotal} / ${totalPossible} (${pct}%)`);
+        closeModals();
+        renderStudentSubmissionsTable();
+    } catch (e) {
+        console.error("Error saving sentence marks:", e);
+        alert("Error saving sentence marks: " + e.message);
+    }
 }
 
 async function saveAndSyncGrade(subId) {
@@ -4430,7 +4527,8 @@ async function saveAndSyncGrade(subId) {
             overallGrade: gradeVal,
             totalPossible: possibleVal,
             percentage: pct,
-            teacherComment: commentVal
+            teacherComment: commentVal,
+            isReviewed: true // Releases reviewed mark & feedback to student portal
         });
 
         const subDoc = await db.collection("submissions").doc(subId).get();
