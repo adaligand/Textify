@@ -3354,57 +3354,84 @@ function getActivityInstruction(type, lang) {
 }
 
 async function loadStudentTask(assignmentId) {
-    const doc = await db.collection("assignments").doc(assignmentId).get();
-    if (!doc.exists) return alert("Assignment not found.");
-
-    currentStudentAssignment = doc.data();
-    document.getElementById('student-task-title').innerText = currentStudentAssignment.title;
-
-    const selectedActivities = currentStudentAssignment.selectedActivities || [];
-    studentExerciseTypes = selectedActivities.filter(a => a !== 'study');
-    studentCurrentExIndex = 0;
-    studentAnswersState = {};
-
-    const perActSentences = currentStudentAssignment.sentencesPerActivity || {};
-    const hasStudySelected = selectedActivities.includes('study');
-
-    if (hasStudySelected && perActSentences['study'] && perActSentences['study'].length > 0) {
-        document.getElementById('student-reference-banner').style.display = 'block';
-        let refHtml = '<table style="width:100%; border-collapse:collapse;"><thead><tr><th>Target Language</th><th>English Translation</th></tr></thead><tbody>';
-        perActSentences['study'].forEach(s => {
-            refHtml += `<tr><td><b>${s.t}</b></td><td>${s.tr}</td></tr>`;
-        });
-        refHtml += '</tbody></table>';
-        document.getElementById('ref-table-body').innerHTML = refHtml;
-    } else {
-        document.getElementById('student-reference-banner').style.display = 'none';
-    }
-
-    if (currentUser && currentUser.email) {
-        const subSnap = await db.collection("submissions")
-            .where("assignmentId", "==", assignmentId)
-            .where("studentEmail", "==", currentUser.email.toLowerCase())
-            .get();
-
-        if (!subSnap.empty) {
-            const studentSub = subSnap.docs[0].data();
-            
-            // If reviewed by teacher, show full marksheet with scores/answers. Otherwise show pending banner.
-            if (studentSub.isReviewed) {
-                renderStudentMarksheetReview(studentSub);
-            } else {
-                renderStudentPendingReviewCard(studentSub);
-            }
+    try {
+        const doc = await db.collection("assignments").doc(assignmentId).get();
+        if (!doc.exists) {
+            alert("Assignment not found in database.");
             return;
         }
+
+        currentStudentAssignment = doc.data();
+        currentStudentAssignment.id = assignmentId;
+        
+        const taskTitleEl = document.getElementById('student-task-title');
+        if (taskTitleEl) taskTitleEl.innerText = currentStudentAssignment.title || "Interactive Practice";
+
+        const selectedActivities = currentStudentAssignment.selectedActivities || [];
+        studentExerciseTypes = selectedActivities.filter(a => a !== 'study');
+        studentCurrentExIndex = 0;
+        studentAnswersState = {};
+
+        const perActSentences = currentStudentAssignment.sentencesPerActivity || {};
+        const hasStudySelected = selectedActivities.includes('study');
+
+        // Reference table banner rendering
+        if (hasStudySelected && perActSentences['study'] && perActSentences['study'].length > 0) {
+            const refBanner = document.getElementById('student-reference-banner');
+            if (refBanner) refBanner.style.display = 'block';
+            
+            let refHtml = '<table style="width:100%; border-collapse:collapse;"><thead><tr><th>Target Language</th><th>English Translation</th></tr></thead><tbody>';
+            perActSentences['study'].forEach(s => {
+                refHtml += `<tr><td><b>${s.t}</b></td><td>${s.tr}</td></tr>`;
+            });
+            refHtml += '</tbody></table>';
+            
+            const refBody = document.getElementById('ref-table-body');
+            if (refBody) refBody.innerHTML = refHtml;
+        } else {
+            const refBanner = document.getElementById('student-reference-banner');
+            if (refBanner) refBanner.style.display = 'none';
+        }
+
+        // Safely check for existing submission
+        if (currentUser && currentUser.email) {
+            try {
+                const subSnap = await db.collection("submissions")
+                    .where("assignmentId", "==", assignmentId)
+                    .where("studentEmail", "==", currentUser.email.toLowerCase())
+                    .get();
+
+                if (!subSnap.empty) {
+                    const studentSub = subSnap.docs[0].data();
+                    if (studentSub.isReviewed) {
+                        renderStudentMarksheetReview(studentSub);
+                    } else {
+                        renderStudentPendingReviewCard(studentSub);
+                    }
+                    return;
+                }
+            } catch (subErr) {
+                console.warn("Could not query previous submissions, displaying activity instead:", subErr);
+            }
+        }
+
+        // Render interactive exercise view
+        const msCard = document.getElementById('student-marksheet-card');
+        const pendingCard = document.getElementById('student-pending-review-card');
+        const exCard = document.getElementById('student-active-exercise-card');
+        const navActions = document.getElementById('student-nav-actions');
+
+        if (msCard) msCard.style.display = 'none';
+        if (pendingCard) pendingCard.style.display = 'none';
+        if (exCard) exCard.style.display = 'block';
+        if (navActions) navActions.style.display = 'flex';
+
+        renderCurrentStudentExercise();
+
+    } catch (err) {
+        console.error("Critical Error Loading Task:", err);
+        alert("Error loading assignment task: " + err.message);
     }
-
-    document.getElementById('student-marksheet-card').style.display = 'none';
-    document.getElementById('student-pending-review-card').style.display = 'none';
-    document.getElementById('student-active-exercise-card').style.display = 'block';
-    document.getElementById('student-nav-actions').style.display = 'flex';
-
-    renderCurrentStudentExercise();
 }
 
 function renderStudentPendingReviewCard(sub) {
@@ -4054,8 +4081,8 @@ async function submitStudentWork() {
     const pct = possible > 0 ? Math.round((earned / possible) * 100) : 0;
 
     const subData = {
-        assignmentId: currentStudentAssignment.id,
-        courseId: currentStudentAssignment.courseId,
+        assignmentId: currentStudentAssignment.id || "",
+        courseId: currentStudentAssignment.courseId || "",
         studentName: currentUser.displayName || 'Student',
         studentEmail: currentUser.email.toLowerCase(),
         totalEarned: earned,
@@ -4063,16 +4090,19 @@ async function submitStudentWork() {
         overallGrade: earned,
         percentage: pct,
         detailedReport: detailedReport,
-        isReviewed: false, // Student sees pending status until teacher reviews/syncs!
+        isReviewed: false,
         submittedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
-    await db.collection("submissions").add(subData);
-
-    alert(`🎉 Activity Submitted Successfully!\nYour work has been submitted to your teacher for review.`);
-    renderStudentPendingReviewCard(subData);
+    try {
+        await db.collection("submissions").add(subData);
+        alert("🎉 Activity Submitted Successfully!\nYour work has been submitted to your teacher for review.");
+        renderStudentPendingReviewCard(subData);
+    } catch (err) {
+        console.error("Submission failed:", err);
+        alert("❌ Failed to save submission to database: " + err.message + "\nPlease check your Firestore database rules.");
+    }
 }
-
 /* =========================
    TEACHER SUBMISSIONS DASHBOARD & EDITING
 ========================= */
@@ -4346,8 +4376,9 @@ async function editCurrentAssignment() {
 async function deleteCurrentAssignment() {
     const assignmentId = document.getElementById('sub-filter-assignment').value;
     if (!assignmentId) return alert("Select an assignment first.");
+    if (!confirm("Are you sure you want to delete this assignment?")) return;
 
-    if (!confirm("Are you sure you want to delete this assignment from Google Classroom and your dashboard?")) return;
+    if (!auth.currentUser) return alert("Please sign in first.");
 
     try {
         const doc = await db.collection("assignments").doc(assignmentId).get();
@@ -4361,11 +4392,22 @@ async function deleteCurrentAssignment() {
                         id: assign.gClassroomAssignmentId
                     });
                 } catch (gcErr) {
-                    console.warn("Could not delete from Google Classroom directly:", gcErr);
-                    alert("Warning: Could not remove assignment from Google Classroom directly (" + (gcErr.message || "Permission issue") + "), but removing locally.");
+                    console.warn("Could not delete from Google Classroom API:", gcErr);
                 }
             }
         }
+
+        // Firestore document deletion
+        await db.collection("assignments").doc(assignmentId).delete();
+        alert("Assignment deleted successfully!");
+        
+        document.getElementById('active-assignment-info').style.display = 'none';
+        const courseId = document.getElementById('sub-filter-course').value;
+        loadCourseAssignments(courseId);
+    } catch (e) {
+        alert("Error deleting assignment: " + e.message);
+    }
+}
 
         await db.collection("assignments").doc(assignmentId).delete();
         alert("Assignment deleted successfully!");
