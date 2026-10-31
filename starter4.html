@@ -779,6 +779,7 @@ th { background: #f1f5f9; color: #334155; }
 
     <!-- Active Assignment Banner -->
 <!-- Active Assignment Banner -->
+<!-- Active Assignment Banner -->
 <div id="active-assignment-info" style="display:none; margin-bottom: 20px; padding: 15px; border-radius: 8px; background-color: #fdf6e2; border: 1px solid #f39c12; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
     <div>
         <div style="display: flex; align-items: center; gap: 10px;">
@@ -792,6 +793,7 @@ th { background: #f1f5f9; color: #334155; }
     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
         <button id="preview-assigned-task-btn" onclick="previewActiveAssignmentAsStudent()" class="btn-info" style="font-size: 12px; padding: 6px 12px; height:auto;">👁️ Student Preview</button>
         <button id="download-assigned-worksheet-btn" onclick="downloadActiveAssignmentWorksheet()" class="btn-info" style="font-size: 12px; padding: 6px 12px; height:auto; background:#2563eb;">📄 Download Worksheet</button>
+        <button id="duplicate-assigned-task-btn" onclick="duplicateCurrentAssignmentToClass()" class="btn-purple" style="font-size: 12px; padding: 6px 12px; height:auto; background:#10b981;">📋 Duplicate to Class</button>
         <button id="sync-all-classroom-grades-btn" onclick="syncAllClassroomGrades()" class="btn-info" style="font-size: 12px; padding: 6px 12px; height:auto;">🔄 Sync Grades to Classroom</button>
         <button id="edit-assigned-task-btn" onclick="editCurrentAssignment()" class="btn-purple" style="font-size: 12px; padding: 6px 12px; background: #f39c12; height:auto;">📝 Edit Assignment</button>
         <button id="delete-assigned-task-btn" onclick="deleteCurrentAssignment()" class="btn-danger" style="font-size: 12px; padding: 6px 12px; height:auto;">🗑️ Delete Assignment</button>
@@ -822,8 +824,18 @@ th { background: #f1f5f9; color: #334155; }
 <div id="student-portal-page" class="page">
     <div style="max-width:850px; margin:0 auto; padding:15px;">
         
+        <!-- Teacher Preview Banner -->
+        <div id="teacher-preview-banner" style="display:none; background:#fef3c7; border:2px solid #f59e0b; padding:12px 18px; border-radius:10px; margin-bottom:15px; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+            <span style="font-weight:bold; color:#92400e; font-size:15px; display:flex; align-items:center; gap:6px;">
+                👁️ <span>Teacher Preview Mode</span>
+            </span>
+            <button onclick="exitTeacherPreview()" class="btn-purple" style="background:#f59e0b; font-size:13px; padding:8px 16px; margin:0;">
+                ← Exit Preview & Return to Submissions
+            </button>
+        </div>
+
         <!-- Student Auth Landing Header -->
-<div class="student-card" id="student-auth-header" style="text-align:center; padding:30px 20px;">
+        <div class="student-card" id="student-auth-header" style="text-align:center; padding:30px 20px;">
     <h2 id="student-task-title" style="margin-top:0;">Interactive Language Activity</h2>
     <p id="student-auth-instruction-text" style="color:#64748b; font-size:15px;">Please sign in with your Cedars Google Account (@cedarsupper.co.uk) to access and complete your assignment.</p>
     
@@ -3579,6 +3591,8 @@ function getActivityInstruction(type, lang) {
 }
 
 async function loadStudentTask(assignmentId) {
+    const previewBanner = document.getElementById('teacher-preview-banner');
+if (previewBanner) previewBanner.style.display = 'none';
     try {
         const doc = await db.collection("assignments").doc(assignmentId).get();
         if (!doc.exists) {
@@ -4347,6 +4361,10 @@ async function submitStudentWork() {
 
     showPage('student-portal-page');
 
+    // Show the Exit Preview banner
+    const previewBanner = document.getElementById('teacher-preview-banner');
+    if (previewBanner) previewBanner.style.display = 'flex';
+
     document.getElementById('student-login-box').style.display = 'none';
     const authTextEl = document.getElementById('student-auth-instruction-text');
     if (authTextEl) authTextEl.style.display = 'none';
@@ -4381,6 +4399,84 @@ async function submitStudentWork() {
     document.getElementById('student-nav-actions').style.display = 'flex';
 
     renderCurrentStudentExercise();
+}
+
+function exitTeacherPreview() {
+    const previewBanner = document.getElementById('teacher-preview-banner');
+    if (previewBanner) previewBanner.style.display = 'none';
+
+    // Navigate back to teacher submissions view while preserving current selection
+    showPage('submissions-page');
+    renderStudentSubmissionsTable();
+}
+
+async function duplicateCurrentAssignmentToClass() {
+    const assignmentId = document.getElementById('sub-filter-assignment').value;
+    if (!assignmentId) return alert("Select an assignment first.");
+
+    const doc = await db.collection("assignments").doc(assignmentId).get();
+    if (!doc.exists) return alert("Assignment not found.");
+
+    const assign = doc.data();
+    
+    // Set editingAssignmentId to null so publishing creates a NEW assignment in the target course
+    editingAssignmentId = null;
+
+    const currentLang = assign.lang || meta.lang || "Target Language";
+    
+    const list = [
+        {id:'study', label:'Sentence Table (Reference)'}, 
+        {id:'match', label:'Match up'}, 
+        {id:'nospaces', label:'No Spaces'}, 
+        {id:'jumbled', label:'Unjumble'}, 
+        {id:'gap-en', label:'Gap Fill (English)'}, 
+        {id:'gap-t', label:`Gap Fill (${currentLang})`}, 
+        {id:'vowels', label:'Missing Vowels'}, 
+        {id:'cons', label:'Missing Consonants'}, 
+        {id:'faulty', label:'Faulty Translation'}, 
+        {id:'trans-en', label:'Translate (English)'}, 
+        {id:'trans-target', label:`Translate (${currentLang})`}
+    ];
+
+    document.getElementById('activity-list').innerHTML = list.map(a => `
+        <div class="activity-row">
+            <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
+            <label for="chk-${a.id}" style="cursor:pointer; font-weight:500;">${a.label}</label>
+        </div>
+    `).join('');
+
+    document.getElementById('builder-title').value = assign.title || '';
+    
+    const selActs = assign.selectedActivities || [];
+    document.querySelectorAll('#activity-list input').forEach(cb => {
+        cb.checked = selActs.includes(cb.value);
+    });
+
+    let detectedCount = 10;
+    if (assign.sentencesPerActivity) {
+        for (let actKey in assign.sentencesPerActivity) {
+            if (actKey !== 'study' && assign.sentencesPerActivity[actKey].length > 0) {
+                detectedCount = assign.sentencesPerActivity[actKey].length;
+                break;
+            }
+        }
+    }
+    const sentCountSelect = document.getElementById('sentence-count');
+    if (sentCountSelect) sentCountSelect.value = String(detectedCount);
+
+    renderPerActivitySentenceBoxes(assign.sentencesPerActivity || null);
+
+    document.getElementById('activity-menu').style.display = 'block'; 
+    document.getElementById('overlay').style.display = 'block';
+
+    await openClassroomPublishSection();
+
+    // Reset dates for new duplicate assignment
+    document.getElementById('gc-due-date').value = '';
+    document.getElementById('gc-schedule-date').value = '';
+
+    const gcBtn = document.getElementById('gc-publish-btn');
+    if (gcBtn) gcBtn.innerText = "📋 Duplicate & Publish to Selected Class";
 }
 
 async function downloadActiveAssignmentWorksheet() {
