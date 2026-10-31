@@ -2430,7 +2430,42 @@ function toggleAllActivities(master) {
     document.querySelectorAll('#activity-list input').forEach(cb => cb.checked = master.checked);
     renderPerActivitySentenceBoxes();
 }
+/* =========================
+   BALANCED SENTENCE SELECTION HELPERS
+========================= */
+function getBalancedSelection(pool, limit) {
+    if (!pool || pool.length === 0 || limit <= 0) return [];
 
+    // Group sentences by originRow
+    const rowBuckets = {};
+    pool.forEach(s => {
+        const r = (s.originRow !== undefined && s.originRow !== null) ? s.originRow : 0;
+        if (!rowBuckets[r]) rowBuckets[r] = [];
+        rowBuckets[r].push(s);
+    });
+
+    // Create bucket list with shuffled sentences per row and randomized row order
+    const bucketList = Object.keys(rowBuckets).map(r => ({
+        rowIndex: parseInt(r, 10),
+        sentences: [...rowBuckets[r]].sort(() => 0.5 - Math.random())
+    })).sort(() => 0.5 - Math.random());
+
+    const selection = [];
+    let bucketPointer = 0;
+
+    while (selection.length < limit) {
+        const activeBuckets = bucketList.filter(b => b.sentences.length > 0);
+        if (activeBuckets.length === 0) break;
+
+        const currentBucket = bucketList[bucketPointer % bucketList.length];
+        if (currentBucket.sentences.length > 0) {
+            selection.push(currentBucket.sentences.shift());
+        }
+        bucketPointer++;
+    }
+
+    return selection;
+}
 function handleKey(e, r, cIdx, i, type) {
     const cellEl = e.target.closest('.cell');
     const isFullCellSelected = cellEl && cellEl.classList.contains('visual-selected');
@@ -3223,15 +3258,14 @@ function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
 
             let unusedPool = availablePool.filter(s => !usedSentenceTexts.has(s.t.trim()));
 
-            if (unusedPool.length >= exerciseLimit) {
-                actSents = unusedPool.slice(0, exerciseLimit);
+          if (unusedPool.length >= exerciseLimit) {
+                actSents = getBalancedSelection(unusedPool, exerciseLimit);
             } else {
-                actSents = [...unusedPool];
+                actSents = getBalancedSelection(unusedPool, unusedPool.length);
                 const remainingNeeded = exerciseLimit - actSents.length;
                 const fallbackPool = availablePool.filter(s => !actSents.some(already => already.t.trim() === s.t.trim()));
-                actSents = actSents.concat(fallbackPool.slice(0, remainingNeeded));
+                actSents = actSents.concat(getBalancedSelection(fallbackPool, remainingNeeded));
             }
-        }
 
         actSents.forEach(s => { if (s && s.t) usedSentenceTexts.add(s.t.trim()); });
         const usedGapWords = new Set();
@@ -3373,42 +3407,7 @@ function generateWorksheet() {
     var allSentences = getAssembledSentences();
     if (allSentences.length === 0) return alert("No sentences found!");
 
-    var rowBuckets = {};
-    allSentences.forEach(function(s) {
-        var r = s.originRow;
-        if (!rowBuckets[r]) rowBuckets[r] = [];
-        rowBuckets[r].push(s);
-    });
-
-    var bucketList = Object.keys(rowBuckets).map(function(r) {
-        return {
-            rowIndex: parseInt(r),
-            sentences: rowBuckets[r]
-        };
-    });
-
-    var getBalancedSelection = function(limit) {
-        var selection = [];
-        var tempBuckets = bucketList.map(function(b) {
-            var shuffledSents = [...b.sentences].sort(function() { return 0.5 - Math.random(); });
-            return { rowIndex: b.rowIndex, sentences: shuffledSents };
-        });
-
-        var bucketPointer = 0;
-        while (selection.length < limit) {
-            var activeBuckets = tempBuckets.filter(function(b) { return b.sentences.length > 0; });
-            if (activeBuckets.length === 0) break;
-            
-            if (tempBuckets[bucketPointer].sentences.length === 0) {
-                bucketPointer = (bucketPointer + 1) % tempBuckets.length;
-                continue;
-            }
-
-            selection.push(tempBuckets[bucketPointer].sentences.shift());
-            bucketPointer = (bucketPointer + 1) % tempBuckets.length;
-        }
-        return selection;
-    };
+    
 
     var contentHtml = 
         '<div class="header-block">' +
@@ -3452,7 +3451,7 @@ function generateWorksheet() {
         if (isStudy) {
             var tableCountDropdown = document.getElementById('table-sentence-count');
             var tableLimit = tableCountDropdown ? parseInt(tableCountDropdown.value, 10) : 10;
-            currentSents = getBalancedSelection(tableLimit);
+           currentSents = getBalancedSelection(allSentences, tableLimit);
         } else {
             var bodyEl = document.getElementById('act-body-' + type);
             if (bodyEl) {
@@ -3479,7 +3478,7 @@ function generateWorksheet() {
             if (currentSents.length === 0) {
                 var countDropdown = document.getElementById('sentence-count');
                 var chosenLimit = countDropdown ? parseInt(countDropdown.value, 10) : 10;
-                currentSents = getBalancedSelection(chosenLimit);
+                currentSents = getBalancedSelection(allSentences, chosenLimit);
             }
         }
 
