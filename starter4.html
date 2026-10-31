@@ -3608,8 +3608,9 @@ function getActivityInstruction(type, lang) {
 }
 
 async function loadStudentTask(assignmentId) {
+    window.isTeacherPreview = false;
     const previewBanner = document.getElementById('teacher-preview-banner');
-if (previewBanner) previewBanner.style.display = 'none';
+    if (previewBanner) previewBanner.style.display = 'none';
     try {
         const doc = await db.collection("assignments").doc(assignmentId).get();
         if (!doc.exists) {
@@ -3631,7 +3632,6 @@ if (previewBanner) previewBanner.style.display = 'none';
         const perActSentences = currentStudentAssignment.sentencesPerActivity || {};
         const hasStudySelected = selectedActivities.includes('study');
 
-        // Reference table banner rendering
         if (hasStudySelected && perActSentences['study'] && perActSentences['study'].length > 0) {
             const refBanner = document.getElementById('student-reference-banner');
             if (refBanner) refBanner.style.display = 'block';
@@ -3649,7 +3649,6 @@ if (previewBanner) previewBanner.style.display = 'none';
             if (refBanner) refBanner.style.display = 'none';
         }
 
-        // Safely check for existing submission
         if (currentUser && currentUser.email) {
             try {
                 const subSnap = await db.collection("submissions")
@@ -3671,7 +3670,6 @@ if (previewBanner) previewBanner.style.display = 'none';
             }
         }
 
-        // Render interactive exercise view
         const msCard = document.getElementById('student-marksheet-card');
         const pendingCard = document.getElementById('student-pending-review-card');
         const exCard = document.getElementById('student-active-exercise-card');
@@ -3771,6 +3769,93 @@ function toggleReferenceTable() {
     }
 }
 
+// State flag for teacher preview mode
+window.isTeacherPreview = false;
+
+/* =========================
+   EXERCISE COMPLETION VALIDATOR
+========================= */
+function isCurrentExerciseCompleted() {
+    if (studentExerciseTypes.length === 0) return true;
+    const actType = studentExerciseTypes[studentCurrentExIndex];
+    const area = document.getElementById('exercise-interactive-area');
+    if (!area) return false;
+
+    const sents = (currentStudentAssignment && currentStudentAssignment.sentencesPerActivity) 
+        ? (currentStudentAssignment.sentencesPerActivity[actType] || []) 
+        : [];
+    if (sents.length === 0) return true;
+
+    if (actType === 'match') {
+        const matched = area.querySelectorAll('.match-t-tile.correct-match').length;
+        return matched >= sents.length;
+    } 
+    else if (actType === 'jumbled') {
+        const remainingInBank = area.querySelectorAll('.jumble-word-bank .jumble-word-tile').length;
+        return remainingInBank === 0;
+    } 
+    else if (actType === 'nospaces') {
+        const unrevealed = area.querySelectorAll('.space-inner:not(.revealed-space)').length;
+        return unrevealed === 0;
+    } 
+    else if (actType === 'vowels') {
+        const boxes = Array.from(area.querySelectorAll('.vowel-input'));
+        if (boxes.length === 0) return true;
+        return boxes.every(b => b.value.trim().length > 0);
+    } 
+    else if (actType === 'cons') {
+        const boxes = Array.from(area.querySelectorAll('.cons-input'));
+        if (boxes.length === 0) return true;
+        return boxes.every(b => b.value.trim().length > 0);
+    } 
+    else if (actType === 'gap-en' || actType === 'gap-t') {
+        const gapInputs = Array.from(area.querySelectorAll('.gap-inline-input'));
+        if (gapInputs.length === 0) return true;
+        return gapInputs.every(i => i.value.trim().length > 0);
+    } 
+    else if (['faulty', 'trans-en', 'trans-target'].includes(actType)) {
+        const inputs = Array.from(area.querySelectorAll('.full-typing-input'));
+        if (inputs.length === 0) return true;
+        return inputs.every(i => i.value.trim().length > 0);
+    }
+
+    return true;
+}
+
+function checkExerciseCompletion() {
+    const nextBtn = document.getElementById('student-next-ex-btn');
+    const submitBtn = document.getElementById('student-submit-btn');
+    if (!nextBtn || !submitBtn) return;
+
+    const isLastEx = (studentCurrentExIndex === studentExerciseTypes.length - 1);
+
+    // Teachers can navigate freely in preview mode
+    if (window.isTeacherPreview) {
+        if (isLastEx) {
+            nextBtn.style.display = 'none';
+            submitBtn.style.display = 'inline-block';
+        } else {
+            nextBtn.style.display = 'inline-block';
+            submitBtn.style.display = 'none';
+        }
+        return;
+    }
+
+    // Student mode: only show Next / Submit when completed
+    const isComplete = isCurrentExerciseCompleted();
+
+    if (isLastEx) {
+        nextBtn.style.display = 'none';
+        submitBtn.style.display = isComplete ? 'inline-block' : 'none';
+    } else {
+        submitBtn.style.display = 'none';
+        nextBtn.style.display = isComplete ? 'inline-block' : 'none';
+    }
+}
+
+/* =========================
+   UPDATED STUDENT EXERCISE RENDERER
+========================= */
 function renderCurrentStudentExercise() {
     const container = document.getElementById('student-active-exercise-card');
     if (studentExerciseTypes.length === 0) {
@@ -3878,6 +3963,7 @@ function renderCurrentStudentExercise() {
                     } else {
                         bank.appendChild(e.target);
                     }
+                    checkExerciseCompletion();
                 }
             });
         });
@@ -3971,7 +4057,7 @@ function renderCurrentStudentExercise() {
 
         setupAutoAdvanceInputs(area, '.cons-input');
     }
-   else if (actType === 'gap-en' || actType === 'gap-t') {
+    else if (actType === 'gap-en' || actType === 'gap-t') {
         let gHtml = '';
         const usedGapWords = new Set();
 
@@ -3982,7 +4068,6 @@ function renderCurrentStudentExercise() {
 
             let { fullMatch, cleanGap } = extractGapWord(fullSentence);
 
-            // If cleanGap is missing OR already gapped in another sentence, re-select another word from this sentence
             if (!cleanGap || usedGapWords.has(cleanGap.toLowerCase())) {
                 const cleanSentence = fullSentence.replace(/\*/g, '');
                 const reMarked = addAsteriskToGapWord(cleanSentence, usedGapWords);
@@ -4011,6 +4096,12 @@ function renderCurrentStudentExercise() {
                 </div>`;
         });
         area.innerHTML = gHtml;
+
+        area.querySelectorAll('.gap-inline-input').forEach(input => {
+            input.addEventListener('input', () => {
+                checkExerciseCompletion();
+            });
+        });
     }
     else {
         let tHtml = '';
@@ -4033,23 +4124,25 @@ function renderCurrentStudentExercise() {
             tHtml += `
                 <div class="student-item-block" data-idx="${idx}" data-correct="${(answerRef||'').replace(/"/g, '&quot;')}" style="margin-bottom:10px;">
                     <label style="display:block; margin-bottom:4px; font-size:14px;"><b>${idx + 1}.</b> ${promptText}</label>
-                    <input type="text" class="full-typing-input" placeholder="Type correct English translation..." style="width:100%; padding:6px 10px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
+                    <input type="text" class="full-typing-input" placeholder="Type correct translation..." style="width:100%; padding:6px 10px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
                 </div>
             `;
         });
         area.innerHTML = tHtml;
+
+        area.querySelectorAll('.full-typing-input').forEach(input => {
+            input.addEventListener('input', () => {
+                checkExerciseCompletion();
+            });
+        });
     }
 
     document.getElementById('student-prev-ex-btn').style.display = (studentCurrentExIndex > 0) ? 'inline-block' : 'none';
-    if (studentCurrentExIndex === studentExerciseTypes.length - 1) {
-        document.getElementById('student-next-ex-btn').style.display = 'none';
-        document.getElementById('student-submit-btn').style.display = 'inline-block';
-    } else {
-        document.getElementById('student-next-ex-btn').style.display = 'inline-block';
-        document.getElementById('student-submit-btn').style.display = 'none';
-    }
+    checkExerciseCompletion();
 }
-
+/* =========================
+   UPDATED EVENT HELPERS
+========================= */
 function check_nospace_click(e, element, itemIdx) {
     if (e) e.stopPropagation();
     const block = element.closest('.student-item-block');
@@ -4082,6 +4175,8 @@ function check_nospace_click(e, element, itemIdx) {
             setTimeout(() => { element.style.color = ''; }, 400);
         }
     }
+
+    checkExerciseCompletion();
 }
 
 function checkMatchPair(state, sents) {
@@ -4119,6 +4214,8 @@ function checkMatchPair(state, sents) {
         engEl.classList.remove('selected');
         state.selectedTarget = null;
         state.selectedEng = null;
+
+        checkExerciseCompletion();
     }
 }
 
@@ -4139,6 +4236,7 @@ function setupAutoAdvanceInputs(area, selector) {
             } else {
                 this.classList.remove('correct-input', 'wrong-input');
             }
+            checkExerciseCompletion();
         };
 
         input.onkeydown = function(e) {
@@ -4366,7 +4464,8 @@ async function submitStudentWork() {
         alert("❌ Failed to save submission to database: " + err.message + "\nPlease check your Firestore database rules.");
     }
 }
-    async function previewActiveAssignmentAsStudent() {
+   async function previewActiveAssignmentAsStudent() {
+    window.isTeacherPreview = true;
     const assignmentId = document.getElementById('sub-filter-assignment').value;
     if (!assignmentId) return alert("Select an assignment first.");
 
@@ -4378,7 +4477,6 @@ async function submitStudentWork() {
 
     showPage('student-portal-page');
 
-    // Show the Exit Preview banner
     const previewBanner = document.getElementById('teacher-preview-banner');
     if (previewBanner) previewBanner.style.display = 'flex';
 
@@ -4417,16 +4515,14 @@ async function submitStudentWork() {
 
     renderCurrentStudentExercise();
 }
-
 function exitTeacherPreview() {
+    window.isTeacherPreview = false;
     const previewBanner = document.getElementById('teacher-preview-banner');
     if (previewBanner) previewBanner.style.display = 'none';
 
-    // Navigate back to teacher submissions view while preserving current selection
     showPage('submissions-page');
     renderStudentSubmissionsTable();
 }
-
 async function duplicateCurrentAssignmentToClass() {
     const assignmentId = document.getElementById('sub-filter-assignment').value;
     if (!assignmentId) return alert("Select an assignment first.");
