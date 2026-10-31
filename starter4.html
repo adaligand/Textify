@@ -5303,9 +5303,27 @@ async function loadCourseAssignments(courseId) {
             return;
         }
 
+        // Convert Firestore docs to an array
+        const docsData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Sort descending by creation date (latest set date at the top)
+        docsData.sort((a, b) => {
+            const getTimestamp = (item) => {
+                const d = item.createdAt || item.updatedAt;
+                if (!d) return 0;
+                if (typeof d.toMillis === 'function') return d.toMillis();
+                if (typeof d.toDate === 'function') return d.toDate().getTime();
+                if (d instanceof Date) return d.getTime();
+                if (typeof d === 'number') return d;
+                if (typeof d === 'string') return new Date(d).getTime() || 0;
+                return 0;
+            };
+            return getTimestamp(b) - getTimestamp(a);
+        });
+
         if (assignSelect) {
             assignSelect.innerHTML = '<option value="">-- Choose Assignment --</option>' +
-                snap.docs.map(doc => `<option value="${doc.id}">${doc.data().title || 'Untitled Assignment'}</option>`).join('');
+                docsData.map(doc => `<option value="${doc.id}">${doc.title || 'Untitled Assignment'}</option>`).join('');
             assignSelect.value = "";
         }
 
@@ -5313,7 +5331,6 @@ async function loadCourseAssignments(courseId) {
         if (assignSelect) assignSelect.innerHTML = `<option value="">Error loading tasks: ${e.message}</option>`;
     }
 }
-
 async function renderStudentSubmissionsTable() {
     const assignmentId = document.getElementById('sub-filter-assignment').value;
     const tbody = document.getElementById('submissions-table-body');
