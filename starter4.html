@@ -1034,7 +1034,11 @@ auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
 /* =========================
    STATE
 ========================= */
-let currentUser = null;
+/* =========================
+   STATE
+========================= */
+const MASTER_YEAR_ORDER = ['Year 9', 'GCSE', 'Year 12', 'Year 13'];
+    let currentUser = null;
 let currentDocId = null;
 let currentStudentAssignment = null;
 let activeInputForVK = null;
@@ -1465,7 +1469,7 @@ function renderLanguageNavButtons() {
     `).join("");
 }
 
-function renderLibrary() {
+async function renderLibrary() {
     const gridContainer = document.getElementById('grid-container');
     if (gridContainer) gridContainer.innerHTML = ''; 
 
@@ -1473,35 +1477,92 @@ function renderLibrary() {
 
     const mainContent = document.getElementById("library-content");
 
-    let topicAreaPrompt = '';
     if (!nav.lang) {
-        topicAreaPrompt = '<p style="color:#64748b;">Please select a language above to view projects.</p>';
-    } else if (nav.lang === "EAL" || nav.year) {
-        topicAreaPrompt = 'Loading topics...';
-    } else {
-        topicAreaPrompt = '';
+        mainContent.innerHTML = '<p style="color:#64748b;">Please select a language above to view projects.</p>';
+        return;
     }
 
     mainContent.innerHTML = `
-        ${nav.lang && nav.lang !== "EAL" ? `
-            <h3 style="margin-top:0;">Year Group</h3>
-            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">
-                ${["Year 9","GCSE","Year 12","Year 13"].map(y => `
-                    <button onclick="selectYear('${y}')"
-                        style="padding:10px 15px; border-radius:6px; ${nav.year === y ? 'background:#2196f3;color:white;border:none;' : 'background:white; border:1px solid #e2e8f0;'}">
-                        ${y}
-                    </button>
-                `).join("")}
-            </div>
-        ` : ""}
-
-        <div id="topic-area" style="min-height: 50px;">
-            ${topicAreaPrompt}
-        </div>
+        <div id="year-group-area"></div>
+        <div id="topic-area" style="min-height: 50px;"></div>
     `;
 
-    if (nav.lang === "EAL" || nav.year) {
+    if (nav.lang === "EAL") {
         renderTopicsInline();
+    } else {
+        await renderYearGroupsInline();
+    }
+}
+
+async function renderYearGroupsInline() {
+    const yearArea = document.getElementById("year-group-area");
+    const topicArea = document.getElementById("topic-area");
+    if (!yearArea || !nav.lang || nav.lang === "EAL") return;
+
+    yearArea.innerHTML = `<p style="color:#64748b;">Loading year groups...</p>`;
+
+    try {
+        const snap = await db.collection("builders")
+            .where("lang", "==", nav.lang)
+            .where("isDeleted", "==", false)
+            .get();
+
+        // Collect all year groups that have active builders for the selected language
+        const usedYears = new Set(
+            snap.docs.map(d => d.data().year).filter(y => y && y !== "EAL")
+        );
+
+        // Keep active year groups in master chronological order
+        const activeYears = MASTER_YEAR_ORDER.filter(y => usedYears.has(y));
+        
+        // Append any custom year strings not present in MASTER_YEAR_ORDER
+        usedYears.forEach(y => {
+            if (!activeYears.includes(y)) activeYears.push(y);
+        });
+
+        if (activeYears.length === 0) {
+            yearArea.innerHTML = `<p style="color:#64748b;">No active sentence builders found for ${nav.lang}.</p>`;
+            if (topicArea) topicArea.innerHTML = '';
+            nav.year = null;
+            nav.topic = null;
+            return;
+        }
+
+        // Reset selected year group if it is no longer active
+        if (nav.year && !activeYears.includes(nav.year)) {
+            nav.year = null;
+            nav.topic = null;
+        }
+
+        let html = `
+            <h3 style="margin-top:0;">Year Group</h3>
+            <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:20px;">
+        `;
+
+        activeYears.forEach(y => {
+            const isActive = (nav.year === y);
+            html += `
+                <button onclick="selectYear('${y}')"
+                    style="padding:10px 15px; border-radius:6px; cursor:pointer; font-weight:600; transition:all 0.2s;
+                    ${isActive 
+                        ? 'background:#2196f3; color:white; border:none; box-shadow:0 4px 6px rgba(33,150,243,0.3);' 
+                        : 'background:white; border:1px solid #e2e8f0; color:#475569;'}">
+                    ${y}
+                </button>`;
+        });
+
+        html += `</div>`;
+        yearArea.innerHTML = html;
+
+        if (nav.year) {
+            renderTopicsInline();
+        } else {
+            if (topicArea) topicArea.innerHTML = '<p style="color:#64748b;">Select a year group to view topics.</p>';
+        }
+
+    } catch (error) {
+        console.error("Year Groups Error:", error);
+        yearArea.innerHTML = `<p style="color:#ef4444; font-weight:bold;">Error loading year groups: ${error.message}</p>`;
     }
 }
 
@@ -1518,6 +1579,8 @@ function selectYear(year) {
     nav.topic = null;
     renderLibrary();
 }
+
+
 
 async function renderTopicsInline() {
     const topicArea = document.getElementById("topic-area");
@@ -1919,7 +1982,7 @@ async function deleteProject(id) {
             isDeleted: true,
             deletedAt: firebase.firestore.Timestamp.now()
         });
-        renderTopicsInline(); 
+        renderLibrary(); 
     } catch (e) {
         console.error("Delete failed:", e);
     }
