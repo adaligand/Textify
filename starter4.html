@@ -3229,6 +3229,72 @@ function getOrGenerateFaultyTr(sentence) {
 /* =========================
    PER-EXERCISE COLLAPSIBLE SENTENCE BOXES
 ========================= */
+    /* =========================
+   EXERCISE REFRESH HELPERS
+========================= */
+function getCurrentSentencesMapFromDOM() {
+    const map = {};
+    const container = document.getElementById('per-activity-sentences-container');
+    if (!container) return map;
+
+    const cards = container.querySelectorAll('.act-card-body');
+    cards.forEach(bodyEl => {
+        const actId = bodyEl.getAttribute('data-activity-id');
+        if (!actId) return;
+
+        const sents = [];
+        const rows = bodyEl.querySelectorAll('.act-sentence-row');
+        rows.forEach(row => {
+            const tInput = row.querySelector('.edit-t');
+            const trInput = row.querySelector('.edit-tr');
+            const faultyTrInput = row.querySelector('.edit-faulty-tr');
+            if (tInput) {
+                const t = tInput.value.trim();
+                const tr = trInput ? trInput.value.trim() : "";
+                const faultyTr = faultyTrInput ? faultyTrInput.value.trim() : "";
+                if (t || tr) {
+                    const itemObj = { t, tr };
+                    if (actId === 'faulty' && faultyTr) {
+                        itemObj.faultyTr = faultyTr;
+                    }
+                    sents.push(itemObj);
+                }
+            }
+        });
+        map[actId] = sents;
+    });
+    return map;
+}
+
+function refreshActivitySentences(actId, e) {
+    if (e) e.stopPropagation(); // Prevents collapsing/expanding the card header when clicking refresh
+
+    // Preserve current sentence values across all other exercises
+    const currentMap = getCurrentSentencesMapFromDOM();
+
+    const exerciseLimit = parseInt(document.getElementById('sentence-count').value, 10);
+    const allSentences = getAssembledSentences();
+
+    let availablePool = [...allSentences];
+    if (actId === 'faulty') {
+        availablePool = availablePool.filter(isEligibleForFaulty);
+    }
+
+    // Generate a fresh balanced selection for this exercise
+    currentMap[actId] = getBalancedSelection(availablePool, exerciseLimit);
+
+    // Save state and re-render
+    window.editingSavedSentencesMap = currentMap;
+    renderPerActivitySentenceBoxes();
+
+    // Re-expand the refreshed card so the new sentences are immediately visible
+    const body = document.getElementById(`act-body-${actId}`);
+    const arrow = document.getElementById(`arrow-${actId}`);
+    if (body) {
+        body.style.display = 'block';
+        if (arrow) arrow.innerText = '▼';
+    }
+}
 function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
     const container = document.getElementById('per-activity-sentences-container');
     const checkedBoxes = Array.from(document.querySelectorAll('#activity-list input:checked'));
@@ -3292,9 +3358,18 @@ function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
         }
 
         html += `
+           html += `
             <div class="act-sentence-card" id="act-card-${actId}">
                 <div class="act-card-header" onclick="toggleActivityCollapse('${actId}')">
-                    <span>✏️ ${actLabel} (${actSents.length} Sentences)</span>
+                    <span style="display:flex; align-items:center; gap:10px;">
+                        ✏️ ${actLabel} (${actSents.length} Sentences)
+                        <button type="button" 
+                            style="padding: 2px 8px; font-size: 12px; margin: 0; background: white; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer; font-weight:600; color:#334155;" 
+                            onclick="refreshActivitySentences('${actId}', event)" 
+                            title="Refresh sentences for this exercise">
+                            🔄 Refresh
+                        </button>
+                    </span>
                     <span id="arrow-${actId}" style="font-size:14px; font-weight:bold;">▶</span>
                 </div>
                 <div id="act-body-${actId}" class="act-card-body" data-activity-id="${actId}" style="display:none;">
