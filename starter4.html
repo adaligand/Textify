@@ -3283,7 +3283,50 @@ function generateWorksheet() {
     saveAs(new Blob(['\ufeff', fullDoc], { type: 'application/msword' }), docTitle + '_Worksheet.doc');
     closeModals();
 }
+/* =========================
+   GOOGLE CLASSROOM ASSIGNMENT PUBLISHING & EDITING
+========================= */
+async function openClassroomPublishSection() {
+    const assignFields = document.getElementById('classroom-assign-fields');
+    assignFields.style.display = 'block';
+    assignFields.scrollIntoView({ behavior: 'smooth' });
 
+    try {
+        let isLoaded = await ensureGapiClassroomLoaded();
+        if (!isLoaded) {
+            alert("Google Classroom API could not be loaded.");
+            return;
+        }
+
+        const select = document.getElementById('gc-course-select');
+        select.innerHTML = '<option value="">Loading courses...</option>';
+
+        let res;
+        try {
+            res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
+        } catch (authErr) {
+            console.warn("Classroom API rejected current token, requesting account selection...", authErr);
+            localStorage.removeItem('oauth_token');
+            localStorage.removeItem('oauth_token_expiry');
+            await ensureClassroomToken(true);
+            res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
+        }
+
+        const courses = res.result.courses || [];
+
+        if (courses.length === 0) {
+            select.innerHTML = '<option value="">No active Google Classroom courses found.</option>';
+            return;
+        }
+
+        select.innerHTML = '<option value="">-- Choose Course --</option>' + 
+            courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+    } catch (err) {
+        console.error("Classroom Error:", err);
+        alert("Classroom Connection Error: " + (err.message || "Failed to load Google Classroom courses."));
+    }
+}
 async function loadCourseTopics(courseId) {
     if (!courseId) return;
     try {
