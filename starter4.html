@@ -830,7 +830,7 @@ th { background: #f1f5f9; color: #334155; }
                 👁️ <span>Teacher Preview Mode</span>
             </span>
             <button onclick="exitTeacherPreview()" class="btn-purple" style="background:#f59e0b; font-size:13px; padding:8px 16px; margin:0;">
-                ← Exit Preview & Return to Submissions
+                ← Exit Preview
             </button>
         </div>
 
@@ -1144,9 +1144,14 @@ function getValidAccessToken() {
     return null;
 }
 
+/* =========================
+   UPDATED SILENT TOKEN MANAGEMENT
+========================= */
 function ensureClassroomToken(forcePrompt = false) {
     return new Promise((resolve) => {
         const token = getValidAccessToken();
+        
+        // If a valid token exists in storage and we are not forcing a prompt, attach and resolve immediately
         if (token && !forcePrompt) {
             if (window.gapi && gapi.client) {
                 gapi.client.setToken({ access_token: token });
@@ -1159,31 +1164,37 @@ function ensureClassroomToken(forcePrompt = false) {
 
         if (tokenClient) {
             const oldCallback = tokenClient.callback;
+            
             tokenClient.callback = (res) => {
                 tokenClient.callback = oldCallback;
-                if (res.access_token) {
+                if (res && res.access_token) {
                     localStorage.setItem('oauth_token', res.access_token);
                     localStorage.setItem('oauth_token_expiry', Date.now() + (res.expires_in * 1000));
                     if (window.gapi && gapi.client) {
                         gapi.client.setToken({ access_token: res.access_token });
                     }
                     resolve(res.access_token);
+                } else if (!forcePrompt && currentUser && currentUser.email) {
+                    // If silent background token fetch failed, fallback once to interactive popup
+                    ensureClassroomToken(true).then(resolve);
                 } else {
                     resolve(null);
                 }
             };
+
             try {
                 const reqConfig = {};
-                if (currentUser && currentUser.email) {
-                    reqConfig.hint = currentUser.email;
-                } else {
-                    reqConfig.prompt = 'select_account';
-                }
                 if (forcePrompt) {
+                    reqConfig.prompt = 'select_account';
+                } else if (currentUser && currentUser.email) {
+                    reqConfig.hint = currentUser.email;
+                    reqConfig.prompt = ''; // Attempt silent background auth (NO POPUP!)
+                } else {
                     reqConfig.prompt = 'select_account';
                 }
                 tokenClient.requestAccessToken(reqConfig);
             } catch (e) { 
+                console.warn("Token acquisition error:", e);
                 resolve(null); 
             }
         } else {
@@ -1194,7 +1205,12 @@ function ensureClassroomToken(forcePrompt = false) {
 
 async function ensureGapiClassroomLoaded() {
     if (!window.gapi) return false;
-    await ensureClassroomToken();
+    
+    // Silently obtain or verify token
+    const token = await ensureClassroomToken(false);
+    if (token && window.gapi.client) {
+        gapi.client.setToken({ access_token: token });
+    }
     
     if (window.gapi && gapi.client && !gapi.client.classroom) {
         try {
