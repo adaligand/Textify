@@ -4300,6 +4300,7 @@ function renderCurrentStudentExercise() {
 
         sents.forEach((s, itemIdx) => {
             let sentenceChars = s.t.split('');
+            let spaceCount = 0;
             let formattedSentence = sentenceChars.map((char, charIdx, arr) => {
                 if (char === ' ') {
                     const prevChar = arr[charIdx - 1];
@@ -4307,6 +4308,7 @@ function renderCurrentStudentExercise() {
                     if (punctuation.includes(prevChar) || punctuation.includes(nextChar)) {
                         return `<span class='letter-span' data-index='${charIdx}'>&nbsp;</span>`;
                     } else {
+                        spaceCount++;
                         return `<span class='space-span' onclick='check_nospace_click(event, this, ${itemIdx})'><span class='space-inner' style='display:none'>&nbsp;</span></span>`;
                     }
                 } else {
@@ -4316,7 +4318,10 @@ function renderCurrentStudentExercise() {
 
             nsHtml += `
                 <div class="student-item-block" data-idx="${itemIdx}" data-wrong-clicks="0">
-                    <p style="margin:0 0 3px 0; font-weight:bold; color:#1e293b; font-size:13px;">${itemIdx + 1}. ${s.tr}</p>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <p style="margin:0; font-weight:bold; color:#1e293b; font-size:13px;">${itemIdx + 1}. ${s.tr}</p>
+                        <span class="space-counter-badge" style="font-size:12px; font-weight:bold; color:#2563eb;">(${spaceCount} space${spaceCount === 1 ? '' : 's'} remaining)</span>
+                    </div>
                     <div class="no-spaces-interactive-line">
                         ${formattedSentence}
                     </div>
@@ -4437,8 +4442,9 @@ function renderCurrentStudentExercise() {
 
             if (actType === 'faulty') {
                 const faultyText = s.faultyTr || getOrGenerateFaultyTr(s);
-                promptText = `Target Language (${docLang}): <b>${s.t}</b><br><span style="color:#b91c1c; font-weight:600; font-size:13px;">Faulty English sentence to correct: "${faultyText}"</span>`;
+                promptText = `<b>${s.t}</b><br><span style="color:#b91c1c; font-weight:600; font-size:13px;">Faulty English sentence to correct: "${faultyText}"</span>`;
                 answerRef = s.tr;
+            }
             } else if (actType === 'trans-en') {
                 promptText = `Translate into English: <b>${s.t}</b>`;
                 answerRef = s.tr;
@@ -4504,7 +4510,59 @@ function check_nospace_click(e, element, itemIdx) {
 
     checkExerciseCompletion();
 }
+function updateNoSpaceCounter(block) {
+    if (!block) return;
+    const totalSpaces = block.querySelectorAll('.space-span').length;
+    const revealedSpaces = block.querySelectorAll('.space-inner.revealed-space').length;
+    const remaining = totalSpaces - revealedSpaces;
+    const counterEl = block.querySelector('.space-counter-badge');
+    if (counterEl) {
+        if (remaining === 0) {
+            counterEl.style.color = '#10b981';
+            counterEl.innerText = `(0 spaces remaining ✓)`;
+        } else {
+            counterEl.style.color = '#2563eb';
+            counterEl.innerText = `(${remaining} space${remaining === 1 ? '' : 's'} remaining)`;
+        }
+    }
+}
 
+function check_nospace_click(e, element, itemIdx) {
+    if (e) e.stopPropagation();
+    const block = element.closest('.student-item-block');
+    if (!block) return;
+
+    let isCorrectClick = false;
+
+    const checkAdjacent = (sibling) => {
+        if (sibling && sibling.classList.contains('space-span')) {
+            const spaceInner = sibling.querySelector('.space-inner');
+            if (spaceInner && (spaceInner.style.display === 'none' || spaceInner.style.visibility === 'hidden') && !spaceInner.classList.contains('revealed-space')) {
+                spaceInner.style.display = 'inline';
+                spaceInner.style.visibility = 'visible';
+                spaceInner.classList.add('revealed-space');
+                isCorrectClick = true;
+            }
+        }
+    };
+
+    checkAdjacent(element.previousElementSibling);
+    checkAdjacent(element.nextElementSibling);
+    if (element.classList.contains('space-span')) {
+        checkAdjacent(element);
+    }
+
+    if (!isCorrectClick) {
+        if (!element.classList.contains('space-span') || element.querySelector('.space-inner').style.display === 'none') {
+            block.dataset.wrongClicks = parseInt(block.dataset.wrongClicks || "0", 10) + 1;
+            element.style.color = '#ef4444';
+            setTimeout(() => { element.style.color = ''; }, 400);
+        }
+    }
+
+    updateNoSpaceCounter(block);
+    checkExerciseCompletion();
+}
 function checkMatchPair(state, sents) {
     if (state.selectedTarget && state.selectedEng) {
         const idT = state.selectedTarget.dataset.id;
