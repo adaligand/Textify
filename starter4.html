@@ -3024,7 +3024,6 @@ function generateWorksheet() {
     var docLang = meta.lang || document.getElementById('meta-lang')?.value || "Target Language";
     var docYear = meta.year || document.getElementById('meta-year')?.value || "Year 9";
 
-    // Exercise Instructions Dictionary with Dynamic Language Injected
     var activityInstructions = {
         'match': 'Match each ' + docLang + ' sentence (1–10) with its correct English translation (A–J).',
         'nospaces': 'Rewrite the sentences adding correct spaces between the words.',
@@ -3085,7 +3084,6 @@ function generateWorksheet() {
         return selection;
     };
 
-    // 1. TOP HEADER BLOCK & STUDENT INFO TABLE
     var contentHtml = 
         '<div class="header-block">' +
             '<div class="doc-main-title">' + docTitle.toUpperCase() + ' <span class="doc-sub-info">' + docLang + ' | ' + docYear + '</span></div>' +
@@ -3099,13 +3097,11 @@ function generateWorksheet() {
         '</div>';
 
     var answerKeyHtml = "<br clear='all' style='page-break-before:always' /><div class='answer-key-section'><table class='exercise-title-table'><tr><td><div class='ex-title'>Answer Key</div></td></tr></table>";
-
     var exerciseCounter = 1;
 
     selected.forEach(function(type) {
         var labelEl = document.querySelector('label[for="chk-' + type + '"]');
         var rawLabel = labelEl ? labelEl.innerText : type;
-        
         var cleanLabel = rawLabel.replace(/\bTL\b/g, docLang).replace(/Target Language/gi, docLang);
 
         var isStudy = (type === 'study');
@@ -3115,7 +3111,6 @@ function generateWorksheet() {
         var textInstruction = isStudy ? "" : (activityInstructions[type] || "");
         var instructionMarkup = textInstruction ? ('<div class="ex-instruction">' + textInstruction + '</div>') : '';
 
-        // Single 1x1 table container prevents Word from splitting title and instructions into separate boxes
         var activityHtml = 
             '<div class="activity-container">' +
                 '<table class="exercise-title-table">' +
@@ -3127,11 +3122,40 @@ function generateWorksheet() {
                     '</tr>' +
                 '</table>';
 
-        var countDropdown = document.getElementById('sentence-count');
-        var chosenLimit = countDropdown ? parseInt(countDropdown.value, 10) : 20;
-
-        var currentSents = getBalancedSelection(isStudy ? chosenLimit : 10);
-        currentSents.sort(function(a, b) { return a.originRow - b.originRow; });
+        var currentSents = [];
+        if (isStudy) {
+            var tableCountDropdown = document.getElementById('table-sentence-count');
+            var tableLimit = tableCountDropdown ? parseInt(tableCountDropdown.value, 10) : 10;
+            currentSents = getBalancedSelection(tableLimit);
+        } else {
+            var bodyEl = document.getElementById('act-body-' + type);
+            if (bodyEl) {
+                var rows = bodyEl.querySelectorAll('.act-sentence-row');
+                var targets = rows.length > 0 ? rows : bodyEl.children;
+                Array.from(targets).forEach(function(row) {
+                    var tInput = row.querySelector('.edit-t');
+                    var trInput = row.querySelector('.edit-tr');
+                    var faultyTrInput = row.querySelector('.edit-faulty-tr');
+                    if (tInput) {
+                        var t = tInput.value.trim();
+                        var tr = trInput ? trInput.value.trim() : "";
+                        var faultyTr = faultyTrInput ? faultyTrInput.value.trim() : "";
+                        if (t || tr) {
+                            var itemObj = { t: t, tr: tr };
+                            if (type === 'faulty' && faultyTr) {
+                                itemObj.faultyTr = faultyTr;
+                            }
+                            currentSents.push(itemObj);
+                        }
+                    }
+                });
+            }
+            if (currentSents.length === 0) {
+                var countDropdown = document.getElementById('sentence-count');
+                var chosenLimit = countDropdown ? parseInt(countDropdown.value, 10) : 10;
+                currentSents = getBalancedSelection(chosenLimit);
+            }
+        }
 
         var activityAnswersHtml = "";
         if (!isStudy) {
@@ -3155,7 +3179,7 @@ function generateWorksheet() {
                 '</tr>';
                 
                 var matchIndex = shuf.indexOf(s);
-                var correctLetter = String.fromCharCode(65 + matchIndex);
+                var correctLetter = String.fromCharCode(65 + (matchIndex >= 0 ? matchIndex : 0));
                 activityAnswersHtml += '<li>' + correctLetter + '</li>';
             });
             activityHtml += '</table>';
@@ -3177,16 +3201,13 @@ function generateWorksheet() {
                     out = s.t.split(' ').sort(function() { return 0.5 - Math.random(); }).join(' / ');
                 }
                 else if (type === 'gap-t') { 
-                    var w = s.t.split(' '); 
-                    w[Math.floor(Math.random() * w.length)] = "___________"; 
-                    out = w.join(' '); 
+                    out = s.t.includes('*') ? s.t.replace(/\*([^*]+)\*/g, '___________') : s.t;
                 }
                 else if (type === 'gap-en') { 
-                    var w2 = s.tr.split(' '); 
-                    w2[Math.floor(Math.random() * w2.length)] = "___________"; 
                     out = s.t; 
-                    hint = '<span class="blue">(' + w2.join(' ') + ')</span>'; 
-                    answerText = s.tr; 
+                    var maskedTr = s.tr.includes('*') ? s.tr.replace(/\*([^*]+)\*/g, '___________') : s.tr;
+                    hint = '<span class="blue">(' + maskedTr + ')</span>'; 
+                    answerText = s.tr.replace(/\*/g, ''); 
                 }
                 else if (type === 'trans-en') { 
                     out = s.t; 
@@ -3198,39 +3219,7 @@ function generateWorksheet() {
                     hint = ""; 
                 }
                 else if (type === 'faulty') {
-                    var faultyEnglish = s.tr; 
-                    var segments = s.parts || s.details || [];
-                    
-                    if (segments.length > 0) {
-                        var sabotageableParts = [];
-                        segments.forEach(function(p) {
-                            var cell = getCellAt(p.r, p.c);
-                            if (!cell || !cell.items) return;
-                            var correctEngWord = (p.tr || "").trim();
-                            if (!correctEngWord) return;
-                            
-                            var wrongWords = [];
-                            cell.items.forEach(function(item) {
-                                var w = (item.tr || "").trim();
-                                if (w && w.toLowerCase() !== correctEngWord.toLowerCase()) {
-                                    wrongWords.push(w);
-                                }
-                            });
-                            
-                            if (wrongWords.length > 0) {
-                                sabotageableParts.push({ correctWord: correctEngWord, wrongWords: wrongWords });
-                            }
-                        });
-                        
-                        if (sabotageableParts.length > 0) {
-                            var chosen = sabotageableParts[Math.floor(Math.random() * sabotageableParts.length)];
-                            var wrongWord = chosen.wrongWords[Math.floor(Math.random() * chosen.wrongWords.length)];
-                            var escapedTarget = chosen.correctWord.replace(/[-\/\\^\$*+?.()|[\]{}]/g, '\\$&');
-                            var replacementRegex = new RegExp(escapedTarget, 'i');
-                            faultyEnglish = faultyEnglish.replace(replacementRegex, wrongWord);
-                        }
-                    }
-                    
+                    var faultyEnglish = s.faultyTr || s.tr; 
                     activityHtml += 
                         '<div class="exercise-item-wrapper">' +
                             '<p class="exercise-item"><b>' + (i+1) + '.</b> ' + s.t + ' = <span class="blue">' + faultyEnglish + '</span></p>' +
@@ -4489,6 +4478,7 @@ async function downloadActiveAssignmentWorksheet() {
     const assign = doc.data();
     const docTitle = assign.title || "Sentence Builder";
     const docLang = assign.lang || "Target Language";
+    const docYear = assign.year || "Year 9";
     const perAct = assign.sentencesPerActivity || {};
     const selectedActs = assign.selectedActivities || Object.keys(perAct);
 
@@ -4509,8 +4499,14 @@ async function downloadActiveAssignmentWorksheet() {
 
     let contentHtml = 
         '<div class="header-block">' +
-            '<div class="doc-main-title">' + docTitle.toUpperCase() + ' <span class="doc-sub-info">' + docLang + '</span></div>' +
-            '<table class="student-info-table"><tr><td><b>Name:</b> ___________________________</td><td><b>Class:</b> ____________</td><td><b>Date:</b> ____________</td></tr></table>' +
+            '<div class="doc-main-title">' + docTitle.toUpperCase() + ' <span class="doc-sub-info">' + docLang + ' | ' + docYear + '</span></div>' +
+            '<table class="student-info-table">' +
+                '<tr>' +
+                    '<td><b>Name:</b> ___________________________</td>' +
+                    '<td><b>Class:</b> ____________</td>' +
+                    '<td><b>Date:</b> ____________</td>' +
+                '</tr>' +
+            '</table>' +
         '</div>';
 
     let answerKeyHtml = "<br clear='all' style='page-break-before:always' /><div class='answer-key-section'><table class='exercise-title-table'><tr><td><div class='ex-title'>Answer Key</div></td></tr></table>";
@@ -4526,7 +4522,14 @@ async function downloadActiveAssignmentWorksheet() {
 
         let activityHtml = 
             '<div class="activity-container">' +
-                '<table class="exercise-title-table"><tr><td><div class="ex-title">' + boxTitle + '</div>' + instructionMarkup + '</td></tr></table>';
+                '<table class="exercise-title-table">' +
+                    '<tr>' +
+                        '<td>' +
+                            '<div class="ex-title">' + boxTitle + '</div>' +
+                            instructionMarkup +
+                        '</td>' +
+                    '</tr>' +
+                '</table>';
 
         const currentSents = perAct[type] || [];
         let activityAnswersHtml = "";
@@ -4534,15 +4537,22 @@ async function downloadActiveAssignmentWorksheet() {
 
         if (type === 'study') {
             activityHtml += '<table class="sentence-grid-table"><tr><th>' + docLang + '</th><th>English Translation</th></tr>';
-            currentSents.forEach(s => { activityHtml += '<tr><td><b>' + s.t + '</b></td><td class="blue">' + s.tr + '</td></tr>'; });
+            currentSents.forEach(s => { 
+                activityHtml += '<tr><td style="padding:1pt 5pt; mso-para-margin:0pt;"><b>' + s.t + '</b></td><td class="blue" style="padding:1pt 5pt; mso-para-margin:0pt;">' + s.tr + '</td></tr>'; 
+            });
             activityHtml += '</table>';
         } else if (type === 'match') {
             const shuf = [...currentSents].sort(() => 0.5 - Math.random());
             activityHtml += '<table class="match-table">';
             currentSents.forEach((s, i) => {
-                activityHtml += '<tr><td style="width:45%;"><b>' + (i+1) + '.</b> ' + s.t + '</td><td style="width:10%; text-align:center;">[ &nbsp; ]</td><td style="width:45%;"><b>' + String.fromCharCode(65+i) + '.</b> ' + shuf[i].tr + '</td></tr>';
+                activityHtml += '<tr>' +
+                    '<td style="width:45%; padding: 3pt 0;"><b>' + (i+1) + '.</b> ' + s.t + '</td>' +
+                    '<td style="width:10%; text-align:center; padding: 3pt 0;">[ &nbsp; ]</td>' +
+                    '<td style="width:45%; padding: 3pt 0;"><b>' + String.fromCharCode(65+i) + '.</b> ' + shuf[i].tr + '</td>' +
+                '</tr>';
                 const matchIndex = shuf.indexOf(s);
-                activityAnswersHtml += '<li>' + String.fromCharCode(65 + (matchIndex >= 0 ? matchIndex : 0)) + '</li>';
+                const correctLetter = String.fromCharCode(65 + (matchIndex >= 0 ? matchIndex : 0));
+                activityAnswersHtml += '<li>' + correctLetter + '</li>';
             });
             activityHtml += '</table>';
         } else {
@@ -4573,6 +4583,13 @@ async function downloadActiveAssignmentWorksheet() {
                 } else if (type === 'faulty') {
                     out = s.t + ' = <span class="blue">' + (s.faultyTr || s.tr) + '</span>';
                     answerText = s.tr;
+                    activityHtml += 
+                        '<div class="exercise-item-wrapper">' +
+                            '<p class="exercise-item"><b>' + (i+1) + '.</b> ' + out + '</p>' +
+                            (needsWritingLine ? '<p class="writing-line">&nbsp;</p>' : '') +
+                        '</div>';
+                    activityAnswersHtml += '<li>' + s.t + ' = <span class="blue">' + s.tr + '</span></li>';
+                    return;
                 }
 
                 activityHtml += 
@@ -4593,9 +4610,57 @@ async function downloadActiveAssignmentWorksheet() {
     contentHtml += answerKeyHtml;
 
     const fullDoc = 
-        '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8">' +
-        '<style>@page { size: A4 portrait; margin: 2cm; } body { font-family: Arial, sans-serif; font-size: 11pt; } .exercise-title-table { width:100%; margin-top:12pt; } .ex-title { font-weight:bold; font-size:12pt; } .writing-line { border-bottom: 1pt solid #94a3b8; margin-top: 14pt; } .blue { color: #2980b9; font-style: italic; }</style>' +
-        '</head><body>' + contentHtml + '</body></html>';
+        '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
+        '<head>' +
+        '<meta charset="utf-8">' +
+        '<!--[if gte mso 9]>' +
+        '<xml>' +
+         '<w:WordDocument>' +
+          '<w:View>Print</w:View>' +
+          '<w:Zoom>100</w:Zoom>' +
+         '</w:WordDocument>' +
+        '</xml>' +
+        '<![endif]-->' +
+        '<style>' +
+            '@page { size: A4 portrait; margin: 2cm; } ' +
+            'body { font-family: "Segoe UI", Arial, sans-serif; font-size: 12pt; color: #1e293b; line-height: 1.35; } ' +
+            'p { margin: 0; padding: 0; } ' +
+
+            '.header-block { margin-bottom: 16pt; } ' +
+            '.doc-main-title { font-size: 16pt; font-weight: bold; text-transform: uppercase; color: #0f172a; margin-bottom: 8pt; } ' +
+            '.doc-sub-info { font-size: 11pt; font-weight: normal; text-transform: none; color: #64748b; margin-left: 10px; } ' +
+            '.student-info-table { width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; margin-top: 6pt; background-color: #fafafa; } ' +
+            '.student-info-table td { border: 1px solid #cbd5e1; padding: 5pt 10pt; font-size: 10pt; font-weight: normal; color: #334155; } ' +
+
+            '.exercise-title-table { width: 100%; border-collapse: collapse; margin-top: 14pt; margin-bottom: 10pt; } ' +
+            '.exercise-title-table td { background-color: #f8fafc; border-left: 4px solid #8b5cf6; border-top: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 6pt 10pt; mso-para-margin: 0pt !important; } ' +
+            '.ex-title { font-size: 12pt; font-weight: bold; color: #1e293b; margin: 0; padding: 0; mso-para-margin: 0pt !important; } ' +
+            '.ex-instruction { font-size: 10pt; font-style: italic; color: #64748b; margin-top: 3pt; padding: 0; mso-para-margin: 0pt !important; } ' +
+
+            '.sentence-grid-table { width: 100%; border-collapse: collapse; margin-top: 2pt; margin-bottom: 8pt; } ' +
+            '.sentence-grid-table th { border: 1px solid #cbd5e1; padding: 2pt 5pt !important; font-size: 10pt !important; background-color: #f1f5f9; text-align: left; font-weight: bold; mso-para-margin: 0pt !important; mso-space-above: 0pt !important; mso-space-below: 0pt !important; } ' +
+            '.sentence-grid-table td { border: 1px solid #cbd5e1; padding: 1pt 5pt !important; font-size: 10pt !important; line-height: 1.1 !important; mso-para-margin: 0pt !important; mso-space-above: 0pt !important; mso-space-below: 0pt !important; } ' +
+
+            '.activity-container { page-break-inside: avoid; margin-bottom: 16pt; } ' +
+            '.exercise-item-wrapper { margin-bottom: 14pt; page-break-inside: avoid; } ' +
+            '.exercise-item { font-size: 12pt; margin: 0; padding: 0; color: #0f172a; line-height: 1.35; mso-para-margin: 0pt; } ' +
+
+            '.writing-line { border-bottom: 1pt solid #94a3b8; font-size: 1pt; line-height: 1pt; margin-top: 16pt !important; margin-bottom: 4pt !important; mso-para-margin-top: 16pt !important; mso-para-margin-bottom: 4pt !important; } ' +
+
+            '.match-table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; font-size: 12pt; } ' +
+            '.match-table td { font-size: 12pt; border-bottom: 0.5pt solid #f1f5f9; } ' +
+
+            '.answer-key-section { font-size: 10pt; } ' +
+            '.ak-group { margin-bottom: 10pt; } ' +
+            '.ak-group h3 { font-size: 10pt; font-weight: bold; margin-bottom: 3pt; margin-top: 6pt; color: #334155; } ' +
+            '.answer-list { margin: 0; padding-left: 20px; font-size: 10pt; line-height: 1.25; } ' +
+            '.answer-list li { font-size: 10pt; margin-bottom: 2pt; } ' +
+
+            '.blue { color: #2980b9; font-style: italic; } ' +
+        '</style>' +
+        '</head>' +
+        '<body>' + contentHtml + '</body>' +
+        '</html>';
 
     saveAs(new Blob(['\ufeff', fullDoc], { type: 'application/msword' }), docTitle + '_Worksheet.doc');
 }
