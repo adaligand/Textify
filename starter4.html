@@ -4247,6 +4247,45 @@ function setupAutoAdvanceInputs(area, selector) {
     });
 }
 
+/* =========================
+   WORD-LEVEL SIMILARITY CHECK (50% THRESHOLD)
+========================= */
+function evaluateTextSimilarity(studentAns, correctAns) {
+    const normAns = normalizeString(studentAns);
+    const normCorrect = normalizeString(correctAns);
+
+    if (!normAns || !normCorrect) return { points: 0, isCorrect: false };
+    if (normAns === normCorrect) return { points: 1, isCorrect: true };
+
+    const ansWords = normAns.split(' ').filter(Boolean);
+    const correctWords = normCorrect.split(' ').filter(Boolean);
+
+    if (ansWords.length === 0 || correctWords.length === 0) {
+        return { points: 0, isCorrect: false };
+    }
+
+    let matchedCount = 0;
+    const tempCorrect = [...correctWords];
+
+    ansWords.forEach(w => {
+        const idx = tempCorrect.indexOf(w);
+        if (idx !== -1) {
+            matchedCount++;
+            tempCorrect.splice(idx, 1);
+        }
+    });
+
+    // Calculate ratio against the longer word count
+    const ratio = matchedCount / Math.max(ansWords.length, correctWords.length);
+
+    // Requires at least 50% word match for 0.5 points
+    if (ratio >= 0.50) {
+        return { points: 0.5, isCorrect: false };
+    }
+
+    return { points: 0, isCorrect: false };
+}
+
 function saveStudentCurrentExerciseResponses() {
     const actType = studentExerciseTypes[studentCurrentExIndex];
     const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
@@ -4342,25 +4381,14 @@ function saveStudentCurrentExerciseResponses() {
             const ans = input ? input.value.trim() : '';
             const correct = (s.tr || block.dataset.correct || '').trim();
 
-            const normAns = normalizeString(ans);
-            const normCorrect = normalizeString(correct);
-
-            let isExact = false;
-            let isPartial = false;
-
-            if (normAns.length > 0 && normCorrect.length > 0) {
-                isExact = (normAns === normCorrect);
-                if (!isExact) {
-                    isPartial = normCorrect.includes(normAns) || normAns.includes(normCorrect);
-                }
-            }
+            const evalResult = evaluateTextSimilarity(ans, correct);
 
             responses.push({
                 prompt: `Correct English for: "${s.t}" (Faulty was: "${s.faultyTr || getOrGenerateFaultyTr(s)}")`,
                 studentAnswer: ans || '(Empty)',
                 correctAnswer: correct || '(No markscheme translation set)',
-                isCorrect: isExact,
-                points: isExact ? 1 : (isPartial ? 0.5 : 0)
+                isCorrect: evalResult.points === 1,
+                points: evalResult.points
             });
         });
     } else {
@@ -4370,32 +4398,20 @@ function saveStudentCurrentExerciseResponses() {
             const ans = input ? input.value.trim() : '';
             const correct = (block.dataset.correct || s.tr || s.t || '').trim();
 
-            const normAns = normalizeString(ans);
-            const normCorrect = normalizeString(correct);
-
-            let isExact = false;
-            let isPartial = false;
-
-            if (normAns.length > 0 && normCorrect.length > 0) {
-                isExact = (normAns === normCorrect);
-                if (!isExact) {
-                    isPartial = normCorrect.includes(normAns);
-                }
-            }
+            const evalResult = evaluateTextSimilarity(ans, correct);
 
             responses.push({
                 prompt: s.t || s.tr,
                 studentAnswer: ans || '(Empty)',
                 correctAnswer: correct || '(No markscheme translation set)',
-                isCorrect: isExact,
-                points: isExact ? 1 : (isPartial ? 0.5 : 0)
+                isCorrect: evalResult.points === 1,
+                points: evalResult.points
             });
         });
     }
 
     studentAnswersState[actType] = responses;
 }
-
 function nextStudentExercise() {
     saveStudentCurrentExerciseResponses();
     if (studentCurrentExIndex < studentExerciseTypes.length - 1) {
