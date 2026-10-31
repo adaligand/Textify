@@ -2109,14 +2109,79 @@ function redo() {
     }
 }
 
+function sanitizeGrid() {
+    if (!grid || !grid.length || !grid[0].length) return;
+    const numRows = grid.length;
+    const numCols = grid[0].length;
+
+    // 1. Reset hidden flags and clamp cell spans to grid boundaries
+    for (let r = 0; r < numRows; r++) {
+        for (let c = 0; c < numCols; c++) {
+            if (!grid[r][c]) grid[r][c] = c();
+            grid[r][c].hidden = false;
+            if (!grid[r][c].rS || grid[r][c].rS < 1) grid[r][c].rS = 1;
+            if (!grid[r][c].cS || grid[r][c].cS < 1) grid[r][c].cS = 1;
+            if (r + grid[r][c].rS > numRows) grid[r][c].rS = numRows - r;
+            if (c + grid[r][c].cS > numCols) grid[r][c].cS = numCols - c;
+        }
+    }
+
+    // 2. Hide only the cells legitimately covered by active merged root cells
+    for (let r = 0; r < numRows; r++) {
+        for (let c = 0; c < numCols; c++) {
+            const cell = grid[r][c];
+            if (cell.hidden) {
+                cell.rS = 1;
+                cell.cS = 1;
+                continue;
+            }
+            if (cell.rS > 1 || cell.cS > 1) {
+                for (let i = r; i < r + cell.rS; i++) {
+                    for (let j = c; j < c + cell.cS; j++) {
+                        if (i === r && j === c) continue;
+                        if (grid[i] && grid[i][j]) {
+                            grid[i][j].hidden = true;
+                            grid[i][j].rS = 1;
+                            grid[i][j].cS = 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 function render(doSave = true) {
+    sanitizeGrid();
     if (doSave) pushHistory();
     const container = document.getElementById('grid-container');
     container.innerHTML = '';
     const cols = grid[0].length;
+    const rows = grid.length;
     container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
 
     const pairColors = ['#e74c3c', '#9b59b6', '#3498db', '#e67e22', '#2ecc71', '#f1c40f'];
+
+    // Map first visible cell for each row and column
+    const firstVisibleColInRow = new Array(rows).fill(-1);
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            if (!grid[r][c].hidden) {
+                firstVisibleColInRow[r] = c;
+                break;
+            }
+        }
+    }
+
+    const firstVisibleRowInCol = new Array(cols).fill(-1);
+    for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+            if (!grid[r][c].hidden) {
+                firstVisibleRowInCol[c] = r;
+                break;
+            }
+        }
+    }
 
     grid.forEach((row, r) => {
         row.forEach((cell, cIdx) => {
@@ -2187,16 +2252,16 @@ function render(doSave = true) {
                 </div>
             `;
 
-            if (currentMode === 'add-col' && r === 0) {
+            if (currentMode === 'add-col' && r === firstVisibleRowInCol[cIdx]) {
                 addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
                 if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
             }
-            if (currentMode === 'del-col' && r === 0) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-            if (currentMode === 'add-row' && cIdx === 0) {
+            if (currentMode === 'del-col' && r === firstVisibleRowInCol[cIdx]) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+            if (currentMode === 'add-row' && cIdx === firstVisibleColInRow[r]) {
                 addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
                 if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
             }
-            if (currentMode === 'del-row' && cIdx === 0) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+            if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
 
             container.appendChild(cellDiv);
             cellDiv.querySelectorAll('input').forEach(syncSize);
@@ -2553,11 +2618,22 @@ function mergeSelected() {
 
 function splitSelected() {
     grid.forEach((row, r) => row.forEach((cell, cIdx) => {
-        if (cell.sel && (cell.rS > 1 || cell.cS > 1)) {
-            const rs = cell.rS; const cs = cell.cS;
-            for (let i = r; i < r + rs; i++) for (let j = cIdx; j < cIdx + cs; j++) {
-                grid[i][j].hidden = false; grid[i][j].rS = 1; grid[i][j].cS = 1; grid[i][j].sel = false;
-                if (i !== r || j !== cIdx) { grid[i][j].items = [{t: "", tr: ""}]; grid[i][j].color = "#ffffff"; }
+        if (cell.sel) {
+            const rs = cell.rS || 1; 
+            const cs = cell.cS || 1;
+            for (let i = r; i < r + rs; i++) {
+                for (let j = cIdx; j < cIdx + cs; j++) {
+                    if (grid[i] && grid[i][j]) {
+                        grid[i][j].hidden = false; 
+                        grid[i][j].rS = 1; 
+                        grid[i][j].cS = 1; 
+                        grid[i][j].sel = false;
+                        if (i !== r || j !== cIdx) { 
+                            grid[i][j].items = [{t: "", tr: ""}]; 
+                            grid[i][j].color = "#ffffff"; 
+                        }
+                    }
+                }
             }
         }
         grid[r][cIdx].sel = false;
