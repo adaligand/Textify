@@ -2179,7 +2179,107 @@ async function duplicateSB(id, e) {
         alert("Duplication failed: " + err.message);
     }
 }
+/* =========================
+    COPY, PASTE & CUT
+========================= */
+document.addEventListener('copy', (e) => {
+    const active = document.activeElement;
+    if (active && (active.classList.contains('target-input') || active.classList.contains('translation-input'))) {
+        if (active.selectionStart !== active.selectionEnd) {
+            return; 
+        }
 
+        const posParts = active.dataset.pos.split('-');
+        const r = parseInt(posParts[0]);
+        const cIdx = parseInt(posParts[1]);
+        
+        const cellData = grid[r][cIdx].items;
+        const textToCopy = cellData.map(item => `${item.t}|${item.tr}`).join('\n');
+        
+        e.clipboardData.setData('text/plain', textToCopy);
+        e.preventDefault();
+        
+        const cellEl = active.closest('.cell');
+        if (cellEl) cellEl.classList.remove('visual-selected');
+    }
+});
+
+document.addEventListener('paste', (e) => {
+    const active = document.activeElement;
+    if (active && (active.classList.contains('target-input') || active.classList.contains('translation-input'))) {
+        
+        const pastedData = e.clipboardData.getData('text/plain').replace(/\r/g, '');
+        const lines = pastedData.split('\n').filter(l => l.trim() !== "");
+
+        if (pastedData.includes('|') || lines.length > 1) {
+            e.preventDefault();
+            
+            const posParts = active.dataset.pos.split('-');
+            const r = parseInt(posParts[0]);
+            const cIdx = parseInt(posParts[1]);
+            const itemIdx = parseInt(posParts[2]);
+            const type = posParts[3];
+
+            const cellEl = active.closest('.cell');
+            const isFullCellSelected = cellEl && cellEl.classList.contains('visual-selected');
+
+            const newItems = lines.map(line => {
+                const pts = line.split('|');
+                return pts.length > 1 
+                    ? { t: pts[0].trim(), tr: pts[1].trim() }
+                    : (type === 'tr' ? { t: "", tr: line.trim() } : { t: line.trim(), tr: "" });
+            });
+
+            if (isFullCellSelected) {
+                grid[r][cIdx].items = newItems;
+                cellEl.classList.remove('visual-selected');
+            } else {
+                if (lines.length === 1 && !pastedData.includes('|')) {
+                    grid[r][cIdx].items[itemIdx][type] = lines[0];
+                } else {
+                    grid[r][cIdx].items.splice(itemIdx + 1, 0, ...newItems);
+                }
+            }
+
+            render();
+            saveToCloud(true);
+
+            setTimeout(() => {
+                const first = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
+                if (first) first.focus();
+            }, 10);
+        } 
+    }
+});
+
+document.addEventListener('cut', (e) => {
+    const active = document.activeElement;
+    
+    if (active && (active.classList.contains('target-input') || active.classList.contains('translation-input'))) {
+        const cellEl = active.closest('.cell');
+        
+        if (cellEl && cellEl.classList.contains('visual-selected')) {
+            const posParts = active.dataset.pos.split('-');
+            const r = parseInt(posParts[0]);
+            const cIdx = parseInt(posParts[1]);
+            
+            const cellData = grid[r][cIdx].items;
+            const textToCopy = cellData.map(item => `${item.t}|${item.tr}`).join('\n');
+            e.clipboardData.setData('text/plain', textToCopy);
+            e.preventDefault();
+
+            grid[r][cIdx].items = [{t: "", tr: ""}];
+            
+            cellEl.classList.remove('visual-selected');
+            render();
+            
+            setTimeout(() => {
+                const firstInput = document.querySelector(`input[data-pos="${r}-${cIdx}-0-t"]`);
+                if (firstInput) firstInput.focus();
+            }, 10);
+        }
+    }
+});
 function updateVal(r, cIdx, i, f, v) { 
     grid[r][cIdx].items[i][f] = v; 
     clearTimeout(typingTimer); 
@@ -2220,7 +2320,30 @@ function handleKey(e, r, cIdx, i, type) {
             if (prevInput) prevInput.focus();
         }, 10);
     }
-} 
+
+    // Intercept Ctrl+A / Cmd+A to select the whole cell container
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        const cellEl = e.target.closest('.cell');
+        
+        if (cellEl) {
+            cellEl.classList.add('visual-selected');
+
+            const removeHighlight = () => {
+                cellEl.classList.remove('visual-selected');
+                window.removeEventListener('mousedown', removeHighlight);
+                window.removeEventListener('keydown', removeHighlight);
+            };
+            
+            setTimeout(() => {
+                window.addEventListener('mousedown', removeHighlight);
+                window.addEventListener('keydown', (ev) => {
+                    if (!ev.ctrlKey && !ev.metaKey) removeHighlight();
+                });
+            }, 10);
+        }
+    }
+}
 
 function closeModals() { 
     document.querySelectorAll('.modal').forEach(m => m.style.display='none'); 
