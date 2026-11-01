@@ -1241,17 +1241,17 @@ th { background: #f1f5f9; color: #334155; }
             </div>
 
 <!-- Tab 3: Transformations -->
-            <div id="tab-content-transforms" style="display: none; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto;">
-                <p style="color: #475569; font-size: 12px; margin: 0 0 8px 0; flex-shrink: 0;">
-                    Enter sentence transformations (one rule per line):
-                </p>
-                <ul style="font-size: 11px; color: #64748b; margin: 0 0 8px 0; padding-left: 16px; flex-shrink: 0;">
-                    <li><b>Have eaten=ate</b> (replaces "have eaten" with "ate")</li>
-                    <li><b>Have + eaten=ate</b> (replaces "have ... eaten" with "ate ...")</li>
-                    <li><b>(m)=</b> (deletes "(m)")</li>
-                </ul>
-                <textarea id="transformations-input" style="flex: 1; min-height: 180px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: monospace; font-size: 12px; outline: none; resize: none;" placeholder="Have eaten=ate&#10;Have + eaten=ate&#10;(m)=" oninput="transformationsText = this.value;"></textarea>
-            </div>
+<div id="tab-content-transforms" style="display: none; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto;">
+    <p style="color: #475569; font-size: 12px; margin: 0 0 8px 0; flex-shrink: 0;">
+        Enter rules (one per line):
+    </p>
+    <ul style="font-size: 11px; color: #64748b; margin: 0 0 8px 0; padding-left: 16px; flex-shrink: 0;">
+        <li><b>Have eaten=ate</b> (replaces with "ate")</li>
+        <li><b>(m)=</b> (deletes entirely)</li>
+        <li><b>n'est pas*assez</b> (excludes)</li>
+    </ul>
+    <textarea id="transformations-input" style="flex: 1; min-height: 180px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: monospace; font-size: 12px; outline: none; resize: none;" placeholder="Have eaten=ate&#10;(m)=&#10;n'est pas * assez" oninput="transformationsText = this.value;"></textarea>
+</div>
         </div> <!-- Closes Right Column -->
     </div> <!-- Closes Main Side-by-Side Grid Container -->
 
@@ -3442,6 +3442,27 @@ function openActivityMenu() {
     document.getElementById('overlay').style.display = 'block';
 }
 
+function applyTransformations(text, rulesText) {
+    if (!text || !rulesText) return text;
+    const lines = rulesText.split('\n');
+    
+    for (let line of lines) {
+        line = line.trim();
+        if (!line || !line.includes('=')) continue;
+
+        const parts = line.split('=');
+        const find = parts[0].trim();
+        const replace = parts[1] !== undefined ? parts[1].trim() : '';
+
+        if (find) {
+            const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\]/g, '\\$&');
+            const regex = new RegExp(escapeReg(find), 'gi');
+            text = text.replace(regex, replace);
+        }
+    }
+    return text.replace(/\s+/g, ' ').trim();
+}
+
 function getAssembledSentences() {
     let allSentences = [];
     
@@ -3460,6 +3481,12 @@ function getAssembledSentences() {
     const unique = [];
     const seen = new Set();
     allSentences.forEach(s => {
+        // 1. Exclude sentence if target or translation matches word1 - word2
+        if (shouldExcludeSentence(s.t, rules) || shouldExcludeSentence(s.tr, rules)) {
+            return;
+        }
+
+        // 2. Apply text replacements (A=B, (m)=)
         s.t = applyTransformations(s.t, rules);
         s.tr = applyTransformations(s.tr, rules);
         const text = s.t.trim();
@@ -3470,37 +3497,27 @@ function getAssembledSentences() {
     });
     return unique;
 }
-function applyTransformations(text, rulesText) {
-    if (!text || !rulesText) return text;
-    let result = text;
+// Checks for exclusion rules using '*' (e.g., word1 * word2)
+function shouldExcludeSentence(text, rulesText) {
+    if (!text || !rulesText) return false;
     const lines = rulesText.split('\n');
+    
     for (let line of lines) {
         line = line.trim();
-        if (!line || !line.includes('=')) continue;
-        const eqIdx = line.indexOf('=');
-        const left = line.substring(0, eqIdx).trim();
-        const right = line.substring(eqIdx + 1).trim();
+        if (!line || line.includes('=')) continue;
 
-        if (!left) continue;
-
-        if (left.includes('+')) {
-            const tokens = left.split('+').map(t => t.trim()).filter(Boolean);
-            if (tokens.length === 2) {
+        // Lines with '*' (and no '=') are treated as exclusion rules
+        if (line.includes('*')) {
+            const tokens = line.split('*').map(t => t.trim()).filter(Boolean);
+            if (tokens.length >= 2) {
                 const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\]/g, '\\$&');
-                const t1 = escapeReg(tokens[0]);
-                const t2 = escapeReg(tokens[1]);
-                const regex = new RegExp(`\\b${t1}\\b(?:\\s+(.*?)\\s*|\\s*)\\b${t2}\\b`, 'gi');
-                result = result.replace(regex, (match, p1) => {
-                    return p1 ? `${right} ${p1}` : right;
-                });
+                // Matches token 1 followed anywhere later by token 2
+                const pattern = tokens.map(escapeReg).join('.*?');
+                if (new RegExp(pattern, 'i').test(text)) return true;
             }
-        } else {
-            const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\]/g, '\\$&');
-            const regex = new RegExp(escapeReg(left), 'gi');
-            result = result.replace(regex, right);
         }
     }
-    return result.replace(/\s+/g, ' ').trim();
+    return false;
 }
 /* =========================
    PATH VALIDATION ENGINE
