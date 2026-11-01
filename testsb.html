@@ -758,6 +758,56 @@ th { background: #f1f5f9; color: #334155; }
     border-radius: 3px;
     margin-bottom: 3px;
 }
+/* CLASS DISPLAY FULLSCREEN OVERLAY */
+#class-display-modal {
+    width: 95vw;
+    max-width: 1400px;
+    height: 90vh;
+    max-height: 92vh;
+    display: none;
+    flex-direction: column;
+    padding: 24px;
+    box-sizing: border-box;
+    overflow: hidden;
+    background: #ffffff;
+    border-radius: 12px;
+}
+
+#class-display-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+    flex-shrink: 0;
+}
+
+#class-display-game-select {
+    padding: 8px 14px;
+    font-size: 16px;
+    font-weight: bold;
+    border-radius: 8px;
+    border: 2px solid #3b82f6;
+    background: #eff6ff;
+    color: #1e3a8a;
+    outline: none;
+    cursor: pointer;
+}
+
+#class-display-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: #fafafa;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 30px;
+    overflow-y: auto;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.03);
+}
     </style>
 </head>
 <body>
@@ -846,9 +896,10 @@ th { background: #f1f5f9; color: #334155; }
     <button onclick="toggleMode('del-col')">- Col</button>
     <button onclick="splitSelected()">✂️ Split</button>
     <button onclick="mergeSelected()">🔗 Merge</button>
-    <button onclick="openRoutesModal()" class="btn-purple" style="background:#8b5cf6;">🔀 SB Routes / Combos</button>
+    <button onclick="openRoutesModal()" class="btn-purple" style="background:#8b5cf6;">🔀 Routes</button>
     <button onclick="exportPDF()" class="btn-danger">📄 PDF</button>
     <button onclick="openPreview()" class="btn-info">👁️ Preview</button>
+    <button onclick="openInteractiveClassDisplay()" class="btn-purple" style="background:#0284c7;">📺 Live</button>
     <button onclick="openActivityMenu()" class="btn-purple">📜 Worksheet & Assign</button>
 </div>
 
@@ -1140,6 +1191,7 @@ th { background: #f1f5f9; color: #334155; }
     </div>
 </div>
 <!-- OPTIONS / ASSIGNMENT MENU MODAL -->
+<!-- OPTIONS / ASSIGNMENT MENU MODAL -->
 <div id="activity-menu" class="modal">
     <h2>📜 Worksheet & Interactive Task Options</h2>
     
@@ -1206,6 +1258,30 @@ th { background: #f1f5f9; color: #334155; }
         <input type="datetime-local" id="gc-schedule-date" style="width:100%; padding:8px; margin:5px 0 12px 0; box-sizing:border-box;">
 
         <button id="gc-publish-btn" onclick="publishTaskToClassroom()" class="btn-purple" style="width:100%; height:42px; font-size:15px;">📢 Publish Assignment Now</button>
+    </div>
+</div>
+
+<!-- INTERACTIVE CLASS DISPLAY MODAL (PLACED OUTSIDE AND AFTER ACTIVITY-MENU) -->
+<div id="class-display-modal" class="modal">
+    <div id="class-display-header">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <h2 style="margin:0; font-size: 22px; color: #0f172a;">📺 Interactive Class Display</h2>
+            <select id="class-display-game-select" onchange="playClassDisplayGame()">
+                <option value="random-target">Random Target Language</option>
+                <option value="random-en">Random English</option>
+                <option value="unjumble">Unjumble Sentences</option>
+                <option value="no-spaces">No Spaces</option>
+                <option value="no-vowels">Missing Vowels</option>
+                <option value="no-consonants">Missing Consonants</option>
+                <option value="match-up">Match Up (5 Pairs + Distractors)</option>
+                <option value="sentence-grid">Sentence Grid (12 Cards)</option>
+            </select>
+        </div>
+        <button onclick="closeModals()" class="btn-outline" style="padding: 6px 14px; font-size: 16px; font-weight: bold; cursor: pointer;">✕ Close</button>
+    </div>
+
+    <div id="class-display-content">
+        <!-- Interactive sentence activities render dynamically here -->
     </div>
 </div>
 
@@ -6536,7 +6612,270 @@ function isExcludedCombination(partsMeta) {
         return hasA && hasB;
     });
 }
+/* =========================================================
+   INTERACTIVE CLASS DISPLAY ENGINE
+   ========================================================= */
+let classDisplayCurrentGame = 'random-target';
+let classDisplayUsedSentences = new Set();
 
+function openInteractiveClassDisplay() {
+    const sentences = getAssembledSentences();
+    if (!sentences || sentences.length === 0) {
+        alert("No valid sentences generated from this Sentence Builder grid yet! Please add vocabulary items first.");
+        return;
+    }
+    classDisplayUsedSentences.clear();
+    document.getElementById('class-display-game-select').value = classDisplayCurrentGame;
+    document.getElementById('class-display-modal').style.display = 'flex';
+    document.getElementById('overlay').style.display = 'block';
+    playClassDisplayGame();
+}
+
+function removeVowelsCD(str) {
+    if (!str) return str;
+    return str.replace(/[aeiouàéèíóúüÄÖÜäöü]/gi, '<span style="border-bottom:3px solid #334155; display:inline-block; width:0.5em; margin:0 2px;">_</span>');
+}
+
+function removeConsonantsCD(str) {
+    if (!str) return str;
+    return str.replace(/[bcdfghjklmnpqrstvwxyzßçñ]/gi, '<span style="border-bottom:3px solid #334155; display:inline-block; width:0.5em; margin:0 2px;">_</span>');
+}
+
+function shuffleWordsCD(str) {
+    if (!str) return str;
+    const words = str.trim().split(/\s+/);
+    for (let i = words.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [words[i], words[j]] = [words[j], words[i]];
+    }
+    return words.join(' ');
+}
+
+function playClassDisplayGame() {
+    const gameType = document.getElementById('class-display-game-select').value;
+    classDisplayCurrentGame = gameType;
+    const allSentences = getAssembledSentences();
+    const displayArea = document.getElementById('class-display-content');
+
+    if (!allSentences || allSentences.length === 0) {
+        displayArea.innerHTML = '<h2 style="color:#64748b;">No sentences generated from grid.</h2>';
+        return;
+    }
+
+    if (gameType === 'match-up') {
+        playClassDisplayMatchUp(allSentences);
+        return;
+    }
+    if (gameType === 'sentence-grid') {
+        playClassDisplayGrid(allSentences);
+        return;
+    }
+
+    let availablePool = allSentences.filter(s => !classDisplayUsedSentences.has(s.t));
+    if (availablePool.length === 0) {
+        classDisplayUsedSentences.clear();
+        availablePool = [...allSentences];
+    }
+
+    const sentencePair = availablePool[Math.floor(Math.random() * availablePool.length)];
+    classDisplayUsedSentences.add(sentencePair.t);
+
+    let qHTML = '', aHTML = '';
+
+    switch (gameType) {
+        case 'unjumble':
+            qHTML = `<h2 style="font-size: 2.8em; color: #1e293b; margin: 0; line-height: 1.3;">${shuffleWordsCD(sentencePair.t)}</h2>`;
+            aHTML = `<h2 style="font-size: 2.8em; color: #10b981; margin: 0; line-height: 1.3;">${sentencePair.t}</h2><h3 style="font-size: 2em; color: #2563eb; font-style: italic; margin-top: 10px;">(${sentencePair.tr})</h3>`;
+            break;
+        case 'no-spaces':
+            qHTML = `<h2 style="font-size: 2.8em; color: #1e293b; margin: 0; line-height: 1.3; letter-spacing: 1px;">${sentencePair.t.replace(/\s+/g, '')}</h2>`;
+            aHTML = `<h2 style="font-size: 2.8em; color: #10b981; margin: 0; line-height: 1.3;">${sentencePair.t}</h2><h3 style="font-size: 2em; color: #2563eb; font-style: italic; margin-top: 10px;">(${sentencePair.tr})</h3>`;
+            break;
+        case 'no-vowels':
+            qHTML = `<h2 style="font-size: 2.8em; color: #1e293b; margin: 0; line-height: 1.4;">${removeVowelsCD(sentencePair.t)}</h2><h3 style="font-size: 2em; color: #2563eb; font-style: italic; margin-top: 15px;">(${sentencePair.tr})</h3>`;
+            aHTML = `<h2 style="font-size: 2.8em; color: #10b981; margin: 0; line-height: 1.3;">${sentencePair.t}</h2>`;
+            break;
+        case 'no-consonants':
+            qHTML = `<h2 style="font-size: 2.8em; color: #1e293b; margin: 0; line-height: 1.4;">${removeConsonantsCD(sentencePair.t)}</h2><h3 style="font-size: 2em; color: #2563eb; font-style: italic; margin-top: 15px;">(${sentencePair.tr})</h3>`;
+            aHTML = `<h2 style="font-size: 2.8em; color: #10b981; margin: 0; line-height: 1.3;">${sentencePair.t}</h2>`;
+            break;
+        case 'random-target':
+            qHTML = `<h2 style="font-size: 2.8em; color: #1e293b; margin: 0; line-height: 1.3;">${sentencePair.t}</h2>`;
+            aHTML = `<h2 style="font-size: 2.5em; color: #2563eb; font-style: italic; margin: 0;">(${sentencePair.tr})</h2>`;
+            break;
+        case 'random-en':
+            qHTML = `<h2 style="font-size: 2.8em; color: #2563eb; font-style: italic; margin: 0; line-height: 1.3;">(${sentencePair.tr})</h2>`;
+            aHTML = `<h2 style="font-size: 2.8em; color: #10b981; margin: 0; line-height: 1.3;">${sentencePair.t}</h2>`;
+            break;
+    }
+
+    displayArea.innerHTML = `
+        <div id="cd-question" style="min-height: 180px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; width: 100%; padding: 20px 0;">
+            ${qHTML}
+        </div>
+        <div id="cd-answer" style="display: none; min-height: 120px; text-align: center; width: 100%; border-top: 2px dashed #cbd5e1; padding-top: 20px; margin-top: 10px;">
+            ${aHTML}
+        </div>
+        <div style="display: flex; justify-content: center; gap: 15px; margin-top: 25px;">
+            <button onclick="playClassDisplayGame()" class="btn-purple" style="font-size: 16px; padding: 10px 24px;">🔄 Next / Shuffle</button>
+            <button id="cd-reveal-btn" onclick="toggleClassDisplayAnswer()" class="btn-info" style="font-size: 16px; padding: 10px 24px;">🔍 Reveal Answer</button>
+        </div>
+    `;
+}
+
+function toggleClassDisplayAnswer() {
+    const ans = document.getElementById('cd-answer');
+    const btn = document.getElementById('cd-reveal-btn');
+    if (!ans) return;
+
+    if (ans.style.display === 'none' || ans.style.display === '') {
+        ans.style.display = 'block';
+        if (btn) btn.innerText = '🙈 Hide Answer';
+    } else {
+        ans.style.display = 'none';
+        if (btn) btn.innerText = '🔍 Reveal Answer';
+    }
+}
+
+function playClassDisplayMatchUp(allSentences) {
+    const NUM_PAIRS = 5;
+    const NUM_DISTRACTORS = 3;
+    const totalNeeded = NUM_PAIRS + NUM_DISTRACTORS;
+
+    if (allSentences.length < totalNeeded) {
+        document.getElementById('class-display-content').innerHTML = `
+            <div style="text-align:center; padding: 40px;">
+                <h2 style="color:#ef4444;">Need at least ${totalNeeded} sentences for Match Up!</h2>
+                <p style="color:#64748b;">Your builder currently has ${allSentences.length} sentences.</p>
+            </div>`;
+        return;
+    }
+
+    const shuffled = [...allSentences].sort(() => 0.5 - Math.random());
+    const gamePairs = shuffled.slice(0, NUM_PAIRS);
+    const distractors = shuffled.slice(NUM_PAIRS, totalNeeded).map(d => d.tr);
+
+    const leftSide = gamePairs.map(p => p.t);
+    let rightSide = gamePairs.map(p => p.tr).concat(distractors).sort(() => 0.5 - Math.random());
+
+    let leftHTML = leftSide.map((sent, i) => `
+        <li style="margin-bottom: 14px; font-size: 1.3em; line-height: 1.4; display: flex; align-items: baseline;">
+            <span class="match-ans-letter" style="color: #10b981; font-weight: bold; width: 35px; display: inline-block;"></span>
+            <span style="font-weight: bold; margin-right: 8px;">${i + 1}.</span>
+            <span>${sent}</span>
+        </li>
+    `).join('');
+
+    let rightHTML = rightSide.map((sent, i) => `
+        <li style="margin-bottom: 14px; font-size: 1.3em; line-height: 1.4;" data-text="${sent.replace(/"/g, '&quot;')}">
+            <span style="font-weight: bold; margin-right: 8px; color: #8b5cf6;">${String.fromCharCode(65 + i)}.</span>
+            <span>${sent}</span>
+        </li>
+    `).join('');
+
+    document.getElementById('class-display-content').innerHTML = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; text-align: left;">
+            <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 20px; border-radius: 10px;">
+                <h3 style="margin-top: 0; color: #1e293b; border-bottom: 2px solid #8b5cf6; padding-bottom: 8px; font-size: 1.3em;">Target Language</h3>
+                <ul style="list-style: none; padding: 0; margin: 0;">${leftHTML}</ul>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 20px; border-radius: 10px;">
+                <h3 style="margin-top: 0; color: #1e293b; border-bottom: 2px solid #10b981; padding-bottom: 8px; font-size: 1.3em;">English Translations</h3>
+                <ul id="cd-match-right-list" style="list-style: none; padding: 0; margin: 0;">${rightHTML}</ul>
+            </div>
+        </div>
+        <div style="display: flex; justify-content: center; gap: 15px; margin-top: 20px;">
+            <button onclick="playClassDisplayGame()" class="btn-purple" style="font-size: 16px; padding: 10px 24px;">🔄 Next / Shuffle</button>
+            <button id="cd-reveal-match-btn" class="btn-info" style="font-size: 16px; padding: 10px 24px;">🔍 Reveal Answers</button>
+        </div>
+    `;
+
+    document.getElementById('cd-reveal-match-btn').onclick = function() {
+        gamePairs.forEach((pair, idx) => {
+            const rightIndex = rightSide.indexOf(pair.tr);
+            const correctLetter = String.fromCharCode(65 + rightIndex);
+            const letterSpans = document.querySelectorAll('.match-ans-letter');
+            if (letterSpans[idx]) letterSpans[idx].innerText = correctLetter;
+        });
+
+        document.querySelectorAll('#cd-match-right-list li').forEach(li => {
+            const txt = li.getAttribute('data-text');
+            if (distractors.includes(txt)) {
+                li.style.color = '#ef4444';
+                li.style.opacity = '0.7';
+            }
+        });
+        this.disabled = true;
+    };
+}
+
+function playClassDisplayGrid(allSentences) {
+    const NUM_CELLS = 12;
+    if (allSentences.length < NUM_CELLS) {
+        document.getElementById('class-display-content').innerHTML = `
+            <div style="text-align:center; padding: 40px;">
+                <h2 style="color:#ef4444;">Need at least ${NUM_CELLS} sentences for Sentence Grid!</h2>
+                <p style="color:#64748b;">Your builder currently has ${allSentences.length} sentences.</p>
+            </div>`;
+        return;
+    }
+
+    const shuffled = [...allSentences].sort(() => 0.5 - Math.random()).slice(0, NUM_CELLS);
+    let targetQuestions = shuffled.slice(0, 6).sort(() => 0.5 - Math.random());
+    let englishQuestions = shuffled.slice(6, 12).sort(() => 0.5 - Math.random());
+
+    let gridHTML = '';
+    let cellCounter = 0;
+
+    for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 3; c++) {
+            let question, answer, isTargetCol;
+            if (r % 2 === 0) {
+                const pair = targetQuestions.pop();
+                question = pair.t;
+                answer = pair.tr;
+                isTargetCol = true;
+            } else {
+                const pair = englishQuestions.pop();
+                question = pair.tr;
+                answer = pair.t;
+                isTargetCol = false;
+            }
+
+            gridHTML += `
+                <div class="cd-grid-cell" style="border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; background: ${isTargetCol ? '#eff6ff' : '#ffffff'}; position: relative; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100px; text-align: center;">
+                    <span style="position: absolute; top: 6px; left: 8px; font-size: 11px; font-weight: bold; color: #94a3b8;">${cellCounter + 1}</span>
+                    <div class="cd-q-text" style="font-size: 1.25em; font-weight: bold; color: #1e293b;">${question}</div>
+                    <div class="cd-a-text" style="display: none; font-size: 1.2em; font-weight: bold; color: #10b981; margin-top: 6px;">${answer}</div>
+                </div>
+            `;
+            cellCounter++;
+        }
+    }
+
+    document.getElementById('class-display-content').innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%;">
+            ${gridHTML}
+        </div>
+        <div style="display: flex; justify-content: center; gap: 15px; margin-top: 20px;">
+            <button onclick="playClassDisplayGame()" class="btn-purple" style="font-size: 16px; padding: 10px 24px;">🔄 Next / Shuffle</button>
+            <button id="cd-reveal-grid-btn" class="btn-info" style="font-size: 16px; padding: 10px 24px;">🔍 Reveal Answers</button>
+        </div>
+    `;
+
+    document.getElementById('cd-reveal-grid-btn').onclick = function() {
+        const isHiding = this.innerText.includes('Hide');
+        document.querySelectorAll('.cd-grid-cell').forEach(cell => {
+            const q = cell.querySelector('.cd-q-text');
+            const a = cell.querySelector('.cd-a-text');
+            if (q && a) {
+                q.style.display = isHiding ? 'block' : 'none';
+                a.style.display = isHiding ? 'none' : 'block';
+            }
+        });
+        this.innerText = isHiding ? '🔍 Reveal Answers' : '🙈 Hide Answers';
+    };
+}
 function toggleMode(mode) { currentMode = (currentMode === mode) ? null : mode; render(false); }
 function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); saveToCloud(true); }
 function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); saveToCloud(true); }
