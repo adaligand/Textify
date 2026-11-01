@@ -3270,31 +3270,42 @@ function isPathValid(partsMeta) {
 }
 
 /* =========================
-   PATH ENGINE WITH BRIDGE TRAVERSAL
+   PATH ENGINE WITH TALL CELL & BRIDGE TRAVERSAL
 ========================= */
-function findPaths(r, c, originRow) {
+function findPaths(r, c, activeRowRange = null) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
+    let cellRowSpan = cell.rS || 1;
     let cellColSpan = cell.cS || 1;
     let nextCol = c + cellColSpan;
+
+    // Determine current active row range [minRow, maxRow]
+    let currentMinRow = (activeRowRange !== null) ? activeRowRange.min : r;
+    let currentMaxRow = (activeRowRange !== null) ? activeRowRange.max : (r + cellRowSpan - 1);
+
+    // Expanding row range to include this cell's full height span
+    let expandedMinRow = Math.min(currentMinRow, r);
+    let expandedMaxRow = Math.max(currentMaxRow, r + cellRowSpan - 1);
 
     let currentOptions = (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr ? it.tr.trim() : "",
-            originRow: originRow, 
+            originRow: r, 
             parts: [{ t: it.t, tr: it.tr || "", r: r, c: c }],
             details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
         }));
 
+    // If reached the end of the grid, return valid paths
     if (nextCol >= grid[0].length) {
         return currentOptions.filter(path => isPathValid(path.parts));
     }
 
     let combinedSubPaths = [];
 
+    // Check if next column is a 100% empty bridge column
     const isColumnBridge = (colIdx) => {
         if (colIdx >= grid[0].length) return false;
         return grid.every(row => {
@@ -3304,19 +3315,23 @@ function findPaths(r, c, originRow) {
     };
 
     if (isColumnBridge(nextCol)) {
+        // Skip consecutive blank bridge columns
         let targetCol = nextCol + 1;
         while (isColumnBridge(targetCol) && targetCol < grid[0].length) targetCol++;
 
         if (targetCol < grid[0].length) {
+            // Empty bridge column allows branching into ANY row in targetCol
             for (let tr = 0; tr < grid.length; tr++) {
                 let targetCell = grid[tr][targetCol];
                 if (targetCell && !targetCell.hidden) {
-                    // BLANK COLUMN IS A BRIDGE: Row 1 can transition into ANY row `tr` after a bridge
-                    combinedSubPaths = combinedSubPaths.concat(findPaths(tr, targetCol, tr));
+                    combinedSubPaths = combinedSubPaths.concat(
+                        findPaths(tr, targetCol, { min: tr, max: tr + (targetCell.rS || 1) - 1 })
+                    );
                 }
             }
         }
     } else {
+        // Standard column transition: Check rows overlapping the expanded row range
         for (let tr = 0; tr < grid.length; tr++) {
             let nextCell = grid[tr][nextCol];
             if (!nextCell) continue;
@@ -3334,13 +3349,16 @@ function findPaths(r, c, originRow) {
                 }
             }
 
-            const nextStart = targetRootRow;
-            const nextEnd = targetRootRow + (targetCell.rS || 1);
+            const targetStart = targetRootRow;
+            const targetEnd = targetRootRow + (targetCell.rS || 1) - 1;
 
-            if (originRow >= nextStart && originRow < nextEnd) {
-                if (tr === targetRootRow) {
-                    combinedSubPaths = combinedSubPaths.concat(findPaths(tr, nextCol, originRow));
-                }
+            // Flow connects if target cell vertically overlaps the expanded active row range
+            const overlaps = !(targetEnd < expandedMinRow || targetStart > expandedMaxRow);
+
+            if (overlaps && tr === targetRootRow) {
+                combinedSubPaths = combinedSubPaths.concat(
+                    findPaths(tr, nextCol, { min: targetStart, max: targetEnd })
+                );
             }
         }
     }
@@ -3358,7 +3376,7 @@ function findPaths(r, c, originRow) {
                 finalPaths.push({
                     t: (curr.t + " " + sub.t).trim(),
                     tr: (curr.tr + " " + sub.tr).trim(),
-                    originRow: originRow, 
+                    originRow: r, 
                     parts: combinedParts,
                     details: combinedDetails
                 });
