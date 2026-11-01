@@ -3279,42 +3279,38 @@ function isPathValid(partsMeta) {
 }
 
 /* =========================
-   PATH ENGINE WITH TALL CELL & BRIDGE TRAVERSAL
+   ROBUST PATH FINDING ENGINE
+   Strict Row Alignment + Tall Merged Cells + Bridge Columns
 ========================= */
-function findPaths(r, c, activeRowRange = null) {
+function findPaths(r, c, activeRow = null) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    let cellRowSpan = cell.rS || 1;
+    // The row context for this step (defaulting to current cell row r)
+    let currentActiveRow = (activeRow !== null) ? activeRow : r;
+
     let cellColSpan = cell.cS || 1;
+    let cellRowSpan = cell.rS || 1;
     let nextCol = c + cellColSpan;
 
-    // Determine current active row range [minRow, maxRow]
-    let currentMinRow = (activeRowRange !== null) ? activeRowRange.min : r;
-    let currentMaxRow = (activeRowRange !== null) ? activeRowRange.max : (r + cellRowSpan - 1);
-
-    // Expanding row range to include this cell's full height span
-    let expandedMinRow = Math.min(currentMinRow, r);
-    let expandedMaxRow = Math.max(currentMaxRow, r + cellRowSpan - 1);
-
+    // Collect valid text options in the current cell
     let currentOptions = (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr ? it.tr.trim() : "",
-            originRow: r, 
             parts: [{ t: it.t, tr: it.tr || "", r: r, c: c }],
             details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
         }));
 
-    // If reached the end of the grid, return valid paths
+    // If we reached past the last column, return current path items
     if (nextCol >= grid[0].length) {
         return currentOptions.filter(path => isPathValid(path.parts));
     }
 
     let combinedSubPaths = [];
 
-    // Check if next column is a 100% empty bridge column
+    // Helper: Check if column is a 100% empty bridge column
     const isColumnBridge = (colIdx) => {
         if (colIdx >= grid[0].length) return false;
         return grid.every(row => {
@@ -3324,32 +3320,30 @@ function findPaths(r, c, activeRowRange = null) {
     };
 
     if (isColumnBridge(nextCol)) {
-        // Skip consecutive blank bridge columns
+        // Find next non-bridge target column
         let targetCol = nextCol + 1;
         while (isColumnBridge(targetCol) && targetCol < grid[0].length) targetCol++;
 
         if (targetCol < grid[0].length) {
-            // Empty bridge column allows branching into ANY row in targetCol
+            // FULL BRIDGE: Allow branching into ANY root row in targetCol
             for (let tr = 0; tr < grid.length; tr++) {
                 let targetCell = grid[tr][targetCol];
                 if (targetCell && !targetCell.hidden) {
                     combinedSubPaths = combinedSubPaths.concat(
-                        findPaths(tr, targetCol, { min: tr, max: tr + (targetCell.rS || 1) - 1 })
+                        findPaths(tr, targetCol, tr)
                     );
                 }
             }
         }
     } else {
-        // Standard column transition: Check rows overlapping the expanded row range
+        // STANDARD TRANSITION: Must stay in matching row(s)
         for (let tr = 0; tr < grid.length; tr++) {
-            let nextCell = grid[tr][nextCol];
-            if (!nextCell) continue;
-
-            let targetCell = nextCell.hidden ? getCellAt(tr, nextCol) : nextCell;
+            let targetCell = getCellAt(tr, nextCol);
             if (!targetCell) continue;
 
+            // Find root row of target cell (handles merged hidden cells)
             let targetRootRow = tr;
-            if (nextCell.hidden) {
+            if (grid[tr][nextCol].hidden) {
                 for (let testR = tr; testR >= 0; testR--) {
                     if (!grid[testR][nextCol].hidden) {
                         targetRootRow = testR;
@@ -3361,12 +3355,22 @@ function findPaths(r, c, activeRowRange = null) {
             const targetStart = targetRootRow;
             const targetEnd = targetRootRow + (targetCell.rS || 1) - 1;
 
-            // Flow connects if target cell vertically overlaps the expanded active row range
-            const overlaps = !(targetEnd < expandedMinRow || targetStart > expandedMaxRow);
+            // Standard cell overlap condition:
+            // The active row must fall WITHIN the target cell's vertical span
+            const rowMatches = (currentActiveRow >= targetStart && currentActiveRow <= targetEnd) ||
+                               (r <= targetEnd && (r + cellRowSpan - 1) >= targetStart);
 
-            if (overlaps && tr === targetRootRow) {
+            if (rowMatches && tr === targetRootRow) {
+                // If target cell spans multiple rows, pass target start row down
+                let nextActiveRow = (targetCell.rS && targetCell.rS > 1) ? targetStart : currentActiveRow;
+                
+                // Ensure nextActiveRow stays within target span
+                if (nextActiveRow < targetStart || nextActiveRow > targetEnd) {
+                    nextActiveRow = targetStart;
+                }
+
                 combinedSubPaths = combinedSubPaths.concat(
-                    findPaths(tr, nextCol, { min: targetStart, max: targetEnd })
+                    findPaths(tr, nextCol, nextActiveRow)
                 );
             }
         }
@@ -3375,6 +3379,7 @@ function findPaths(r, c, activeRowRange = null) {
     if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts));
     if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts));
 
+    // Combine current cell choices with downstream paths
     let finalPaths = [];
     currentOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
@@ -3385,7 +3390,6 @@ function findPaths(r, c, activeRowRange = null) {
                 finalPaths.push({
                     t: (curr.t + " " + sub.t).trim(),
                     tr: (curr.tr + " " + sub.tr).trim(),
-                    originRow: r, 
                     parts: combinedParts,
                     details: combinedDetails
                 });
