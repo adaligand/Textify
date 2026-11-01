@@ -237,7 +237,29 @@ body {
     background-color: #b3d7ff !important;
     outline: 2px solid #007bff !important;
 }
+.cell.is-compact {
+    min-width: 32px !important;
+    width: 32px !important;
+    padding: 8px 2px !important;
+    background-color: #f0fdf4 !important;
+    border: 2px dashed #4ade80 !important;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
 
+/* Hide input fields and buttons when collapsed */
+.cell.is-compact .vocab-list,
+.cell.is-compact .bottom-ui,
+.cell.is-compact .top-ui {
+    display: none !important;
+}
+
+/* Display a bridge icon when collapsed */
+.cell.is-compact::after {
+    content: '🌉';
+    font-size: 14px;
+}
 .cell.visual-selected input { background-color: transparent !important; }
 
 .cell.exclude-selected {
@@ -2371,12 +2393,31 @@ function render(doSave = true) {
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
             
-            const pairIndex = excludedPairs.findIndex(pair => 
-                (pair.a.r === r && pair.a.c === cIdx) || (pair.b.r === r && pair.b.c === cIdx)
-            );
+            // --- ISSUE 1: TOGGLE COMPACT / BRIDGE CELL ---
+            if (cell.compact) {
+                cellDiv.classList.add('is-compact');
+            }
 
+            cellDiv.ondblclick = (e) => {
+                e.stopPropagation();
+                const hasText = cell.items && cell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
+                
+                // Allow toggle if cell is empty OR if it is currently collapsed
+                if (!hasText || cell.compact) {
+                    cell.compact = !cell.compact;
+                    render();
+                    saveToCloud(true);
+                }
+            };
+
+            // --- ISSUE 2 FIX: RESET BORDER & OUTLINE DEFAULT STATES ---
             cellDiv.style.outline = "none";
             cellDiv.style.border = "1px solid #ccc"; 
+
+            // Only render legacy pair colors if excludedPairs is explicitly used
+            const pairIndex = (typeof excludedPairs !== 'undefined' && Array.isArray(excludedPairs)) 
+                ? excludedPairs.findIndex(pair => (pair.a.r === r && pair.a.c === cIdx) || (pair.b.r === r && pair.b.c === cIdx))
+                : -1;
 
             if (pairIndex !== -1) {
                 const borderCol = pairColors[pairIndex % pairColors.length];
@@ -2387,14 +2428,14 @@ function render(doSave = true) {
                 cellDiv.classList.add('exclude-linked');
             }
 
-            if (excludeSelection.some(p => p.r === r && p.c === cIdx)) {
+            if (typeof excludeSelection !== 'undefined' && excludeSelection.some(p => p.r === r && p.c === cIdx)) {
                 cellDiv.style.outline = "5px dashed #000";
                 cellDiv.style.outlineOffset = "-5px";
                 cellDiv.style.zIndex = "11";
             }
 
             cellDiv.onclick = (e) => {
-                if (currentMode === 'exclude') {
+                if (typeof currentMode !== 'undefined' && currentMode === 'exclude') {
                     handleExcludeClick(r, cIdx);
                 }
             };
@@ -3686,10 +3727,18 @@ function deleteCombo(type, index) {
     } else {
         requiredCombos.splice(index, 1);
     }
+    // Clear legacy pair outlines when combo list is modified
+    if (!excludedCombos || excludedCombos.length === 0) {
+        excludedPairs = [];
+    }
     renderCombosLists();
 }
 
 function saveRoutesAndCombos() {
+    // Sync legacy pair list with active excluded combos
+    if (!excludedCombos || excludedCombos.length === 0) {
+        excludedPairs = [];
+    }
     saveToCloud(true);
     closeModals();
     render();
