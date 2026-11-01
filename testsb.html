@@ -3628,10 +3628,42 @@ function findPaths(r, c, activeRow = null) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // Track original row lane continuously across tall/merged cells
     let currentActiveRow = (activeRow !== null) ? activeRow : r;
 
-    let cellColSpan = cell.cS || 1;
+    // Helper functions for cell span and root resolution
+    const getCellRowSpan = (row, col, cObj) => {
+        if (cObj && (cObj.rS || cObj.rowSpan)) return cObj.rS || cObj.rowSpan;
+        let span = 1;
+        for (let testR = row + 1; testR < grid.length; testR++) {
+            if (grid[testR] && grid[testR][col] && grid[testR][col].hidden) span++;
+            else break;
+        }
+        return span;
+    };
+
+    const getCellColSpan = (row, col, cObj) => {
+        if (cObj && (cObj.cS || cObj.colSpan)) return cObj.cS || cObj.colSpan;
+        let span = 1;
+        if (grid[row]) {
+            for (let testC = col + 1; testC < grid[row].length; testC++) {
+                if (grid[row][testC] && grid[row][testC].hidden) span++;
+                else break;
+            }
+        }
+        return span;
+    };
+
+    const getRootRow = (row, col) => {
+        for (let testR = row; testR >= 0; testR--) {
+            if (grid[testR] && grid[testR][col] && !grid[testR][col].hidden) {
+                return testR;
+            }
+        }
+        return row;
+    };
+
+    let cellRowSpan = getCellRowSpan(r, c, cell);
+    let cellColSpan = getCellColSpan(r, c, cell);
     let nextCol = c + cellColSpan;
 
     // Helper: Check if a cell is empty
@@ -3649,7 +3681,7 @@ function findPaths(r, c, activeRow = null) {
         return false;
     };
 
-    // Collect valid text choices (excluding purely internal 'Bridge' label text)
+    // Collect valid text choices (excluding internal 'Bridge' label text)
     let currentOptions = (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "" && it.t.trim().toLowerCase() !== "bridge")
         .map(it => ({
@@ -3665,41 +3697,54 @@ function findPaths(r, c, activeRow = null) {
     }
 
     let combinedSubPaths = [];
+    let visitedTargetRoots = new Set();
 
-    // Check the cell in nextCol directly on currentActiveRow
-    let targetRawCell = grid[currentActiveRow] ? grid[currentActiveRow][nextCol] : null;
-    let targetCell = targetRawCell ? getCellAt(currentActiveRow, nextCol) : null;
+    // Iterate through all rows spanned vertically by the current cell
+    for (let rowOffset = 0; rowOffset < cellRowSpan; rowOffset++) {
+        let evalRow = r + rowOffset;
+        if (evalRow >= grid.length) break;
 
-    if (targetCell) {
+        let targetRawCell = grid[evalRow] ? grid[evalRow][nextCol] : null;
+        let targetCell = targetRawCell ? getCellAt(evalRow, nextCol) : null;
+
+        if (!targetCell) continue;
+
+        let targetRootRow = getRootRow(evalRow, nextCol);
+        let targetKey = `${targetRootRow}_${nextCol}`;
+
+        // Prevent duplicate evaluations for target cells that span multiple rows of this cell
+        if (visitedTargetRoots.has(targetKey)) continue;
+        visitedTargetRoots.add(targetKey);
+
         if (isBridgeCell(targetCell)) {
-            // CASE 1: BRIDGE CELL -> Branch into all valid target rows in the following column
-            let targetCol = nextCol + (targetCell.cS || 1);
+            // CASE 1: BRIDGE CELL -> Branch into all valid target rows in the column following the bridge
+            let bridgeColSpan = getCellColSpan(targetRootRow, nextCol, targetCell);
+            let targetCol = nextCol + bridgeColSpan;
+
             if (targetCol < grid[0].length) {
+                let visitedBridgeNext = new Set();
                 for (let tr = 0; tr < grid.length; tr++) {
-                    let nextCell = grid[tr][targetCol];
+                    let nextCell = grid[tr] ? grid[tr][targetCol] : null;
                     let cellAtTr = getCellAt(tr, targetCol);
-                    if (cellAtTr && (!nextCell || !nextCell.hidden)) {
-                        if (!isCellEmpty(cellAtTr) || isBridgeCell(cellAtTr)) {
-                            combinedSubPaths = combinedSubPaths.concat(
-                                findPaths(tr, targetCol, tr)
-                            );
+                    if (cellAtTr) {
+                        let bridgeRootRow = getRootRow(tr, targetCol);
+                        let bridgeKey = `${bridgeRootRow}_${targetCol}`;
+                        
+                        if (!visitedBridgeNext.has(bridgeKey)) {
+                            visitedBridgeNext.add(bridgeKey);
+                            if (!isCellEmpty(cellAtTr) || isBridgeCell(cellAtTr)) {
+                                combinedSubPaths = combinedSubPaths.concat(
+                                    findPaths(bridgeRootRow, targetCol, bridgeRootRow)
+                                );
+                            }
                         }
                     }
                 }
             }
         } else if (!isCellEmpty(targetCell)) {
-            // CASE 2: STANDARD CELL -> Move straight ahead on currentActiveRow
-            let targetRootRow = currentActiveRow;
-            if (targetRawCell.hidden) {
-                for (let testR = currentActiveRow; testR >= 0; testR--) {
-                    if (!grid[testR][nextCol].hidden) {
-                        targetRootRow = testR;
-                        break;
-                    }
-                }
-            }
+            // CASE 2: STANDARD CELL -> Branch into target cell touching this row offset
             combinedSubPaths = combinedSubPaths.concat(
-                findPaths(targetRootRow, nextCol, currentActiveRow)
+                findPaths(targetRootRow, nextCol, evalRow)
             );
         }
     }
