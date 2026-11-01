@@ -761,27 +761,30 @@ th { background: #f1f5f9; color: #334155; }
 }
 /* CLASS DISPLAY FULLSCREEN OVERLAY */
 #class-display-modal {
-    width: 95vw;
-    max-width: 1400px;
-    height: 90vh;
-    max-height: 92vh;
-    display: none;
-    flex-direction: column;
-    padding: 24px;
-    box-sizing: border-box;
-    overflow: hidden;
+    position: fixed;
+    top: 1vh;
+    left: 1vw;
+    width: 98vw;
+    height: 98vh;
+    max-width: none;
+    max-height: none;
     background: #ffffff;
+    z-index: 10000;
     border-radius: 12px;
+    padding: 24px 32px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+    display: none; /* Shown via JS openInteractiveClassDisplay() */
+    flex-direction: column;
+    box-sizing: border-box;
 }
 
 #class-display-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding-bottom: 16px;
     border-bottom: 2px solid #e2e8f0;
-    padding-bottom: 12px;
-    margin-bottom: 16px;
-    flex-shrink: 0;
+    margin-bottom: 20px;
 }
 
 #class-display-game-select {
@@ -796,18 +799,52 @@ th { background: #f1f5f9; color: #334155; }
     cursor: pointer;
 }
 
-#class-display-content {
+class-display-content {
     flex: 1;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    background: #fafafa;
-    border: 2px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 30px;
+    text-align: center;
+    padding: 20px;
     overflow-y: auto;
-    box-shadow: inset 0 2px 6px rgba(0,0,0,0.03);
+}
+        /* CLASSROOM HIGH-VISIBILITY TEXT STYLES */
+.cd-question-text {
+    color: #000000 !important; /* Questions strictly in BLACK */
+    font-size: 2.8rem;
+    font-weight: 700;
+    line-height: 1.4;
+    margin-bottom: 24px;
+}
+
+.cd-answer-text {
+    color: #16a34a !important; /* Answers strictly in GREEN */
+    font-size: 2.8rem;
+    font-weight: 700;
+    line-height: 1.4;
+    margin-top: 15px;
+}
+
+.cd-sub-text {
+    color: #000000 !important; /* Clean English translation without brackets */
+    font-size: 2.2rem;
+    font-weight: 600;
+    margin-top: 20px;
+}
+
+/* MISSING VOWELS & CONSONANTS LETTER SPACING */
+.cd-blank-char {
+    display: inline-block;
+    width: 0.7em;
+    border-bottom: 4px solid #000000;
+    margin: 0 3px;
+}
+
+.cd-word-wrapper {
+    display: inline-block;
+    white-space: nowrap;
+    margin: 0 22px; /* Generous space between words */
 }
     </style>
 </head>
@@ -6616,22 +6653,49 @@ function isExcludedCombination(partsMeta) {
 /* =========================================================
    INTERACTIVE CLASS DISPLAY ENGINE
    ========================================================= */
-let classDisplayCurrentGame = 'random-target';
-let classDisplayUsedSentences = new Set();
+let currentClassDisplayIndex = 0;
+let isAnswerRevealed = false;
 
 function openInteractiveClassDisplay() {
     const sentences = getAssembledSentences();
     if (!sentences || sentences.length === 0) {
-        alert("No valid sentences generated from this Sentence Builder grid yet! Please add vocabulary items first.");
+        alert("Please add vocabulary and structure to your grid before opening the display.");
         return;
     }
-    classDisplayUsedSentences.clear();
-    document.getElementById('class-display-game-select').value = classDisplayCurrentGame;
+    currentClassDisplayIndex = 0;
+    isAnswerRevealed = false;
     document.getElementById('class-display-modal').style.display = 'flex';
-    document.getElementById('overlay').style.display = 'block';
     playClassDisplayGame();
 }
+// Clean brackets from English sentences
+function cleanEnglishText(text) {
+    if (!text) return '';
+    return text.replace(/[\(\)]/g, '').trim();
+}
 
+// Format missing characters with distinct single underlines and wide word spacing
+function formatMissingChars(text, type) {
+    const vowels = 'aeiouáéíóúàèìòùâêîôûäëïöüAEIOUÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÄËÏÖÜ';
+    const words = text.split(' ');
+    
+    return words.map(word => {
+        const charSpans = word.split('').map(ch => {
+            const isLetter = /[a-zA-ZáéíóúàèìòùâêîôûäëïöüÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛÄËÏÖÜ]/.test(ch);
+            if (!isLetter) return `<span style="margin:0 2px;">${ch}</span>`;
+            
+            const isVowel = vowels.includes(ch);
+            const shouldHide = (type === 'vowels' && isVowel) || (type === 'consonants' && !isVowel);
+            
+            if (shouldHide) {
+                return `<span class="cd-blank-char">&nbsp;</span>`;
+            } else {
+                return `<span style="margin:0 2px;">${ch}</span>`;
+            }
+        }).join('');
+        
+        return `<span class="cd-word-wrapper">${charSpans}</span>`;
+    }).join('');
+}
 function removeVowelsCD(str) {
     if (!str) return str;
     return str.replace(/[aeiouàéèíóúüÄÖÜäöü]/gi, '<span style="border-bottom:3px solid #334155; display:inline-block; width:0.5em; margin:0 2px;">_</span>');
@@ -6653,89 +6717,83 @@ function shuffleWordsCD(str) {
 }
 
 function playClassDisplayGame() {
-    const gameType = document.getElementById('class-display-game-select').value;
-    classDisplayCurrentGame = gameType;
-    const allSentences = getAssembledSentences();
-    const displayArea = document.getElementById('class-display-content');
+    const mode = document.getElementById('class-display-game-select').value;
+    const sentences = getAssembledSentences();
+    const container = document.getElementById('class-display-content');
+    
+    if (!sentences || sentences.length === 0) return;
 
-    if (!allSentences || allSentences.length === 0) {
-        displayArea.innerHTML = '<h2 style="color:#64748b;">No sentences generated from grid.</h2>';
+    // Handle full grid modes separately if required
+    if (mode === 'match-up') {
+        playClassDisplayMatchUp();
+        return;
+    }
+    if (mode === 'sentence-grid') {
+        playClassDisplayGrid();
         return;
     }
 
-    if (gameType === 'match-up') {
-        playClassDisplayMatchUp(allSentences);
-        return;
-    }
-    if (gameType === 'sentence-grid') {
-        playClassDisplayGrid(allSentences);
-        return;
-    }
+    const item = sentences[currentClassDisplayIndex % sentences.length];
+    const targetText = item.target || item.fr || item.es || item.de || '';
+    const englishText = cleanEnglishText(item.en || item.english || '');
 
-    let availablePool = allSentences.filter(s => !classDisplayUsedSentences.has(s.t));
-    if (availablePool.length === 0) {
-        classDisplayUsedSentences.clear();
-        availablePool = [...allSentences];
-    }
+    let questionHTML = '';
+    let answerHTML = `<div id="cd-answer-box" class="cd-answer-text" style="display: ${isAnswerRevealed ? 'block' : 'none'};">${targetText}</div>`;
 
-    const sentencePair = availablePool[Math.floor(Math.random() * availablePool.length)];
-    classDisplayUsedSentences.add(sentencePair.t);
-
-    let qHTML = '', aHTML = '';
-
-    switch (gameType) {
-        case 'unjumble':
-            qHTML = `<h2 style="font-size: 2.8em; color: #1e293b; margin: 0; line-height: 1.3;">${shuffleWordsCD(sentencePair.t)}</h2>`;
-            aHTML = `<h2 style="font-size: 2.8em; color: #10b981; margin: 0; line-height: 1.3;">${sentencePair.t}</h2><h3 style="font-size: 2em; color: #2563eb; font-style: italic; margin-top: 10px;">(${sentencePair.tr})</h3>`;
-            break;
-        case 'no-spaces':
-            qHTML = `<h2 style="font-size: 2.8em; color: #1e293b; margin: 0; line-height: 1.3; letter-spacing: 1px;">${sentencePair.t.replace(/\s+/g, '')}</h2>`;
-            aHTML = `<h2 style="font-size: 2.8em; color: #10b981; margin: 0; line-height: 1.3;">${sentencePair.t}</h2><h3 style="font-size: 2em; color: #2563eb; font-style: italic; margin-top: 10px;">(${sentencePair.tr})</h3>`;
-            break;
-        case 'no-vowels':
-            qHTML = `<h2 style="font-size: 2.8em; color: #1e293b; margin: 0; line-height: 1.4;">${removeVowelsCD(sentencePair.t)}</h2><h3 style="font-size: 2em; color: #2563eb; font-style: italic; margin-top: 15px;">(${sentencePair.tr})</h3>`;
-            aHTML = `<h2 style="font-size: 2.8em; color: #10b981; margin: 0; line-height: 1.3;">${sentencePair.t}</h2>`;
-            break;
-        case 'no-consonants':
-            qHTML = `<h2 style="font-size: 2.8em; color: #1e293b; margin: 0; line-height: 1.4;">${removeConsonantsCD(sentencePair.t)}</h2><h3 style="font-size: 2em; color: #2563eb; font-style: italic; margin-top: 15px;">(${sentencePair.tr})</h3>`;
-            aHTML = `<h2 style="font-size: 2.8em; color: #10b981; margin: 0; line-height: 1.3;">${sentencePair.t}</h2>`;
-            break;
-        case 'random-target':
-            qHTML = `<h2 style="font-size: 2.8em; color: #1e293b; margin: 0; line-height: 1.3;">${sentencePair.t}</h2>`;
-            aHTML = `<h2 style="font-size: 2.5em; color: #2563eb; font-style: italic; margin: 0;">(${sentencePair.tr})</h2>`;
-            break;
-        case 'random-en':
-            qHTML = `<h2 style="font-size: 2.8em; color: #2563eb; font-style: italic; margin: 0; line-height: 1.3;">(${sentencePair.tr})</h2>`;
-            aHTML = `<h2 style="font-size: 2.8em; color: #10b981; margin: 0; line-height: 1.3;">${sentencePair.t}</h2>`;
-            break;
+    if (mode === 'random-target') {
+        questionHTML = `<div class="cd-question-text">${targetText}</div>`;
+        answerHTML = `<div id="cd-answer-box" class="cd-answer-text" style="display: ${isAnswerRevealed ? 'block' : 'none'};">${englishText}</div>`;
+    } 
+    else if (mode === 'random-en') {
+        questionHTML = `<div class="cd-question-text">${englishText}</div>`;
+        answerHTML = `<div id="cd-answer-box" class="cd-answer-text" style="display: ${isAnswerRevealed ? 'block' : 'none'};">${targetText}</div>`;
+    } 
+    else if (mode === 'no-vowels') {
+        const hiddenText = formatMissingChars(targetText, 'vowels');
+        questionHTML = `<div class="cd-question-text">${hiddenText}</div>
+                        <div class="cd-sub-text">${englishText}</div>`;
+    } 
+    else if (mode === 'no-consonants') {
+        const hiddenText = formatMissingChars(targetText, 'consonants');
+        questionHTML = `<div class="cd-question-text">${hiddenText}</div>
+                        <div class="cd-sub-text">${englishText}</div>`;
+    } 
+    else if (mode === 'no-spaces') {
+        const noSpaceText = targetText.replace(/\s+/g, '');
+        questionHTML = `<div class="cd-question-text" style="letter-spacing: 2px;">${noSpaceText}</div>
+                        <div class="cd-sub-text">${englishText}</div>`;
+    } 
+    else if (mode === 'unjumble') {
+        const words = targetText.split(' ').sort(() => Math.random() - 0.5);
+        questionHTML = `<div class="cd-question-text">${words.join(' &nbsp;•&nbsp; ')}</div>
+                        <div class="cd-sub-text">${englishText}</div>`;
     }
 
-    displayArea.innerHTML = `
-        <div id="cd-question" style="min-height: 180px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; width: 100%; padding: 20px 0;">
-            ${qHTML}
+    container.innerHTML = `
+        <div style="max-width: 90%; margin: 0 auto; min-height: 250px; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+            ${questionHTML}
+            ${answerHTML}
         </div>
-        <div id="cd-answer" style="display: none; min-height: 120px; text-align: center; width: 100%; border-top: 2px dashed #cbd5e1; padding-top: 20px; margin-top: 10px;">
-            ${aHTML}
-        </div>
-        <div style="display: flex; justify-content: center; gap: 15px; margin-top: 25px;">
-            <button onclick="playClassDisplayGame()" class="btn-purple" style="font-size: 16px; padding: 10px 24px;">🔄 Next / Shuffle</button>
-            <button id="cd-reveal-btn" onclick="toggleClassDisplayAnswer()" class="btn-info" style="font-size: 16px; padding: 10px 24px;">🔍 Reveal Answer</button>
+        <div style="margin-top: 40px; display: flex; gap: 20px;">
+            <button onclick="nextClassDisplaySentence()" class="btn-purple" style="font-size: 20px; padding: 12px 28px;">🎲 Next / Shuffle</button>
+            <button onclick="toggleClassDisplayAnswer()" class="btn-info" style="font-size: 20px; padding: 12px 28px;">👁️ Reveal Answer</button>
         </div>
     `;
 }
 
 function toggleClassDisplayAnswer() {
-    const ans = document.getElementById('cd-answer');
-    const btn = document.getElementById('cd-reveal-btn');
-    if (!ans) return;
-
-    if (ans.style.display === 'none' || ans.style.display === '') {
-        ans.style.display = 'block';
-        if (btn) btn.innerText = '🙈 Hide Answer';
-    } else {
-        ans.style.display = 'none';
-        if (btn) btn.innerText = '🔍 Reveal Answer';
+    const answerBox = document.getElementById('cd-answer-box');
+    if (answerBox) {
+        isAnswerRevealed = !isAnswerRevealed;
+        answerBox.style.display = isAnswerRevealed ? 'block' : 'none';
     }
+}
+
+function nextClassDisplaySentence() {
+    const sentences = getAssembledSentences();
+    currentClassDisplayIndex = (currentClassDisplayIndex + 1) % sentences.length;
+    isAnswerRevealed = false;
+    playClassDisplayGame();
 }
 
 function playClassDisplayMatchUp(allSentences) {
