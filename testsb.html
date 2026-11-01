@@ -3319,22 +3319,21 @@ function isPathValid(partsMeta) {
     return true;
 }
 
-/* =========================
-   ROBUST PATH FINDING ENGINE
-   Strict Row Alignment + Tall Merged Cells + Bridge Columns
-========================= */
+/* =========================================================
+   PATH ENGINE WITH TALL CELLS & BRIDGE/EMPTY COLUMN TRAVERSAL
+   ========================================================= */
 function findPaths(r, c, activeRow = null) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // The row context for this step (defaulting to current cell row r)
+    // Active row context for this step (defaults to current cell row r)
     let currentActiveRow = (activeRow !== null) ? activeRow : r;
 
     let cellColSpan = cell.cS || 1;
     let cellRowSpan = cell.rS || 1;
     let nextCol = c + cellColSpan;
 
-    // Collect valid text options in the current cell
+    // Collect valid text choices from current cell
     let currentOptions = (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "")
         .map(it => ({
@@ -3344,29 +3343,38 @@ function findPaths(r, c, activeRow = null) {
             details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
         }));
 
-    // If we reached past the last column, return current path items
+    // End of grid reached -> return valid paths
     if (nextCol >= grid[0].length) {
         return currentOptions.filter(path => isPathValid(path.parts));
     }
 
     let combinedSubPaths = [];
 
-    // Helper: Check if column is a 100% empty bridge column
+    // Helper: Check if cell has no text items
+    const isCellEmpty = (cObj) => {
+        if (!cObj || !cObj.items || cObj.items.length === 0) return true;
+        return cObj.items.every(it => !it.t || it.t.trim() === "");
+    };
+
+    // Helper: Check if an entire column is a 100% empty bridge
     const isColumnBridge = (colIdx) => {
         if (colIdx >= grid[0].length) return false;
-        return grid.every(row => {
-            const cEl = row[colIdx];
-            return !cEl || !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
-        });
+        for (let rowIdx = 0; rowIdx < grid.length; rowIdx++) {
+            const targetCell = getCellAt(rowIdx, colIdx);
+            if (!isCellEmpty(targetCell)) return false;
+        }
+        return true;
     };
 
     if (isColumnBridge(nextCol)) {
-        // Find next non-bridge target column
+        // Skip through consecutive blank bridge columns
         let targetCol = nextCol + 1;
-        while (isColumnBridge(targetCol) && targetCol < grid[0].length) targetCol++;
+        while (isColumnBridge(targetCol) && targetCol < grid[0].length) {
+            targetCol++;
+        }
 
         if (targetCol < grid[0].length) {
-            // FULL BRIDGE: Allow branching into ANY root row in targetCol
+            // FULL BRIDGE: Flow branches into ALL available root rows in target column
             for (let tr = 0; tr < grid.length; tr++) {
                 let targetCell = grid[tr][targetCol];
                 if (targetCell && !targetCell.hidden) {
@@ -3377,14 +3385,17 @@ function findPaths(r, c, activeRow = null) {
             }
         }
     } else {
-        // STANDARD TRANSITION: Must stay in matching row(s)
+        // STANDARD COLUMN: Connect only to overlapping row spans
         for (let tr = 0; tr < grid.length; tr++) {
+            let rawCell = grid[tr][nextCol];
+            if (!rawCell) continue;
+
             let targetCell = getCellAt(tr, nextCol);
             if (!targetCell) continue;
 
-            // Find root row of target cell (handles merged hidden cells)
+            // Resolve target root row for merged hidden cells
             let targetRootRow = tr;
-            if (grid[tr][nextCol].hidden) {
+            if (rawCell.hidden) {
                 for (let testR = tr; testR >= 0; testR--) {
                     if (!grid[testR][nextCol].hidden) {
                         targetRootRow = testR;
@@ -3396,16 +3407,14 @@ function findPaths(r, c, activeRow = null) {
             const targetStart = targetRootRow;
             const targetEnd = targetRootRow + (targetCell.rS || 1) - 1;
 
-            // Standard cell overlap condition:
-            // The active row must fall WITHIN the target cell's vertical span
+            // Check if active row or cell span overlaps with target cell span
             const rowMatches = (currentActiveRow >= targetStart && currentActiveRow <= targetEnd) ||
                                (r <= targetEnd && (r + cellRowSpan - 1) >= targetStart);
 
             if (rowMatches && tr === targetRootRow) {
-                // If target cell spans multiple rows, pass target start row down
+                // If target cell is merged vertically, update active row to target start
                 let nextActiveRow = (targetCell.rS && targetCell.rS > 1) ? targetStart : currentActiveRow;
                 
-                // Ensure nextActiveRow stays within target span
                 if (nextActiveRow < targetStart || nextActiveRow > targetEnd) {
                     nextActiveRow = targetStart;
                 }
@@ -3420,7 +3429,7 @@ function findPaths(r, c, activeRow = null) {
     if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts));
     if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts));
 
-    // Combine current cell choices with downstream paths
+    // Cross-combine current choices with downstream paths
     let finalPaths = [];
     currentOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
@@ -3476,6 +3485,10 @@ function switchRoutesTab(tab) {
     }
 }
 
+/* =========================================================
+   ROUTES PREVIEW GRID RENDERER
+   CSS Grid Spanning + Full Vocab Display + Bridge Identification
+   ========================================================= */
 function renderRoutesPreviewGrid() {
     const container = document.getElementById('routes-mini-grid');
     if (!container) return;
@@ -3484,18 +3497,26 @@ function renderRoutesPreviewGrid() {
     const cols = grid[0].length;
     const rows = grid.length;
 
-    // Apply real CSS Grid positioning matching the builder layout
+    // Apply CSS Grid matching actual builder layout
     container.style.display = 'grid';
     container.style.gridTemplateColumns = `repeat(${cols}, minmax(130px, 1fr))`;
     container.style.gridTemplateRows = `repeat(${rows}, minmax(42px, auto))`;
     container.style.gap = '6px';
 
-    // Helper to check if a column is a full height bridge/empty column
-    const isColumnBridge = (cIdx) => {
-        return grid.every(r => {
-            const cEl = r[cIdx];
-            return !cEl || !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
-        });
+    // Helper: Check if cell has no text content
+    const isCellEmpty = (cell) => {
+        if (!cell || !cell.items || cell.items.length === 0) return true;
+        return cell.items.every(it => !it.t || it.t.trim() === "");
+    };
+
+    // Helper: Check if column is a 100% empty bridge
+    const isColumnBridge = (colIdx) => {
+        if (colIdx >= cols) return false;
+        for (let rIdx = 0; rIdx < rows; rIdx++) {
+            const cell = getCellAt(rIdx, colIdx);
+            if (!isCellEmpty(cell)) return false;
+        }
+        return true;
     };
 
     for (let r = 0; r < rows; r++) {
@@ -3505,32 +3526,31 @@ function renderRoutesPreviewGrid() {
 
             const rSpan = cell.rS || 1;
             const cSpan = cell.cS || 1;
-            const isBridge = isColumnBridge(cIdx);
+            const emptyCell = isCellEmpty(cell);
+            const fullColBridge = isColumnBridge(cIdx);
 
-            // Get ALL vocabulary items in this cell
+            // Fetch ALL vocabulary items in this cell
             const validItems = (cell.items || []).filter(it => it.t && it.t.trim() !== "");
             
             let textContent = '';
             if (validItems.length > 0) {
                 textContent = validItems.map(it => `
-                    <div style="font-weight:600; color:#1e293b; padding:1px 0; border-bottom:1px solid #f1f5f9;">
+                    <div style="font-weight:600; color:#1e293b; padding:2px 0; border-bottom:1px solid #f1f5f9;">
                         ${it.t.trim()} ${it.tr ? `<span style="color:#2563eb; font-weight:normal; font-style:italic;">(${it.tr.trim()})</span>` : ''}
                     </div>
                 `).join('');
-            } else if (isBridge) {
-                textContent = '<div style="color:#15803d; font-weight:bold; font-size:11px; text-align:center; padding:4px 0;">🌉 Bridge / Flow</div>';
-            } else {
-                textContent = '<div style="color:#94a3b8; font-style:italic; font-size:11px;">(empty)</div>';
+            } else if (emptyCell || fullColBridge) {
+                textContent = '<div style="color:#15803d; font-weight:bold; font-size:11px; text-align:center; padding:6px 0;">🌉 Bridge / Flow</div>';
             }
 
             const cellEl = document.createElement('div');
             cellEl.className = 'mini-preview-cell';
-            if (isBridge && validItems.length === 0) {
+            if (emptyCell || fullColBridge) {
                 cellEl.classList.add('bridge-cell');
             }
             cellEl.id = `mini-cell-${r}-${cIdx}`;
             
-            // Explicit CSS Grid Row/Col Spanning
+            // Set explicit CSS Grid spanning
             cellEl.style.gridRow = `${r + 1} / span ${rSpan}`;
             cellEl.style.gridColumn = `${cIdx + 1} / span ${cSpan}`;
 
@@ -3538,13 +3558,13 @@ function renderRoutesPreviewGrid() {
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                     <span class="cell-coord-badge">${r + 1}.${cIdx + 1}${rSpan > 1 || cSpan > 1 ? ` (${rSpan}x${cSpan})` : ''}</span>
                 </div>
-                <div style="font-size:11px; line-height:1.3; max-height:140px; overflow-y:auto; width:100%;">
+                <div style="font-size:11px; line-height:1.3; max-height:150px; overflow-y:auto; width:100%;">
                     ${textContent}
                 </div>
             `;
 
             cellEl.onclick = () => {
-                if (comboPickerMode) {
+                if (typeof comboPickerMode !== 'undefined' && comboPickerMode) {
                     toggleComboCellSelection(r, cIdx);
                 }
             };
@@ -3553,7 +3573,6 @@ function renderRoutesPreviewGrid() {
         }
     }
 }
-
 function highlightRouteCells(parts, highlight) {
     document.querySelectorAll('.mini-preview-cell').forEach(el => el.classList.remove('highlighted-route'));
     if (!highlight || !parts) return;
