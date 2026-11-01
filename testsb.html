@@ -4184,12 +4184,13 @@ function getCurrentSentencesMapFromDOM() {
 }
 
 function refreshActivitySentences(actId, e) {
-    if (e) e.stopPropagation(); // Prevents collapsing/expanding the card header when clicking refresh
+    if (e) e.stopPropagation();
 
-    // Preserve current sentence values across all other exercises
     const currentMap = getCurrentSentencesMapFromDOM();
 
-    const exerciseLimit = parseInt(document.getElementById('sentence-count').value, 10);
+    const isStudy = (actId === 'study');
+    const countSelectId = isStudy ? 'table-sentence-count' : 'sentence-count';
+    const limit = parseInt(document.getElementById(countSelectId)?.value || 10, 10);
     const allSentences = getAssembledSentences();
 
     let availablePool = [...allSentences];
@@ -4197,14 +4198,11 @@ function refreshActivitySentences(actId, e) {
         availablePool = availablePool.filter(isEligibleForFaulty);
     }
 
-    // Generate a fresh balanced selection for this exercise
-    currentMap[actId] = getBalancedSelection(availablePool, exerciseLimit);
+    currentMap[actId] = getBalancedSelection(availablePool, limit);
 
-    // Save state and re-render
     window.editingSavedSentencesMap = currentMap;
     renderPerActivitySentenceBoxes();
 
-    // Re-expand the refreshed card so the new sentences are immediately visible
     const body = document.getElementById(`act-body-${actId}`);
     const arrow = document.getElementById(`arrow-${actId}`);
     if (body) {
@@ -4215,10 +4213,9 @@ function refreshActivitySentences(actId, e) {
 function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
     const container = document.getElementById('per-activity-sentences-container');
     const checkedBoxes = Array.from(document.querySelectorAll('#activity-list input:checked'));
-    const exerciseBoxes = checkedBoxes.filter(cb => cb.value !== 'study');
 
-    if (exerciseBoxes.length === 0) {
-        container.innerHTML = '<div style="color:#64748b; font-style:italic; padding:10px;">Select at least one exercise activity above to customize its sentences.</div>';
+    if (checkedBoxes.length === 0) {
+        container.innerHTML = '<div style="color:#64748b; font-style:italic; padding:10px;">Select at least one activity above to customize its sentences.</div>';
         return;
     }
 
@@ -4227,15 +4224,18 @@ function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
     }
 
     const savedMap = window.editingSavedSentencesMap || null;
-    const exerciseLimit = parseInt(document.getElementById('sentence-count').value, 10);
+    const defaultExerciseLimit = parseInt(document.getElementById('sentence-count')?.value || 10, 10);
+    const tableLimit = parseInt(document.getElementById('table-sentence-count')?.value || 10, 10);
     const allSentences = getAssembledSentences();
 
     let html = '';
     const usedSentenceTexts = new Set();
 
-    exerciseBoxes.forEach((cb) => {
+    checkedBoxes.forEach((cb) => {
         const actId = cb.value;
         const actLabel = document.querySelector(`label[for="${cb.id}"]`)?.innerText || actId;
+        const isStudy = (actId === 'study');
+        const limit = isStudy ? tableLimit : defaultExerciseLimit;
 
         let actSents = [];
 
@@ -4249,16 +4249,19 @@ function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
 
             let unusedPool = availablePool.filter(s => !usedSentenceTexts.has(s.t.trim()));
 
-          if (unusedPool.length >= exerciseLimit) {
-                actSents = getBalancedSelection(unusedPool, exerciseLimit);
+            if (unusedPool.length >= limit) {
+                actSents = getBalancedSelection(unusedPool, limit);
             } else {
                 actSents = getBalancedSelection(unusedPool, unusedPool.length);
-                const remainingNeeded = exerciseLimit - actSents.length;
+                const remainingNeeded = limit - actSents.length;
                 const fallbackPool = availablePool.filter(s => !actSents.some(already => already.t.trim() === s.t.trim()));
                 actSents = actSents.concat(getBalancedSelection(fallbackPool, remainingNeeded));
             }
- }
-        actSents.forEach(s => { if (s && s.t) usedSentenceTexts.add(s.t.trim()); });
+        }
+
+        if (!isStudy) {
+            actSents.forEach(s => { if (s && s.t) usedSentenceTexts.add(s.t.trim()); });
+        }
         const usedGapWords = new Set();
 
         if (actId === 'faulty' && actSents.length === 0) {
@@ -4274,7 +4277,7 @@ function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
             return;
         }
 
-           html += `
+        html += `
             <div class="act-sentence-card" id="act-card-${actId}">
                 <div class="act-card-header" onclick="toggleActivityCollapse('${actId}')">
                     <span style="display:flex; align-items:center; gap:10px;">
@@ -4282,7 +4285,7 @@ function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
                         <button type="button" 
                             style="padding: 2px 8px; font-size: 12px; margin: 0; background: white; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer; font-weight:600; color:#334155;" 
                             onclick="refreshActivitySentences('${actId}', event)" 
-                            title="Refresh sentences for this exercise">
+                            title="Refresh sentences for this activity">
                             🔄 Refresh
                         </button>
                     </span>
@@ -4318,8 +4321,8 @@ function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
                             return `
                                 <div class="act-sentence-row" style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
                                     <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
-                                    <input type="text" class="edit-t" value="${(s.t||'').replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;">
-                                    <input type="text" class="edit-tr" value="${(s.tr||'').replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;">
+                                    <input type="text" class="edit-t" value="${(s.t||'').replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;" placeholder="Target Sentence">
+                                    <input type="text" class="edit-tr" value="${(s.tr||'').replace(/"/g, '&quot;')}" style="flex:1; padding:5px; border:1px solid #cbd5e1; border-radius:4px;" placeholder="English Translation">
                                 </div>`;
                         }
                     }).join('')}
@@ -4734,34 +4737,43 @@ async function publishTaskToClassroom() {
     let totalSentencesCount = 0;
 
     selectedActivities.forEach(actId => {
-        if (actId === 'study') {
-            structuredSentencesPerActivity['study'] = allSentences.slice(0, tableLimit);
-        } else {
-            const bodyEl = document.getElementById(`act-body-${actId}`);
-            const sents = [];
-            if (bodyEl) {
-                const rows = bodyEl.querySelectorAll('.act-sentence-row');
-                const targets = rows.length > 0 ? rows : bodyEl.children;
-                Array.from(targets).forEach(row => {
-                    const tInput = row.querySelector('.edit-t');
-                    const trInput = row.querySelector('.edit-tr');
-                    const faultyTrInput = row.querySelector('.edit-faulty-tr');
-                    if (tInput) {
-                        const t = tInput.value.trim();
-                        const tr = trInput ? trInput.value.trim() : "";
-                        const faultyTr = faultyTrInput ? faultyTrInput.value.trim() : "";
-                        if (t) {
-                            const itemObj = { t, tr: tr };
-                            if (actId === 'faulty' && faultyTr) {
-                                itemObj.faultyTr = faultyTr;
-                            }
-                            sents.push(itemObj);
+        const bodyEl = document.getElementById(`act-body-${actId}`);
+        const sents = [];
+        if (bodyEl) {
+            const rows = bodyEl.querySelectorAll('.act-sentence-row');
+            const targets = rows.length > 0 ? rows : bodyEl.children;
+            Array.from(targets).forEach(row => {
+                const tInput = row.querySelector('.edit-t');
+                const trInput = row.querySelector('.edit-tr');
+                const faultyTrInput = row.querySelector('.edit-faulty-tr');
+                if (tInput) {
+                    const t = tInput.value.trim();
+                    const tr = trInput ? trInput.value.trim() : "";
+                    const faultyTr = faultyTrInput ? faultyTrInput.value.trim() : "";
+                    if (t || tr) {
+                        const itemObj = { t, tr: tr };
+                        if (actId === 'faulty' && faultyTr) {
+                            itemObj.faultyTr = faultyTr;
                         }
+                        sents.push(itemObj);
                     }
-                });
-            }
+                }
+            });
+        }
+
+        if (sents.length > 0) {
             structuredSentencesPerActivity[actId] = sents;
-            totalSentencesCount += sents.length;
+            if (actId !== 'study') {
+                totalSentencesCount += sents.length;
+            }
+        } else {
+            if (actId === 'study') {
+                structuredSentencesPerActivity['study'] = getBalancedSelection(allSentences, tableLimit);
+            } else {
+                const exerciseLimit = parseInt(document.getElementById('sentence-count').value, 10);
+                structuredSentencesPerActivity[actId] = getBalancedSelection(allSentences, exerciseLimit);
+                totalSentencesCount += structuredSentencesPerActivity[actId].length;
+            }
         }
     });
 
