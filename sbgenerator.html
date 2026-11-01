@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars2 Builder</title>
+    <title>Cedars Builder</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -767,6 +767,7 @@ th { background: #f1f5f9; color: #334155; }
 }
 
 /* CLASS DISPLAY FULLSCREEN OVERLAY */
+/* CLASS DISPLAY FULLSCREEN OVERLAY */
 #class-display-modal {
     position: fixed !important;
     top: 0 !important;
@@ -781,7 +782,7 @@ th { background: #f1f5f9; color: #334155; }
     background: #ffffff !important;
     z-index: 10000 !important;
     border-radius: 0 !important;
-    padding: 24px 32px !important;
+    padding: 20px 32px !important;
     box-shadow: none !important;
     display: none;
     flex-direction: column;
@@ -793,11 +794,11 @@ th { background: #f1f5f9; color: #334155; }
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-bottom: 16px;
+    padding-bottom: 12px;
     border-bottom: 2px solid #e2e8f0;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
 }
-
 #class-display-game-select {
     padding: 8px 14px;
     font-size: 16px;
@@ -814,11 +815,12 @@ th { background: #f1f5f9; color: #334155; }
     flex: 1;
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: center; /* Keeps single-sentence activities centered vertically */
     align-items: center;
     text-align: center;
-    padding: 20px;
-    overflow: hidden; /* Ensures content stays centered without scrollbars */
+    padding: 10px 0;
+    overflow: hidden;
+    height: 100%;
 }
       
 /* CLASSROOM HIGH-VISIBILITY TEXT STYLES */
@@ -1362,16 +1364,16 @@ th { background: #f1f5f9; color: #334155; }
     <div id="class-display-header">
         <div style="display: flex; align-items: center; gap: 15px;">
             <h2 style="margin:0; font-size: 22px; color: #0f172a;">👩‍🏫 Live Activities</h2>
-            <select id="class-display-game-select" onchange="isAnswerRevealed = false; playClassDisplayGame();">
-                <option value="no-spaces">No Spaces</option>
-                 <option value="unjumble">Unjumble Sentences</option>
-                 <option value="no-vowels">Missing Vowels</option>
-                <option value="no-consonants">Missing Consonants</option>
-                <option value="random-target">Random Target Language</option>
-                <option value="random-en">Random English</option>
-                <option value="match-up">Match Up</option>
-                <option value="sentence-grid">Translation Grid</option>
-            </select>
+            <select id="class-display-game-select" onchange="handleClassDisplayActivityChange();">
+    <option value="no-spaces">No Spaces</option>
+    <option value="unjumble">Unjumble Sentences</option>
+    <option value="no-vowels">Missing Vowels</option>
+    <option value="no-consonants">Missing Consonants</option>
+    <option value="random-target">Random Target Language</option>
+    <option value="random-en">Random English</option>
+    <option value="match-up">Match Up</option>
+    <option value="sentence-grid">Translation Grid</option>
+</select>
         </div>
         <button onclick="closeModals()" class="btn-outline" style="padding: 6px 14px; font-size: 16px; font-weight: bold; cursor: pointer;">✕ Close</button>
     </div>
@@ -3497,7 +3499,18 @@ function applyTransformations(text, rulesText) {
 
         if (find) {
             const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\]/g, '\\$&');
-            const regex = new RegExp(escapeReg(find), 'gi');
+            let pattern = escapeReg(find);
+
+            // Add left boundary if search term begins with a word character
+            if (/^[\w\u00C0-\u024F]/.test(find)) {
+                pattern = '(?<![a-zA-Z0-9\u00C0-\u024F])' + pattern;
+            }
+            // Add right boundary if search term ends with a word character
+            if (/[\w\u00C0-\u024F]$/.test(find)) {
+                pattern = pattern + '(?![a-zA-Z0-9\u00C0-\u024F])';
+            }
+
+            const regex = new RegExp(pattern, 'gi');
             text = text.replace(regex, replace);
         }
     }
@@ -6905,7 +6918,28 @@ function openInteractiveClassDisplay() {
     classDisplaySentences = shuffleArray(sentences);
     currentClassDisplayIndex = 0;
     isAnswerRevealed = false;
+
+    // Reset dropdown selection back to the top activity on re-open
+    const gameSelect = document.getElementById('class-display-game-select');
+    if (gameSelect) {
+        gameSelect.selectedIndex = 0;
+    }
+
     document.getElementById('class-display-modal').style.display = 'flex';
+    playClassDisplayGame();
+}
+    function handleClassDisplayActivityChange() {
+    isAnswerRevealed = false;
+    
+    // Automatically advance to a new sentence when switching activities
+    if (classDisplaySentences && classDisplaySentences.length > 0) {
+        currentClassDisplayIndex++;
+        if (currentClassDisplayIndex >= classDisplaySentences.length) {
+            classDisplaySentences = shuffleArray(classDisplaySentences);
+            currentClassDisplayIndex = 0;
+        }
+    }
+    
     playClassDisplayGame();
 }
 // Clean brackets from English sentences
@@ -7025,17 +7059,22 @@ function playClassDisplayGame() {
             ${answerHTML}
         </div>
         <div style="margin-top: 40px; display: flex; gap: 20px;">
-            <button onclick="nextClassDisplaySentence()" class="btn-purple" style="font-size: 20px; padding: 12px 28px;">🎲 Next</button>
-            <button onclick="toggleClassDisplayAnswer()" class="btn-info" style="font-size: 20px; padding: 12px 28px;">🔍 Reveal</button>
+            <button onclick="nextClassDisplaySentence()" class="btn-purple" style="font-size: 20px; padding: 12px 28px;">🔄 Shuffle</button>
+            <button id="cd-reveal-btn" onclick="toggleClassDisplayAnswer(this)" class="btn-info" style="font-size: 20px; padding: 12px 28px;">${isAnswerRevealed ? '🙈 Hide' : '🔍 Reveal'}</button>
         </div>
     `;
 }
 
-function toggleClassDisplayAnswer() {
+function toggleClassDisplayAnswer(btn) {
     const answerBox = document.getElementById('cd-answer-box');
     if (answerBox) {
         isAnswerRevealed = !isAnswerRevealed;
         answerBox.style.display = isAnswerRevealed ? 'block' : 'none';
+
+        const revealBtn = btn || document.getElementById('cd-reveal-btn');
+        if (revealBtn) {
+            revealBtn.innerHTML = isAnswerRevealed ? '🙈 Hide' : '🔍 Reveal';
+        }
     }
 }
 
@@ -7068,6 +7107,25 @@ function playClassDisplayMatchUp(allSentences) {
         return;
     }
 
+    // Determine font size across ALL sentences so it NEVER changes on Shuffle
+    const maxLen = Math.max(...allSentences.map(s => Math.max((s.t || '').length, (s.tr || '').length)));
+
+    let fontSizeRem = 2.35;
+    let lineHeight = 1.25;
+
+    if (maxLen > 70) {
+        fontSizeRem = 1.5;
+        lineHeight = 1.18;
+    } else if (maxLen > 50) {
+        fontSizeRem = 1.85;
+        lineHeight = 1.22;
+    } else if (maxLen > 35) {
+        fontSizeRem = 2.1;
+        lineHeight = 1.24;
+    }
+
+    const fontSize = `${fontSizeRem}rem`;
+
     const shuffled = shuffleArray(allSentences);
     const gamePairs = shuffled.slice(0, NUM_PAIRS);
     const distractors = shuffled.slice(NUM_PAIRS, totalNeeded).map(d => d.tr);
@@ -7075,42 +7133,13 @@ function playClassDisplayMatchUp(allSentences) {
     const leftSide = gamePairs.map(p => p.t);
     let rightSide = shuffleArray(gamePairs.map(p => p.tr).concat(distractors));
 
-    // Dynamic Font Size & Layout Calculation based on sentence length
-    const maxLeftLen = Math.max(...leftSide.map(s => (s || '').length));
-    const maxRightLen = Math.max(...rightSide.map(s => (s || '').length));
-    const maxLen = Math.max(maxLeftLen, maxRightLen);
-
-    let fontSizeRem = 2.4;
-    let itemMargin = 10;
-    let lineHeight = 1.3;
-
-    if (maxLen > 65) {
-        fontSizeRem = 1.2;
-        itemMargin = 5;
-        lineHeight = 1.18;
-    } else if (maxLen > 45) {
-        fontSizeRem = 1.45;
-        itemMargin = 7;
-        lineHeight = 1.22;
-    } else if (maxLen > 30) {
-        fontSizeRem = 1.8;
-        itemMargin = 8;
-        lineHeight = 1.25;
-    } else if (maxLen > 20) {
-        fontSizeRem = 2.1;
-        itemMargin = 9;
-        lineHeight = 1.28;
-    }
-
-    const fontSize = `${fontSizeRem}rem`;
-
     let leftHTML = leftSide.map((sent, i) => {
         const rightIndex = rightSide.indexOf(gamePairs[i].tr);
         const correctLetter = rightIndex >= 0 ? String.fromCharCode(65 + rightIndex) : '';
         return `
-            <li style="margin-bottom: ${itemMargin}px; font-size: ${fontSize}; line-height: ${lineHeight}; display: flex; align-items: baseline;">
-                <span class="match-ans-letter" style="color: #10b981; font-weight: bold; width: 32px; min-width: 32px; display: inline-block;">${isAnswerRevealed ? correctLetter : ''}</span>
-                <span style="font-weight: bold; margin-right: 8px;">${i + 1}.</span>
+            <li style="font-size: ${fontSize}; line-height: ${lineHeight}; display: flex; align-items: baseline; padding: 2px 0;">
+                <span class="match-ans-letter" style="color: #10b981; font-weight: bold; width: 40px; min-width: 40px; display: inline-block;">${isAnswerRevealed ? correctLetter : ''}</span>
+                <span style="font-weight: bold; margin-right: 10px;">${i + 1}.</span>
                 <span>${sent}</span>
             </li>
         `;
@@ -7120,27 +7149,29 @@ function playClassDisplayMatchUp(allSentences) {
         const isDistractor = distractors.includes(sent);
         const styleColor = (isAnswerRevealed && isDistractor) ? 'color: #ef4444; opacity: 0.7;' : '';
         return `
-            <li style="margin-bottom: ${itemMargin}px; font-size: ${fontSize}; line-height: ${lineHeight}; display: flex; align-items: baseline; ${styleColor}" data-text="${sent.replace(/"/g, '&quot;')}">
-                <span style="font-weight: bold; margin-right: 8px; color: #8b5cf6;">${String.fromCharCode(65 + i)}.</span>
+            <li style="font-size: ${fontSize}; line-height: ${lineHeight}; display: flex; align-items: baseline; padding: 2px 0; ${styleColor}" data-text="${sent.replace(/"/g, '&quot;')}">
+                <span style="font-weight: bold; margin-right: 10px; color: #8b5cf6;">${String.fromCharCode(65 + i)}.</span>
                 <span>${sent}</span>
             </li>
         `;
     }).join('');
 
     document.getElementById('class-display-content').innerHTML = `
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; text-align: left; max-height: calc(100vh - 200px); overflow-y: auto;">
-            <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 16px 20px; border-radius: 10px;">
-                <h3 style="margin-top: 0; color: #1e293b; border-bottom: 2px solid #8b5cf6; padding-bottom: 8px; font-size: 1.2em;">Target Language</h3>
-                <ul style="list-style: none; padding: 0; margin: 0;">${leftHTML}</ul>
+        <div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; width: 100%; box-sizing: border-box;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; text-align: left; flex: 1; min-height: 0;">
+                <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 14px 20px; border-radius: 12px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box;">
+                    <h3 style="margin-top: 0; margin-bottom: 8px; color: #1e293b; border-bottom: 2px solid #8b5cf6; padding-bottom: 6px; font-size: 1.3rem; flex-shrink: 0;">Target Language</h3>
+                    <ul style="list-style: none; padding: 0; margin: 0; flex: 1; display: flex; flex-direction: column; justify-content: space-evenly;">${leftHTML}</ul>
+                </div>
+                <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 14px 20px; border-radius: 12px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box;">
+                    <h3 style="margin-top: 0; margin-bottom: 8px; color: #1e293b; border-bottom: 2px solid #10b981; padding-bottom: 6px; font-size: 1.3rem; flex-shrink: 0;">English Translations</h3>
+                    <ul id="cd-match-right-list" style="list-style: none; padding: 0; margin: 0; flex: 1; display: flex; flex-direction: column; justify-content: space-evenly;">${rightHTML}</ul>
+                </div>
             </div>
-            <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 16px 20px; border-radius: 10px;">
-                <h3 style="margin-top: 0; color: #1e293b; border-bottom: 2px solid #10b981; padding-bottom: 8px; font-size: 1.2em;">English Translations</h3>
-                <ul id="cd-match-right-list" style="list-style: none; padding: 0; margin: 0;">${rightHTML}</ul>
+            <div style="display: flex; justify-content: center; gap: 20px; margin-top: 14px; flex-shrink: 0;">
+                <button onclick="isAnswerRevealed = false; playClassDisplayGame();" class="btn-purple" style="font-size: 19px; padding: 10px 26px; height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: bold;">🔄 Shuffle</button>
+                <button id="cd-reveal-match-btn" class="btn-info" style="font-size: 19px; padding: 10px 26px; height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: bold;">${isAnswerRevealed ? '🙈 Hide' : '🔍 Reveal'}</button>
             </div>
-        </div>
-        <div style="display: flex; justify-content: center; gap: 20px; margin-top: 20px;">
-            <button onclick="isAnswerRevealed = false; playClassDisplayGame();" class="btn-purple" style="font-size: 18px; padding: 10px 24px; height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: bold;">🔄 Shuffle</button>
-            <button id="cd-reveal-match-btn" class="btn-info" style="font-size: 18px; padding: 10px 24px; height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: bold;">${isAnswerRevealed ? '🙈 Hide Answers' : '👁️ Reveal Answers'}</button>
         </div>
     `;
 
@@ -7199,10 +7230,10 @@ function playClassDisplayGrid(allSentences) {
             }
 
             gridHTML += `
-                <div class="cd-grid-cell" style="border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; background: ${isTargetCol ? '#eff6ff' : '#ffffff'}; position: relative; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100px; text-align: center;">
-                    <span style="position: absolute; top: 6px; left: 8px; font-size: 11px; font-weight: bold; color: #94a3b8;">${cellCounter + 1}</span>
-                    <div class="cd-q-text" style="font-size: 2.6em; font-weight: bold; color: #1e293b;">${question}</div>
-                    <div class="cd-a-text" style="display: none; font-size: 2.6em; font-weight: bold; color: #16a34a; margin-top: 6px;">${answer}</div>
+                <div class="cd-grid-cell" style="border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: ${isTargetCol ? '#eff6ff' : '#ffffff'}; position: relative; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+                    <span style="position: absolute; top: 8px; left: 10px; font-size: 1.2rem; font-weight: 700; color: #64748b;">${cellCounter + 1}</span>
+                    <div class="cd-q-text" style="font-size: 2.2em; font-weight: bold; color: #1e293b;">${question}</div>
+                    <div class="cd-a-text" style="display: none; font-size: 2.2em; font-weight: bold; color: #16a34a; margin-top: 4px;">${answer}</div>
                 </div>
             `;
             cellCounter++;
@@ -7210,12 +7241,14 @@ function playClassDisplayGrid(allSentences) {
     }
 
     document.getElementById('class-display-content').innerHTML = `
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%;">
-            ${gridHTML}
-        </div>
-        <div style="display: flex; justify-content: center; gap: 15px; margin-top: 20px;">
-            <button onclick="playClassDisplayGame()" class="btn-purple" style="font-size: 16px; padding: 10px 24px;">🎲 Next</button>
-            <button id="cd-reveal-grid-btn" class="btn-info" style="font-size: 16px; padding: 10px 24px;">🔍 Reveal</button>
+        <div style="display: flex; flex-direction: column; justify-content: space-between; height: 100%; width: 100%; box-sizing: border-box;">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(4, 1fr); gap: 12px; width: 100%; flex: 1; min-height: 0;">
+                ${gridHTML}
+            </div>
+            <div style="display: flex; justify-content: center; gap: 20px; margin-top: 14px; flex-shrink: 0;">
+                <button onclick="playClassDisplayGame()" class="btn-purple" style="font-size: 19px; padding: 10px 26px; height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: bold;">🔄 Shuffle</button>
+                <button id="cd-reveal-grid-btn" class="btn-info" style="font-size: 19px; padding: 10px 26px; height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: bold;">🔍 Reveal</button>
+            </div>
         </div>
     `;
 
