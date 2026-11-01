@@ -692,13 +692,22 @@ th { background: #f1f5f9; color: #334155; }
 .mini-preview-cell {
     border: 1.5px solid #cbd5e1;
     border-radius: 6px;
-    padding: 8px;
+    padding: 6px 8px;
     background: white;
     font-size: 12px;
     cursor: pointer;
     position: relative;
     user-select: none;
     transition: all 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    box-sizing: border-box;
+}
+
+.mini-preview-cell.bridge-cell {
+    background-color: #f0fdf4 !important;
+    border: 1.5px dashed #4ade80 !important;
 }
 
 .mini-preview-cell:hover {
@@ -3430,21 +3439,63 @@ function renderRoutesPreviewGrid() {
     const cols = grid[0].length;
     const rows = grid.length;
 
-    for (let cIdx = 0; cIdx < cols; cIdx++) {
-        const colDiv = document.createElement('div');
-        colDiv.style.cssText = 'display:flex; flex-direction:column; gap:6px; flex:1; min-width:120px;';
+    // Apply real CSS Grid positioning matching the builder layout
+    container.style.display = 'grid';
+    container.style.gridTemplateColumns = `repeat(${cols}, minmax(130px, 1fr))`;
+    container.style.gridTemplateRows = `repeat(${rows}, minmax(42px, auto))`;
+    container.style.gap = '6px';
 
-        for (let r = 0; r < rows; r++) {
+    // Helper to check if a column is a full height bridge/empty column
+    const isColumnBridge = (cIdx) => {
+        return grid.every(r => {
+            const cEl = r[cIdx];
+            return !cEl || !cEl.items || cEl.items.every(it => !it.t || it.t.trim() === "");
+        });
+    };
+
+    for (let r = 0; r < rows; r++) {
+        for (let cIdx = 0; cIdx < cols; cIdx++) {
             const cell = grid[r][cIdx];
             if (cell.hidden) continue;
 
-            const textSnippet = (cell.items && cell.items[0] && cell.items[0].t) ? cell.items[0].t : '<em>(empty)</em>';
+            const rSpan = cell.rS || 1;
+            const cSpan = cell.cS || 1;
+            const isBridge = isColumnBridge(cIdx);
+
+            // Get ALL vocabulary items in this cell
+            const validItems = (cell.items || []).filter(it => it.t && it.t.trim() !== "");
+            
+            let textContent = '';
+            if (validItems.length > 0) {
+                textContent = validItems.map(it => `
+                    <div style="font-weight:600; color:#1e293b; padding:1px 0; border-bottom:1px solid #f1f5f9;">
+                        ${it.t.trim()} ${it.tr ? `<span style="color:#2563eb; font-weight:normal; font-style:italic;">(${it.tr.trim()})</span>` : ''}
+                    </div>
+                `).join('');
+            } else if (isBridge) {
+                textContent = '<div style="color:#15803d; font-weight:bold; font-size:11px; text-align:center; padding:4px 0;">🌉 Bridge / Flow</div>';
+            } else {
+                textContent = '<div style="color:#94a3b8; font-style:italic; font-size:11px;">(empty)</div>';
+            }
+
             const cellEl = document.createElement('div');
             cellEl.className = 'mini-preview-cell';
+            if (isBridge && validItems.length === 0) {
+                cellEl.classList.add('bridge-cell');
+            }
             cellEl.id = `mini-cell-${r}-${cIdx}`;
+            
+            // Explicit CSS Grid Row/Col Spanning
+            cellEl.style.gridRow = `${r + 1} / span ${rSpan}`;
+            cellEl.style.gridColumn = `${cIdx + 1} / span ${cSpan}`;
+
             cellEl.innerHTML = `
-                <div class="cell-coord-badge">${r + 1}.${cIdx + 1}</div>
-                <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${textSnippet}</div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                    <span class="cell-coord-badge">${r + 1}.${cIdx + 1}${rSpan > 1 || cSpan > 1 ? ` (${rSpan}x${cSpan})` : ''}</span>
+                </div>
+                <div style="font-size:11px; line-height:1.3; max-height:140px; overflow-y:auto; width:100%;">
+                    ${textContent}
+                </div>
             `;
 
             cellEl.onclick = () => {
@@ -3453,9 +3504,8 @@ function renderRoutesPreviewGrid() {
                 }
             };
 
-            colDiv.appendChild(cellEl);
+            container.appendChild(cellEl);
         }
-        container.appendChild(colDiv);
     }
 }
 
