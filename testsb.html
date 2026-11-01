@@ -3612,20 +3612,36 @@ function isPathValid(partsMeta) {
 /* =========================================================
    PATH ENGINE WITH TALL CELLS & BRIDGE/EMPTY COLUMN TRAVERSAL
    ========================================================= */
+/* =========================================================
+   PATH ENGINE WITH UNIVERSAL ROW-LANE PERSISTENCE & BRIDGES
+   ========================================================= */
 function findPaths(r, c, activeRow = null) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    // Active row context for this step (defaults to current cell row r)
+    // Track original row lane continuously across tall/merged cells
     let currentActiveRow = (activeRow !== null) ? activeRow : r;
 
     let cellColSpan = cell.cS || 1;
-    let cellRowSpan = cell.rS || 1;
     let nextCol = c + cellColSpan;
 
-    // Collect valid text choices from current cell
+    // Helper: Check if a cell is empty
+    const isCellEmpty = (cObj) => {
+        if (!cObj || !cObj.items || cObj.items.length === 0) return true;
+        return cObj.items.every(it => !it.t || it.t.trim() === "");
+    };
+
+    // Helper: Check if cell is an explicit Bridge
+    const isBridgeCell = (cObj) => {
+        if (!cObj) return false;
+        if (cObj.isBridge || cObj.type === 'bridge') return true;
+        if (cObj.items && cObj.items.some(it => it.t && it.t.trim().toLowerCase() === 'bridge')) return true;
+        return false;
+    };
+
+    // Collect valid text choices (excluding purely internal 'Bridge' label text)
     let currentOptions = (cell.items || [])
-        .filter(it => it.t && it.t.trim() !== "")
+        .filter(it => it.t && it.t.trim() !== "" && it.t.trim().toLowerCase() !== "bridge")
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr ? it.tr.trim() : "",
@@ -3633,86 +3649,54 @@ function findPaths(r, c, activeRow = null) {
             details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
         }));
 
-    // End of grid reached -> return valid paths
+    // Grid boundary reached -> terminate path
     if (nextCol >= grid[0].length) {
         return currentOptions.filter(path => isPathValid(path.parts));
     }
 
     let combinedSubPaths = [];
 
-    // Helper: Check if cell has no text items
-    const isCellEmpty = (cObj) => {
-        if (!cObj || !cObj.items || cObj.items.length === 0) return true;
-        return cObj.items.every(it => !it.t || it.t.trim() === "");
-    };
+    // Check the cell in nextCol directly on currentActiveRow
+    let targetRawCell = grid[currentActiveRow] ? grid[currentActiveRow][nextCol] : null;
+    let targetCell = targetRawCell ? getCellAt(currentActiveRow, nextCol) : null;
 
-    // Helper: Check if an entire column is a 100% empty bridge
-    const isColumnBridge = (colIdx) => {
-        if (colIdx >= grid[0].length) return false;
-        for (let rowIdx = 0; rowIdx < grid.length; rowIdx++) {
-            const targetCell = getCellAt(rowIdx, colIdx);
-            if (!isCellEmpty(targetCell)) return false;
-        }
-        return true;
-    };
-
-    if (isColumnBridge(nextCol)) {
-        // Skip through consecutive blank bridge columns
-        let targetCol = nextCol + 1;
-        while (isColumnBridge(targetCol) && targetCol < grid[0].length) {
-            targetCol++;
-        }
-
-        if (targetCol < grid[0].length) {
-            // FULL BRIDGE: Flow branches into ALL available root rows in target column
-            for (let tr = 0; tr < grid.length; tr++) {
-                let targetCell = grid[tr][targetCol];
-                if (targetCell && !targetCell.hidden) {
-                    combinedSubPaths = combinedSubPaths.concat(
-                        findPaths(tr, targetCol, tr)
-                    );
+    if (targetCell) {
+        if (isBridgeCell(targetCell)) {
+            // CASE 1: BRIDGE CELL -> Branch into all valid target rows in the following column
+            let targetCol = nextCol + (targetCell.cS || 1);
+            if (targetCol < grid[0].length) {
+                for (let tr = 0; tr < grid.length; tr++) {
+                    let nextCell = grid[tr][targetCol];
+                    if (nextCell && !nextCell.hidden && !isCellEmpty(getCellAt(tr, targetCol))) {
+                        combinedSubPaths = combinedSubPaths.concat(
+                            findPaths(tr, targetCol, tr)
+                        );
+                    }
                 }
             }
-        }
-    } else {
-        // STANDARD COLUMN: Connect ONLY if target cell covers the active row lane
-        for (let tr = 0; tr < grid.length; tr++) {
-            let rawCell = grid[tr][nextCol];
-            if (!rawCell) continue;
-
-            let targetCell = getCellAt(tr, nextCol);
-            if (!targetCell) continue;
-
-            // Resolve target root row for merged hidden cells
-            let targetRootRow = tr;
-            if (rawCell.hidden) {
-                for (let testR = tr; testR >= 0; testR--) {
+        } else if (!isCellEmpty(targetCell)) {
+            // CASE 2: STANDARD CELL -> Move straight ahead on currentActiveRow
+            let targetRootRow = currentActiveRow;
+            if (targetRawCell.hidden) {
+                for (let testR = currentActiveRow; testR >= 0; testR--) {
                     if (!grid[testR][nextCol].hidden) {
                         targetRootRow = testR;
                         break;
                     }
                 }
             }
-
-            const targetStart = targetRootRow;
-            const targetEnd = targetRootRow + (targetCell.rS || 1) - 1;
-
-            // STRICT LANE MATCH: Target cell MUST cover currentActiveRow
-            const rowMatches = (currentActiveRow >= targetStart && currentActiveRow <= targetEnd);
-
-            if (rowMatches && tr === targetRootRow) {
-                // Pass currentActiveRow along to maintain row lane through merged cells
-                combinedSubPaths = combinedSubPaths.concat(
-                    findPaths(tr, nextCol, currentActiveRow)
-                );
-            }
+            combinedSubPaths = combinedSubPaths.concat(
+                findPaths(targetRootRow, nextCol, currentActiveRow)
+            );
         }
+        // CASE 3: EMPTY CELL (No text & Not a Bridge) -> combinedSubPaths remains [] 
+        // path terminates naturally right after the current cell.
     }
 
+    // Return combined paths or terminal choices
     if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts));
     if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts));
 
-    // Cross-combine current choices with downstream paths
     let finalPaths = [];
     currentOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
