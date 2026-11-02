@@ -3678,77 +3678,171 @@ function isPathValid(partsMeta) {
     return true;
 }
 
+
 /* =========================================================
    PATH ENGINE WITH TALL CELLS & BRIDGE/EMPTY COLUMN TRAVERSAL
    ========================================================= */
 function cleanSentenceSpacing(str) {
     if (!str) return "";
     return str
-        .replace(/\s+([.,!?:;])/g, '$1')                // Removes space before punctuation ("père ." -> "père.")
-        .replace(/([a-zA-ZÀ-ÿ\u00C0-\u024F]')\s+/g, '$1')  // Removes space after apostrophes ("d' un" -> "d'un")
+        .replace(/\s+([.,!?:;])/g, '$1')                // Removes space before punctuation
+        .replace(/([a-zA-ZÀ-ÿ\u00C0-\u024F]')\s+/g, '$1')  // Removes space after apostrophes
         .replace(/\s+/g, ' ')                          // Collapses multiple spaces
         .trim();
 }
+
+function getAssembledSentences() {
+    let allPaths = [];
+    if (!grid || grid.length === 0) return [];
+
+    let visitedRoots = new Set();
+    for (let r = 0; r < grid.length; r++) {
+        const rootR = getRootRow(r, 0);
+        if (!visitedRoots.has(rootR)) {
+            visitedRoots.add(rootR);
+            const cell = grid[rootR][0];
+            if (cell && !isCellEmpty(cell)) {
+                let cellRowSpan = getCellRowSpan(rootR, 0, cell);
+                for (let subR = rootR; subR < rootR + cellRowSpan; subR++) {
+                    let paths = findPaths(rootR, 0, subR);
+                    paths.forEach(p => { p.originRow = subR; });
+                    allPaths = allPaths.concat(paths);
+                }
+            }
+        }
+    }
+
+    const rules = document.getElementById('transformations-input')?.value || transformationsText || "";
+
+    const unique = [];
+    const seen = new Set();
+    allPaths.forEach(s => {
+        if (shouldExcludeSentence(s.t, rules) || shouldExcludeSentence(s.tr, rules)) return;
+
+        s.t = applyTransformations(s.t, rules);
+        s.tr = applyTransformations(s.tr, rules);
+
+        s.t = cleanSentenceSpacing(s.t);
+        s.tr = cleanSentenceSpacing(s.tr);
+
+        const text = s.t.trim();
+        if (text && !seen.has(text)) {
+            unique.push(s);
+            seen.add(text);
+        }
+    });
+
+    return unique;
+}
+
+function isCellEmpty(cObj) {
+    if (!cObj || !cObj.items || cObj.items.length === 0) return true;
+    return cObj.items.every(it => !it.t || it.t.trim() === "");
+}
+
+function isBridgeCell(cObj) {
+    if (!cObj) return false;
+    if (cObj.compact || cObj.isBridge || cObj.type === 'bridge') return true;
+    if (cObj.items && cObj.items.some(it => it.t && it.t.trim().toLowerCase() === 'bridge')) return true;
+    if (isCellEmpty(cObj)) return true;
+    return false;
+}
+
+function getCellRowSpan(row, col, cObj) {
+    if (cObj && (cObj.rS || cObj.rowSpan)) return cObj.rS || cObj.rowSpan;
+    let span = 1;
+    for (let testR = row + 1; testR < grid.length; testR++) {
+        if (grid[testR] && grid[testR][col] && grid[testR][col].hidden) span++;
+        else break;
+    }
+    return span;
+}
+
+function getCellColSpan(row, col, cObj) {
+    if (cObj && (cObj.cS || cObj.colSpan)) return cObj.cS || cObj.colSpan;
+    let span = 1;
+    if (grid[row]) {
+        for (let testC = col + 1; testC < grid[row].length; testC++) {
+            if (grid[row][testC] && grid[row][testC].hidden) span++;
+            else break;
+        }
+    }
+    return span;
+}
+
+function getRootRow(row, col) {
+    for (let testR = row; testR >= 0; testR--) {
+        if (grid[testR] && grid[testR][col] && !grid[testR][col].hidden) {
+            return testR;
+        }
+    }
+    return row;
+}
+
+function isPathValid(partsMeta) {
+    if (!partsMeta || partsMeta.length === 0) return true;
+
+    // Filter out bridge markers for rule verification
+    const textParts = partsMeta.filter(p => !p.isBridge);
+
+    // 1. Check Disabled Routes
+    const routeKey = textParts.map(p => `${p.r + 1}.${p.c + 1}`).join('+');
+    if (disabledRoutes && disabledRoutes.includes(routeKey)) {
+        return false;
+    }
+
+    // 2. Check Excluded Combos
+    if (excludedCombos && excludedCombos.length > 0) {
+        for (let combo of excludedCombos) {
+            const cells = combo.cells || combo;
+            if (Array.isArray(cells) && cells.length >= 2) {
+                const allPresent = cells.every(c => partsMeta.some(p => p.r === c.r && p.c === c.c));
+                if (allPresent) return false;
+            }
+        }
+    }
+
+    // 3. Check Legacy Excluded Pairs
+    if (excludedPairs && excludedPairs.length > 0) {
+        for (let pair of excludedPairs) {
+            const hasA = partsMeta.some(p => p.r === pair.a.r && p.c === pair.a.c);
+            const hasB = partsMeta.some(p => p.r === pair.b.r && p.c === pair.b.c);
+            if (hasA && hasB) return false;
+        }
+    }
+
+    // 4. Check Required Combos
+    if (requiredCombos && requiredCombos.length > 0) {
+        for (let combo of requiredCombos) {
+            const cellA = combo.cellA || combo.a;
+            const cellB = combo.cellB || combo.b;
+            if (cellA && cellB) {
+                const hasA = partsMeta.some(p => p.r === cellA.r && p.c === cellA.c);
+                const hasB = partsMeta.some(p => p.r === cellB.r && p.c === cellB.c);
+                if (hasA && !hasB) return false;
+            }
+        }
+    }
+
+    return true;
+}
+
 function findPaths(r, c, activeRow = null) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
     let currentActiveRow = (activeRow !== null) ? activeRow : r;
 
-    const getCellRowSpan = (row, col, cObj) => {
-        if (cObj && (cObj.rS || cObj.rowSpan)) return cObj.rS || cObj.rowSpan;
-        let span = 1;
-        for (let testR = row + 1; testR < grid.length; testR++) {
-            if (grid[testR] && grid[testR][col] && grid[testR][col].hidden) span++;
-            else break;
-        }
-        return span;
-    };
-
-    const getCellColSpan = (row, col, cObj) => {
-        if (cObj && (cObj.cS || cObj.colSpan)) return cObj.cS || cObj.colSpan;
-        let span = 1;
-        if (grid[row]) {
-            for (let testC = col + 1; testC < grid[row].length; testC++) {
-                if (grid[row][testC] && grid[row][testC].hidden) span++;
-                else break;
-            }
-        }
-        return span;
-    };
-
-    const getRootRow = (row, col) => {
-        for (let testR = row; testR >= 0; testR--) {
-            if (grid[testR] && grid[testR][col] && !grid[testR][col].hidden) {
-                return testR;
-            }
-        }
-        return row;
-    };
-
     let cellRowSpan = getCellRowSpan(r, c, cell);
     let cellColSpan = getCellColSpan(r, c, cell);
     let nextCol = c + cellColSpan;
-
-    const isCellEmpty = (cObj) => {
-        if (!cObj || !cObj.items || cObj.items.length === 0) return true;
-        return cObj.items.every(it => !it.t || it.t.trim() === "");
-    };
-
-    const isBridgeCell = (cObj) => {
-        if (!cObj) return false;
-        if (cObj.compact || cObj.isBridge || cObj.type === 'bridge') return true;
-        if (cObj.items && cObj.items.some(it => it.t && it.t.trim().toLowerCase() === 'bridge')) return true;
-        if (isCellEmpty(cObj)) return true;
-        return false;
-    };
 
     let currentOptions = (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "" && it.t.trim().toLowerCase() !== "bridge")
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr ? it.tr.trim() : "",
-            parts: [{ t: it.t, tr: it.tr || "", r: r, c: c }],
+            parts: [{ t: it.t, tr: it.tr || "", r: r, c: c, isBridge: false }],
             details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
         }));
 
@@ -3759,9 +3853,6 @@ function findPaths(r, c, activeRow = null) {
     let combinedSubPaths = [];
     let visitedTargetRoots = new Set();
 
-    // Determine which rows to evaluate exiting from this cell:
-    // - Bridge cells allow exiting across all spanned rows
-    // - Content cells strictly preserve the currentActiveRow
     let isCurrentBridge = isBridgeCell(cell);
     let rowsToEval = [];
 
@@ -3790,23 +3881,30 @@ function findPaths(r, c, activeRow = null) {
         visitedTargetRoots.add(targetKey);
 
         if (isBridgeCell(targetCell)) {
+            let bridgeRowSpan = getCellRowSpan(targetRootRow, nextCol, targetCell);
             let bridgeColSpan = getCellColSpan(targetRootRow, nextCol, targetCell);
             let targetCol = nextCol + bridgeColSpan;
+            let bridgePart = { r: targetRootRow, c: nextCol, isBridge: true, t: "", tr: "" };
 
             if (targetCol < grid[0].length) {
                 let visitedBridgeNext = new Set();
-                for (let tr = 0; tr < grid.length; tr++) {
+                // Strictly evaluate exit rows within the bridge's vertical row span
+                for (let tr = targetRootRow; tr < targetRootRow + bridgeRowSpan && tr < grid.length; tr++) {
                     let cellAtTr = getCellAt(tr, targetCol);
                     if (cellAtTr) {
-                        let bridgeRootRow = getRootRow(tr, targetCol);
-                        let bridgeKey = `${bridgeRootRow}_${targetCol}`;
-                        
+                        let bridgeNextRootRow = getRootRow(tr, targetCol);
+                        let bridgeKey = `${bridgeNextRootRow}_${targetCol}`;
+
                         if (!visitedBridgeNext.has(bridgeKey)) {
                             visitedBridgeNext.add(bridgeKey);
                             if (!isCellEmpty(cellAtTr) || isBridgeCell(cellAtTr)) {
-                                combinedSubPaths = combinedSubPaths.concat(
-                                    findPaths(bridgeRootRow, targetCol, bridgeRootRow)
-                                );
+                                let subPaths = findPaths(bridgeNextRootRow, targetCol, tr);
+                                subPaths.forEach(sub => {
+                                    combinedSubPaths.push({
+                                        ...sub,
+                                        parts: [bridgePart, ...sub.parts]
+                                    });
+                                });
                             }
                         }
                     }
@@ -3819,15 +3917,19 @@ function findPaths(r, c, activeRow = null) {
         }
     }
 
-    if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts));
-    if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts));
+    if (currentOptions.length === 0) {
+        return combinedSubPaths.filter(p => isPathValid(p.parts));
+    }
+    if (combinedSubPaths.length === 0) {
+        return currentOptions.filter(p => isPathValid(p.parts));
+    }
 
     let finalPaths = [];
     currentOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
             const combinedParts = [...curr.parts, ...sub.parts];
             const combinedDetails = [...(curr.details || []), ...(sub.details || [])];
-            
+
             if (isPathValid(combinedParts)) {
                 finalPaths.push({
                     t: cleanSentenceSpacing(curr.t + " " + sub.t),
