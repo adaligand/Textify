@@ -3824,16 +3824,18 @@ function isPathValid(partsMeta) {
 
     return true;
 }
-
 function findPaths(r, c) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
     let rootR = getRootRow(r, c);
     let cellColSpan = getCellColSpan(rootR, c, cell);
+    let cellRowSpan = getCellRowSpan(rootR, c, cell);
     let nextCol = c + cellColSpan;
 
     let isCurrentBridge = isBridgeCell(cell);
+
+    // Extract valid text items from the cell (excluding bridge markers)
     let currentOptions = (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "" && it.t.trim().toLowerCase() !== "bridge")
         .map(it => ({
@@ -3851,25 +3853,28 @@ function findPaths(r, c) {
         return currentOptions.filter(path => isPathValid(path.parts));
     }
 
-    // Gather sub-paths from the next column
     let subPaths = [];
+
     if (isCurrentBridge) {
-        // Bridge cell: Branch out across all row lanes in the next column
-        let visitedCells = new Set();
-        for (let nextR = 0; nextR < grid.length; nextR++) {
-            let targetCell = getCellAt(nextR, nextCol);
+        // BRIDGE CELL: Branch to all row lanes covered by the bridge's rowSpan
+        // (If full-height or compact connector, covers all rows from 0 to grid.length - 1)
+        let minR = (cellRowSpan > 1 || cell.compact) ? 0 : rootR;
+        let maxR = (cellRowSpan > 1 || cell.compact) ? (grid.length - 1) : (rootR + cellRowSpan - 1);
+
+        let visitedRootCells = new Set();
+        for (let nextR = minR; nextR <= maxR; nextR++) {
             let targetRootR = getRootRow(nextR, nextCol);
             let cellKey = `${targetRootR},${nextCol}`;
 
-            // Avoid duplicate recursions for multi-row spanned cells in the next column
-            if (!visitedCells.has(cellKey)) {
-                visitedCells.add(cellKey);
+            // Deduplicate to avoid repeating sub-paths for multi-row target cells
+            if (!visitedRootCells.has(cellKey)) {
+                visitedRootCells.add(cellKey);
                 let pathsFromNext = findPaths(nextR, nextCol);
                 subPaths = subPaths.concat(pathsFromNext);
             }
         }
     } else {
-        // Standard non-bridge cell: Preserve active row lane 'r' into the next column
+        // STANDARD CELL: Maintain active row lane 'r' straight into nextCol
         subPaths = findPaths(r, nextCol);
     }
 
@@ -3877,7 +3882,7 @@ function findPaths(r, c) {
         return currentOptions.filter(p => isPathValid(p.parts));
     }
 
-    // If current cell is a bridge or empty connector, prepend its position for routing
+    // Prepend bridge marker for UI rendering/highlighting if current cell is empty or bridge
     if (currentOptions.length === 0 || isCurrentBridge) {
         let bridgePart = { r: rootR, c: c, isBridge: true, t: "", tr: "" };
         return subPaths
@@ -3890,7 +3895,7 @@ function findPaths(r, c) {
             .filter(p => isPathValid(p.parts));
     }
 
-    // Combine current cell word options with sub-paths
+    // Combine current cell text options with sub-paths
     let finalPaths = [];
     currentOptions.forEach(curr => {
         subPaths.forEach(sub => {
