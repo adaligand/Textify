@@ -1693,29 +1693,43 @@ window.onload = async () => {
         return;
     }
 
-    auth.onAuthStateChanged(async (user) => {
-        initMetaListeners();
-        if (user) {
-            const email = user.email.toLowerCase();
-            if (!email.endsWith("@cedarsupper.co.uk")) {
-                await auth.signOut();
-                alert("Access Denied: Use school email.");
-                showPage('login-page');
-                return;
-            }
+   // Add helper check for teacher emails
+function isTeacherEmail(email) {
+    return !/^[0-9]/.test(email);
+}
 
-            currentUser = user;
-            document.getElementById('user-display').innerText = email;
-            cleanupOldDeletedFiles(); 
-            showPage('library-page');
-            renderLibrary();
-        } else {
-            currentUser = null;
+// 1. Updated Main Auth State Handler
+auth.onAuthStateChanged(async (user) => {
+    initMetaListeners();
+    if (user) {
+        const email = user.email.toLowerCase();
+        if (!email.endsWith("@cedarsupper.co.uk")) {
+            await auth.signOut();
+            alert("Access Denied: Use official school email.");
             showPage('login-page');
+            return;
         }
-    });
-};
 
+        // Block students from accessing the Teacher Dashboard (non-assignment URL)
+        if (!isTeacherEmail(email)) {
+            await auth.signOut();
+            alert("Access Denied: Student accounts cannot access the Teacher Dashboard. Please use direct assignment links provided by your teacher.");
+            showPage('login-page');
+            return;
+        }
+
+        currentUser = user;
+        document.getElementById('user-display').innerText = email;
+        cleanupOldDeletedFiles(); 
+        showPage('library-page');
+        renderLibrary();
+    } else {
+        currentUser = null;
+        showPage('login-page');
+    }
+});
+
+// 2. Updated Teacher Login Function
 async function login() {
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
@@ -1737,6 +1751,12 @@ async function login() {
             return;
         }
 
+        if (!isTeacherEmail(email)) {
+            alert("Access Denied: Student accounts cannot sign in to the Teacher Portal. Please use direct assignment links.");
+            await auth.signOut();
+            return;
+        }
+
         currentUser = result.user;
         if (result.credential && result.credential.accessToken) {
             localStorage.setItem('oauth_token', result.credential.accessToken);
@@ -1750,6 +1770,7 @@ async function login() {
     } catch (e) {
         alert("Sign-in failed: " + e.message);
     }
+}
 }
 
 async function studentLogin() {
