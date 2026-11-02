@@ -3513,19 +3513,27 @@ function openActivityMenu() {
 function applyTransformations(text, rulesText) {
     if (!text || !rulesText) return text;
     const lines = rulesText.split('\n');
-    
-    for (let line of lines) {
-        line = line.trim();
-        if (!line || !line.includes('=')) continue;
 
-        const parts = line.split('=');
-        const find = parts[0].trim();
-        const replace = parts[1] !== undefined ? parts[1].trim() : '';
+    for (let line of lines) {
+        const rawLine = line.replace(/[\r\n]/g, '');
+        if (!rawLine.trim() || !rawLine.includes('=')) continue;
+
+        const eqIdx = rawLine.indexOf('=');
+        let find = rawLine.substring(0, eqIdx);
+        let replace = rawLine.substring(eqIdx + 1);
+
+        // If formatted as "find = replace" with surrounding spaces, strip 1 formatting space from each side
+        if (find.endsWith(' ') && replace.startsWith(' ')) {
+            find = find.slice(0, -1).trim();
+            replace = replace.slice(1);
+        } else {
+            find = find.trim();
+        }
 
         if (find) {
-            const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\]/g, '\\$&');
+            const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\.]/g, '\\$&');
 
-            // 1. Handle split / discontinuous rule: word1+word3=replacement
+            // 1. Split / Discontinuous rule: word1+word3=replacement
             if (find.includes('+')) {
                 const subParts = find.split('+').map(s => s.trim());
                 if (subParts.length === 2 && subParts[0] && subParts[1]) {
@@ -3539,12 +3547,11 @@ function applyTransformations(text, rulesText) {
                     if (/^[\w\u00C0-\u024F]/.test(w3)) p3 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p3;
                     if (/[\w\u00C0-\u024F]$/.test(w3)) p3 = p3 + '(?![a-zA-Z0-9\u00C0-\u024F])';
 
-                    // Matches w1 + space(s) + middle text ($1) + space(s) + w3
                     const regex = new RegExp(`${p1}\\s+(.+?)\\s+${p3}`, 'gi');
                     text = text.replace(regex, `${replace} $1`);
                 }
             } 
-            // 2. Handle standard continuous replace / delete rule: word1 word2=replacement
+            // 2. Standard replace / delete rule
             else {
                 let pattern = escapeReg(find);
 
