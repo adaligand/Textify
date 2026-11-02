@@ -3680,7 +3680,7 @@ function isPathValid(partsMeta) {
 
 
 /* =========================================================
-   PATH ENGINE WITH TALL CELLS & BRIDGE/EMPTY COLUMN TRAVERSAL
+   STRICT HORIZONTAL ROW-LANE PATH TRAVERSAL ENGINE
    ========================================================= */
 function cleanSentenceSpacing(str) {
     if (!str) return "";
@@ -3695,20 +3695,13 @@ function getAssembledSentences() {
     let allPaths = [];
     if (!grid || grid.length === 0) return [];
 
-    let visitedRoots = new Set();
+    // Traverse each horizontal row lane starting at column 0
     for (let r = 0; r < grid.length; r++) {
-        const rootR = getRootRow(r, 0);
-        if (!visitedRoots.has(rootR)) {
-            visitedRoots.add(rootR);
-            const cell = grid[rootR][0];
-            if (cell && !isCellEmpty(cell)) {
-                let cellRowSpan = getCellRowSpan(rootR, 0, cell);
-                for (let subR = rootR; subR < rootR + cellRowSpan; subR++) {
-                    let paths = findPaths(rootR, 0, subR);
-                    paths.forEach(p => { p.originRow = subR; });
-                    allPaths = allPaths.concat(paths);
-                }
-            }
+        const cell = getCellAt(r, 0);
+        if (cell && !isCellEmpty(cell)) {
+            let paths = findPaths(r, 0);
+            paths.forEach(p => { p.originRow = r; });
+            allPaths = allPaths.concat(paths);
         }
     }
 
@@ -3779,10 +3772,15 @@ function getRootRow(row, col) {
     return row;
 }
 
+function getCellAt(row, col) {
+    const rootR = getRootRow(row, col);
+    return (grid[rootR] && grid[rootR][col]) ? grid[rootR][col] : null;
+}
+
 function isPathValid(partsMeta) {
     if (!partsMeta || partsMeta.length === 0) return true;
 
-    // Filter out bridge markers for rule verification
+    // Filter out bridge markers for rule checking
     const textParts = partsMeta.filter(p => !p.isBridge);
 
     // 1. Check Disabled Routes
@@ -3827,106 +3825,58 @@ function isPathValid(partsMeta) {
     return true;
 }
 
-function findPaths(r, c, activeRow = null) {
+function findPaths(r, c) {
     let cell = getCellAt(r, c);
     if (!cell) return [];
 
-    let currentActiveRow = (activeRow !== null) ? activeRow : r;
-
-    let cellRowSpan = getCellRowSpan(r, c, cell);
-    let cellColSpan = getCellColSpan(r, c, cell);
+    let rootR = getRootRow(r, c);
+    let cellColSpan = getCellColSpan(rootR, c, cell);
     let nextCol = c + cellColSpan;
 
+    let isCurrentBridge = isBridgeCell(cell);
     let currentOptions = (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "" && it.t.trim().toLowerCase() !== "bridge")
         .map(it => ({
             t: it.t.trim(),
             tr: it.tr ? it.tr.trim() : "",
-            parts: [{ t: it.t, tr: it.tr || "", r: r, c: c, isBridge: false }],
-            details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
+            parts: [{ t: it.t, tr: it.tr || "", r: rootR, c: c, isBridge: false }],
+            details: [{ tWord: it.t, eWord: it.tr || "", r: rootR, c: c }]
         }));
 
+    // Reached the right edge of the grid
     if (nextCol >= grid[0].length) {
+        if (isCurrentBridge || currentOptions.length === 0) {
+            return [{ t: "", tr: "", parts: [{ r: rootR, c: c, isBridge: true, t: "", tr: "" }], details: [] }].filter(p => isPathValid(p.parts));
+        }
         return currentOptions.filter(path => isPathValid(path.parts));
     }
 
-    let combinedSubPaths = [];
-    let visitedTargetRoots = new Set();
+    // Continue traversing straight across along row 'r'
+    let targetCell = getCellAt(r, nextCol);
+    if (!targetCell) return currentOptions.filter(p => isPathValid(p.parts));
 
-    let isCurrentBridge = isBridgeCell(cell);
-    let rowsToEval = [];
-
-    if (isCurrentBridge) {
-        for (let rowOffset = 0; rowOffset < cellRowSpan; rowOffset++) {
-            if (r + rowOffset < grid.length) {
-                rowsToEval.push(r + rowOffset);
-            }
-        }
-    } else {
-        rowsToEval.push(currentActiveRow);
-    }
-
-    for (let evalRow of rowsToEval) {
-        if (evalRow >= grid.length) continue;
-
-        let targetRawCell = grid[evalRow] ? grid[evalRow][nextCol] : null;
-        let targetCell = targetRawCell ? getCellAt(evalRow, nextCol) : null;
-
-        if (!targetCell) continue;
-
-        let targetRootRow = getRootRow(evalRow, nextCol);
-        let targetKey = `${targetRootRow}_${nextCol}`;
-
-        if (visitedTargetRoots.has(targetKey)) continue;
-        visitedTargetRoots.add(targetKey);
-
-        if (isBridgeCell(targetCell)) {
-            let bridgeRowSpan = getCellRowSpan(targetRootRow, nextCol, targetCell);
-            let bridgeColSpan = getCellColSpan(targetRootRow, nextCol, targetCell);
-            let targetCol = nextCol + bridgeColSpan;
-            let bridgePart = { r: targetRootRow, c: nextCol, isBridge: true, t: "", tr: "" };
-
-            if (targetCol < grid[0].length) {
-                let visitedBridgeNext = new Set();
-                // Strictly evaluate exit rows within the bridge's vertical row span
-                for (let tr = targetRootRow; tr < targetRootRow + bridgeRowSpan && tr < grid.length; tr++) {
-                    let cellAtTr = getCellAt(tr, targetCol);
-                    if (cellAtTr) {
-                        let bridgeNextRootRow = getRootRow(tr, targetCol);
-                        let bridgeKey = `${bridgeNextRootRow}_${targetCol}`;
-
-                        if (!visitedBridgeNext.has(bridgeKey)) {
-                            visitedBridgeNext.add(bridgeKey);
-                            if (!isCellEmpty(cellAtTr) || isBridgeCell(cellAtTr)) {
-                                let subPaths = findPaths(bridgeNextRootRow, targetCol, tr);
-                                subPaths.forEach(sub => {
-                                    combinedSubPaths.push({
-                                        ...sub,
-                                        parts: [bridgePart, ...sub.parts]
-                                    });
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        } else if (!isCellEmpty(targetCell)) {
-            combinedSubPaths = combinedSubPaths.concat(
-                findPaths(targetRootRow, nextCol, evalRow)
-            );
-        }
-    }
-
-    if (currentOptions.length === 0) {
-        return combinedSubPaths.filter(p => isPathValid(p.parts));
-    }
-    if (combinedSubPaths.length === 0) {
+    let subPaths = findPaths(r, nextCol);
+    if (subPaths.length === 0) {
         return currentOptions.filter(p => isPathValid(p.parts));
     }
 
+    // If current cell is a bridge or empty connector, prepend its position for hover highlighting
+    if (currentOptions.length === 0 || isCurrentBridge) {
+        let bridgePart = { r: rootR, c: c, isBridge: true, t: "", tr: "" };
+        return subPaths
+            .map(sub => ({
+                t: sub.t,
+                tr: sub.tr,
+                parts: [bridgePart, ...sub.parts],
+                details: sub.details || []
+            }))
+            .filter(p => isPathValid(p.parts));
+    }
+
+    // Combine current cell word options with sub-paths along the same row lane
     let finalPaths = [];
     currentOptions.forEach(curr => {
-        combinedSubPaths.forEach(sub => {
+        subPaths.forEach(sub => {
             const combinedParts = [...curr.parts, ...sub.parts];
             const combinedDetails = [...(curr.details || []), ...(sub.details || [])];
 
