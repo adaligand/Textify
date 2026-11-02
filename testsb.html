@@ -3689,7 +3689,6 @@ function findPaths(r, c, activeRow = null) {
 
     let currentActiveRow = (activeRow !== null) ? activeRow : r;
 
-    // Helper functions for cell span and root resolution
     const getCellRowSpan = (row, col, cObj) => {
         if (cObj && (cObj.rS || cObj.rowSpan)) return cObj.rS || cObj.rowSpan;
         let span = 1;
@@ -3725,13 +3724,11 @@ function findPaths(r, c, activeRow = null) {
     let cellColSpan = getCellColSpan(r, c, cell);
     let nextCol = c + cellColSpan;
 
-    // Helper: Check if a cell is empty
     const isCellEmpty = (cObj) => {
         if (!cObj || !cObj.items || cObj.items.length === 0) return true;
         return cObj.items.every(it => !it.t || it.t.trim() === "");
     };
 
-    // Helper: Check if cell is an explicit Bridge, compact cell, or empty cell
     const isBridgeCell = (cObj) => {
         if (!cObj) return false;
         if (cObj.compact || cObj.isBridge || cObj.type === 'bridge') return true;
@@ -3740,7 +3737,6 @@ function findPaths(r, c, activeRow = null) {
         return false;
     };
 
-    // Collect valid text choices (excluding internal 'Bridge' label text)
     let currentOptions = (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "" && it.t.trim().toLowerCase() !== "bridge")
         .map(it => ({
@@ -3750,7 +3746,6 @@ function findPaths(r, c, activeRow = null) {
             details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
         }));
 
-    // Grid boundary reached -> terminate path
     if (nextCol >= grid[0].length) {
         return currentOptions.filter(path => isPathValid(path.parts));
     }
@@ -3758,10 +3753,24 @@ function findPaths(r, c, activeRow = null) {
     let combinedSubPaths = [];
     let visitedTargetRoots = new Set();
 
-    // Iterate through all rows spanned vertically by the current cell
-    for (let rowOffset = 0; rowOffset < cellRowSpan; rowOffset++) {
-        let evalRow = r + rowOffset;
-        if (evalRow >= grid.length) break;
+    // Determine which rows to evaluate exiting from this cell:
+    // - Bridge cells allow exiting across all spanned rows
+    // - Content cells strictly preserve the currentActiveRow
+    let isCurrentBridge = isBridgeCell(cell);
+    let rowsToEval = [];
+
+    if (isCurrentBridge) {
+        for (let rowOffset = 0; rowOffset < cellRowSpan; rowOffset++) {
+            if (r + rowOffset < grid.length) {
+                rowsToEval.push(r + rowOffset);
+            }
+        }
+    } else {
+        rowsToEval.push(currentActiveRow);
+    }
+
+    for (let evalRow of rowsToEval) {
+        if (evalRow >= grid.length) continue;
 
         let targetRawCell = grid[evalRow] ? grid[evalRow][nextCol] : null;
         let targetCell = targetRawCell ? getCellAt(evalRow, nextCol) : null;
@@ -3771,19 +3780,16 @@ function findPaths(r, c, activeRow = null) {
         let targetRootRow = getRootRow(evalRow, nextCol);
         let targetKey = `${targetRootRow}_${nextCol}`;
 
-        // Prevent duplicate evaluations for target cells that span multiple rows of this cell
         if (visitedTargetRoots.has(targetKey)) continue;
         visitedTargetRoots.add(targetKey);
 
         if (isBridgeCell(targetCell)) {
-            // CASE 1: BRIDGE CELL -> Branch into all valid target rows in the column following the bridge
             let bridgeColSpan = getCellColSpan(targetRootRow, nextCol, targetCell);
             let targetCol = nextCol + bridgeColSpan;
 
             if (targetCol < grid[0].length) {
                 let visitedBridgeNext = new Set();
                 for (let tr = 0; tr < grid.length; tr++) {
-                    let nextCell = grid[tr] ? grid[tr][targetCol] : null;
                     let cellAtTr = getCellAt(tr, targetCol);
                     if (cellAtTr) {
                         let bridgeRootRow = getRootRow(tr, targetCol);
@@ -3801,14 +3807,12 @@ function findPaths(r, c, activeRow = null) {
                 }
             }
         } else if (!isCellEmpty(targetCell)) {
-            // CASE 2: STANDARD CELL -> Branch into target cell touching this row offset
             combinedSubPaths = combinedSubPaths.concat(
                 findPaths(targetRootRow, nextCol, evalRow)
             );
         }
     }
 
-    // Return combined paths or terminal choices
     if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts));
     if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts));
 
