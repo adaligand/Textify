@@ -746,7 +746,7 @@ th { background: #f1f5f9; color: #334155; }
 
 .mini-preview-cell.highlighted-route {
     background: #dbeafe !important;
-    border-color: #2563eb !important;
+    border: 1.5px solid #2563eb !important;
     font-weight: bold;
 }
 
@@ -3616,13 +3616,14 @@ function shouldExcludeSentence(text, rulesText) {
 function isPathValid(partsMeta) {
     if (!partsMeta || partsMeta.length === 0) return true;
 
-    // 1. Check Disabled Routes
-    const routeKey = partsMeta.map(p => `${p.r + 1}.${p.c + 1}`).join('+');
+    // Filter out bridge cells when checking disabled route keys
+    const contentParts = partsMeta.filter(p => !p.isBridge);
+    const routeKey = contentParts.map(p => `${p.r + 1}.${p.c + 1}`).join('+');
     if (disabledRoutes && disabledRoutes.includes(routeKey)) {
         return false;
     }
 
-    // 2. Check Excluded Combos
+    // Check Excluded Combos
     if (excludedCombos && excludedCombos.length > 0) {
         for (let combo of excludedCombos) {
             const cells = combo.cells || combo;
@@ -3642,7 +3643,7 @@ function isPathValid(partsMeta) {
         }
     }
 
-    // 3. Check Required Combos (If Cell A is present, Cell B MUST also be present)
+    // Check Required Combos
     if (requiredCombos && requiredCombos.length > 0) {
         for (let combo of requiredCombos) {
             const cellA = combo.cellA || combo.a;
@@ -3657,7 +3658,6 @@ function isPathValid(partsMeta) {
 
     return true;
 }
-
 /* =========================================================
    PATH ENGINE WITH TALL CELLS & BRIDGE/EMPTY COLUMN TRAVERSAL
    ========================================================= */
@@ -3675,7 +3675,6 @@ function findPaths(r, c, activeRow = null) {
 
     let currentActiveRow = (activeRow !== null) ? activeRow : r;
 
-    // Helper functions for cell span and root resolution
     const getCellRowSpan = (row, col, cObj) => {
         if (cObj && (cObj.rS || cObj.rowSpan)) return cObj.rS || cObj.rowSpan;
         let span = 1;
@@ -3711,13 +3710,11 @@ function findPaths(r, c, activeRow = null) {
     let cellColSpan = getCellColSpan(r, c, cell);
     let nextCol = c + cellColSpan;
 
-    // Helper: Check if a cell is empty
     const isCellEmpty = (cObj) => {
         if (!cObj || !cObj.items || cObj.items.length === 0) return true;
         return cObj.items.every(it => !it.t || it.t.trim() === "");
     };
 
-    // Helper: Check if cell is an explicit Bridge, compact cell, or empty cell
     const isBridgeCell = (cObj) => {
         if (!cObj) return false;
         if (cObj.compact || cObj.isBridge || cObj.type === 'bridge') return true;
@@ -3726,8 +3723,9 @@ function findPaths(r, c, activeRow = null) {
         return false;
     };
 
-    // Collect valid text choices (excluding internal 'Bridge' label text)
-    let currentOptions = (cell.items || [])
+    const isCurrBridge = isBridgeCell(cell);
+
+    let currentOptions = isCurrBridge ? [] : (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "" && it.t.trim().toLowerCase() !== "bridge")
         .map(it => ({
             t: it.t.trim(),
@@ -3736,7 +3734,6 @@ function findPaths(r, c, activeRow = null) {
             details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
         }));
 
-    // Grid boundary reached -> terminate path
     if (nextCol >= grid[0].length) {
         return currentOptions.filter(path => isPathValid(path.parts));
     }
@@ -3744,7 +3741,6 @@ function findPaths(r, c, activeRow = null) {
     let combinedSubPaths = [];
     let visitedTargetRoots = new Set();
 
-    // Iterate through all rows spanned vertically by the current cell
     for (let rowOffset = 0; rowOffset < cellRowSpan; rowOffset++) {
         let evalRow = r + rowOffset;
         if (evalRow >= grid.length) break;
@@ -3757,44 +3753,28 @@ function findPaths(r, c, activeRow = null) {
         let targetRootRow = getRootRow(evalRow, nextCol);
         let targetKey = `${targetRootRow}_${nextCol}`;
 
-        // Prevent duplicate evaluations for target cells that span multiple rows of this cell
         if (visitedTargetRoots.has(targetKey)) continue;
         visitedTargetRoots.add(targetKey);
 
         if (isBridgeCell(targetCell)) {
-            // CASE 1: BRIDGE CELL -> Branch into all valid target rows in the column following the bridge
-            let bridgeColSpan = getCellColSpan(targetRootRow, nextCol, targetCell);
-            let targetCol = nextCol + bridgeColSpan;
-
-            if (targetCol < grid[0].length) {
-                let visitedBridgeNext = new Set();
-                for (let tr = 0; tr < grid.length; tr++) {
-                    let nextCell = grid[tr] ? grid[tr][targetCol] : null;
-                    let cellAtTr = getCellAt(tr, targetCol);
-                    if (cellAtTr) {
-                        let bridgeRootRow = getRootRow(tr, targetCol);
-                        let bridgeKey = `${bridgeRootRow}_${targetCol}`;
-                        
-                        if (!visitedBridgeNext.has(bridgeKey)) {
-                            visitedBridgeNext.add(bridgeKey);
-                            if (!isCellEmpty(cellAtTr) || isBridgeCell(cellAtTr)) {
-                                combinedSubPaths = combinedSubPaths.concat(
-                                    findPaths(bridgeRootRow, targetCol, bridgeRootRow)
-                                );
-                            }
-                        }
-                    }
-                }
-            }
+            let subPaths = findPaths(targetRootRow, nextCol, evalRow);
+            combinedSubPaths = combinedSubPaths.concat(subPaths);
         } else if (!isCellEmpty(targetCell)) {
-            // CASE 2: STANDARD CELL -> Branch into target cell touching this row offset
             combinedSubPaths = combinedSubPaths.concat(
                 findPaths(targetRootRow, nextCol, evalRow)
             );
         }
     }
 
-    // Return combined paths or terminal choices
+    if (isCurrBridge) {
+        return combinedSubPaths.map(sp => ({
+            t: sp.t,
+            tr: sp.tr,
+            parts: [{ r: r, c: c, isBridge: true }, ...sp.parts],
+            details: sp.details || []
+        }));
+    }
+
     if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts));
     if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts));
 
@@ -3877,19 +3857,13 @@ function renderRoutesPreviewGrid() {
     const cols = grid[0].length;
     const rows = grid.length;
 
-    // Apply CSS Grid matching actual builder layout with auto-expanding rows
-    container.style.display = 'grid';
-    container.style.gridTemplateColumns = `repeat(${cols}, minmax(130px, 1fr))`;
-    container.style.gridTemplateRows = `repeat(${rows}, auto)`;
-    container.style.gap = '6px';
-
     // Helper: Check if cell has no text content
     const isCellEmpty = (cell) => {
         if (!cell || !cell.items || cell.items.length === 0) return true;
         return cell.items.every(it => !it.t || it.t.trim() === "");
     };
 
-    // Helper: Check if column is a 100% empty bridge
+    // Helper: Check if column is a 100% bridge/empty column
     const isColumnBridge = (colIdx) => {
         if (colIdx >= cols) return false;
         for (let rIdx = 0; rIdx < rows; rIdx++) {
@@ -3898,6 +3872,23 @@ function renderRoutesPreviewGrid() {
         }
         return true;
     };
+
+    // Build dynamic column tracks:
+    // Pure bridge columns shrink to minimal width (minmax(42px, max-content))
+    // Columns with text shrink to match the content in that column (minmax(max-content, 1fr))
+    const colTrackSizes = [];
+    for (let cIdx = 0; cIdx < cols; cIdx++) {
+        if (isColumnBridge(cIdx)) {
+            colTrackSizes.push('minmax(42px, max-content)');
+        } else {
+            colTrackSizes.push('minmax(max-content, 1fr)');
+        }
+    }
+
+    container.style.display = 'grid';
+    container.style.gridTemplateColumns = colTrackSizes.join(' ');
+    container.style.gridTemplateRows = `repeat(${rows}, auto)`;
+    container.style.gap = '6px';
 
     for (let r = 0; r < rows; r++) {
         for (let cIdx = 0; cIdx < cols; cIdx++) {
@@ -3909,7 +3900,6 @@ function renderRoutesPreviewGrid() {
             const emptyCell = isCellEmpty(cell);
             const fullColBridge = isColumnBridge(cIdx);
 
-            // Fetch ALL vocabulary items in this cell
             const validItems = (cell.items || []).filter(it => it.t && it.t.trim() !== "");
             
             let textContent = '';
@@ -3920,7 +3910,7 @@ function renderRoutesPreviewGrid() {
                     </div>
                 `).join('');
             } else if (emptyCell || fullColBridge) {
-                textContent = '<div style="color:#15803d; font-weight:bold; font-size:11px; text-align:center; padding:6px 0;">🌉 Bridge</div>';
+                textContent = '<div style="color:#15803d; font-weight:bold; font-size:10px; text-align:center; padding:4px 0;">🌉 Bridge</div>';
             }
 
             const cellEl = document.createElement('div');
@@ -3930,7 +3920,6 @@ function renderRoutesPreviewGrid() {
             }
             cellEl.id = `mini-cell-${r}-${cIdx}`;
             
-            // Set explicit CSS Grid spanning
             cellEl.style.gridRow = `${r + 1} / span ${rSpan}`;
             cellEl.style.gridColumn = `${cIdx + 1} / span ${cSpan}`;
 
@@ -3971,8 +3960,9 @@ function getAllRawRoutes() {
 
     const routesMap = new Map();
     allPaths.forEach(p => {
-        const key = p.parts.map(pt => `${pt.r + 1}.${pt.c + 1}`).join('+');
-        const label = p.parts.map(pt => `${pt.r + 1}.${pt.c + 1}`).join(' + ');
+        const contentParts = p.parts.filter(pt => !pt.isBridge);
+        const key = contentParts.map(pt => `${pt.r + 1}.${pt.c + 1}`).join('+');
+        const label = contentParts.map(pt => `${pt.r + 1}.${pt.c + 1}`).join(' + ');
         if (!routesMap.has(key)) {
             routesMap.set(key, { key, label, parts: p.parts, sampleText: p.t });
         }
