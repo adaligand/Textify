@@ -3448,7 +3448,7 @@ async function handleDocxImport(event) {
         try {
             const arrayBuffer = e.target.result;
             
-            // 1. Convert Word Doc to clean HTML via Mammoth
+            // 1. Convert Docx to HTML using Mammoth
             const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
             const parser = new DOMParser();
             const doc = parser.parseFromString(result.value, 'text/html');
@@ -3459,37 +3459,47 @@ async function handleDocxImport(event) {
                 return;
             }
 
-            // 2. Use file name as clean default title
             const suggestedTitle = file.name.replace(/\.docx$/i, "");
-
-            // 3. Map HTML Table DOM to 2D Grid
             const trElements = Array.from(table.querySelectorAll('tr'));
-            
-            // Exclude single-cell header rows (e.g., document title embedded in table)
-            const validRows = trElements.filter(tr => {
-                const tds = tr.querySelectorAll('td, th');
-                return tds.length > 0;
-            });
 
-            const rawGridRows = validRows.map(tr => {
+            const rawGridRows = trElements.map(tr => {
                 const tdElements = Array.from(tr.querySelectorAll('td, th'));
                 return tdElements.map(td => {
-                    const text = td.textContent.trim();
+                    // Clone TD to safely inject linebreaks before paragraph/break tags
+                    const clone = td.cloneNode(true);
+                    clone.querySelectorAll('p, div, br, tr, li').forEach(el => {
+                        el.insertAdjacentHTML('afterend', '\n');
+                    });
+
+                    const text = clone.textContent || "";
                     const vocabItems = [];
 
-                    // Parse Target (Translation) entries line by line
+                    // Process line by line
                     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+                    
                     lines.forEach(line => {
-                        const m = line.match(/^([^\(\)]+)(?:\(([^)]+)\))?/);
-                        if (m) {
-                            const t = m[1].trim();
-                            const tr = m[2] ? m[2].trim() : "";
-                            if (t || tr) vocabItems.push({ t, tr });
+                        // Match ALL "Target (Translation)" pairs in the line (e.g. "glatte (straight) wellige (wavy)")
+                        const pairRegex = /([^\(\)]+?)\s*\(([^)]*)\)/g;
+                        let match;
+                        let foundInLine = false;
+
+                        while ((match = pairRegex.exec(line)) !== null) {
+                            foundInLine = true;
+                            const t = match[1].trim();
+                            const tr = match[2] ? match[2].trim() : "";
+                            if (t || tr) {
+                                vocabItems.push({ t, tr });
+                            }
+                        }
+
+                        // If no parentheses are present on the line, take the raw line as the target
+                        if (!foundInLine && line.trim()) {
+                            vocabItems.push({ t: line.trim(), tr: "" });
                         }
                     });
 
                     return {
-                        items: vocabItems.length > 0 ? vocabItems : [{ t: text, tr: "" }],
+                        items: vocabItems.length > 0 ? vocabItems : [{ t: "", tr: "" }],
                         color: "#ffffff",
                         split: false,
                         rS: parseInt(td.getAttribute('rowspan') || '1', 10),
@@ -3529,7 +3539,7 @@ async function handleDocxImport(event) {
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Success! Word document imported cleanly.");
+            alert("Success! Document imported with all vocabulary items.");
             loadProject(docRef.id);
 
         } catch (err) {
