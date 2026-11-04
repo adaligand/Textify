@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars Bsuilder</title>
+    <title>Cedarsx Bsuilder</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -2565,6 +2565,7 @@ function sanitizeGrid() {
 function render(doSave = true) {
     sanitizeGrid();
     if (doSave) pushHistory();
+
     const container = document.getElementById('grid-container');
     container.innerHTML = '';
     const cols = grid[0].length;
@@ -2594,35 +2595,32 @@ function render(doSave = true) {
         }
     }
 
+    const escapeAttr = (str) => (str || '').replace(/"/g, '&quot;');
+
     grid.forEach((row, r) => {
         row.forEach((cell, cIdx) => {
             if (cell.hidden) return;
 
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
-            
-            // --- ISSUE 1: TOGGLE COMPACT / BRIDGE CELL ---
+
             if (cell.compact) {
                 cellDiv.classList.add('is-compact');
             }
 
+            // Toggle compact / bridge cell on double-click
             cellDiv.ondblclick = (e) => {
                 e.stopPropagation();
-                const hasText = cell.items && cell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
-                
-                // Allow toggle if cell is empty OR if it is currently collapsed
-                if (!hasText || cell.compact) {
-                    cell.compact = !cell.compact;
-                    render();
-                    saveToCloud(true);
-                }
+                cell.compact = !cell.compact;
+                render();
+                if (typeof saveToCloud === 'function') saveToCloud(true);
             };
 
-            // --- ISSUE 2 FIX: RESET BORDER & OUTLINE DEFAULT STATES ---
+            // Border & outline states
             cellDiv.style.outline = "none";
-            cellDiv.style.border = "1px solid #ccc"; 
+            cellDiv.style.border = "1px solid #ccc";
 
-            // Only render legacy pair colors if excludedPairs is explicitly used
+            // Excluded pairs handling
             const pairIndex = (typeof excludedPairs !== 'undefined' && Array.isArray(excludedPairs)) 
                 ? excludedPairs.findIndex(pair => (pair.a.r === r && pair.a.c === cIdx) || (pair.b.r === r && pair.b.c === cIdx))
                 : -1;
@@ -2644,7 +2642,7 @@ function render(doSave = true) {
 
             cellDiv.onclick = (e) => {
                 if (typeof currentMode !== 'undefined' && currentMode === 'exclude') {
-                    handleExcludeClick(r, cIdx);
+                    if (typeof handleExcludeClick === 'function') handleExcludeClick(r, cIdx);
                 }
             };
 
@@ -2652,20 +2650,25 @@ function render(doSave = true) {
             cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
             cellDiv.style.backgroundColor = cell.color || "#ffffff";
 
-            const listHTML = cell.items.map((item, i) => `
+            const items = cell.items || [];
+            const listHTML = items.map((item, i) => `
                 <div class="vocab-item">
                     <input type="text" class="target-input" placeholder="Target" 
                         data-pos="${r}-${cIdx}-${i}-t"
                         onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')" 
-                        oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
+                        oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${escapeAttr(item.t)}">
                     <div class="bracket-wrapper"><span>(</span>
                     <input type="text" class="translation-input" placeholder="Translation" 
                         data-pos="${r}-${cIdx}-${i}-tr"
                         onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 'tr')" 
-                        oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
+                        oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${escapeAttr(item.tr)}">
                     <span>)</span></div>
                 </div>
             `).join('');
+
+            const swatchHTML = (typeof allColors !== 'undefined' && Array.isArray(allColors)) 
+                ? allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('') 
+                : '';
 
             cellDiv.innerHTML = `
                 <div class="top-ui no-export">
@@ -2676,22 +2679,22 @@ function render(doSave = true) {
                 <div class="bottom-ui no-export">
                     <span class="icon-btn" onclick="toggleCellSplit(${r},${cIdx})">Ξ</span>
                     <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
-                    <div class="color-picker" id="cp-${r}-${cIdx}">
-                        ${allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}
-                    </div>
+                    <div class="color-picker" id="cp-${r}-${cIdx}">${swatchHTML}</div>
                 </div>
             `;
 
-            if (currentMode === 'add-col' && r === firstVisibleRowInCol[cIdx]) {
-                addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-                if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+            if (typeof currentMode !== 'undefined') {
+                if (currentMode === 'add-col' && r === firstVisibleRowInCol[cIdx]) {
+                    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+                }
+                if (currentMode === 'del-col' && r === firstVisibleRowInCol[cIdx]) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+                if (currentMode === 'add-row' && cIdx === firstVisibleColInRow[r]) {
+                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+                }
+                if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
             }
-            if (currentMode === 'del-col' && r === firstVisibleRowInCol[cIdx]) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-            if (currentMode === 'add-row' && cIdx === firstVisibleColInRow[r]) {
-                addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-                if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-            }
-            if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
 
             container.appendChild(cellDiv);
             cellDiv.querySelectorAll('input').forEach(syncSize);
@@ -3337,12 +3340,16 @@ function parseCellVocab(cellItems) {
         return [{ t: "", tr: "" }];
     }
 
-    // Sort items top-to-bottom (y descending), then left-to-right (x ascending)
-    cellItems.sort((a, b) => (b.y - a.y) || (a.x - b.x));
+    // Sort items with Y-line tolerance (4px threshold), then left-to-right (x ascending)
+    cellItems.sort((a, b) => {
+        if (Math.abs(b.y - a.y) <= 4) {
+            return a.x - b.x; // Same line: left to right
+        }
+        return b.y - a.y;     // Different lines: top to bottom
+    });
 
     const rawStrings = cellItems.map(i => i.str.trim()).filter(Boolean);
     
-    // Re-combine multi-line strings where parentheses were broken across PDF text items
     const mergedStrings = [];
     let buffer = "";
 
@@ -3376,7 +3383,6 @@ function parseCellVocab(cellItems) {
     mergedStrings.forEach(str => {
         if (!str) return;
 
-        // 1. Inline "Target (Translation)" pattern (e.g. "kurze (short)")
         const inlineMatches = [...str.matchAll(/([^\(\)]+)\s*\(([^)]+)\)/g)];
 
         if (inlineMatches.length > 0) {
@@ -3392,7 +3398,6 @@ function parseCellVocab(cellItems) {
                 if (remainder) pendingTarget = remainder;
             }
         } 
-        // 2. Standalone bracketed translation (e.g. "(medium-length)")
         else if (str.startsWith('(') && str.endsWith(')')) {
             const trText = str.slice(1, -1).trim();
             if (pendingTarget) {
@@ -3404,7 +3409,6 @@ function parseCellVocab(cellItems) {
                 pushPair("", trText);
             }
         }
-        // 3. Standalone Target text
         else {
             if (pendingTarget) {
                 pushPair(pendingTarget, "");
@@ -3419,7 +3423,6 @@ function parseCellVocab(cellItems) {
 
     return vocab.length > 0 ? vocab : [{ t: "", tr: "" }];
 }
-
 /* =========================================================
    ADVANCED PDF IMPORT & CELL MERGING ENGINE
    ========================================================= */
