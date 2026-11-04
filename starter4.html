@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars Builder</title>
+    <title>Cedarsc Builder</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
@@ -2522,12 +2522,14 @@ function redo() {
 }
 
 function sanitizeGrid() {
-    if (!grid || !grid.length || !grid[0].length) return;
+    if (!grid || !grid.length) return;
     const numRows = grid.length;
-    const numCols = grid[0].length;
+    // Fix: Calculate max columns across ALL rows, not just grid[0]
+    const numCols = Math.max(...grid.map(r => r.length), 1);
 
-    // 1. Reset hidden flags and clamp cell spans to grid boundaries
+    // 1. Pad missing cells and reset hidden flags
     for (let r = 0; r < numRows; r++) {
+        if (!grid[r]) grid[r] = [];
         for (let c = 0; c < numCols; c++) {
             if (!grid[r][c]) grid[r][c] = c();
             grid[r][c].hidden = false;
@@ -2538,15 +2540,11 @@ function sanitizeGrid() {
         }
     }
 
-    // 2. Hide only the cells legitimately covered by active merged root cells
+    // 2. Hide covered cells cleanly
     for (let r = 0; r < numRows; r++) {
         for (let c = 0; c < numCols; c++) {
             const cell = grid[r][c];
-            if (cell.hidden) {
-                cell.rS = 1;
-                cell.cS = 1;
-                continue;
-            }
+            if (!cell || cell.hidden) continue;
             if (cell.rS > 1 || cell.cS > 1) {
                 for (let i = r; i < r + cell.rS; i++) {
                     for (let j = c; j < c + cell.cS; j++) {
@@ -2569,17 +2567,20 @@ function render(doSave = true) {
 
     const container = document.getElementById('grid-container');
     container.innerHTML = '';
-    const cols = grid[0].length;
+    
+    if (!grid || !grid.length || !grid[0]) return;
+    
+    const cols = Math.max(...grid.map(r => r.length), 1);
     const rows = grid.length;
     container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
 
     const pairColors = ['#e74c3c', '#9b59b6', '#3498db', '#e67e22', '#2ecc71', '#f1c40f'];
 
-    // Map first visible cell for each row and column
+    // Safe visibility check preventing undefined errors
     const firstVisibleColInRow = new Array(rows).fill(-1);
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-            if (!grid[r][c].hidden) {
+            if (grid[r]?.[c] && !grid[r][c].hidden) {
                 firstVisibleColInRow[r] = c;
                 break;
             }
@@ -2589,7 +2590,7 @@ function render(doSave = true) {
     const firstVisibleRowInCol = new Array(cols).fill(-1);
     for (let c = 0; c < cols; c++) {
         for (let r = 0; r < rows; r++) {
-            if (!grid[r][c].hidden) {
+            if (grid[r]?.[c] && !grid[r][c].hidden) {
                 firstVisibleRowInCol[c] = r;
                 break;
             }
@@ -2600,26 +2601,16 @@ function render(doSave = true) {
 
     grid.forEach((row, r) => {
         row.forEach((cell, cIdx) => {
-            if (cell.hidden) return;
+            if (!cell || cell.hidden) return;
 
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
 
-            if (cell.compact) {
-                cellDiv.classList.add('is-compact');
-            }
-
-            // Toggle compact / bridge cell on double-click
-           cellDiv.ondblclick = (e) => {
-    e.stopPropagation();
-    handleCellDblClick(r, cIdx, e);
-};
-
-            // Border & outline states
+            if (cell.compact) cellDiv.classList.add('is-compact');
+            cellDiv.ondblclick = (e) => { e.stopPropagation(); handleCellDblClick(r, cIdx, e); };
             cellDiv.style.outline = "none";
             cellDiv.style.border = "1px solid #ccc";
 
-            // Excluded pairs handling
             const pairIndex = (typeof excludedPairs !== 'undefined' && Array.isArray(excludedPairs)) 
                 ? excludedPairs.findIndex(pair => (pair.a.r === r && pair.a.c === cIdx) || (pair.b.r === r && pair.b.c === cIdx))
                 : -1;
@@ -2639,7 +2630,7 @@ function render(doSave = true) {
                 cellDiv.style.zIndex = "11";
             }
 
-            cellDiv.onclick = (e) => {
+            cellDiv.onclick = () => {
                 if (typeof currentMode !== 'undefined' && currentMode === 'exclude') {
                     if (typeof handleExcludeClick === 'function') handleExcludeClick(r, cIdx);
                 }
@@ -2689,7 +2680,7 @@ function render(doSave = true) {
                 }
                 if (currentMode === 'del-col' && r === firstVisibleRowInCol[cIdx]) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
                 if (currentMode === 'add-row' && cIdx === firstVisibleColInRow[r]) {
-                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                    addIcon(cellDiv, 'top-edge', '+', () => insertRow(r));
                     if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
                 }
                 if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
@@ -3459,11 +3450,8 @@ async function handleDocxImport(event) {
             
             // 1. Convert Word Doc to clean HTML via Mammoth
             const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
-            const htmlString = result.value;
-
-            // 2. Parse HTML string using DOMParser
             const parser = new DOMParser();
-            const doc = parser.parseFromString(htmlString, 'text/html');
+            const doc = parser.parseFromString(result.value, 'text/html');
             const table = doc.querySelector('table');
 
             if (!table) {
@@ -3471,25 +3459,33 @@ async function handleDocxImport(event) {
                 return;
             }
 
-            // 3. Extract title from heading or filename
-            const heading = doc.querySelector('h1, h2, h3, p');
-            const suggestedTitle = heading ? heading.textContent.trim() : file.name.replace(/\.docx$/i, "");
+            // 2. Use file name as clean default title
+            const suggestedTitle = file.name.replace(/\.docx$/i, "");
 
-            // 4. Map HTML Table DOM to Sentence Builder Grid
+            // 3. Map HTML Table DOM to 2D Grid
             const trElements = Array.from(table.querySelectorAll('tr'));
-            const finalGridRows = trElements.map(tr => {
+            
+            // Exclude single-cell header rows (e.g., document title embedded in table)
+            const validRows = trElements.filter(tr => {
+                const tds = tr.querySelectorAll('td, th');
+                return tds.length > 0;
+            });
+
+            const rawGridRows = validRows.map(tr => {
                 const tdElements = Array.from(tr.querySelectorAll('td, th'));
                 return tdElements.map(td => {
                     const text = td.textContent.trim();
-                    
-                    // Extract target and translation bracket pairs, e.g. "Bonjour (Hello)"
                     const vocabItems = [];
-                    const matches = [...text.matchAll(/([^\(\)]+)(?:\(([^)]+)\))?/g)];
 
-                    matches.forEach(m => {
-                        const t = (m[1] || '').trim();
-                        const tr = (m[2] || '').trim();
-                        if (t || tr) vocabItems.push({ t, tr });
+                    // Parse Target (Translation) entries line by line
+                    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+                    lines.forEach(line => {
+                        const m = line.match(/^([^\(\)]+)(?:\(([^)]+)\))?/);
+                        if (m) {
+                            const t = m[1].trim();
+                            const tr = m[2] ? m[2].trim() : "";
+                            if (t || tr) vocabItems.push({ t, tr });
+                        }
                     });
 
                     return {
@@ -3504,12 +3500,15 @@ async function handleDocxImport(event) {
                 });
             });
 
-            if (finalGridRows.length === 0) {
-                alert("Could not extract rows from the table.");
-                return;
-            }
+            // Normalize row lengths across matrix
+            const maxCols = Math.max(...rawGridRows.map(r => r.length), 1);
+            const finalGridRows = rawGridRows.map(row => {
+                while (row.length < maxCols) {
+                    row.push({ items: [{ t: "", tr: "" }], color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false });
+                }
+                return row;
+            });
 
-            // 5. Confirm Title & Save to Firestore
             const finalTitle = prompt("Confirm Project Title:", suggestedTitle);
             if (!finalTitle) return;
 
