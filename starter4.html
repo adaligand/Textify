@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedars Builder</title>
+    <title>Cedarcs Builder</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
@@ -3462,7 +3462,7 @@ async function handleDocxImport(event) {
         try {
             const arrayBuffer = e.target.result;
             
-            // 1. Convert Docx to HTML using Mammoth
+            // 1. Convert Word Doc to clean HTML via Mammoth
             const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
             const parser = new DOMParser();
             const doc = parser.parseFromString(result.value, 'text/html');
@@ -3476,10 +3476,25 @@ async function handleDocxImport(event) {
             const suggestedTitle = file.name.replace(/\.docx$/i, "");
             const trElements = Array.from(table.querySelectorAll('tr'));
 
-            const rawGridRows = trElements.map(tr => {
+            // 2. Build 2D grid matrix tracking rowspans & colspans
+            const gridMatrix = [];
+
+            trElements.forEach((tr, rIdx) => {
+                if (!gridMatrix[rIdx]) gridMatrix[rIdx] = [];
+
                 const tdElements = Array.from(tr.querySelectorAll('td, th'));
-                return tdElements.map(td => {
-                    // Clone TD to safely inject linebreaks before paragraph/break tags
+                let colCursor = 0;
+
+                tdElements.forEach(td => {
+                    // Advance colCursor to skip slots occupied by rowspans from previous rows
+                    while (gridMatrix[rIdx][colCursor] !== undefined) {
+                        colCursor++;
+                    }
+
+                    const rS = parseInt(td.getAttribute('rowspan') || '1', 10);
+                    const cS = parseInt(td.getAttribute('colspan') || '1', 10);
+
+                    // Extract text preserving linebreaks
                     const clone = td.cloneNode(true);
                     clone.querySelectorAll('p, div, br, tr, li').forEach(el => {
                         el.insertAdjacentHTML('afterend', '\n');
@@ -3487,12 +3502,9 @@ async function handleDocxImport(event) {
 
                     const text = clone.textContent || "";
                     const vocabItems = [];
-
-                    // Process line by line
                     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-                    
+
                     lines.forEach(line => {
-                        // Match ALL "Target (Translation)" pairs in the line (e.g. "glatte (straight) wellige (wavy)")
                         const pairRegex = /([^\(\)]+?)\s*\(([^)]*)\)/g;
                         let match;
                         let foundInLine = false;
@@ -3501,36 +3513,54 @@ async function handleDocxImport(event) {
                             foundInLine = true;
                             const t = match[1].trim();
                             const tr = match[2] ? match[2].trim() : "";
-                            if (t || tr) {
-                                vocabItems.push({ t, tr });
-                            }
+                            if (t || tr) vocabItems.push({ t, tr });
                         }
 
-                        // If no parentheses are present on the line, take the raw line as the target
                         if (!foundInLine && line.trim()) {
                             vocabItems.push({ t: line.trim(), tr: "" });
                         }
                     });
 
-                    return {
+                    const originCell = {
                         items: vocabItems.length > 0 ? vocabItems : [{ t: "", tr: "" }],
                         color: "#ffffff",
                         split: false,
-                        rS: parseInt(td.getAttribute('rowspan') || '1', 10),
-                        cS: parseInt(td.getAttribute('colspan') || '1', 10),
+                        rS: rS,
+                        cS: cS,
                         hidden: false,
                         sel: false
                     };
+
+                    // Fill cell position and mark covered spanned positions as hidden
+                    for (let r = rIdx; r < rIdx + rS; r++) {
+                        if (!gridMatrix[r]) gridMatrix[r] = [];
+                        for (let c = colCursor; c < colCursor + cS; c++) {
+                            if (r === rIdx && c === colCursor) {
+                                gridMatrix[r][c] = originCell;
+                            } else {
+                                gridMatrix[r][c] = {
+                                    items: [{ t: "", tr: "" }],
+                                    color: "#ffffff",
+                                    split: false,
+                                    rS: 1,
+                                    cS: 1,
+                                    hidden: true,
+                                    sel: false
+                                };
+                            }
+                        }
+                    }
+
+                    colCursor += cS;
                 });
             });
 
-            // Normalize row lengths across matrix
-            const maxCols = Math.max(...rawGridRows.map(r => r.length), 1);
-            const finalGridRows = rawGridRows.map(row => {
+            // 3. Ensure all rows have equal column counts
+            const maxCols = Math.max(...gridMatrix.map(r => r.length), 1);
+            gridMatrix.forEach(row => {
                 while (row.length < maxCols) {
                     row.push({ items: [{ t: "", tr: "" }], color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false });
                 }
-                return row;
             });
 
             const finalTitle = prompt("Confirm Project Title:", suggestedTitle);
@@ -3542,7 +3572,7 @@ async function handleDocxImport(event) {
                 lang: meta.lang || "French",
                 year: meta.year || "Year 9",
                 topic: meta.topic || "Imported",
-                grid: JSON.stringify(finalGridRows),
+                grid: JSON.stringify(gridMatrix),
                 disabledRoutes: [],
                 excludedCombos: [],
                 requiredCombos: [],
@@ -3553,7 +3583,7 @@ async function handleDocxImport(event) {
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Success! Document imported with all vocabulary items.");
+            alert("Success! Document imported into accurate grid layout.");
             loadProject(docRef.id);
 
         } catch (err) {
