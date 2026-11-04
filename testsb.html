@@ -3328,12 +3328,10 @@ function hexToRgb(hex) {
     return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : null;
 }
 
-/* =========================
-   ROBUST PDF IMPORT ENGINE
-========================= */
-/* =========================
-   ROBUST PDF IMPORT ENGINE
-========================= */
+/* =========================================================
+   ROBUST VOCABULARY ITEM PARSER
+   Recombines split multi-line brackets and target/translation pairs
+   ========================================================= */
 function parseCellVocab(cellItems) {
     if (!cellItems || cellItems.length === 0) {
         return [{ t: "", tr: "" }];
@@ -3422,6 +3420,9 @@ function parseCellVocab(cellItems) {
     return vocab.length > 0 ? vocab : [{ t: "", tr: "" }];
 }
 
+/* =========================================================
+   ADVANCED PDF IMPORT & CELL MERGING ENGINE
+   ========================================================= */
 async function handlePDFImport(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -3466,7 +3467,7 @@ async function handlePDFImport(event) {
                 return;
             }
 
-            // 2. Document Title Detection
+            // 2. Filter document title & header/footer branding
             const fontSizes = items.map(i => i.fs).sort((a, b) => a - b);
             const medianFS = fontSizes[Math.floor(fontSizes.length / 2)] || 10;
             const brandingKeywords = ["sentencebuilders", "powered by", "language gym", "page 1"];
@@ -3494,7 +3495,29 @@ async function handlePDFImport(event) {
                 return;
             }
 
-            // 3. Detect Row Separators (Y-boundaries)
+            // 3. ACCURATE COLUMN DETECTION USING ITEM LEFT-EDGE CLUSTERING
+            // Sort items by starting X position and group X coordinates that start within 14px of each other
+            const sortedX = tableItems.map(i => i.x).sort((a, b) => a - b);
+            const colStarts = [];
+            sortedX.forEach(x => {
+                if (colStarts.length === 0 || (x - colStarts[colStarts.length - 1]) > 14) {
+                    colStarts.push(x);
+                } else {
+                    colStarts[colStarts.length - 1] = (colStarts[colStarts.length - 1] + x) / 2;
+                }
+            });
+
+            const minX = Math.min(...tableItems.map(i => i.x)) - 10;
+            const maxX = Math.max(...tableItems.map(i => i.x + i.w)) + 10;
+            
+            const colBounds = [minX];
+            for (let i = 0; i < colStarts.length - 1; i++) {
+                colBounds.push((colStarts[i] + colStarts[i + 1]) / 2);
+            }
+            colBounds.push(maxX);
+            const numCols = colBounds.length - 1;
+
+            // 4. ACCURATE ROW DETECTION USING SUB-ROW GUTTER BINNING
             const minY = Math.floor(Math.min(...tableItems.map(i => i.y)));
             const maxY = Math.ceil(Math.max(...tableItems.map(i => i.y + i.h)));
             const yRange = maxY - minY + 1;
@@ -3526,46 +3549,12 @@ async function handlePDFImport(event) {
             const rowBounds = [maxY + 10, ...yGutters.sort((a, b) => b - a), minY - 10];
             const numRows = rowBounds.length - 1;
 
-            // 4. Detect Column Separators (X-boundaries with buffer threshold)
-            const minX = Math.floor(Math.min(...tableItems.map(i => i.x)));
-            const maxX = Math.ceil(Math.max(...tableItems.map(i => i.x + i.w)));
-            const xRange = maxX - minX + 1;
-            const xBins = new Int32Array(xRange);
-
-            // Apply a 4px end-margin buffer to prevent adjacent column bounding-box overlap
-            tableItems.forEach(i => {
-                const x1 = Math.max(0, Math.floor(i.x - minX));
-                const effectiveW = Math.max(1, i.w - 4);
-                const x2 = Math.min(xRange - 1, Math.ceil(i.x + effectiveW - minX));
-                for (let x = x1; x <= x2; x++) xBins[x]++;
-            });
-
-            const xGutters = [];
-            let inXGutter = false;
-            let xGutterStart = 0;
-            const lowDensityThreshold = Math.max(0, Math.floor(tableItems.length * 0.005));
-
-            for (let x = 0; x < xRange; x++) {
-                if (xBins[x] <= lowDensityThreshold) {
-                    if (!inXGutter) { inXGutter = true; xGutterStart = x; }
-                } else {
-                    if (inXGutter) {
-                        inXGutter = false;
-                        if (x - xGutterStart >= 2) {
-                            xGutters.push(minX + (xGutterStart + x) / 2);
-                        }
-                    }
-                }
-            }
-
-            const colBounds = [minX - 10, ...xGutters.sort((a, b) => a - b), maxX + 10];
-            const numCols = colBounds.length - 1;
-
-            // 5. Partition Items into Grid Cells [row][col]
+            // 5. INITIALIZE GRID CELL BUCKETS
             const gridCellBuckets = Array.from({ length: numRows }, () =>
                 Array.from({ length: numCols }, () => [])
             );
 
+            // Assign each text item to its matching [row][col] grid cell
             tableItems.forEach(item => {
                 let rIdx = 0;
                 for (let r = 0; r < numRows; r++) {
@@ -3586,21 +3575,80 @@ async function handlePDFImport(event) {
                 gridCellBuckets[rIdx][cIdx].push(item);
             });
 
-            // 6. Build Final Grid Array
-            const finalGridRows = gridCellBuckets.map(row => {
-                return row.map(cellItems => {
-                    const parsedVocab = parseCellVocab(cellItems);
-                    return {
-                        items: parsedVocab,
-                        color: "#ffffff",
-                        split: false,
-                        rS: 1,
-                        cS: 1,
-                        hidden: false,
-                        sel: false
-                    };
-                });
-            });
+            // 6. BUILD FINAL GRID WITH AUTOMATIC CELL SPAN (rS / cS) DETECTION & MERGING
+            const finalGridRows = Array.from({ length: numRows }, () =>
+                Array.from({ length: numCols }, () => ({
+                    items: [{ t: "", tr: "" }],
+                    color: "#ffffff",
+                    split: false,
+                    rS: 1,
+                    cS: 1,
+                    hidden: false,
+                    sel: false
+                }))
+            );
+
+            // Populate vocabulary and detect multi-row/multi-col bounding boxes
+            for (let r = 0; r < numRows; r++) {
+                for (let c = 0; c < numCols; c++) {
+                    const cellItems = gridCellBuckets[r][c];
+                    if (cellItems.length > 0) {
+                        finalGridRows[r][c].items = parseCellVocab(cellItems);
+                    }
+                }
+            }
+
+            // Detect and merge empty cells that belong to tall vertical blocks or wide horizontal blocks
+            for (let c = 0; c < numCols; c++) {
+                let r = 0;
+                while (r < numRows) {
+                    const rootCell = finalGridRows[r][c];
+                    const hasRootText = rootCell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
+
+                    if (hasRootText && !rootCell.hidden) {
+                        // Check how many consecutive empty rows below this cell can be merged
+                        let rSpan = 1;
+                        for (let rNext = r + 1; rNext < numRows; rNext++) {
+                            const nextCell = finalGridRows[rNext][c];
+                            const hasNextText = nextCell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
+                            if (!hasNextText && !nextCell.hidden) {
+                                rSpan++;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        // Check horizontal column span (cS) for wide merged headers/footers
+                        let cSpan = 1;
+                        for (let cNext = c + 1; cNext < numCols; cNext++) {
+                            const nextColCell = finalGridRows[r][cNext];
+                            const hasNextColText = nextColCell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
+                            if (!hasNextColText && !nextColCell.hidden) {
+                                cSpan++;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        // Apply spans and hide sub-cells
+                        rootCell.rS = rSpan;
+                        rootCell.cS = cSpan;
+
+                        for (let i = r; i < r + rSpan; i++) {
+                            for (let j = c; j < c + cSpan; j++) {
+                                if (i === r && j === c) continue;
+                                finalGridRows[i][j].hidden = true;
+                                finalGridRows[i][j].rS = 1;
+                                finalGridRows[i][j].cS = 1;
+                            }
+                        }
+
+                        r += rSpan;
+                    } else {
+                        r++;
+                    }
+                }
+            }
 
             // 7. Load Project into Editor
             const finalTitle = prompt("Confirm Project Title:", suggestedTitle);
@@ -3623,7 +3671,7 @@ async function handlePDFImport(event) {
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Success! PDF imported into builder grid.");
+            alert("Success! PDF imported into builder grid with merged cells.");
             loadProject(docRef.id);
 
         } catch (err) {
