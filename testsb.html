@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedards Builder</title>
+    <title>Cedars Builder</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -3424,7 +3424,7 @@ function parseCellVocab(cellItems) {
     return vocab.length > 0 ? vocab : [{ t: "", tr: "" }];
 }
 /* =========================================================
-   UNIVERSAL VECTOR & GRID BOUNDS PDF IMPORT ENGINE
+   ROBUST VECTOR & BOUNDING-BOX PDF IMPORT ENGINE
    ========================================================= */
 async function handlePDFImport(event) {
     const file = event.target.files[0];
@@ -3446,7 +3446,7 @@ async function handlePDFImport(event) {
 
             const textContent = await page.getTextContent();
             
-            // 1. Extract text items with coordinates & dimensions
+            // 1. Extract text items with coordinates
             let rawItems = textContent.items.map(item => {
                 const fs = Math.abs(item.transform[0]) || Math.abs(item.transform[3]) || 10;
                 const w = item.width || (item.str.trim().length * fs * 0.55);
@@ -3498,79 +3498,88 @@ async function handlePDFImport(event) {
                 return;
             }
 
-            // 3. Extract Vector Path Boundaries (Rectangles AND Line Segments)
+            // 3. Extract Vector Path Rectangles (Cell Boundaries)
             const opList = await page.getOperatorList();
-            const xLines = [];
-            const yLines = [];
-
-            const minTableX = Math.min(...tableItems.map(i => i.x)) - 5;
-            const maxTableX = Math.max(...tableItems.map(i => i.x + i.w)) + 5;
-            const minTableY = Math.min(...tableItems.map(i => i.y)) - 5;
-            const maxTableY = Math.max(...tableItems.map(i => i.y + i.h)) + 5;
-
+            const rects = [];
+            
             for (let i = 0; i < opList.fnArray.length; i++) {
                 const fn = opList.fnArray[i];
                 const args = opList.argsArray[i];
 
+                // PDF.js operator 9 (constructPath) or rect drawing ops
                 if (fn === pdfjsLib.OPS.constructPath) {
                     const ops = args[0];
                     const coords = args[1];
                     let cIdx = 0;
-                    let lastPt = null;
-
                     for (let op of ops) {
                         if (op === pdfjsLib.OPS.rectangle) {
-                            const rx = coords[cIdx], ry = coords[cIdx + 1], rw = coords[cIdx + 2], rh = coords[cIdx + 3];
+                            const rx = coords[cIdx];
+                            const ry = coords[cIdx + 1];
+                            const rw = coords[cIdx + 2];
+                            const rh = coords[cIdx + 3];
                             cIdx += 4;
-                            if (Math.abs(rw) > 15 && Math.abs(rh) > 10 && Math.abs(rw) < (maxTableX - minTableX) * 0.98) {
-                                xLines.push(Math.min(rx, rx + rw), Math.max(rx, rx + rw));
-                                yLines.push(Math.min(ry, ry + rh), Math.max(ry, ry + rh));
+                            if (Math.abs(rw) > 15 && Math.abs(rh) > 10) {
+                                rects.push({
+                                    x: Math.min(rx, rx + rw),
+                                    y: Math.min(ry, ry + rh),
+                                    w: Math.abs(rw),
+                                    h: Math.abs(rh),
+                                    x2: Math.max(rx, rx + rw),
+                                    y2: Math.max(ry, ry + rh)
+                                });
                             }
-                        } else if (op === pdfjsLib.OPS.moveTo) {
-                            lastPt = { x: coords[cIdx], y: coords[cIdx + 1] };
-                            cIdx += 2;
-                        } else if (op === pdfjsLib.OPS.lineTo) {
-                            const curPt = { x: coords[cIdx], y: coords[cIdx + 1] };
-                            cIdx += 2;
-                            if (lastPt) {
-                                // Vertical line segment
-                                if (Math.abs(lastPt.x - curPt.x) < 2 && Math.abs(lastPt.y - curPt.y) > 15) {
-                                    if (lastPt.x >= minTableX && lastPt.x <= maxTableX) xLines.push(lastPt.x);
-                                }
-                                // Horizontal line segment
-                                if (Math.abs(lastPt.y - curPt.y) < 2 && Math.abs(lastPt.x - curPt.x) > 20) {
-                                    if (lastPt.y >= minTableY && lastPt.y <= maxTableY) yLines.push(lastPt.y);
-                                }
-                            }
-                            lastPt = curPt;
-                        } else if (op === pdfjsLib.OPS.curveTo) {
-                            cIdx += 6;
-                        }
+                        } else if (op === pdfjsLib.OPS.moveTo) cIdx += 2;
+                        else if (op === pdfjsLib.OPS.lineTo) cIdx += 2;
+                        else if (op === pdfjsLib.OPS.curveTo) cIdx += 6;
                     }
                 }
             }
 
-            const clusterPoints = (pts, tol = 6) => {
-                pts.sort((a, b) => a - b);
-                const clusters = [];
-                pts.forEach(p => {
-                    if (clusters.length === 0 || p - clusters[clusters.length - 1].val > tol) {
-                        clusters.push({ sum: p, count: 1, val: p });
-                    } else {
-                        const last = clusters[clusters.length - 1];
-                        last.sum += p;
-                        last.count++;
-                        last.val = last.sum / last.count;
-                    }
+            let numRows, numCols, rowBounds, colBounds;
+            let cellBoxes = [];
+
+            // 4A. GRID RECONSTRUCTION VIA VECTOR PATH RECTANGLES
+            if (rects.length >= 4) {
+                // Filter table border container if present
+                const minTableX = Math.min(...tableItems.map(i => i.x));
+                const maxTableX = Math.max(...tableItems.map(i => i.x + i.w));
+                const validRects = rects.filter(r => r.w < (maxTableX - minTableX) * 0.98);
+
+                // Cluster X (columns) and Y (rows) from vector rectangles
+                const xCoords = [];
+                const yCoords = [];
+
+                validRects.forEach(r => {
+                    xCoords.push(r.x, r.x2);
+                    yCoords.push(r.y, r.y2);
                 });
-                return clusters.map(c => c.val);
-            };
 
-            let colBounds = clusterPoints(xLines, 8);
-            let rowBounds = clusterPoints(yLines, 8).sort((a, b) => b - a);
+                const clusterPoints = (pts, tol = 5) => {
+                    pts.sort((a, b) => a - b);
+                    const clusters = [];
+                    pts.forEach(p => {
+                        if (clusters.length === 0 || p - clusters[clusters.length - 1].val > tol) {
+                            clusters.push({ sum: p, count: 1, val: p });
+                        } else {
+                            const last = clusters[clusters.length - 1];
+                            last.sum += p;
+                            last.count++;
+                            last.val = last.sum / last.count;
+                        }
+                    });
+                    return clusters.map(c => c.val);
+                };
 
-            // 4. FALLBACK GRID BOUNDS (Spatial line clustering if vector paths missing)
-            if (colBounds.length < 2) {
+                colBounds = clusterPoints(xCoords, 6);
+                rowBounds = clusterPoints(yCoords, 6).sort((a, b) => b - a); // Top to bottom (Y descending)
+
+                numCols = colBounds.length - 1;
+                numRows = rowBounds.length - 1;
+            }
+
+            // 4B. FALLBACK GRID RECONSTRUCTION (If no vector paths exist)
+            if (!numCols || !numRows || numCols < 1 || numRows < 1) {
+                // Determine columns by clustering left edge of text
                 const sortedX = tableItems.map(i => i.x).sort((a, b) => a - b);
                 const colStarts = [];
                 let currentCluster = [];
@@ -3583,21 +3592,24 @@ async function handlePDFImport(event) {
                         currentCluster = [x];
                     }
                 });
-                if (currentCluster.length > 0) colStarts.push(currentCluster.reduce((a, b) => a + b, 0) / currentCluster.length);
+                if (currentCluster.length > 0) {
+                    colStarts.push(currentCluster.reduce((a, b) => a + b, 0) / currentCluster.length);
+                }
 
-                colBounds = [minTableX];
+                const minX = Math.min(...tableItems.map(i => i.x)) - 10;
+                const maxX = Math.max(...tableItems.map(i => i.x + i.w)) + 10;
+                colBounds = [minX];
                 for (let i = 0; i < colStarts.length - 1; i++) colBounds.push((colStarts[i] + colStarts[i + 1]) / 2);
-                colBounds.push(maxTableX);
-            }
+                colBounds.push(maxX);
+                numCols = colBounds.length - 1;
 
-            if (rowBounds.length < 2) {
-                // Group by left-most text anchor Y midpoints with a 38pt cell-height threshold
+                // Determine rows by grouping lines of text with cell-height thresholds (prevents intra-cell splitting)
                 const yMids = tableItems.map(i => i.yMid).sort((a, b) => b - a);
                 const rowStarts = [];
                 let yCluster = [];
 
                 yMids.forEach(y => {
-                    if (yCluster.length === 0 || yCluster[0] - y <= 38) { // Prevents splitting stacked lines inside a cell
+                    if (yCluster.length === 0 || yCluster[0] - y <= 28) { // 28pt threshold keeps text inside 1 cell together
                         yCluster.push(y);
                     } else {
                         rowStarts.push(yCluster.reduce((a, b) => a + b, 0) / yCluster.length);
@@ -3606,15 +3618,15 @@ async function handlePDFImport(event) {
                 });
                 if (yCluster.length > 0) rowStarts.push(yCluster.reduce((a, b) => a + b, 0) / yCluster.length);
 
-                rowBounds = [maxTableY];
+                const minY = Math.min(...tableItems.map(i => i.y)) - 10;
+                const maxY = Math.max(...tableItems.map(i => i.y + i.h)) + 10;
+                rowBounds = [maxY];
                 for (let i = 0; i < rowStarts.length - 1; i++) rowBounds.push((rowStarts[i] + rowStarts[i + 1]) / 2);
-                rowBounds.push(minTableY);
+                rowBounds.push(minY);
+                numRows = rowBounds.length - 1;
             }
 
-            const numCols = colBounds.length - 1;
-            const numRows = rowBounds.length - 1;
-
-            // 5. MAP TEXT ITEMS INTO CELL BUCKETS
+            // 5. MAP TEXT ITEMS INTO GRID MATRIX
             const gridCellBuckets = Array.from({ length: numRows }, () =>
                 Array.from({ length: numCols }, () => [])
             );
@@ -3639,8 +3651,8 @@ async function handlePDFImport(event) {
                 gridCellBuckets[rIdx][cIdx].push(item);
             });
 
-            // 6. CONSTRUCT GRID MATRIX & DETECT SPANS
-            let finalGridRows = Array.from({ length: numRows }, () =>
+            // 6. BUILD GRID MATRIX AND CALCULATE TRUE CELL SPANS (rS / cS)
+            const finalGridRows = Array.from({ length: numRows }, () =>
                 Array.from({ length: numCols }, () => ({
                     items: [{ t: "", tr: "" }],
                     color: "#ffffff",
@@ -3652,6 +3664,7 @@ async function handlePDFImport(event) {
                 }))
             );
 
+            // Populate vocabulary for non-empty cells
             for (let r = 0; r < numRows; r++) {
                 for (let c = 0; c < numCols; c++) {
                     const cellItems = gridCellBuckets[r][c];
@@ -3661,14 +3674,16 @@ async function handlePDFImport(event) {
                 }
             }
 
-            // Detect horizontal/vertical cell spans
+            // Detect vector rectangle cell spans (spans across rowBounds/colBounds)
             for (let r = 0; r < numRows; r++) {
                 for (let c = 0; c < numCols; c++) {
                     const cell = finalGridRows[r][c];
                     if (cell.hidden) continue;
 
+                    // Check if cell is empty and covered by a neighbouring merged root cell
                     const hasText = cell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
 
+                    // Horizontal span detection
                     if (hasText) {
                         let cSpan = 1;
                         for (let cNext = c + 1; cNext < numCols; cNext++) {
@@ -3682,6 +3697,7 @@ async function handlePDFImport(event) {
                         }
                         cell.cS = cSpan;
 
+                        // Vertical span detection
                         let rSpan = 1;
                         for (let rNext = r + 1; rNext < numRows; rNext++) {
                             let canMergeRow = true;
@@ -3693,11 +3709,15 @@ async function handlePDFImport(event) {
                                     break;
                                 }
                             }
-                            if (canMergeRow) rSpan++;
-                            else break;
+                            if (canMergeRow) {
+                                rSpan++;
+                            } else {
+                                break;
+                            }
                         }
                         cell.rS = rSpan;
 
+                        // Hide covered sub-cells
                         for (let i = r; i < r + rSpan; i++) {
                             for (let j = c; j < c + cSpan; j++) {
                                 if (i === r && j === c) continue;
@@ -3710,19 +3730,14 @@ async function handlePDFImport(event) {
                 }
             }
 
-            // 7. PRUNE UNNECESSARY EMPTY TOP/BOTTOM ROWS
-            finalGridRows = finalGridRows.filter(row => 
-                row.some(cell => cell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim())))
-            );
-
-            // 8. Load into Builder Editor
+            // 7. Load into Builder Editor
             const finalTitle = prompt("Confirm Project Title:", suggestedTitle);
             if (!finalTitle) return;
 
             const newDoc = {
                 uid: currentUser.uid,
                 title: finalTitle,
-                lang: meta.lang || "French",
+                lang: meta.lang || "German",
                 year: meta.year || "Year 9",
                 topic: meta.topic || "Imported",
                 grid: JSON.stringify(finalGridRows),
