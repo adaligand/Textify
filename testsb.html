@@ -3342,6 +3342,28 @@ function parseCellVocab(cellItems) {
     // Sort items top-to-bottom (y descending), then left-to-right (x ascending)
     cellItems.sort((a, b) => (b.y - a.y) || (a.x - b.x));
 
+    const rawStrings = cellItems.map(i => i.str.trim()).filter(Boolean);
+    
+    // Re-combine multi-line strings where parentheses were broken across PDF text items
+    const mergedStrings = [];
+    let buffer = "";
+
+    rawStrings.forEach(str => {
+        if (!buffer) {
+            buffer = str;
+        } else {
+            const openCount = (buffer.match(/\(/g) || []).length;
+            const closeCount = (buffer.match(/\)/g) || []).length;
+            if (openCount > closeCount) {
+                buffer += " " + str;
+            } else {
+                mergedStrings.push(buffer);
+                buffer = str;
+            }
+        }
+    });
+    if (buffer) mergedStrings.push(buffer);
+
     const vocab = [];
     let pendingTarget = "";
 
@@ -3353,11 +3375,10 @@ function parseCellVocab(cellItems) {
         }
     };
 
-    cellItems.forEach(item => {
-        let str = item.str.trim();
+    mergedStrings.forEach(str => {
         if (!str) return;
 
-        // Match all inline "Target (Translation)" patterns (e.g. "kurze (short) lange (long)")
+        // 1. Inline "Target (Translation)" pattern (e.g. "kurze (short)")
         const inlineMatches = [...str.matchAll(/([^\(\)]+)\s*\(([^)]+)\)/g)];
 
         if (inlineMatches.length > 0) {
@@ -3373,7 +3394,7 @@ function parseCellVocab(cellItems) {
                 if (remainder) pendingTarget = remainder;
             }
         } 
-        // Handle bracketed standalone translation, e.g. "(short)"
+        // 2. Standalone bracketed translation (e.g. "(medium-length)")
         else if (str.startsWith('(') && str.endsWith(')')) {
             const trText = str.slice(1, -1).trim();
             if (pendingTarget) {
@@ -3385,7 +3406,7 @@ function parseCellVocab(cellItems) {
                 pushPair("", trText);
             }
         }
-        // Plain Target text
+        // 3. Standalone Target text
         else {
             if (pendingTarget) {
                 pushPair(pendingTarget, "");
@@ -3405,7 +3426,6 @@ async function handlePDFImport(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Reset input value so re-importing triggers change event
     event.target.value = '';
 
     const reader = new FileReader();
@@ -3418,7 +3438,6 @@ async function handlePDFImport(event) {
             const pdf = await pdfjsLib.getDocument(typedarray).promise;
             const page = await pdf.getPage(1);
             const viewport = page.getViewport({ scale: 1.0 });
-            const pageWidth = viewport.width;
             const pageHeight = viewport.height;
 
             const textContent = await page.getTextContent();
@@ -3447,7 +3466,7 @@ async function handlePDFImport(event) {
                 return;
             }
 
-            // 2. Identify Document Title & Branding
+            // 2. Document Title Detection
             const fontSizes = items.map(i => i.fs).sort((a, b) => a - b);
             const medianFS = fontSizes[Math.floor(fontSizes.length / 2)] || 10;
             const brandingKeywords = ["sentencebuilders", "powered by", "language gym", "page 1"];
@@ -3475,7 +3494,7 @@ async function handlePDFImport(event) {
                 return;
             }
 
-            // 3. Detect Main Row Separators (Y-boundaries)
+            // 3. Detect Row Separators (Y-boundaries)
             const minY = Math.floor(Math.min(...tableItems.map(i => i.y)));
             const maxY = Math.ceil(Math.max(...tableItems.map(i => i.y + i.h)));
             const yRange = maxY - minY + 1;
@@ -3497,7 +3516,7 @@ async function handlePDFImport(event) {
                 } else {
                     if (inYGutter) {
                         inYGutter = false;
-                        if (y - yGutterStart >= 4) {
+                        if (y - yGutterStart >= 3) {
                             yGutters.push(minY + (yGutterStart + y) / 2);
                         }
                     }
@@ -3507,29 +3526,32 @@ async function handlePDFImport(event) {
             const rowBounds = [maxY + 10, ...yGutters.sort((a, b) => b - a), minY - 10];
             const numRows = rowBounds.length - 1;
 
-            // 4. Detect Main Column Separators (X-boundaries)
+            // 4. Detect Column Separators (X-boundaries with buffer threshold)
             const minX = Math.floor(Math.min(...tableItems.map(i => i.x)));
             const maxX = Math.ceil(Math.max(...tableItems.map(i => i.x + i.w)));
             const xRange = maxX - minX + 1;
             const xBins = new Int32Array(xRange);
 
+            // Apply a 4px end-margin buffer to prevent adjacent column bounding-box overlap
             tableItems.forEach(i => {
                 const x1 = Math.max(0, Math.floor(i.x - minX));
-                const x2 = Math.min(xRange - 1, Math.ceil(i.x + i.w - minX));
+                const effectiveW = Math.max(1, i.w - 4);
+                const x2 = Math.min(xRange - 1, Math.ceil(i.x + effectiveW - minX));
                 for (let x = x1; x <= x2; x++) xBins[x]++;
             });
 
             const xGutters = [];
             let inXGutter = false;
             let xGutterStart = 0;
+            const lowDensityThreshold = Math.max(0, Math.floor(tableItems.length * 0.005));
 
             for (let x = 0; x < xRange; x++) {
-                if (xBins[x] === 0) {
+                if (xBins[x] <= lowDensityThreshold) {
                     if (!inXGutter) { inXGutter = true; xGutterStart = x; }
                 } else {
                     if (inXGutter) {
                         inXGutter = false;
-                        if (x - xGutterStart >= 3) {
+                        if (x - xGutterStart >= 2) {
                             xGutters.push(minX + (xGutterStart + x) / 2);
                         }
                     }
@@ -3539,7 +3561,7 @@ async function handlePDFImport(event) {
             const colBounds = [minX - 10, ...xGutters.sort((a, b) => a - b), maxX + 10];
             const numCols = colBounds.length - 1;
 
-            // 5. Partition Items into Grid Cells [r][c]
+            // 5. Partition Items into Grid Cells [row][col]
             const gridCellBuckets = Array.from({ length: numRows }, () =>
                 Array.from({ length: numCols }, () => [])
             );
@@ -3564,7 +3586,7 @@ async function handlePDFImport(event) {
                 gridCellBuckets[rIdx][cIdx].push(item);
             });
 
-            // 6. Build Final Grid Array for Editor
+            // 6. Build Final Grid Array
             const finalGridRows = gridCellBuckets.map(row => {
                 return row.map(cellItems => {
                     const parsedVocab = parseCellVocab(cellItems);
@@ -3580,14 +3602,14 @@ async function handlePDFImport(event) {
                 });
             });
 
-            // 7. Prompt for Title and Load Project into Editor
+            // 7. Load Project into Editor
             const finalTitle = prompt("Confirm Project Title:", suggestedTitle);
             if (!finalTitle) return;
 
             const newDoc = {
                 uid: currentUser.uid,
                 title: finalTitle,
-                lang: meta.lang || "French",
+                lang: meta.lang || "German",
                 year: meta.year || "Year 9",
                 topic: meta.topic || "Imported",
                 grid: JSON.stringify(finalGridRows),
