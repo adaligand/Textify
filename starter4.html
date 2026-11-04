@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cedarsc Builder</title>
+    <title>Cedars Builder</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
@@ -2524,35 +2524,46 @@ function redo() {
 function sanitizeGrid() {
     if (!grid || !grid.length) return;
     const numRows = grid.length;
-    // Fix: Calculate max columns across ALL rows, not just grid[0]
     const numCols = Math.max(...grid.map(r => r.length), 1);
 
-    // 1. Pad missing cells and reset hidden flags
+    // 1. Pad missing cells in any row so all rows have equal lengths
     for (let r = 0; r < numRows; r++) {
         if (!grid[r]) grid[r] = [];
-        for (let c = 0; c < numCols; c++) {
-            if (!grid[r][c]) grid[r][c] = c();
-            grid[r][c].hidden = false;
-            if (!grid[r][c].rS || grid[r][c].rS < 1) grid[r][c].rS = 1;
-            if (!grid[r][c].cS || grid[r][c].cS < 1) grid[r][c].cS = 1;
-            if (r + grid[r][c].rS > numRows) grid[r][c].rS = numRows - r;
-            if (c + grid[r][c].cS > numCols) grid[r][c].cS = numCols - c;
+        while (grid[r].length < numCols) {
+            grid[r].push({ items: [{ t: "", tr: "" }], color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false });
         }
     }
 
-    // 2. Hide covered cells cleanly
+    // 2. Track actual coverage to fix orphaned hidden cells
+    const covered = Array.from({ length: numRows }, () => new Array(numCols).fill(false));
+
     for (let r = 0; r < numRows; r++) {
         for (let c = 0; c < numCols; c++) {
             const cell = grid[r][c];
-            if (!cell || cell.hidden) continue;
-            if (cell.rS > 1 || cell.cS > 1) {
-                for (let i = r; i < r + cell.rS; i++) {
-                    for (let j = c; j < c + cell.cS; j++) {
-                        if (i === r && j === c) continue;
-                        if (grid[i] && grid[i][j]) {
-                            grid[i][j].hidden = true;
-                            grid[i][j].rS = 1;
-                            grid[i][j].cS = 1;
+            
+            // Normalize span values
+            if (!cell.rS || cell.rS < 1) cell.rS = 1;
+            if (!cell.cS || cell.cS < 1) cell.cS = 1;
+            if (r + cell.rS > numRows) cell.rS = numRows - r;
+            if (c + cell.cS > numCols) cell.cS = numCols - c;
+
+            if (covered[r][c]) {
+                // Cell is genuinely covered by a parent span
+                cell.hidden = true;
+                cell.rS = 1;
+                cell.cS = 1;
+            } else {
+                // Cell is NOT covered by anything above/left -> MUST BE VISIBLE
+                cell.hidden = false;
+
+                // Mark downstream cells covered by this cell's span
+                if (cell.rS > 1 || cell.cS > 1) {
+                    for (let i = r; i < r + cell.rS; i++) {
+                        for (let j = c; j < c + cell.cS; j++) {
+                            if (i === r && j === c) continue;
+                            if (i < numRows && j < numCols) {
+                                covered[i][j] = true;
+                            }
                         }
                     }
                 }
@@ -2587,15 +2598,18 @@ function render(doSave = true) {
         }
     }
 
-    const firstVisibleRowInCol = new Array(cols).fill(-1);
-    for (let c = 0; c < cols; c++) {
-        for (let r = 0; r < rows; r++) {
-            if (grid[r]?.[c] && !grid[r][c].hidden) {
-                firstVisibleRowInCol[c] = r;
-                break;
-            }
+// Inside render():
+const firstVisibleRowInCol = new Array(cols).fill(-1);
+for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+        if (grid[r]?.[c] && !grid[r][c].hidden) {
+            firstVisibleRowInCol[c] = r;
+            break;
         }
     }
+    // Fallback: if no visible cell in col, force index 0 so delete button renders
+    if (firstVisibleRowInCol[c] === -1) firstVisibleRowInCol[c] = 0;
+}
 
     const escapeAttr = (str) => (str || '').replace(/"/g, '&quot;');
 
@@ -7400,8 +7414,76 @@ function playClassDisplayGrid(allSentences) {
 function toggleMode(mode) { currentMode = (currentMode === mode) ? null : mode; render(false); }
 function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); saveToCloud(true); }
 function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); saveToCloud(true); }
-function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); saveToCloud(true); } }
-function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); saveToCloud(true); } }
+function deleteCol(cIdx) {
+    if (!grid || !grid.length) return;
+    const cols = Math.max(...grid.map(r => r.length), 1);
+    if (cols <= 1) {
+        alert("Cannot delete the last remaining column.");
+        return;
+    }
+
+    // Safely unmerge all spans before splicing columns to prevent matrix corruption
+    grid.forEach(row => {
+        row.forEach(cell => {
+            if (cell) {
+                cell.rS = 1;
+                cell.cS = 1;
+                cell.hidden = false;
+            }
+        });
+    });
+
+    // Remove column from every row
+    grid.forEach(row => {
+        if (cIdx < row.length) {
+            row.splice(cIdx, 1);
+        }
+    });
+
+    render(true);
+}
+
+function deleteRow(rIdx) {
+    if (!grid || grid.length <= 1) {
+        alert("Cannot delete the last remaining row.");
+        return;
+    }
+
+    // Safely unmerge all spans before splicing rows
+    grid.forEach(row => {
+        row.forEach(cell => {
+            if (cell) {
+                cell.rS = 1;
+                cell.cS = 1;
+                cell.hidden = false;
+            }
+        });
+    });
+
+    grid.splice(rIdx, 1);
+    render(true);
+}
+
+function splitCell(r, c) {
+    if (!grid[r] || !grid[r][c]) return;
+    const cell = grid[r][c];
+
+    const rS = cell.rS || 1;
+    const cS = cell.cS || 1;
+
+    // Reset spans for all cells inside this area
+    for (let i = r; i < r + rS; i++) {
+        for (let j = c; j < c + cS; j++) {
+            if (grid[i] && grid[i][j]) {
+                grid[i][j].hidden = false;
+                grid[i][j].rS = 1;
+                grid[i][j].cS = 1;
+            }
+        }
+    }
+
+    render(true);
+}
 
 setInterval(() => {
     const isEditor = document.getElementById('editor-page').classList.contains('active-page');
