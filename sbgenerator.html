@@ -5,6 +5,7 @@
     <title>Cedars Builder</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
@@ -883,8 +884,8 @@ th { background: #f1f5f9; color: #334155; }
         <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
             <button onclick="showPage('submissions-page'); loadTeacherSubmissions();" class="btn-info">📊 Submissions</button>
             <button onclick="toggleBinView()" class="btn-outline">🗑️ Bin</button>
-            <input type="file" id="pdf-import-input" accept="application/pdf" style="display:none;" onchange="handlePDFImport(event)">
-            <button onclick="document.getElementById('pdf-import-input').click()" class="btn-info">📥 Import PDF</button>
+            <input type="file" id="docx-import-input" accept=".docx" style="display:none;" onchange="handleDocxImport(event)">
+<button onclick="document.getElementById('docx-import-input').click()" class="btn-info">📥 Import (.docx)</button>
             <button onclick="createNewProject()" class="btn-purple">🛠️ Create</button>
             <button onclick="logout()" class="btn-outline">🔓 Sign Out</button>
         </div>
@@ -2521,39 +2522,48 @@ function redo() {
 }
 
 function sanitizeGrid() {
-    if (!grid || !grid.length || !grid[0].length) return;
+    if (!grid || !grid.length) return;
     const numRows = grid.length;
-    const numCols = grid[0].length;
+    const numCols = Math.max(...grid.map(r => r.length), 1);
 
-    // 1. Reset hidden flags and clamp cell spans to grid boundaries
+    // 1. Pad missing cells in any row so all rows have equal lengths
     for (let r = 0; r < numRows; r++) {
-        for (let c = 0; c < numCols; c++) {
-            if (!grid[r][c]) grid[r][c] = c();
-            grid[r][c].hidden = false;
-            if (!grid[r][c].rS || grid[r][c].rS < 1) grid[r][c].rS = 1;
-            if (!grid[r][c].cS || grid[r][c].cS < 1) grid[r][c].cS = 1;
-            if (r + grid[r][c].rS > numRows) grid[r][c].rS = numRows - r;
-            if (c + grid[r][c].cS > numCols) grid[r][c].cS = numCols - c;
+        if (!grid[r]) grid[r] = [];
+        while (grid[r].length < numCols) {
+            grid[r].push({ items: [{ t: "", tr: "" }], color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false });
         }
     }
 
-    // 2. Hide only the cells legitimately covered by active merged root cells
+    // 2. Track actual coverage to fix orphaned hidden cells
+    const covered = Array.from({ length: numRows }, () => new Array(numCols).fill(false));
+
     for (let r = 0; r < numRows; r++) {
         for (let c = 0; c < numCols; c++) {
             const cell = grid[r][c];
-            if (cell.hidden) {
+            
+            // Normalize span values
+            if (!cell.rS || cell.rS < 1) cell.rS = 1;
+            if (!cell.cS || cell.cS < 1) cell.cS = 1;
+            if (r + cell.rS > numRows) cell.rS = numRows - r;
+            if (c + cell.cS > numCols) cell.cS = numCols - c;
+
+            if (covered[r][c]) {
+                // Cell is genuinely covered by a parent span
+                cell.hidden = true;
                 cell.rS = 1;
                 cell.cS = 1;
-                continue;
-            }
-            if (cell.rS > 1 || cell.cS > 1) {
-                for (let i = r; i < r + cell.rS; i++) {
-                    for (let j = c; j < c + cell.cS; j++) {
-                        if (i === r && j === c) continue;
-                        if (grid[i] && grid[i][j]) {
-                            grid[i][j].hidden = true;
-                            grid[i][j].rS = 1;
-                            grid[i][j].cS = 1;
+            } else {
+                // Cell is NOT covered by anything above/left -> MUST BE VISIBLE
+                cell.hidden = false;
+
+                // Mark downstream cells covered by this cell's span
+                if (cell.rS > 1 || cell.cS > 1) {
+                    for (let i = r; i < r + cell.rS; i++) {
+                        for (let j = c; j < c + cell.cS; j++) {
+                            if (i === r && j === c) continue;
+                            if (i < numRows && j < numCols) {
+                                covered[i][j] = true;
+                            }
                         }
                     }
                 }
@@ -2565,64 +2575,56 @@ function sanitizeGrid() {
 function render(doSave = true) {
     sanitizeGrid();
     if (doSave) pushHistory();
+
     const container = document.getElementById('grid-container');
     container.innerHTML = '';
-    const cols = grid[0].length;
+    
+    if (!grid || !grid.length || !grid[0]) return;
+    
+    const cols = Math.max(...grid.map(r => r.length), 1);
     const rows = grid.length;
     container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
 
     const pairColors = ['#e74c3c', '#9b59b6', '#3498db', '#e67e22', '#2ecc71', '#f1c40f'];
 
-    // Map first visible cell for each row and column
+    // Safe visibility check preventing undefined errors
     const firstVisibleColInRow = new Array(rows).fill(-1);
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-            if (!grid[r][c].hidden) {
+            if (grid[r]?.[c] && !grid[r][c].hidden) {
                 firstVisibleColInRow[r] = c;
                 break;
             }
         }
     }
 
-    const firstVisibleRowInCol = new Array(cols).fill(-1);
-    for (let c = 0; c < cols; c++) {
-        for (let r = 0; r < rows; r++) {
-            if (!grid[r][c].hidden) {
-                firstVisibleRowInCol[c] = r;
-                break;
-            }
+// Inside render():
+const firstVisibleRowInCol = new Array(cols).fill(-1);
+for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+        if (grid[r]?.[c] && !grid[r][c].hidden) {
+            firstVisibleRowInCol[c] = r;
+            break;
         }
     }
+    // Fallback: if no visible cell in col, force index 0 so delete button renders
+    if (firstVisibleRowInCol[c] === -1) firstVisibleRowInCol[c] = 0;
+}
+
+    const escapeAttr = (str) => (str || '').replace(/"/g, '&quot;');
 
     grid.forEach((row, r) => {
         row.forEach((cell, cIdx) => {
-            if (cell.hidden) return;
+            if (!cell || cell.hidden) return;
 
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
-            
-            // --- ISSUE 1: TOGGLE COMPACT / BRIDGE CELL ---
-            if (cell.compact) {
-                cellDiv.classList.add('is-compact');
-            }
 
-            cellDiv.ondblclick = (e) => {
-                e.stopPropagation();
-                const hasText = cell.items && cell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
-                
-                // Allow toggle if cell is empty OR if it is currently collapsed
-                if (!hasText || cell.compact) {
-                    cell.compact = !cell.compact;
-                    render();
-                    saveToCloud(true);
-                }
-            };
-
-            // --- ISSUE 2 FIX: RESET BORDER & OUTLINE DEFAULT STATES ---
+            if (cell.compact) cellDiv.classList.add('is-compact');
+            cellDiv.ondblclick = (e) => { e.stopPropagation(); handleCellDblClick(r, cIdx, e); };
             cellDiv.style.outline = "none";
-            cellDiv.style.border = "1px solid #ccc"; 
+            cellDiv.style.border = "1px solid #ccc";
 
-            // Only render legacy pair colors if excludedPairs is explicitly used
             const pairIndex = (typeof excludedPairs !== 'undefined' && Array.isArray(excludedPairs)) 
                 ? excludedPairs.findIndex(pair => (pair.a.r === r && pair.a.c === cIdx) || (pair.b.r === r && pair.b.c === cIdx))
                 : -1;
@@ -2642,9 +2644,9 @@ function render(doSave = true) {
                 cellDiv.style.zIndex = "11";
             }
 
-            cellDiv.onclick = (e) => {
+            cellDiv.onclick = () => {
                 if (typeof currentMode !== 'undefined' && currentMode === 'exclude') {
-                    handleExcludeClick(r, cIdx);
+                    if (typeof handleExcludeClick === 'function') handleExcludeClick(r, cIdx);
                 }
             };
 
@@ -2652,20 +2654,25 @@ function render(doSave = true) {
             cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
             cellDiv.style.backgroundColor = cell.color || "#ffffff";
 
-            const listHTML = cell.items.map((item, i) => `
+            const items = cell.items || [];
+            const listHTML = items.map((item, i) => `
                 <div class="vocab-item">
                     <input type="text" class="target-input" placeholder="Target" 
                         data-pos="${r}-${cIdx}-${i}-t"
                         onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')" 
-                        oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${item.t}">
+                        oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${escapeAttr(item.t)}">
                     <div class="bracket-wrapper"><span>(</span>
                     <input type="text" class="translation-input" placeholder="Translation" 
                         data-pos="${r}-${cIdx}-${i}-tr"
                         onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 'tr')" 
-                        oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${item.tr}">
+                        oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${escapeAttr(item.tr)}">
                     <span>)</span></div>
                 </div>
             `).join('');
+
+            const swatchHTML = (typeof allColors !== 'undefined' && Array.isArray(allColors)) 
+                ? allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('') 
+                : '';
 
             cellDiv.innerHTML = `
                 <div class="top-ui no-export">
@@ -2676,29 +2683,51 @@ function render(doSave = true) {
                 <div class="bottom-ui no-export">
                     <span class="icon-btn" onclick="toggleCellSplit(${r},${cIdx})">Ξ</span>
                     <span class="icon-btn" onclick="showColors(event, ${r}, ${cIdx})">🎨</span>
-                    <div class="color-picker" id="cp-${r}-${cIdx}">
-                        ${allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('')}
-                    </div>
+                    <div class="color-picker" id="cp-${r}-${cIdx}">${swatchHTML}</div>
                 </div>
             `;
 
-            if (currentMode === 'add-col' && r === firstVisibleRowInCol[cIdx]) {
-                addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-                if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-            }
-            if (currentMode === 'del-col' && r === firstVisibleRowInCol[cIdx]) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-            if (currentMode === 'add-row' && cIdx === firstVisibleColInRow[r]) {
-                addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-                if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-            }
-            if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+            if (typeof currentMode !== 'undefined') {
+    if (currentMode === 'add-col' && r === firstVisibleRowInCol[cIdx]) {
+        addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+        if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+    }
+    if (currentMode === 'del-col' && r === firstVisibleRowInCol[cIdx]) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+    if (currentMode === 'add-row' && cIdx === firstVisibleColInRow[r]) {
+        addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+        if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+    }
+    if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+}
 
             container.appendChild(cellDiv);
             cellDiv.querySelectorAll('input').forEach(syncSize);
         });
     });
 }
+function handleCellDblClick(r, c, event) {
+    const cell = grid[r][c]; 
 
+    // 1. Check if the underlying cell data model contains any text
+    const hasDataText = cell.items && cell.items.some(item => 
+        (item.t && item.t.trim().length > 0) || 
+        (item.tr && item.tr.trim().length > 0)
+    );
+
+    // 2. If the user clicked inside an input box, check its active typed value
+    const isInput = event.target && event.target.tagName === 'INPUT';
+    const inputValue = isInput ? (event.target.value || '').trim() : '';
+
+    // If text exists anywhere in the cell or active input, allow default text selection
+    if (hasDataText || inputValue.length > 0) {
+        return; 
+    }
+
+    // Cell is completely empty -> toggle compact bridge mode
+    cell.compact = !cell.compact;
+    render();
+    if (typeof saveToCloud === 'function') saveToCloud(true);
+}
 function setClr(r, c, color) {
     grid[r][c].color = color;
     document.querySelectorAll('.color-picker').forEach(p => p.style.display = 'none');
@@ -3328,91 +3357,210 @@ function hexToRgb(hex) {
     return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : null;
 }
 
-async function handlePDFImport(event) {
+/* =========================================================
+   ROBUST VOCABULARY ITEM PARSER
+   Recombines split multi-line brackets and target/translation pairs
+   ========================================================= */
+function parseCellVocab(cellItems) {
+    if (!cellItems || cellItems.length === 0) {
+        return [{ t: "", tr: "" }];
+    }
+
+    // Sort items with Y-line tolerance (4px threshold), then left-to-right (x ascending)
+    cellItems.sort((a, b) => {
+        if (Math.abs(b.y - a.y) <= 4) {
+            return a.x - b.x; // Same line: left to right
+        }
+        return b.y - a.y;     // Different lines: top to bottom
+    });
+
+    const rawStrings = cellItems.map(i => i.str.trim()).filter(Boolean);
+    
+    const mergedStrings = [];
+    let buffer = "";
+
+    rawStrings.forEach(str => {
+        if (!buffer) {
+            buffer = str;
+        } else {
+            const openCount = (buffer.match(/\(/g) || []).length;
+            const closeCount = (buffer.match(/\)/g) || []).length;
+            if (openCount > closeCount) {
+                buffer += " " + str;
+            } else {
+                mergedStrings.push(buffer);
+                buffer = str;
+            }
+        }
+    });
+    if (buffer) mergedStrings.push(buffer);
+
+    const vocab = [];
+    let pendingTarget = "";
+
+    const pushPair = (t, tr) => {
+        const cleanT = (t || "").trim();
+        const cleanTr = (tr || "").replace(/[\(\)]/g, "").trim();
+        if (cleanT || cleanTr) {
+            vocab.push({ t: cleanT, tr: cleanTr });
+        }
+    };
+
+    mergedStrings.forEach(str => {
+        if (!str) return;
+
+        const inlineMatches = [...str.matchAll(/([^\(\)]+)\s*\(([^)]+)\)/g)];
+
+        if (inlineMatches.length > 0) {
+            if (pendingTarget) {
+                pushPair(pendingTarget, "");
+                pendingTarget = "";
+            }
+            inlineMatches.forEach(m => pushPair(m[1], m[2]));
+
+            const lastBracketIdx = str.lastIndexOf(')');
+            if (lastBracketIdx !== -1 && lastBracketIdx < str.length - 1) {
+                const remainder = str.substring(lastBracketIdx + 1).trim();
+                if (remainder) pendingTarget = remainder;
+            }
+        } 
+        else if (str.startsWith('(') && str.endsWith(')')) {
+            const trText = str.slice(1, -1).trim();
+            if (pendingTarget) {
+                pushPair(pendingTarget, trText);
+                pendingTarget = "";
+            } else if (vocab.length > 0 && !vocab[vocab.length - 1].tr) {
+                vocab[vocab.length - 1].tr = trText;
+            } else {
+                pushPair("", trText);
+            }
+        }
+        else {
+            if (pendingTarget) {
+                pushPair(pendingTarget, "");
+            }
+            pendingTarget = str;
+        }
+    });
+
+    if (pendingTarget) {
+        pushPair(pendingTarget, "");
+    }
+
+    return vocab.length > 0 ? vocab : [{ t: "", tr: "" }];
+}
+/* =========================================================
+   ROBUST VECTOR & BOUNDING-BOX PDF IMPORT ENGINE
+   ========================================================= */
+async function handleDocxImport(event) {
     const file = event.target.files[0];
     if (!file) return;
+    event.target.value = '';
 
     const reader = new FileReader();
-    reader.onload = async function() {
+    reader.onload = async function(e) {
         try {
-            const typedarray = new Uint8Array(this.result);
-            const pdfjsLib = window['pdfjs-dist/build/pdf'];
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
-            const pdf = await pdfjsLib.getDocument(typedarray).promise;
-            const page = await pdf.getPage(1);
-            const textContent = await page.getTextContent();
+            const arrayBuffer = e.target.result;
             
-            let items = textContent.items.map(item => ({
-                str: item.str.trim(),
-                x: item.transform[4],
-                y: item.transform[5],
-                fs: item.transform[0]
-            })).filter(i => i.str.length > 0);
+            // 1. Convert Word Doc to clean HTML via Mammoth
+            const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(result.value, 'text/html');
+            const table = doc.querySelector('table');
 
-            const titleItem = [...items].sort((a,b) => b.fs - a.fs || b.y - a.y)[0];
-            const suggestedTitle = titleItem ? titleItem.str : file.name.replace(".pdf", "");
+            if (!table) {
+                alert("No table found in the uploaded Word document.");
+                return;
+            }
 
-            const branding = ["sentencebuilders", "powered by", "language gym"];
-            const gridItems = items.filter(i => {
-                if (i === titleItem) return false;
-                return !branding.some(b => i.str.toLowerCase().includes(b));
-            });
+            const suggestedTitle = file.name.replace(/\.docx$/i, "");
+            const trElements = Array.from(table.querySelectorAll('tr'));
 
-            let columns = [];
-            gridItems.sort((a,b) => a.x - b.x).forEach(item => {
-                let cluster = columns.find(c => Math.abs(c.x - item.x) < 35);
-                if (cluster) cluster.items.push(item);
-                else columns.push({ x: item.x, items: [item] });
-            });
-            columns.sort((a,b) => a.x - b.x);
+            // 2. Build 2D grid matrix tracking rowspans & colspans
+            const gridMatrix = [];
 
-            let mergedCols = [];
-            columns.forEach((col) => {
-                const isTranslationCol = col.items.every(it => it.str.startsWith('(') || it.str.endsWith(')'));
-                if (isTranslationCol && mergedCols.length > 0) {
-                    mergedCols[mergedCols.length - 1].items.push(...col.items);
-                } else {
-                    mergedCols.push(col);
-                }
-            });
+            trElements.forEach((tr, rIdx) => {
+                if (!gridMatrix[rIdx]) gridMatrix[rIdx] = [];
 
-            let rows = [];
-            gridItems.sort((a,b) => a.y - b.y).forEach(item => {
-                let cluster = rows.find(r => Math.abs(r.y - item.y) < 25);
-                if (cluster) cluster.items.push(item);
-                else rows.push({ y: item.y, items: [item] });
-            });
-            rows.sort((a,b) => b.y - a.y);
+                const tdElements = Array.from(tr.querySelectorAll('td, th'));
+                let colCursor = 0;
 
-            let finalGridRows = rows.map(row => {
-                return mergedCols.map(col => {
-                    let cellItems = row.items.filter(ri => col.items.includes(ri));
-                    cellItems.sort((a, b) => b.y - a.y || a.x - b.x); 
+                tdElements.forEach(td => {
+                    // Advance colCursor to skip slots occupied by rowspans from previous rows
+                    while (gridMatrix[rIdx][colCursor] !== undefined) {
+                        colCursor++;
+                    }
 
-                    let vocab = [];
-                    let lastT = "";
+                    const rS = parseInt(td.getAttribute('rowspan') || '1', 10);
+                    const cS = parseInt(td.getAttribute('colspan') || '1', 10);
 
-                    cellItems.forEach(item => {
-                        let text = item.str;
-                        if (text.startsWith('(') && text.endsWith(')')) {
-                            vocab.push({ t: lastT.trim(), tr: text.replace(/[()]/g, "").trim() });
-                            lastT = "";
-                        } else if (text.includes('(') && text.includes(')')) {
-                            const m = text.match(/^(.*)\((.*)\)$/);
-                            if (m) vocab.push({ t: m[1].trim(), tr: m[2].trim() });
-                        } else {
-                            if (lastT) vocab.push({ t: lastT.trim(), tr: "" });
-                            lastT = text;
+                    // Extract text preserving linebreaks
+                    const clone = td.cloneNode(true);
+                    clone.querySelectorAll('p, div, br, tr, li').forEach(el => {
+                        el.insertAdjacentHTML('afterend', '\n');
+                    });
+
+                    const text = clone.textContent || "";
+                    const vocabItems = [];
+                    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+                    lines.forEach(line => {
+                        const pairRegex = /([^\(\)]+?)\s*\(([^)]*)\)/g;
+                        let match;
+                        let foundInLine = false;
+
+                        while ((match = pairRegex.exec(line)) !== null) {
+                            foundInLine = true;
+                            const t = match[1].trim();
+                            const tr = match[2] ? match[2].trim() : "";
+                            if (t || tr) vocabItems.push({ t, tr });
+                        }
+
+                        if (!foundInLine && line.trim()) {
+                            vocabItems.push({ t: line.trim(), tr: "" });
                         }
                     });
-                    if (lastT) vocab.push({ t: lastT.trim(), tr: "" });
 
-                    return {
-                        items: vocab.length ? vocab : [{ t: "", tr: "" }],
-                        color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false
+                    const originCell = {
+                        items: vocabItems.length > 0 ? vocabItems : [{ t: "", tr: "" }],
+                        color: "#ffffff",
+                        split: false,
+                        rS: rS,
+                        cS: cS,
+                        hidden: false,
+                        sel: false
                     };
+
+                    // Fill cell position and mark covered spanned positions as hidden
+                    for (let r = rIdx; r < rIdx + rS; r++) {
+                        if (!gridMatrix[r]) gridMatrix[r] = [];
+                        for (let c = colCursor; c < colCursor + cS; c++) {
+                            if (r === rIdx && c === colCursor) {
+                                gridMatrix[r][c] = originCell;
+                            } else {
+                                gridMatrix[r][c] = {
+                                    items: [{ t: "", tr: "" }],
+                                    color: "#ffffff",
+                                    split: false,
+                                    rS: 1,
+                                    cS: 1,
+                                    hidden: true,
+                                    sel: false
+                                };
+                            }
+                        }
+                    }
+
+                    colCursor += cS;
                 });
+            });
+
+            // 3. Ensure all rows have equal column counts
+            const maxCols = Math.max(...gridMatrix.map(r => r.length), 1);
+            gridMatrix.forEach(row => {
+                while (row.length < maxCols) {
+                    row.push({ items: [{ t: "", tr: "" }], color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false });
+                }
             });
 
             const finalTitle = prompt("Confirm Project Title:", suggestedTitle);
@@ -3421,25 +3569,31 @@ async function handlePDFImport(event) {
             const newDoc = {
                 uid: currentUser.uid,
                 title: finalTitle,
-                lang: "French",
-                year: "Year 9", topic: "Imported",
-                grid: JSON.stringify(finalGridRows),
+                lang: meta.lang || "French",
+                year: meta.year || "Year 9",
+                topic: meta.topic || "Imported",
+                grid: JSON.stringify(gridMatrix),
+                disabledRoutes: [],
+                excludedCombos: [],
+                requiredCombos: [],
+                excludedPairs: [],
+                transformationsText: "",
                 updated: firebase.firestore.FieldValue.serverTimestamp(),
                 isDeleted: false
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Success! Review the column alignment.");
+            alert("Success! Document imported into accurate grid layout.");
             loadProject(docRef.id);
 
         } catch (err) {
-            console.error(err);
-            alert("Import failed.");
+            console.error("Docx Import Error:", err);
+            alert("Import failed: " + err.message);
         }
     };
+
     reader.readAsArrayBuffer(file);
 }
-
 /* =========================
     PREVIEW & OPTIONS MENU
 ========================= */
@@ -7290,8 +7444,76 @@ function playClassDisplayGrid(allSentences) {
 function toggleMode(mode) { currentMode = (currentMode === mode) ? null : mode; render(false); }
 function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); saveToCloud(true); }
 function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); saveToCloud(true); }
-function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); saveToCloud(true); } }
-function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); saveToCloud(true); } }
+function deleteCol(cIdx) {
+    if (!grid || !grid.length) return;
+    const cols = Math.max(...grid.map(r => r.length), 1);
+    if (cols <= 1) {
+        alert("Cannot delete the last remaining column.");
+        return;
+    }
+
+    // Safely unmerge all spans before splicing columns to prevent matrix corruption
+    grid.forEach(row => {
+        row.forEach(cell => {
+            if (cell) {
+                cell.rS = 1;
+                cell.cS = 1;
+                cell.hidden = false;
+            }
+        });
+    });
+
+    // Remove column from every row
+    grid.forEach(row => {
+        if (cIdx < row.length) {
+            row.splice(cIdx, 1);
+        }
+    });
+
+    render(true);
+}
+
+function deleteRow(rIdx) {
+    if (!grid || grid.length <= 1) {
+        alert("Cannot delete the last remaining row.");
+        return;
+    }
+
+    // Safely unmerge all spans before splicing rows
+    grid.forEach(row => {
+        row.forEach(cell => {
+            if (cell) {
+                cell.rS = 1;
+                cell.cS = 1;
+                cell.hidden = false;
+            }
+        });
+    });
+
+    grid.splice(rIdx, 1);
+    render(true);
+}
+
+function splitCell(r, c) {
+    if (!grid[r] || !grid[r][c]) return;
+    const cell = grid[r][c];
+
+    const rS = cell.rS || 1;
+    const cS = cell.cS || 1;
+
+    // Reset spans for all cells inside this area
+    for (let i = r; i < r + rS; i++) {
+        for (let j = c; j < c + cS; j++) {
+            if (grid[i] && grid[i][j]) {
+                grid[i][j].hidden = false;
+                grid[i][j].rS = 1;
+                grid[i][j].cS = 1;
+            }
+        }
+    }
+
+    render(true);
+}
 
 setInterval(() => {
     const isEditor = document.getElementById('editor-page').classList.contains('active-page');
