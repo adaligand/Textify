@@ -3419,7 +3419,7 @@ async function handlePDFImport(event) {
 
             const textContent = await page.getTextContent();
             
-            // 1. Extract text items with normalized coordinates (top-down Y)
+            // 1. Extract text items with top-down Y coordinates
             let rawItems = textContent.items.map(item => {
                 const fs = Math.abs(item.transform[0]) || Math.abs(item.transform[3]) || 10;
                 const w = item.width || (item.str.trim().length * fs * 0.55);
@@ -3434,7 +3434,7 @@ async function handlePDFImport(event) {
                     h: h,
                     fs: fs,
                     xMid: x + w / 2,
-                    yMid: y - h / 2
+                    yMid: y + h / 2
                 };
             }).filter(i => i.str.length > 0);
 
@@ -3443,7 +3443,7 @@ async function handlePDFImport(event) {
                 return;
             }
 
-            // 2. Identify Document Title & Filter Out Headers/Branding
+            // 2. Filter Headers & Branding
             const fontSizes = rawItems.map(i => i.fs).sort((a, b) => a - b);
             const medianFS = fontSizes[Math.floor(fontSizes.length / 2)] || 10;
             const brandingKeywords = ["sentencebuilders", "powered by", "language gym", "page 1"];
@@ -3469,9 +3469,8 @@ async function handlePDFImport(event) {
                 return;
             }
 
-            // 3. Extract Drawn Vector Gridlines from PDF Operator List
+            // 3. Extract Drawn Vector Horizontal Lines
             let vectorHLines = [];
-            let vectorVLines = [];
             try {
                 const opList = await page.getOperatorList();
                 const OPS = pdfjsLib.OPS;
@@ -3479,7 +3478,6 @@ async function handlePDFImport(event) {
                     const fn = opList.fnArray[i];
                     const args = opList.argsArray[i];
                     if (fn === OPS.rectangle) {
-                        vectorVLines.push(args[0], args[0] + args[2]);
                         vectorHLines.push(pageHeight - args[1], pageHeight - (args[1] + args[3]));
                     } else if (fn === OPS.constructPath) {
                         const pathOps = args[0];
@@ -3490,22 +3488,19 @@ async function handlePDFImport(event) {
                                 cx = pathArgs[cIdx]; cy = pageHeight - pathArgs[cIdx+1]; cIdx += 2;
                             } else if (pOp === OPS.lineTo) {
                                 const nx = pathArgs[cIdx]; const ny = pageHeight - pathArgs[cIdx+1]; cIdx += 2;
-                                if (Math.abs(ny - cy) < 1.5 && Math.abs(nx - cx) > 15) vectorHLines.push((cy + ny) / 2);
-                                else if (Math.abs(nx - cx) < 1.5 && Math.abs(ny - cy) > 15) vectorVLines.push((cx + nx) / 2);
+                                if (Math.abs(ny - cy) < 2 && Math.abs(nx - cx) > 15) vectorHLines.push((cy + ny) / 2);
                                 cx = nx; cy = ny;
                             } else if (pOp === OPS.rectangle) {
-                                const rx = pathArgs[cIdx], ry = pageHeight - pathArgs[cIdx+1], rw = pathArgs[cIdx+2], rh = pathArgs[cIdx+3];
+                                const ry = pageHeight - pathArgs[cIdx+1], rh = pathArgs[cIdx+3];
                                 cIdx += 4;
-                                vectorVLines.push(rx, rx + rw);
-                                vectorHLines.push(ry, ry - rh);
+                                vectorHLines.push(ry, ry + rh);
                             }
                         }
                     }
                 }
             } catch (vErr) { console.warn("Vector line parsing fallback:", vErr); }
 
-            // Value clustering helper (groups coordinates within tolerance)
-            const clusterValues = (arr, tol = 4) => {
+            const clusterValues = (arr, tol = 5) => {
                 const sorted = [...arr].sort((a, b) => a - b);
                 const clusters = [];
                 sorted.forEach(val => {
@@ -3519,72 +3514,114 @@ async function handlePDFImport(event) {
                 return clusters.map(c => c.avg);
             };
 
-            // 4. Determine Column Boundaries (X Grid)
-            let vGrid = clusterValues(vectorVLines, 5);
-            if (vGrid.length < 2) {
-                const itemsByX = [...tableItems].sort((a, b) => a.x - b.x);
-                const colClusters = [];
-                itemsByX.forEach(it => {
-                    let matched = colClusters.find(c => !(it.x > c.maxX + 15 || (it.x + it.w) < c.minX - 15));
-                    if (matched) {
-                        matched.items.push(it);
-                        matched.minX = Math.min(matched.minX, it.x);
-                        matched.maxX = Math.max(matched.maxX, it.x + it.w);
-                    } else {
-                        colClusters.push({ minX: it.x, maxX: it.x + it.w, items: [it] });
-                    }
-                });
-                colClusters.sort((a, b) => a.minX - b.minX);
-                vGrid = [];
-                if (colClusters.length > 0) {
-                    vGrid.push(colClusters[0].minX - 10);
-                    for (let c = 0; c < colClusters.length - 1; c++) {
-                        vGrid.push((colClusters[c].maxX + colClusters[c+1].minX) / 2);
-                    }
-                    vGrid.push(colClusters[colClusters.length - 1].maxX + 10);
+            // 4. Determine Column Boundaries (vGrid) from Text Item Clusters
+            const itemsByX = [...tableItems].sort((a, b) => a.x - b.x);
+            const colClusters = [];
+            itemsByX.forEach(it => {
+                let matched = colClusters.find(c => !(it.x > c.maxX + 20 || (it.x + it.w) < c.minX - 20));
+                if (matched) {
+                    matched.items.push(it);
+                    matched.minX = Math.min(matched.minX, it.x);
+                    matched.maxX = Math.max(matched.maxX, it.x + it.w);
+                } else {
+                    colClusters.push({ minX: it.x, maxX: it.x + it.w, items: [it] });
                 }
+            });
+            colClusters.sort((a, b) => a.minX - b.minX);
+            
+            let vGrid = [];
+            if (colClusters.length > 0) {
+                vGrid.push(colClusters[0].minX - 15);
+                for (let c = 0; c < colClusters.length - 1; c++) {
+                    vGrid.push((colClusters[c].maxX + colClusters[c+1].minX) / 2);
+                }
+                vGrid.push(colClusters[colClusters.length - 1].maxX + 15);
             }
 
-            // 5. Determine Atomic Sub-Row Boundaries (Y Grid) via Per-Column Gap Analysis
-            let rawYBoundaries = clusterValues(vectorHLines, 4);
-            if (rawYBoundaries.length < 2) {
-                const minTableY = Math.min(...tableItems.map(i => i.y)) - 10;
-                const maxTableY = Math.max(...tableItems.map(i => i.y + i.h)) + 10;
-                const cutPoints = new Set([minTableY, maxTableY]);
-
-                // Inspect vertical line gaps within individual columns
-                for (let c = 0; c < vGrid.length - 1; c++) {
-                    const colX1 = vGrid[c], colX2 = vGrid[c+1];
-                    const colItems = tableItems.filter(i => i.xMid >= colX1 && i.xMid <= colX2)
-                                              .sort((a, b) => a.y - b.y);
-                    
-                    for (let i = 0; i < colItems.length - 1; i++) {
-                        const curr = colItems[i];
-                        const next = colItems[i+1];
-                        const gap = next.y - (curr.y + curr.h);
-                        // Inter-cell gap threshold (> 6px gap denotes distinct cell box boundary)
-                        if (gap > 6) {
-                            cutPoints.add((curr.y + curr.h + next.y) / 2);
-                        }
-                    }
-                }
-                rawYBoundaries = clusterValues(Array.from(cutPoints), 4);
-            }
-
-            const hGrid = rawYBoundaries.sort((a, b) => a - b);
-            const numRows = hGrid.length - 1;
             const numCols = vGrid.length - 1;
+
+            // 5. Determine Row Boundaries (hGrid) - Sub-box gap > 18px
+            let yCuts = new Set(clusterValues(vectorHLines, 4));
+            const minY = Math.min(...tableItems.map(i => i.y)) - 10;
+            const maxY = Math.max(...tableItems.map(i => i.y + i.h)) + 10;
+            yCuts.add(minY);
+            yCuts.add(maxY);
+
+            for (let c = 0; c < numCols; c++) {
+                const colX1 = vGrid[c], colX2 = vGrid[c+1];
+                const colItems = tableItems.filter(i => i.xMid >= colX1 && i.xMid <= colX2)
+                                          .sort((a, b) => a.y - b.y);
+                
+                for (let i = 0; i < colItems.length - 1; i++) {
+                    const curr = colItems[i];
+                    const next = colItems[i+1];
+                    const gap = next.y - (curr.y + curr.h);
+                    // Gap > 18px separates sub-boxes while preserving line-breaks inside a box
+                    if (gap > 18) {
+                        yCuts.add((curr.y + curr.h + next.y) / 2);
+                    }
+                }
+            }
+
+            const hGrid = clusterValues(Array.from(yCuts), 5).sort((a, b) => a - b);
+            const numRows = hGrid.length - 1;
 
             if (numRows <= 0 || numCols <= 0) {
                 alert("Could not detect table grid structure.");
                 return;
             }
 
-            // 6. Partition Items into Fine Grid Cells [r][c]
-            const gridCellBuckets = Array.from({ length: numRows }, () =>
-                Array.from({ length: numCols }, () => [])
+            // 6. Build Grid Structure and Calculate Row Spans (rS)
+            const nodeGrid = Array.from({ length: numRows }, () =>
+                Array.from({ length: numCols }, () => ({
+                    rawItems: [],
+                    items: [],
+                    color: "#ffffff",
+                    split: false,
+                    rS: 1,
+                    cS: 1,
+                    hidden: false,
+                    sel: false
+                }))
             );
 
+            for (let c = 0; c < numCols; c++) {
+                const colX1 = vGrid[c], colX2 = vGrid[c+1];
+                let r = 0;
+                while (r < numRows) {
+                    const node = nodeGrid[r][c];
+                    if (node.hidden) { r++; continue; }
+
+                    let span = 1;
+                    while (r + span < numRows) {
+                        const yBound = hGrid[r + span];
+                        const hasLine = vectorHLines.some(y => Math.abs(y - yBound) < 4);
+                        
+                        const colItems = tableItems.filter(i => i.xMid >= colX1 && i.xMid <= colX2);
+                        let hasSubBoxGap = false;
+                        for (let i1 of colItems) {
+                            for (let i2 of colItems) {
+                                if (i1.y + i1.h <= yBound + 2 && i2.y >= yBound - 2) {
+                                    if ((i2.y - (i1.y + i1.h)) > 18) {
+                                        hasSubBoxGap = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (hasSubBoxGap) break;
+                        }
+
+                        if (hasLine || hasSubBoxGap) break;
+
+                        nodeGrid[r + span][c].hidden = true;
+                        span++;
+                    }
+                    node.rS = span;
+                    r += span;
+                }
+            }
+
+            // 7. Map Text Items directly to Root Spanning Cells
             tableItems.forEach(item => {
                 let rIdx = 0;
                 for (let r = 0; r < numRows; r++) {
@@ -3598,49 +3635,26 @@ async function handlePDFImport(event) {
                         cIdx = c; break;
                     }
                 }
-                gridCellBuckets[rIdx][cIdx].push(item);
+
+                // If target cell is hidden by vertical row span, route to root cell
+                let rootR = rIdx;
+                while (rootR > 0 && nodeGrid[rootR][cIdx].hidden) {
+                    rootR--;
+                }
+                nodeGrid[rootR][cIdx].rawItems.push(item);
             });
 
-            // 7. Calculate Vertical Row Spans (rS) for Spanning Cells
-            const nodeGrid = gridCellBuckets.map(row => 
-                row.map(cellItems => ({
-                    items: parseCellVocab(cellItems),
-                    rawItems: cellItems,
-                    color: "#ffffff",
-                    split: false,
-                    rS: 1,
-                    cS: 1,
-                    hidden: false,
-                    sel: false
-                }))
-            );
-
-            for (let c = 0; c < numCols; c++) {
-                let r = 0;
-                while (r < numRows) {
-                    const node = nodeGrid[r][c];
-                    if (node.hidden) { r++; continue; }
-
-                    let span = 1;
-                    while (r + span < numRows) {
-                        const yBoundary = hGrid[r + span];
-                        const hasVectorSep = vectorHLines.some(y => Math.abs(y - yBoundary) < 3);
-                        const nextNode = nodeGrid[r + span][c];
-
-                        // Stop span if separated by a drawn line or if next cell contains its own text items
-                        if (hasVectorSep || (nextNode.rawItems && nextNode.rawItems.length > 0)) {
-                            break;
-                        }
-
-                        nextNode.hidden = true;
-                        span++;
+            // Parse cell items in root nodes
+            nodeGrid.forEach(row => {
+                row.forEach(cell => {
+                    if (!cell.hidden && cell.rawItems.length > 0) {
+                        cell.rawItems.sort((a, b) => a.y - b.y);
+                        cell.items = parseCellVocab(cell.rawItems);
                     }
-                    node.rS = span;
-                    r += span;
-                }
-            }
+                });
+            });
 
-            // 8. Construct Final Grid Array and Open in Editor
+            // 8. Save Final Grid
             const finalGridRows = nodeGrid.map(row => 
                 row.map(cell => {
                     const { rawItems, ...cleanCell } = cell;
