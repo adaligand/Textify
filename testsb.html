@@ -5,6 +5,7 @@
     <title>Cedars Builder</title>
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
@@ -883,8 +884,8 @@ th { background: #f1f5f9; color: #334155; }
         <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
             <button onclick="showPage('submissions-page'); loadTeacherSubmissions();" class="btn-info">📊 Submissions</button>
             <button onclick="toggleBinView()" class="btn-outline">🗑️ Bin</button>
-            <input type="file" id="pdf-import-input" accept="application/pdf" style="display:none;" onchange="handlePDFImport(event)">
-            <button onclick="document.getElementById('pdf-import-input').click()" class="btn-info">📥 Import PDF</button>
+            <input type="file" id="docx-import-input" accept=".docx" style="display:none;" onchange="handleDocxImport(event)">
+<button onclick="document.getElementById('docx-import-input').click()" class="btn-info">📥 Import (.docx)</button>
             <button onclick="createNewProject()" class="btn-purple">🛠️ Create</button>
             <button onclick="logout()" class="btn-outline">🔓 Sign Out</button>
         </div>
@@ -2521,39 +2522,48 @@ function redo() {
 }
 
 function sanitizeGrid() {
-    if (!grid || !grid.length || !grid[0].length) return;
+    if (!grid || !grid.length) return;
     const numRows = grid.length;
-    const numCols = grid[0].length;
+    const numCols = Math.max(...grid.map(r => r.length), 1);
 
-    // 1. Reset hidden flags and clamp cell spans to grid boundaries
+    // 1. Pad missing cells in any row so all rows have equal lengths
     for (let r = 0; r < numRows; r++) {
-        for (let c = 0; c < numCols; c++) {
-            if (!grid[r][c]) grid[r][c] = c();
-            grid[r][c].hidden = false;
-            if (!grid[r][c].rS || grid[r][c].rS < 1) grid[r][c].rS = 1;
-            if (!grid[r][c].cS || grid[r][c].cS < 1) grid[r][c].cS = 1;
-            if (r + grid[r][c].rS > numRows) grid[r][c].rS = numRows - r;
-            if (c + grid[r][c].cS > numCols) grid[r][c].cS = numCols - c;
+        if (!grid[r]) grid[r] = [];
+        while (grid[r].length < numCols) {
+            grid[r].push({ items: [{ t: "", tr: "" }], color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false });
         }
     }
 
-    // 2. Hide only the cells legitimately covered by active merged root cells
+    // 2. Track actual coverage to fix orphaned hidden cells
+    const covered = Array.from({ length: numRows }, () => new Array(numCols).fill(false));
+
     for (let r = 0; r < numRows; r++) {
         for (let c = 0; c < numCols; c++) {
             const cell = grid[r][c];
-            if (cell.hidden) {
+            
+            // Normalize span values
+            if (!cell.rS || cell.rS < 1) cell.rS = 1;
+            if (!cell.cS || cell.cS < 1) cell.cS = 1;
+            if (r + cell.rS > numRows) cell.rS = numRows - r;
+            if (c + cell.cS > numCols) cell.cS = numCols - c;
+
+            if (covered[r][c]) {
+                // Cell is genuinely covered by a parent span
+                cell.hidden = true;
                 cell.rS = 1;
                 cell.cS = 1;
-                continue;
-            }
-            if (cell.rS > 1 || cell.cS > 1) {
-                for (let i = r; i < r + cell.rS; i++) {
-                    for (let j = c; j < c + cell.cS; j++) {
-                        if (i === r && j === c) continue;
-                        if (grid[i] && grid[i][j]) {
-                            grid[i][j].hidden = true;
-                            grid[i][j].rS = 1;
-                            grid[i][j].cS = 1;
+            } else {
+                // Cell is NOT covered by anything above/left -> MUST BE VISIBLE
+                cell.hidden = false;
+
+                // Mark downstream cells covered by this cell's span
+                if (cell.rS > 1 || cell.cS > 1) {
+                    for (let i = r; i < r + cell.rS; i++) {
+                        for (let j = c; j < c + cell.cS; j++) {
+                            if (i === r && j === c) continue;
+                            if (i < numRows && j < numCols) {
+                                covered[i][j] = true;
+                            }
                         }
                     }
                 }
@@ -2568,57 +2578,53 @@ function render(doSave = true) {
 
     const container = document.getElementById('grid-container');
     container.innerHTML = '';
-    const cols = grid[0].length;
+    
+    if (!grid || !grid.length || !grid[0]) return;
+    
+    const cols = Math.max(...grid.map(r => r.length), 1);
     const rows = grid.length;
     container.style.gridTemplateColumns = `repeat(${cols}, fit-content(900px))`;
 
     const pairColors = ['#e74c3c', '#9b59b6', '#3498db', '#e67e22', '#2ecc71', '#f1c40f'];
 
-    // Map first visible cell for each row and column
+    // Safe visibility check preventing undefined errors
     const firstVisibleColInRow = new Array(rows).fill(-1);
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-            if (!grid[r][c].hidden) {
+            if (grid[r]?.[c] && !grid[r][c].hidden) {
                 firstVisibleColInRow[r] = c;
                 break;
             }
         }
     }
 
-    const firstVisibleRowInCol = new Array(cols).fill(-1);
-    for (let c = 0; c < cols; c++) {
-        for (let r = 0; r < rows; r++) {
-            if (!grid[r][c].hidden) {
-                firstVisibleRowInCol[c] = r;
-                break;
-            }
+// Inside render():
+const firstVisibleRowInCol = new Array(cols).fill(-1);
+for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+        if (grid[r]?.[c] && !grid[r][c].hidden) {
+            firstVisibleRowInCol[c] = r;
+            break;
         }
     }
+    // Fallback: if no visible cell in col, force index 0 so delete button renders
+    if (firstVisibleRowInCol[c] === -1) firstVisibleRowInCol[c] = 0;
+}
 
     const escapeAttr = (str) => (str || '').replace(/"/g, '&quot;');
 
     grid.forEach((row, r) => {
         row.forEach((cell, cIdx) => {
-            if (cell.hidden) return;
+            if (!cell || cell.hidden) return;
 
             const cellDiv = document.createElement('div');
             cellDiv.className = 'cell';
 
-            if (cell.compact) {
-                cellDiv.classList.add('is-compact');
-            }
-
-            // Toggle compact / bridge cell on double-click
-           cellDiv.ondblclick = (e) => {
-    e.stopPropagation();
-    handleCellDblClick(r, cIdx, e);
-};
-
-            // Border & outline states
+            if (cell.compact) cellDiv.classList.add('is-compact');
+            cellDiv.ondblclick = (e) => { e.stopPropagation(); handleCellDblClick(r, cIdx, e); };
             cellDiv.style.outline = "none";
             cellDiv.style.border = "1px solid #ccc";
 
-            // Excluded pairs handling
             const pairIndex = (typeof excludedPairs !== 'undefined' && Array.isArray(excludedPairs)) 
                 ? excludedPairs.findIndex(pair => (pair.a.r === r && pair.a.c === cIdx) || (pair.b.r === r && pair.b.c === cIdx))
                 : -1;
@@ -2638,7 +2644,7 @@ function render(doSave = true) {
                 cellDiv.style.zIndex = "11";
             }
 
-            cellDiv.onclick = (e) => {
+            cellDiv.onclick = () => {
                 if (typeof currentMode !== 'undefined' && currentMode === 'exclude') {
                     if (typeof handleExcludeClick === 'function') handleExcludeClick(r, cIdx);
                 }
@@ -2682,17 +2688,17 @@ function render(doSave = true) {
             `;
 
             if (typeof currentMode !== 'undefined') {
-                if (currentMode === 'add-col' && r === firstVisibleRowInCol[cIdx]) {
-                    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-                    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-                }
-                if (currentMode === 'del-col' && r === firstVisibleRowInCol[cIdx]) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-                if (currentMode === 'add-row' && cIdx === firstVisibleColInRow[r]) {
-                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-                }
-                if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
-            }
+    if (currentMode === 'add-col' && r === firstVisibleRowInCol[cIdx]) {
+        addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+        if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+    }
+    if (currentMode === 'del-col' && r === firstVisibleRowInCol[cIdx]) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+    if (currentMode === 'add-row' && cIdx === firstVisibleColInRow[r]) {
+        addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+        if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+    }
+    if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+}
 
             container.appendChild(cellDiv);
             cellDiv.querySelectorAll('input').forEach(syncSize);
@@ -3446,321 +3452,127 @@ function parseCellVocab(cellItems) {
 /* =========================================================
    ROBUST VECTOR & BOUNDING-BOX PDF IMPORT ENGINE
    ========================================================= */
-async function handlePDFImport(event) {
+async function handleDocxImport(event) {
     const file = event.target.files[0];
     if (!file) return;
-
     event.target.value = '';
 
     const reader = new FileReader();
-    reader.onload = async function() {
+    reader.onload = async function(e) {
         try {
-            const typedarray = new Uint8Array(this.result);
-            const pdfjsLib = window['pdfjs-dist/build/pdf'];
-            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
-            const pdf = await pdfjsLib.getDocument(typedarray).promise;
-            const page = await pdf.getPage(1);
-            const viewport = page.getViewport({ scale: 1.0 });
-            const pageHeight = viewport.height;
-
-            const textContent = await page.getTextContent();
+            const arrayBuffer = e.target.result;
             
-            // 1. Extract text items with coordinates
-            let rawItems = textContent.items.map(item => {
-                const fs = Math.abs(item.transform[0]) || Math.abs(item.transform[3]) || 10;
-                const w = item.width || (item.str.trim().length * fs * 0.55);
-                const h = fs;
-                const x = item.transform[4];
-                const y = item.transform[5];
-                return {
-                    str: item.str.trim(),
-                    x: x,
-                    y: y,
-                    w: w,
-                    h: h,
-                    fs: fs,
-                    xMid: x + w / 2,
-                    yMid: y + h / 2
-                };
-            }).filter(i => i.str.length > 0);
+            // 1. Convert Word Doc to clean HTML via Mammoth
+            const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(result.value, 'text/html');
+            const table = doc.querySelector('table');
 
-            if (rawItems.length === 0) {
-                alert("No readable text found in PDF.");
+            if (!table) {
+                alert("No table found in the uploaded Word document.");
                 return;
             }
 
-            // 2. Filter Title and Header/Footer branding
-            const fontSizes = rawItems.map(i => i.fs).sort((a, b) => a - b);
-            const medianFS = fontSizes[Math.floor(fontSizes.length / 2)] || 10;
-            const brandingKeywords = ["sentencebuilders", "powered by", "language gym", "page 1"];
-            
-            let suggestedTitle = file.name.replace(/\.pdf$/i, "");
-            const titleCandidates = rawItems.filter(i => 
-                i.fs >= medianFS * 1.3 && 
-                i.y > pageHeight * 0.7 &&
-                !brandingKeywords.some(b => i.str.toLowerCase().includes(b))
-            ).sort((a, b) => b.fs - a.fs || b.y - a.y);
+            const suggestedTitle = file.name.replace(/\.docx$/i, "");
+            const trElements = Array.from(table.querySelectorAll('tr'));
 
-            if (titleCandidates.length > 0) {
-                suggestedTitle = titleCandidates[0].str;
-            }
+            // 2. Build 2D grid matrix tracking rowspans & colspans
+            const gridMatrix = [];
 
-            const tableItems = rawItems.filter(i => {
-                const lower = i.str.toLowerCase();
-                if (brandingKeywords.some(b => lower.includes(b))) return false;
-                if (titleCandidates.length > 0 && i.str === titleCandidates[0].str && i.y > pageHeight * 0.8) return false;
-                return true;
-            });
+            trElements.forEach((tr, rIdx) => {
+                if (!gridMatrix[rIdx]) gridMatrix[rIdx] = [];
 
-            if (tableItems.length === 0) {
-                alert("Could not extract grid table content from PDF.");
-                return;
-            }
+                const tdElements = Array.from(tr.querySelectorAll('td, th'));
+                let colCursor = 0;
 
-            // 3. Extract Vector Path Rectangles (Cell Boundaries)
-            const opList = await page.getOperatorList();
-            const rects = [];
-            
-            for (let i = 0; i < opList.fnArray.length; i++) {
-                const fn = opList.fnArray[i];
-                const args = opList.argsArray[i];
-
-                // PDF.js operator 9 (constructPath) or rect drawing ops
-                if (fn === pdfjsLib.OPS.constructPath) {
-                    const ops = args[0];
-                    const coords = args[1];
-                    let cIdx = 0;
-                    for (let op of ops) {
-                        if (op === pdfjsLib.OPS.rectangle) {
-                            const rx = coords[cIdx];
-                            const ry = coords[cIdx + 1];
-                            const rw = coords[cIdx + 2];
-                            const rh = coords[cIdx + 3];
-                            cIdx += 4;
-                            if (Math.abs(rw) > 15 && Math.abs(rh) > 10) {
-                                rects.push({
-                                    x: Math.min(rx, rx + rw),
-                                    y: Math.min(ry, ry + rh),
-                                    w: Math.abs(rw),
-                                    h: Math.abs(rh),
-                                    x2: Math.max(rx, rx + rw),
-                                    y2: Math.max(ry, ry + rh)
-                                });
-                            }
-                        } else if (op === pdfjsLib.OPS.moveTo) cIdx += 2;
-                        else if (op === pdfjsLib.OPS.lineTo) cIdx += 2;
-                        else if (op === pdfjsLib.OPS.curveTo) cIdx += 6;
+                tdElements.forEach(td => {
+                    // Advance colCursor to skip slots occupied by rowspans from previous rows
+                    while (gridMatrix[rIdx][colCursor] !== undefined) {
+                        colCursor++;
                     }
-                }
-            }
 
-            let numRows, numCols, rowBounds, colBounds;
-            let cellBoxes = [];
+                    const rS = parseInt(td.getAttribute('rowspan') || '1', 10);
+                    const cS = parseInt(td.getAttribute('colspan') || '1', 10);
 
-            // 4A. GRID RECONSTRUCTION VIA VECTOR PATH RECTANGLES
-            if (rects.length >= 4) {
-                // Filter table border container if present
-                const minTableX = Math.min(...tableItems.map(i => i.x));
-                const maxTableX = Math.max(...tableItems.map(i => i.x + i.w));
-                const validRects = rects.filter(r => r.w < (maxTableX - minTableX) * 0.98);
+                    // Extract text preserving linebreaks
+                    const clone = td.cloneNode(true);
+                    clone.querySelectorAll('p, div, br, tr, li').forEach(el => {
+                        el.insertAdjacentHTML('afterend', '\n');
+                    });
 
-                // Cluster X (columns) and Y (rows) from vector rectangles
-                const xCoords = [];
-                const yCoords = [];
+                    const text = clone.textContent || "";
+                    const vocabItems = [];
+                    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
 
-                validRects.forEach(r => {
-                    xCoords.push(r.x, r.x2);
-                    yCoords.push(r.y, r.y2);
-                });
+                    lines.forEach(line => {
+                        const pairRegex = /([^\(\)]+?)\s*\(([^)]*)\)/g;
+                        let match;
+                        let foundInLine = false;
 
-                const clusterPoints = (pts, tol = 5) => {
-                    pts.sort((a, b) => a - b);
-                    const clusters = [];
-                    pts.forEach(p => {
-                        if (clusters.length === 0 || p - clusters[clusters.length - 1].val > tol) {
-                            clusters.push({ sum: p, count: 1, val: p });
-                        } else {
-                            const last = clusters[clusters.length - 1];
-                            last.sum += p;
-                            last.count++;
-                            last.val = last.sum / last.count;
+                        while ((match = pairRegex.exec(line)) !== null) {
+                            foundInLine = true;
+                            const t = match[1].trim();
+                            const tr = match[2] ? match[2].trim() : "";
+                            if (t || tr) vocabItems.push({ t, tr });
+                        }
+
+                        if (!foundInLine && line.trim()) {
+                            vocabItems.push({ t: line.trim(), tr: "" });
                         }
                     });
-                    return clusters.map(c => c.val);
-                };
 
-                colBounds = clusterPoints(xCoords, 6);
-                rowBounds = clusterPoints(yCoords, 6).sort((a, b) => b - a); // Top to bottom (Y descending)
+                    const originCell = {
+                        items: vocabItems.length > 0 ? vocabItems : [{ t: "", tr: "" }],
+                        color: "#ffffff",
+                        split: false,
+                        rS: rS,
+                        cS: cS,
+                        hidden: false,
+                        sel: false
+                    };
 
-                numCols = colBounds.length - 1;
-                numRows = rowBounds.length - 1;
-            }
-
-            // 4B. FALLBACK GRID RECONSTRUCTION (If no vector paths exist)
-            if (!numCols || !numRows || numCols < 1 || numRows < 1) {
-                // Determine columns by clustering left edge of text
-                const sortedX = tableItems.map(i => i.x).sort((a, b) => a - b);
-                const colStarts = [];
-                let currentCluster = [];
-
-                sortedX.forEach(x => {
-                    if (currentCluster.length === 0 || x - currentCluster[0] <= 35) {
-                        currentCluster.push(x);
-                    } else {
-                        colStarts.push(currentCluster.reduce((a, b) => a + b, 0) / currentCluster.length);
-                        currentCluster = [x];
+                    // Fill cell position and mark covered spanned positions as hidden
+                    for (let r = rIdx; r < rIdx + rS; r++) {
+                        if (!gridMatrix[r]) gridMatrix[r] = [];
+                        for (let c = colCursor; c < colCursor + cS; c++) {
+                            if (r === rIdx && c === colCursor) {
+                                gridMatrix[r][c] = originCell;
+                            } else {
+                                gridMatrix[r][c] = {
+                                    items: [{ t: "", tr: "" }],
+                                    color: "#ffffff",
+                                    split: false,
+                                    rS: 1,
+                                    cS: 1,
+                                    hidden: true,
+                                    sel: false
+                                };
+                            }
+                        }
                     }
+
+                    colCursor += cS;
                 });
-                if (currentCluster.length > 0) {
-                    colStarts.push(currentCluster.reduce((a, b) => a + b, 0) / currentCluster.length);
-                }
-
-                const minX = Math.min(...tableItems.map(i => i.x)) - 10;
-                const maxX = Math.max(...tableItems.map(i => i.x + i.w)) + 10;
-                colBounds = [minX];
-                for (let i = 0; i < colStarts.length - 1; i++) colBounds.push((colStarts[i] + colStarts[i + 1]) / 2);
-                colBounds.push(maxX);
-                numCols = colBounds.length - 1;
-
-                // Determine rows by grouping lines of text with cell-height thresholds (prevents intra-cell splitting)
-                const yMids = tableItems.map(i => i.yMid).sort((a, b) => b - a);
-                const rowStarts = [];
-                let yCluster = [];
-
-                yMids.forEach(y => {
-                    if (yCluster.length === 0 || yCluster[0] - y <= 28) { // 28pt threshold keeps text inside 1 cell together
-                        yCluster.push(y);
-                    } else {
-                        rowStarts.push(yCluster.reduce((a, b) => a + b, 0) / yCluster.length);
-                        yCluster = [y];
-                    }
-                });
-                if (yCluster.length > 0) rowStarts.push(yCluster.reduce((a, b) => a + b, 0) / yCluster.length);
-
-                const minY = Math.min(...tableItems.map(i => i.y)) - 10;
-                const maxY = Math.max(...tableItems.map(i => i.y + i.h)) + 10;
-                rowBounds = [maxY];
-                for (let i = 0; i < rowStarts.length - 1; i++) rowBounds.push((rowStarts[i] + rowStarts[i + 1]) / 2);
-                rowBounds.push(minY);
-                numRows = rowBounds.length - 1;
-            }
-
-            // 5. MAP TEXT ITEMS INTO GRID MATRIX
-            const gridCellBuckets = Array.from({ length: numRows }, () =>
-                Array.from({ length: numCols }, () => [])
-            );
-
-            tableItems.forEach(item => {
-                let rIdx = 0;
-                for (let r = 0; r < numRows; r++) {
-                    if (item.yMid <= rowBounds[r] && item.yMid >= rowBounds[r + 1]) {
-                        rIdx = r;
-                        break;
-                    }
-                }
-
-                let cIdx = 0;
-                for (let c = 0; c < numCols; c++) {
-                    if (item.xMid >= colBounds[c] && item.xMid <= colBounds[c + 1]) {
-                        cIdx = c;
-                        break;
-                    }
-                }
-
-                gridCellBuckets[rIdx][cIdx].push(item);
             });
 
-            // 6. BUILD GRID MATRIX AND CALCULATE TRUE CELL SPANS (rS / cS)
-            const finalGridRows = Array.from({ length: numRows }, () =>
-                Array.from({ length: numCols }, () => ({
-                    items: [{ t: "", tr: "" }],
-                    color: "#ffffff",
-                    split: false,
-                    rS: 1,
-                    cS: 1,
-                    hidden: false,
-                    sel: false
-                }))
-            );
-
-            // Populate vocabulary for non-empty cells
-            for (let r = 0; r < numRows; r++) {
-                for (let c = 0; c < numCols; c++) {
-                    const cellItems = gridCellBuckets[r][c];
-                    if (cellItems.length > 0) {
-                        finalGridRows[r][c].items = parseCellVocab(cellItems);
-                    }
+            // 3. Ensure all rows have equal column counts
+            const maxCols = Math.max(...gridMatrix.map(r => r.length), 1);
+            gridMatrix.forEach(row => {
+                while (row.length < maxCols) {
+                    row.push({ items: [{ t: "", tr: "" }], color: "#ffffff", split: false, rS: 1, cS: 1, hidden: false, sel: false });
                 }
-            }
+            });
 
-            // Detect vector rectangle cell spans (spans across rowBounds/colBounds)
-            for (let r = 0; r < numRows; r++) {
-                for (let c = 0; c < numCols; c++) {
-                    const cell = finalGridRows[r][c];
-                    if (cell.hidden) continue;
-
-                    // Check if cell is empty and covered by a neighbouring merged root cell
-                    const hasText = cell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
-
-                    // Horizontal span detection
-                    if (hasText) {
-                        let cSpan = 1;
-                        for (let cNext = c + 1; cNext < numCols; cNext++) {
-                            const nextCell = finalGridRows[r][cNext];
-                            const nextHasText = nextCell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
-                            if (!nextHasText && !nextCell.hidden) {
-                                cSpan++;
-                            } else {
-                                break;
-                            }
-                        }
-                        cell.cS = cSpan;
-
-                        // Vertical span detection
-                        let rSpan = 1;
-                        for (let rNext = r + 1; rNext < numRows; rNext++) {
-                            let canMergeRow = true;
-                            for (let cSub = c; cSub < c + cSpan; cSub++) {
-                                const subCell = finalGridRows[rNext][cSub];
-                                const subHasText = subCell.items.some(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
-                                if (subHasText || subCell.hidden) {
-                                    canMergeRow = false;
-                                    break;
-                                }
-                            }
-                            if (canMergeRow) {
-                                rSpan++;
-                            } else {
-                                break;
-                            }
-                        }
-                        cell.rS = rSpan;
-
-                        // Hide covered sub-cells
-                        for (let i = r; i < r + rSpan; i++) {
-                            for (let j = c; j < c + cSpan; j++) {
-                                if (i === r && j === c) continue;
-                                finalGridRows[i][j].hidden = true;
-                                finalGridRows[i][j].rS = 1;
-                                finalGridRows[i][j].cS = 1;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 7. Load into Builder Editor
             const finalTitle = prompt("Confirm Project Title:", suggestedTitle);
             if (!finalTitle) return;
 
             const newDoc = {
                 uid: currentUser.uid,
                 title: finalTitle,
-                lang: meta.lang || "German",
+                lang: meta.lang || "French",
                 year: meta.year || "Year 9",
                 topic: meta.topic || "Imported",
-                grid: JSON.stringify(finalGridRows),
+                grid: JSON.stringify(gridMatrix),
                 disabledRoutes: [],
                 excludedCombos: [],
                 requiredCombos: [],
@@ -3771,14 +3583,15 @@ async function handlePDFImport(event) {
             };
 
             const docRef = await db.collection("builders").add(newDoc);
-            alert("Success! PDF imported into builder grid matching exact table dimensions.");
+            alert("Success! Document imported into accurate grid layout.");
             loadProject(docRef.id);
 
         } catch (err) {
-            console.error("PDF Import Error:", err);
-            alert("Import failed: " + (err.message || err));
+            console.error("Docx Import Error:", err);
+            alert("Import failed: " + err.message);
         }
     };
+
     reader.readAsArrayBuffer(file);
 }
 /* =========================
@@ -7631,8 +7444,76 @@ function playClassDisplayGrid(allSentences) {
 function toggleMode(mode) { currentMode = (currentMode === mode) ? null : mode; render(false); }
 function insertRow(i) { grid.splice(i, 0, Array.from({length: grid[0].length}, () => c())); currentMode = null; render(); saveToCloud(true); }
 function insertCol(i) { grid.forEach(r => r.splice(i, 0, c())); currentMode = null; render(); saveToCloud(true); }
-function deleteRow(i) { if(grid.length > 1) { grid.splice(i, 1); currentMode = null; render(); saveToCloud(true); } }
-function deleteCol(i) { if(grid[0].length > 1) { grid.forEach(r => r.splice(i, 1)); currentMode = null; render(); saveToCloud(true); } }
+function deleteCol(cIdx) {
+    if (!grid || !grid.length) return;
+    const cols = Math.max(...grid.map(r => r.length), 1);
+    if (cols <= 1) {
+        alert("Cannot delete the last remaining column.");
+        return;
+    }
+
+    // Safely unmerge all spans before splicing columns to prevent matrix corruption
+    grid.forEach(row => {
+        row.forEach(cell => {
+            if (cell) {
+                cell.rS = 1;
+                cell.cS = 1;
+                cell.hidden = false;
+            }
+        });
+    });
+
+    // Remove column from every row
+    grid.forEach(row => {
+        if (cIdx < row.length) {
+            row.splice(cIdx, 1);
+        }
+    });
+
+    render(true);
+}
+
+function deleteRow(rIdx) {
+    if (!grid || grid.length <= 1) {
+        alert("Cannot delete the last remaining row.");
+        return;
+    }
+
+    // Safely unmerge all spans before splicing rows
+    grid.forEach(row => {
+        row.forEach(cell => {
+            if (cell) {
+                cell.rS = 1;
+                cell.cS = 1;
+                cell.hidden = false;
+            }
+        });
+    });
+
+    grid.splice(rIdx, 1);
+    render(true);
+}
+
+function splitCell(r, c) {
+    if (!grid[r] || !grid[r][c]) return;
+    const cell = grid[r][c];
+
+    const rS = cell.rS || 1;
+    const cS = cell.cS || 1;
+
+    // Reset spans for all cells inside this area
+    for (let i = r; i < r + rS; i++) {
+        for (let j = c; j < c + cS; j++) {
+            if (grid[i] && grid[i][j]) {
+                grid[i][j].hidden = false;
+                grid[i][j].rS = 1;
+                grid[i][j].cS = 1;
+            }
+        }
+    }
+
+    render(true);
+}
 
 setInterval(() => {
     const isEditor = document.getElementById('editor-page').classList.contains('active-page');
