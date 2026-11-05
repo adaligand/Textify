@@ -4331,37 +4331,71 @@ function isEligibleForFaulty(sentence) {
 }
 
 function generateFaultySentenceObj(sentence) {
-    if (!sentence || !sentence.parts) return null;
+    if (!sentence || !sentence.parts || sentence.parts.length === 0) return null;
 
-    const multiItemParts = sentence.parts.filter(p => {
+    const rules = document.getElementById('transformations-input')?.value || transformationsText || "";
+
+    // Identify parts in the sentence route that come from cells with multiple alternative options
+    const eligiblePartIndices = [];
+    sentence.parts.forEach((p, idx) => {
+        if (p.isBridge) return;
         const cell = getCellAt(p.r, p.c);
-        if (!cell || !cell.items) return false;
-        const validTrs = cell.items.filter(it => it.tr && it.tr.trim() !== "");
-        return validTrs.length > 1;
+        if (!cell || !cell.items) return;
+        const validItems = cell.items.filter(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
+        if (validItems.length > 1) {
+            eligiblePartIndices.push(idx);
+        }
     });
 
-    if (multiItemParts.length === 0) return null;
+    if (eligiblePartIndices.length === 0) return null;
 
-    const chosenPart = multiItemParts[Math.floor(Math.random() * multiItemParts.length)];
+    // Pick a random eligible cell position in the path
+    const chosenIdx = eligiblePartIndices[Math.floor(Math.random() * eligiblePartIndices.length)];
+    const chosenPart = sentence.parts[chosenIdx];
     const cell = getCellAt(chosenPart.r, chosenPart.c);
 
-    const origTr = (chosenPart.tr || "").trim();
-    const alternatives = cell.items
-        .map(it => (it.tr || "").trim())
-        .filter(tr => tr && tr.toLowerCase() !== origTr.toLowerCase());
+    const origTr = (chosenPart.tr || "").trim().toLowerCase();
+    const origT = (chosenPart.t || "").trim().toLowerCase();
+
+    // Pick an alternative distractor item from that cell
+    const alternatives = (cell.items || []).filter(it => {
+        const tr = (it.tr || "").trim().toLowerCase();
+        const t = (it.t || "").trim().toLowerCase();
+        return (tr && tr !== origTr) || (t && t !== origT);
+    });
 
     if (alternatives.length === 0) return null;
+    const faultyItem = alternatives[Math.floor(Math.random() * alternatives.length)];
 
-    const faultyDistractor = alternatives[Math.floor(Math.random() * alternatives.length)];
-    
-    let faultyTr = sentence.tr;
-    if (origTr && faultyTr.includes(origTr)) {
-        faultyTr = faultyTr.replace(origTr, faultyDistractor);
-    } else {
-        faultyTr = faultyTr + " (" + faultyDistractor + ")";
+    // Rebuild the route by swapping the target cell item with the alternative distractor item
+    const faultyParts = sentence.parts.map((p, idx) => {
+        if (idx === chosenIdx) {
+            return {
+                ...p,
+                t: faultyItem.t || p.t,
+                tr: faultyItem.tr || ""
+            };
+        }
+        return p;
+    });
+
+    // Re-assemble the raw English path before transformations
+    const rawFaultyTr = faultyParts
+        .filter(p => !p.isBridge && p.tr && p.tr.trim() !== "")
+        .map(p => p.tr.trim())
+        .join(" ");
+
+    // Run the raw faulty English path through the exact same transformation rules pipeline
+    let faultyTr = applyTransformations(rawFaultyTr, rules);
+    faultyTr = cleanSentenceSpacing(faultyTr);
+
+    // Fallback: If transformations produced identical text or an empty string, append distractor in brackets
+    if (!faultyTr || faultyTr.toLowerCase() === (sentence.tr || "").toLowerCase()) {
+        const distractorText = (faultyItem.tr || faultyItem.t || "").trim();
+        faultyTr = `${sentence.tr} (${distractorText})`;
     }
 
-    return faultyTr;
+    return { faultyTr: faultyTr };
 }
 
 function getOrGenerateFaultyTr(sentence) {
