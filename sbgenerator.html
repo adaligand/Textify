@@ -816,7 +816,7 @@ th { background: #f1f5f9; color: #334155; }
     flex: 1;
     display: flex;
     flex-direction: column;
-    justify-content: center; /* Keeps single-sentence activities centered vertically */
+    justify-content: flex-start; /* Changed from center to move content toward the top */
     align-items: center;
     text-align: center;
     padding: 10px 0;
@@ -833,7 +833,8 @@ th { background: #f1f5f9; color: #334155; }
     margin-bottom: 20px;
     width: 100% !important;
     max-width: 98% !important;
-    word-break: normal;
+    overflow-wrap: anywhere; /* Allows long unbroken strings to wrap */
+    word-break: break-word;  /* Ensures standard words break nicely */
 }
 
 .cd-answer-text {
@@ -2051,9 +2052,16 @@ async function renderProjectsInline() {
             return;
         }
 
+        // Sort documents alphabetically by title (with natural number handling for 1-, 2-, 10-)
+        const sortedDocs = [...snap.docs].sort((a, b) => {
+            const titleA = a.data().title || "Untitled Builder";
+            const titleB = b.data().title || "Untitled Builder";
+            return titleA.localeCompare(titleB, undefined, { numeric: true, sensitivity: 'base' });
+        });
+
         let html = `<div class="project-grid" style="display: grid; grid-template-columns: repeat(auto-fill, 300px); gap: 20px; padding: 10px;">`;
         
-        snap.docs.forEach(doc => {
+        sortedDocs.forEach(doc => {
             const p = doc.data();
             
             html += `
@@ -2078,7 +2086,6 @@ async function renderProjectsInline() {
         container.innerHTML = `<p style="color:red; padding: 20px;">Error loading projects.</p>`;
     }
 }
-
 function toggleBinView() {
     showPage('bin-page');
     renderBin();
@@ -4330,37 +4337,71 @@ function isEligibleForFaulty(sentence) {
 }
 
 function generateFaultySentenceObj(sentence) {
-    if (!sentence || !sentence.parts) return null;
+    if (!sentence || !sentence.parts || sentence.parts.length === 0) return null;
 
-    const multiItemParts = sentence.parts.filter(p => {
+    const rules = document.getElementById('transformations-input')?.value || transformationsText || "";
+
+    // Identify parts in the sentence route that come from cells with multiple alternative options
+    const eligiblePartIndices = [];
+    sentence.parts.forEach((p, idx) => {
+        if (p.isBridge) return;
         const cell = getCellAt(p.r, p.c);
-        if (!cell || !cell.items) return false;
-        const validTrs = cell.items.filter(it => it.tr && it.tr.trim() !== "");
-        return validTrs.length > 1;
+        if (!cell || !cell.items) return;
+        const validItems = cell.items.filter(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
+        if (validItems.length > 1) {
+            eligiblePartIndices.push(idx);
+        }
     });
 
-    if (multiItemParts.length === 0) return null;
+    if (eligiblePartIndices.length === 0) return null;
 
-    const chosenPart = multiItemParts[Math.floor(Math.random() * multiItemParts.length)];
+    // Pick a random eligible cell position in the path
+    const chosenIdx = eligiblePartIndices[Math.floor(Math.random() * eligiblePartIndices.length)];
+    const chosenPart = sentence.parts[chosenIdx];
     const cell = getCellAt(chosenPart.r, chosenPart.c);
 
-    const origTr = (chosenPart.tr || "").trim();
-    const alternatives = cell.items
-        .map(it => (it.tr || "").trim())
-        .filter(tr => tr && tr.toLowerCase() !== origTr.toLowerCase());
+    const origTr = (chosenPart.tr || "").trim().toLowerCase();
+    const origT = (chosenPart.t || "").trim().toLowerCase();
+
+    // Pick an alternative distractor item from that cell
+    const alternatives = (cell.items || []).filter(it => {
+        const tr = (it.tr || "").trim().toLowerCase();
+        const t = (it.t || "").trim().toLowerCase();
+        return (tr && tr !== origTr) || (t && t !== origT);
+    });
 
     if (alternatives.length === 0) return null;
+    const faultyItem = alternatives[Math.floor(Math.random() * alternatives.length)];
 
-    const faultyDistractor = alternatives[Math.floor(Math.random() * alternatives.length)];
-    
-    let faultyTr = sentence.tr;
-    if (origTr && faultyTr.includes(origTr)) {
-        faultyTr = faultyTr.replace(origTr, faultyDistractor);
-    } else {
-        faultyTr = faultyTr + " (" + faultyDistractor + ")";
+    // Rebuild the route by swapping the target cell item with the alternative distractor item
+    const faultyParts = sentence.parts.map((p, idx) => {
+        if (idx === chosenIdx) {
+            return {
+                ...p,
+                t: faultyItem.t || p.t,
+                tr: faultyItem.tr || ""
+            };
+        }
+        return p;
+    });
+
+    // Re-assemble the raw English path before transformations
+    const rawFaultyTr = faultyParts
+        .filter(p => !p.isBridge && p.tr && p.tr.trim() !== "")
+        .map(p => p.tr.trim())
+        .join(" ");
+
+    // Run the raw faulty English path through the exact same transformation rules pipeline
+    let faultyTr = applyTransformations(rawFaultyTr, rules);
+    faultyTr = cleanSentenceSpacing(faultyTr);
+
+    // Fallback: If transformations produced identical text or an empty string, append distractor in brackets
+    if (!faultyTr || faultyTr.toLowerCase() === (sentence.tr || "").toLowerCase()) {
+        const distractorText = (faultyItem.tr || faultyItem.t || "").trim();
+        faultyTr = `${sentence.tr} (${distractorText})`;
     }
 
-    return faultyTr;
+    return { faultyTr: faultyTr };
 }
 
 function getOrGenerateFaultyTr(sentence) {
@@ -4526,7 +4567,8 @@ function renderPerActivitySentenceBoxes(overrideSentencesMap = null) {
                 <div id="act-body-${actId}" class="act-card-body" data-activity-id="${actId}" style="display:none;">
                     ${actSents.map((s, idx) => {
                         if (actId === 'faulty') {
-                            const faultyVal = s.faultyTr || generateFaultySentenceObj(s) || s.tr || '';
+                            // ✅ CORRECT (returns the string safely):
+const faultyVal = getOrGenerateFaultyTr(s);
                             return `
                                 <div class="act-sentence-row" style="display:flex; gap:8px; margin-bottom:6px; align-items:center;">
                                     <span style="font-size:12px; font-weight:bold; color:#64748b; width:20px;">${idx + 1}.</span>
@@ -7212,14 +7254,14 @@ function playClassDisplayGame() {
         questionHTML = `<div class="cd-question-text">${hiddenText}</div>
                         <div class="cd-sub-text">${englishText}</div>`;
     } 
-    else if (mode === 'no-spaces') {
+   else if (mode === 'no-spaces') {
         const noSpaceText = targetText.replace(/\s+/g, '');
-        questionHTML = `<div class="cd-question-text" style="letter-spacing: 2px;">${noSpaceText}</div>`;
+        questionHTML = `<div class="cd-question-text" style="letter-spacing: 2px; word-break: break-all; overflow-wrap: anywhere;">${noSpaceText}</div>`;
         answerHTML = `<div id="cd-answer-box" class="cd-answer-text" style="display: ${isAnswerRevealed ? 'block' : 'none'};">
                         ${targetText}
                         ${englishText ? `<div style="font-size: 3.2rem; font-weight: 600; margin-top: 10px;">${englishText}</div>` : ''}
                       </div>`;
-    } 
+    }
     else if (mode === 'unjumble') {
         const words = shuffleArray(targetText.split(' '));
         questionHTML = `<div class="cd-question-text">${words.join(' &nbsp;•&nbsp; ')}</div>`;
@@ -7230,7 +7272,7 @@ function playClassDisplayGame() {
     }
 
     container.innerHTML = `
-        <div style="width: 98%; max-width: 98%; margin: 0 auto; min-height: 220px; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+        <div style="width: 98%; max-width: 98%; margin: 25px auto 0 auto; min-height: 220px; display:flex; flex-direction:column; justify-content:flex-start; align-items:center;">
             ${questionHTML}
             ${answerHTML}
         </div>
