@@ -870,7 +870,7 @@ th { background: #f1f5f9; color: #334155; }
     margin: 0 22px; /* Generous space between words */
 }
         /* Student Selector Styles */
-        hidden { display: none !important; }
+        .hidden { display: none !important; }
 #student-selection-summary { float: right; color: #64748b; font-weight: 500; }
 #student-selector-panel { margin: 0 0 15px 0; border: 1px solid #d9e2ec; border-radius: 6px; background: #fff; overflow: hidden; }
 #student-list { max-height: 260px; overflow-y: auto; padding: 6px 0; }
@@ -1559,7 +1559,6 @@ function renderClassroomStudentList() {
         const studentId = student.userId;
         const profile = student.profile || {};
         const name = profile.name && profile.name.fullName ? profile.name.fullName : (profile.emailAddress || 'Unnamed student');
-        const email = profile.emailAddress || '';
 
         const row = document.createElement('label');
         row.style.cssText = `
@@ -1607,13 +1606,6 @@ function renderClassroomStudentList() {
         nameElement.style.cssText = `font-weight: 600; line-height: 1.3;`;
         nameElement.innerText = name;
         textContainer.appendChild(nameElement);
-
-        if (email && email !== name) {
-            const emailElement = document.createElement('div');
-            emailElement.style.cssText = `color: #7f8c8d; font-size: 11px; margin-top: 2px;`;
-            emailElement.innerText = email;
-            textContainer.appendChild(emailElement);
-        }
 
         row.appendChild(checkbox);
         row.appendChild(textContainer);
@@ -3879,14 +3871,28 @@ function openPreview() {
 }
 
 function openActivityMenu() {
-   editingAssignmentId = null;
+    editingAssignmentId = null;
     window.editingSavedSentencesMap = null;
   
     const studentPanel = document.getElementById('student-selector-panel');
     if (studentPanel) studentPanel.classList.add('hidden');
     const arrow = document.getElementById('student-dropdown-arrow');
     if (arrow) arrow.innerText = '▾';
-    // -------------------------------------------------------------
+
+    // Reset classroom course and student selections from scratch
+    const courseSelect = document.getElementById('gc-course-select');
+    if (courseSelect) courseSelect.innerHTML = '<option value="">-- Choose Course --</option>';
+    classroomStudents = [];
+    selectedClassroomStudentIds = [];
+    studentSelectorCourseId = null;
+    
+    const summary = document.getElementById('student-selection-summary');
+    const list = document.getElementById('student-list');
+    if (summary) summary.innerText = "Select a class";
+    if (list) list.innerHTML = '';
+    
+    const assignFields = document.getElementById('classroom-assign-fields');
+    if (assignFields) assignFields.style.display = 'none';
 
     const btn = document.getElementById('gc-publish-btn');
     if (btn) btn.innerText = "📢 Publish Assignment Now";
@@ -3896,7 +3902,7 @@ function openActivityMenu() {
 
     const currentLang = meta.lang || document.getElementById('meta-lang')?.value || "Target Language";
     
-    const list = [
+    const listItems = [
         {id:'study', label:'Sentence Table (Reference)'}, 
         {id:'match', label:'Match up'}, 
         {id:'nospaces', label:'No Spaces'}, 
@@ -3910,15 +3916,15 @@ function openActivityMenu() {
         {id:'trans-target', label:`Translate (${currentLang})`}
     ];
 
-   document.getElementById('activity-list').innerHTML = list.map(a => `
-    <div class="activity-row" style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
-        <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
-        <label for="chk-${a.id}" style="cursor:pointer; font-weight:500; font-size: 13px;">${a.label}</label>
-    </div>
-`).join('');
+    document.getElementById('activity-list').innerHTML = listItems.map(a => `
+        <div class="activity-row" style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
+            <label for="chk-${a.id}" style="cursor:pointer; font-weight:500; font-size: 13px;">${a.label}</label>
+        </div>
+    `).join('');
     
-   renderPerActivitySentenceBoxes();
-    document.getElementById('activity-menu').style.display = 'flex'; // CHANGED FROM 'block'
+    renderPerActivitySentenceBoxes();
+    document.getElementById('activity-menu').style.display = 'flex';
     document.getElementById('overlay').style.display = 'block';
 }
 
@@ -5211,7 +5217,6 @@ async function openClassroomPublishSection() {
     const assignFields = document.getElementById('classroom-assign-fields');
     assignFields.style.display = 'block';
     
-    // Smooth scroll only the right panel container
     if (assignFields.parentElement) {
         assignFields.parentElement.scrollTo({ top: assignFields.parentElement.scrollHeight, behavior: 'smooth' });
     }
@@ -5230,7 +5235,6 @@ async function openClassroomPublishSection() {
         try {
             res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
         } catch (authErr) {
-            console.warn("Classroom API rejected current token, requesting account selection...", authErr);
             localStorage.removeItem('oauth_token');
             localStorage.removeItem('oauth_token_expiry');
             await ensureClassroomToken(true);
@@ -5244,17 +5248,14 @@ async function openClassroomPublishSection() {
             return;
         }
 
+        // Populate dropdown starting clean at "-- Choose Course --" without auto-selecting
         select.innerHTML = '<option value="">-- Choose Course --</option>' + 
             courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+        select.value = "";
 
-        // 🛠️ AUTO-LOAD STUDENTS IF A DEFAULT COURSE IS AVAILABLE
-        if (courses.length > 0) {
-            select.value = courses[0].id;
-            await handleClassroomCourseChange(courses[0].id);
-        }
     } catch (err) {
         console.error("Error opening classroom publish section:", err);
-        alert("Failed to load Google Classroom courses. Check the console for more details.");
+        alert("Failed to load Google Classroom courses.");
     }
 }
 
