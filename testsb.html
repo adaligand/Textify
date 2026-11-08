@@ -1177,12 +1177,12 @@
     let selRpLang = null, selRpYear = null, selRpTopic = null, selRpTier = 'all';
 let currentActiveSection = 'main-menu-section';
 let previousSection = 'main-menu-section';
-    // State tracking variables
+// Sentence Builder state tracking
 let sentenceBuilderDataStructure = {};
-let activeSubmissionsTab = 'speaking'; // 'speaking' or 'sentence_builder'
-let activeBinTab = 'speaking';        // 'speaking' or 'sentence_builder'
-
+let activeSubmissionsTab = 'speaking';
+let activeBinTab = 'speaking';
 let selSbLang = null, selSbYear = null, selSbTopic = null, selSbTier = 'all';
+
 let grid = [[c(), c(), c()], [c(), c(), c()]];
 let disabledRoutes = [];
 let excludedCombos = [];
@@ -1194,23 +1194,22 @@ let currentMode = null;
 let typingTimer = null;
 let excludedPairs = [];
 let excludeSelection = [];
-let disabledRoutes = [];
-let excludedCombos = [];
-let requiredCombos = [];
-let transformationsText = "";
 let comboPickerMode = null;
 let currentComboSelection = [];
 
+// Student portal state
 let currentStudentAssignment = null;
 let studentExerciseTypes = [];
 let studentCurrentExIndex = 0;
 let studentAnswersState = {};
 
+// Classroom & student selection state
 let classroomStudents = [];
 let selectedClassroomStudentIds = [];
 let studentSelectorCourseId = null;
 let activeInputForVK = null;
 
+// Live Class Display state
 let classDisplaySentences = [];
 let currentClassDisplayIndex = 0;
 let isAnswerRevealed = false;
@@ -1510,7 +1509,43 @@ function applyTransformations(text, rulesText) {
     }
     return text.replace(/\s+/g, ' ').trim();
 }
+function openRoutesModal() {
+    document.getElementById('routes-modal').style.display = 'flex';
+    renderRoutesMiniGrid();
+    renderRoutesList();
+}
 
+function closeModals() {
+    document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
+}
+
+function switchRoutesTab(tab) {
+    ['routes', 'combos', 'transforms'].forEach(t => {
+        const btn = document.getElementById('tab-btn-' + t);
+        const content = document.getElementById('tab-content-' + t);
+        if (btn) btn.style.background = (t === tab) ? '#8b5cf6' : '#e2e8f0';
+        if (btn) btn.style.color = (t === tab) ? '#ffffff' : '#475569';
+        if (content) content.style.display = (t === tab) ? 'flex' : 'none';
+    });
+}
+
+function selectAllRoutes(selectAll) {
+    const checkboxes = document.querySelectorAll('.route-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll;
+        const key = cb.dataset.routeKey;
+        if (!selectAll) {
+            if (!disabledRoutes.includes(key)) disabledRoutes.push(key);
+        } else {
+            disabledRoutes = disabledRoutes.filter(k => k !== key);
+        }
+    });
+}
+
+function saveRoutesAndCombos() {
+    transformationsText = document.getElementById('transformations-input')?.value || "";
+    closeModals();
+}
 function shouldExcludeSentence(text, rulesText) {
     if (!text || !rulesText) return false;
     const lines = rulesText.split('\n');
@@ -1747,6 +1782,37 @@ function generateWorksheet() {
     a.click();
     closeModals();
 }
+function getCleanActivityTitle(type, lang) {
+    const titles = {
+        'study': 'Sentence Reference Table',
+        'match': 'Match Up Exercise',
+        'nospaces': 'No Spaces Task',
+        'jumbled': 'Unjumble Sentences',
+        'gap-en': 'English Gap Fill',
+        'gap-t': `${lang} Gap Fill`,
+        'vowels': 'Missing Vowels',
+        'cons': 'Missing Consonants',
+        'faulty': 'Faulty Translation',
+        'trans-en': 'Translate to English',
+        'trans-target': `Translate to ${lang}`
+    };
+    return titles[type] || 'Language Exercise';
+}
+
+function getBalancedSelection(sentences, limit) {
+    if (!sentences || sentences.length === 0) return [];
+    const shuffled = [...sentences].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, Math.min(limit, shuffled.length));
+}
+
+function shuffleArray(arr) {
+    const clone = [...arr];
+    for (let i = clone.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [clone[i], clone[j]] = [clone[j], clone[i]];
+    }
+    return clone;
+}
 function openInteractiveClassDisplay() {
     const sentences = getAssembledSentences();
     if (!sentences || sentences.length === 0) {
@@ -1784,6 +1850,55 @@ function playClassDisplayGame() {
             <button id="cd-reveal-btn" onclick="toggleClassDisplayAnswer(this)" class="btn-info" style="font-size: 20px; padding: 12px 28px;">${isAnswerRevealed ? '🙈 Hide' : '🔍 Reveal'}</button>
         </div>
     `;
+}
+function nextClassDisplaySentence() {
+    currentClassDisplayIndex++;
+    isAnswerRevealed = false;
+    playClassDisplayGame();
+}
+
+function toggleClassDisplayAnswer(btn) {
+    isAnswerRevealed = !isAnswerRevealed;
+    const ansBox = document.getElementById('cd-answer-box');
+    if (ansBox) ansBox.style.display = isAnswerRevealed ? 'block' : 'none';
+    if (btn) btn.innerText = isAnswerRevealed ? '🙈 Hide' : '🔍 Reveal';
+}
+
+function handleClassDisplayActivityChange() {
+    isAnswerRevealed = false;
+    currentClassDisplayIndex = 0;
+    playClassDisplayGame();
+}
+
+function playClassDisplayMatchUp(sentences) {
+    const container = document.getElementById('class-display-content');
+    const items = getBalancedSelection(sentences, 5);
+    let html = `<div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; width:100%; max-width:900px; margin-top:20px;">`;
+    items.forEach((item, idx) => {
+        html += `
+            <div style="background:#f1f5f9; padding:15px; border-radius:8px; font-weight:bold; font-size:18px;">${idx + 1}. ${item.t}</div>
+            <div style="background:#eff6ff; padding:15px; border-radius:8px; font-weight:bold; font-size:18px; color:#1e40af;">${String.fromCharCode(65 + idx)}. ${item.tr}</div>
+        `;
+    });
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+function playClassDisplayGrid(sentences) {
+    const container = document.getElementById('class-display-content');
+    const items = getBalancedSelection(sentences, 6);
+    let html = `<div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; width:100%; max-width:1000px; margin-top:20px;">`;
+    items.forEach((item, idx) => {
+        html += `
+            <div style="background:#f8fafc; border:2px solid #cbd5e1; padding:15px; border-radius:8px; text-align:left;">
+                <div style="font-size:12px; color:#64748b; font-weight:bold;">Sentence ${idx + 1}</div>
+                <div style="font-size:16px; font-weight:bold; margin-top:4px;">${item.t}</div>
+                <div style="font-size:14px; color:#2563eb; margin-top:4px;">${item.tr}</div>
+            </div>
+        `;
+    });
+    html += `</div>`;
+    container.innerHTML = html;
 }
 async function submitStudentWork() {
     if (!currentUser || !currentUser.email) return alert("Please sign in with your school Google account first.");
