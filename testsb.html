@@ -5251,6 +5251,7 @@ async function loadStudentTask(assignmentId) {
     window.isTeacherPreview = false;
     const previewBanner = document.getElementById('teacher-preview-banner');
     if (previewBanner) previewBanner.style.display = 'none';
+
     try {
         const doc = await db.collection("assignments").doc(assignmentId).get();
         if (!doc.exists) {
@@ -5313,12 +5314,31 @@ async function loadStudentTask(assignmentId) {
                 console.warn("Could not query previous submissions:", subErr);
             }
 
-            // 2. Fetch saved draft progress if present
+            // 2. Fetch saved draft progress (Firestore + Local Storage fallback)
             try {
                 const draftId = `${assignmentId}_${studentEmail}`;
-                const draftDoc = await db.collection("student_drafts").doc(draftId).get();
-                if (draftDoc.exists) {
-                    const draftData = draftDoc.data();
+                let draftData = null;
+
+                try {
+                    const draftDoc = await db.collection("student_drafts").doc(draftId).get();
+                    if (draftDoc.exists) {
+                        draftData = draftDoc.data();
+                    }
+                } catch (fsErr) {
+                    console.warn("Could not fetch draft from Firestore:", fsErr);
+                }
+
+                const localDraftRaw = localStorage.getItem(`student_draft_${draftId}`);
+                if (localDraftRaw) {
+                    try {
+                        const localDraft = JSON.parse(localDraftRaw);
+                        if (!draftData || (localDraft.studentCompletedExercises && Object.keys(localDraft.studentCompletedExercises).length >= Object.keys(draftData.studentCompletedExercises || {}).length)) {
+                            draftData = localDraft;
+                        }
+                    } catch (pErr) {}
+                }
+
+                if (draftData) {
                     studentAnswersState = draftData.studentAnswersState || {};
                     window.studentCompletedExercises = draftData.studentCompletedExercises || {};
 
@@ -5352,7 +5372,6 @@ async function loadStudentTask(assignmentId) {
         alert("Error loading assignment task: " + err.message);
     }
 }
-
 function renderStudentPendingReviewCard(sub) {
     document.getElementById('student-active-exercise-card').style.display = 'none';
     document.getElementById('student-nav-actions').style.display = 'none';
@@ -5542,17 +5561,30 @@ async function saveDraftProgress() {
     const assignmentId = currentStudentAssignment.id;
     const draftId = `${assignmentId}_${studentEmail}`;
 
+    const draftPayload = {
+        assignmentId: assignmentId,
+        studentEmail: studentEmail,
+        studentAnswersState: studentAnswersState,
+        studentCompletedExercises: window.studentCompletedExercises || {},
+        lastUpdatedIndex: studentCurrentExIndex,
+        updatedAt: new Date().toISOString()
+    };
+
+    // 1. Instant local persistence fallback
+    try {
+        localStorage.setItem(`student_draft_${draftId}`, JSON.stringify(draftPayload));
+    } catch (lsErr) {
+        console.warn("LocalStorage save error:", lsErr);
+    }
+
+    // 2. Cloud Firestore persistence
     try {
         await db.collection("student_drafts").doc(draftId).set({
-            assignmentId: assignmentId,
-            studentEmail: studentEmail,
-            studentAnswersState: studentAnswersState,
-            studentCompletedExercises: window.studentCompletedExercises || {},
-            lastUpdatedIndex: studentCurrentExIndex,
+            ...draftPayload,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
     } catch (e) {
-        console.warn("Could not save draft progress:", e);
+        console.warn("Could not save draft progress to Firestore:", e);
     }
 }
 
@@ -5645,7 +5677,7 @@ function renderCurrentStudentExercise() {
     const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
 
     let html = `
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1.5px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
+        <div style="display:flex; justify-space-between; align-items:center; border-bottom:1.5px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
             <h3 style="margin:0; font-size:17px; color:#0f172a;">Exercise ${studentCurrentExIndex + 1} of ${studentExerciseTypes.length}: ${actTitle}</h3>
             <span style="background:#e2e8f0; padding:3px 8px; border-radius:12px; font-size:12px; font-weight:bold; color:#475569;">
                 ${sents.length} Items
@@ -5977,9 +6009,20 @@ function renderCurrentStudentExercise() {
         } else if (actType === 'vowels' || actType === 'cons') {
             area.querySelectorAll('.student-item-block').forEach((block, idx) => {
                 const boxes = Array.from(block.querySelectorAll('.letter-box'));
-                if (savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
-                    const ansStr = savedExerciseResponses[idx].studentAnswer;
-                    if (ansStr && ansStr !== '(Incomplete/Incorrect letters)') {
+                const resp = savedExerciseResponses[idx];
+                if (resp) {
+                    if (resp.letterValues && Array.isArray(resp.letterValues)) {
+                        boxes.forEach((box, bIdx) => {
+                            if (resp.letterValues[bIdx] !== undefined) {
+                                box.value = resp.letterValues[bIdx];
+                                if (box.value.toLowerCase() === (box.dataset.correct || '').toLowerCase() && box.value !== '') {
+                                    box.classList.add('correct-input');
+                                } else if (box.value !== '') {
+                                    box.classList.add('wrong-input');
+                                }
+                            }
+                        });
+                    } else if (resp.studentAnswer && resp.studentAnswer !== '(Incomplete/Incorrect letters)') {
                         boxes.forEach(box => {
                             box.value = box.dataset.correct || '';
                             box.classList.add('correct-input');
@@ -5991,8 +6034,9 @@ function renderCurrentStudentExercise() {
             area.querySelectorAll('.student-item-block').forEach((block, idx) => {
                 const slot = block.querySelector('.jumble-answer-slot');
                 const bank = block.querySelector('.jumble-word-bank');
-                if (savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer && savedExerciseResponses[idx].studentAnswer !== '(Empty)') {
-                    const wordList = savedExerciseResponses[idx].studentAnswer.split(' ');
+                const resp = savedExerciseResponses[idx];
+                if (resp && resp.studentAnswer && resp.studentAnswer !== '(Empty)') {
+                    const wordList = resp.studentAnswer.split(' ');
                     wordList.forEach(w => {
                         const tiles = Array.from(bank.querySelectorAll('.jumble-word-tile'));
                         const matchingTile = tiles.find(t => t.innerText === w);
@@ -6004,22 +6048,33 @@ function renderCurrentStudentExercise() {
             });
         } else if (actType === 'nospaces') {
             area.querySelectorAll('.student-item-block').forEach((block, idx) => {
-                if (savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer && !savedExerciseResponses[idx].studentAnswer.startsWith('(Incomplete')) {
+                const resp = savedExerciseResponses[idx];
+                if (resp && (resp.isDone || (resp.studentAnswer && !resp.studentAnswer.startsWith('(Incomplete')))) {
                     block.querySelectorAll('.space-inner').forEach(inner => {
                         inner.style.display = 'inline';
                         inner.style.visibility = 'visible';
                         inner.classList.add('revealed-space');
                     });
-                    updateNoSpaceCounter(block);
+                    if (typeof updateNoSpaceCounter === 'function') {
+                        updateNoSpaceCounter(block);
+                    }
                 }
             });
         } else if (actType === 'match') {
-            if (savedExerciseResponses.length > 0 && savedExerciseResponses.every(r => r.studentAnswer !== '(Unmatched)')) {
-                area.querySelectorAll('.match-t-tile, .match-tr-tile').forEach(tile => {
-                    tile.classList.add('correct-match');
-                    tile.style.opacity = '0.3';
-                });
-            }
+            savedExerciseResponses.forEach((resp, idx) => {
+                if (resp && (resp.isDone || resp.studentAnswer !== '(Unmatched)')) {
+                    const targetTile = area.querySelector(`.match-t-tile[data-id="${idx}"]`);
+                    const engTile = area.querySelector(`.match-tr-tile[data-id="${idx}"]`);
+                    if (targetTile) {
+                        targetTile.classList.add('correct-match');
+                        targetTile.style.opacity = '0.3';
+                    }
+                    if (engTile) {
+                        engTile.classList.add('correct-match');
+                        engTile.style.opacity = '0.3';
+                    }
+                }
+            });
         }
     }
 
@@ -6210,6 +6265,7 @@ function saveStudentCurrentExerciseResponses() {
     const responses = [];
 
     const area = document.getElementById('exercise-interactive-area');
+    if (!area) return;
 
     if (actType === 'match') {
         sents.forEach((s, idx) => {
@@ -6228,7 +6284,8 @@ function saveStudentCurrentExerciseResponses() {
                 correctAnswer: s.tr,
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongAttempts
+                mistakes: wrongAttempts,
+                isDone: isDone
             });
         });
     } else if (actType === 'jumbled') {
@@ -6271,13 +6328,15 @@ function saveStudentCurrentExerciseResponses() {
                 correctAnswer: s.t,
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongClicks
+                mistakes: wrongClicks,
+                isDone: isDone
             });
         });
     } else if (actType === 'vowels' || actType === 'cons') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const boxes = Array.from(block.querySelectorAll('.letter-box'));
+            const letterValues = boxes.map(b => b.value || '');
             const wrongEntries = parseInt(block.dataset.wrongEntries || "0", 10);
             const allCorrect = boxes.length > 0 && boxes.every(b => b.classList.contains('correct-input'));
 
@@ -6288,11 +6347,12 @@ function saveStudentCurrentExerciseResponses() {
 
             responses.push({
                 prompt: s.tr,
-                studentAnswer: allCorrect ? s.t : '(Incomplete/Incorrect letters)',
+                studentAnswer: allCorrect ? s.t : (letterValues.some(v => v !== '') ? letterValues.join('') : '(Incomplete/Incorrect letters)'),
                 correctAnswer: s.t,
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongEntries
+                mistakes: wrongEntries,
+                letterValues: letterValues
             });
         });
     } else if (actType === 'gap-en' || actType === 'gap-t') {
@@ -6358,6 +6418,7 @@ function saveStudentCurrentExerciseResponses() {
 }
 function nextStudentExercise() {
     saveStudentCurrentExerciseResponses();
+    saveDraftProgress();
     if (studentCurrentExIndex < studentExerciseTypes.length - 1) {
         studentCurrentExIndex++;
         renderCurrentStudentExercise();
@@ -6366,6 +6427,7 @@ function nextStudentExercise() {
 
 function prevStudentExercise() {
     saveStudentCurrentExerciseResponses();
+    saveDraftProgress();
     if (studentCurrentExIndex > 0) {
         studentCurrentExIndex--;
         renderCurrentStudentExercise();
