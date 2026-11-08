@@ -1449,7 +1449,69 @@ let historyStep = 0;
 let currentMode = null;
 let typingTimer;
 let meta = { lang: '', year: '', topic: '' };
+let activeAssignmentBuilderId = null;
+let activeAssignmentGrid = null;
+let activeAssignmentDisabledRoutes = null;
+let activeAssignmentExcludedCombos = null;
+let activeAssignmentRequiredCombos = null;
+let activeAssignmentExcludedPairs = null;
+let activeAssignmentTransformationsText = null;
 
+async function setupAssignmentBuilderContext(assign) {
+    activeAssignmentBuilderId = assign.builderId || null;
+    let bData = null;
+
+    // 1. Try loading directly via builderId
+    if (assign.builderId) {
+        try {
+            const builderDoc = await db.collection("builders").doc(assign.builderId).get();
+            if (builderDoc.exists) {
+                bData = builderDoc.data();
+            }
+        } catch (e) {
+            console.warn("Could not fetch builder by builderId:", e);
+        }
+    }
+
+    // 2. Fallback to assignment snapshot if builder document is unavailable
+    if (!bData && assign.builderSnapshot) {
+        bData = assign.builderSnapshot;
+    }
+
+    // 3. Fallback search by language and topic/title
+    if (!bData && (assign.topic || assign.title)) {
+        try {
+            let q = db.collection("builders").where("isDeleted", "==", false);
+            if (assign.lang) q = q.where("lang", "==", assign.lang);
+            if (assign.topic) q = q.where("topic", "==", assign.topic);
+            const snap = await q.get();
+            if (!snap.empty) {
+                const matched = snap.docs.find(d => d.data().title === assign.title) || snap.docs[0];
+                bData = matched.data();
+                activeAssignmentBuilderId = matched.id;
+            }
+        } catch (e) {
+            console.warn("Could not search builder fallback:", e);
+        }
+    }
+
+    // 4. Bind target builder grid and rules to the assignment session
+    if (bData && bData.grid) {
+        activeAssignmentGrid = typeof bData.grid === 'string' ? JSON.parse(bData.grid) : bData.grid;
+        activeAssignmentDisabledRoutes = bData.disabledRoutes || [];
+        activeAssignmentExcludedCombos = bData.excludedCombos || [];
+        activeAssignmentRequiredCombos = bData.requiredCombos || [];
+        activeAssignmentExcludedPairs = bData.excludedPairs || [];
+        activeAssignmentTransformationsText = bData.transformationsText || bData.transformations || "";
+    } else {
+        activeAssignmentGrid = JSON.parse(JSON.stringify(grid));
+        activeAssignmentDisabledRoutes = Array.isArray(disabledRoutes) ? [...disabledRoutes] : [];
+        activeAssignmentExcludedCombos = JSON.parse(JSON.stringify(excludedCombos || []));
+        activeAssignmentRequiredCombos = JSON.parse(JSON.stringify(requiredCombos || []));
+        activeAssignmentExcludedPairs = JSON.parse(JSON.stringify(excludedPairs || []));
+        activeAssignmentTransformationsText = document.getElementById('transformations-input')?.value || transformationsText || "";
+    }
+}
 const allColors = ["#ffffff","#f1f5f9","#fee2e2","#ffedd5","#fef9c3","#dcfce7","#d1fae5","#e0f2fe","#e0e7ff","#ede9fe","#fae8ff","#fce7f3","#ffccd5","#bbf7d0"];
 
 const VOWELS_REGEX = /[aeiouàéèíóúüÄÖÜäöü]/i;
@@ -3011,9 +3073,16 @@ function handleKey(e, r, cIdx, i, type) {
 }
 
 function closeModals() { 
-    document.body.style.overflow = ''; // Restores standard browser scrolling
+    document.body.style.overflow = '';
     document.querySelectorAll('.modal').forEach(m => m.style.display='none'); 
     document.getElementById('overlay').style.display='none'; 
+    activeAssignmentGrid = null;
+    activeAssignmentBuilderId = null;
+    activeAssignmentDisabledRoutes = null;
+    activeAssignmentExcludedCombos = null;
+    activeAssignmentRequiredCombos = null;
+    activeAssignmentExcludedPairs = null;
+    activeAssignmentTransformationsText = null;
 }
 
 async function createNewProject() {
@@ -3614,7 +3683,16 @@ function openActivityMenu() {
     editingAssignmentId = null;
     window.editingSavedSentencesMap = null;
     window.duplicatingAssignmentLang = null;
-    
+
+    // Bind current editor state to assignment options modal
+    activeAssignmentBuilderId = currentDocId || null;
+    activeAssignmentGrid = JSON.parse(JSON.stringify(grid));
+    activeAssignmentDisabledRoutes = Array.isArray(disabledRoutes) ? [...disabledRoutes] : [];
+    activeAssignmentExcludedCombos = JSON.parse(JSON.stringify(excludedCombos || []));
+    activeAssignmentRequiredCombos = JSON.parse(JSON.stringify(requiredCombos || []));
+    activeAssignmentExcludedPairs = JSON.parse(JSON.stringify(excludedPairs || []));
+    activeAssignmentTransformationsText = document.getElementById('transformations-input')?.value || transformationsText || "";
+
     const btn = document.getElementById('gc-publish-btn');
     if (btn) btn.innerText = "📢 Publish Assignment Now";
     
@@ -3622,7 +3700,6 @@ function openActivityMenu() {
     document.getElementById('gc-schedule-date').value = "";
 
     const currentLang = meta.lang || document.getElementById('meta-lang')?.value || "Target Language";
-    
     const list = [
         {id:'study', label:'Sentence Table (Reference)'}, 
         {id:'match', label:'Match up'}, 
@@ -3709,36 +3786,44 @@ function applyTransformations(text, rulesText) {
     return text.replace(/\s+/g, ' ').trim();
 }
 
-function getAssembledSentences() {
+function getAssembledSentences(customGridContext = null) {
+    let ctx = customGridContext;
+    if (!ctx && activeAssignmentGrid) {
+        ctx = {
+            grid: activeAssignmentGrid,
+            disabledRoutes: activeAssignmentDisabledRoutes || [],
+            excludedCombos: activeAssignmentExcludedCombos || [],
+            requiredCombos: activeAssignmentRequiredCombos || [],
+            excludedPairs: activeAssignmentExcludedPairs || [],
+            transformationsText: activeAssignmentTransformationsText || ""
+        };
+    }
+
+    let targetGrid = (ctx && ctx.grid) ? ctx.grid : grid;
+    let targetRules = (ctx && ctx.transformationsText !== undefined)
+        ? ctx.transformationsText
+        : (activeAssignmentTransformationsText !== null ? activeAssignmentTransformationsText : (document.getElementById('transformations-input')?.value || transformationsText || ""));
+
     let allSentences = [];
-    
-    for (let r = 0; r < grid.length; r++) {
-        if (!grid[r][0].hidden) {
-            let cell = grid[r][0];
+    for (let r = 0; r < targetGrid.length; r++) {
+        if (!targetGrid[r][0].hidden) {
+            let cell = targetGrid[r][0];
             let rSpan = cell.rS || 1;
             for (let subR = r; subR < r + rSpan; subR++) {
-                let paths = findPaths(r, 0, subR);
+                let paths = findPaths(r, 0, subR, ctx);
                 paths.forEach(p => { p.originRow = subR; });
                 allSentences = allSentences.concat(paths);
             }
         }
     }
 
-    const rules = document.getElementById('transformations-input')?.value || transformationsText || "";
-
     const unique = [];
     const seen = new Set();
     allSentences.forEach(s => {
-        if (shouldExcludeSentence(s.t, rules) || shouldExcludeSentence(s.tr, rules)) {
-            return;
-        }
+        if (shouldExcludeSentence(s.t, targetRules) || shouldExcludeSentence(s.tr, targetRules)) return;
 
-        s.t = applyTransformations(s.t, rules);
-        s.tr = applyTransformations(s.tr, rules);
-
-        // Strip leading spaces before punctuation and apostrophes
-        s.t = cleanSentenceSpacing(s.t);
-        s.tr = cleanSentenceSpacing(s.tr);
+        s.t = cleanSentenceSpacing(applyTransformations(s.t, targetRules));
+        s.tr = cleanSentenceSpacing(applyTransformations(s.tr, targetRules));
 
         const text = s.t.trim();
         if (text && !seen.has(text)) {
@@ -3773,45 +3858,39 @@ function shouldExcludeSentence(text, rulesText) {
 /* =========================
    PATH VALIDATION ENGINE
 ========================= */
-function isPathValid(partsMeta) {
+function isPathValid(partsMeta, ctx = null) {
     if (!partsMeta || partsMeta.length === 0) return true;
 
-    // Filter out bridge cells when checking disabled route keys
+    const dRoutes = (ctx && ctx.disabledRoutes !== undefined) ? ctx.disabledRoutes : (activeAssignmentDisabledRoutes !== null ? activeAssignmentDisabledRoutes : disabledRoutes);
+    const exCombos = (ctx && ctx.excludedCombos !== undefined) ? ctx.excludedCombos : (activeAssignmentExcludedCombos !== null ? activeAssignmentExcludedCombos : excludedCombos);
+    const exPairs = (ctx && ctx.excludedPairs !== undefined) ? ctx.excludedPairs : (activeAssignmentExcludedPairs !== null ? activeAssignmentExcludedPairs : excludedPairs);
+    const reqCombos = (ctx && ctx.requiredCombos !== undefined) ? ctx.requiredCombos : (activeAssignmentRequiredCombos !== null ? activeAssignmentRequiredCombos : requiredCombos);
+
     const contentParts = partsMeta.filter(p => !p.isBridge);
     const routeKey = contentParts.map(p => `${p.r + 1}.${p.c + 1}`).join('+');
-    if (disabledRoutes && disabledRoutes.includes(routeKey)) {
-        return false;
-    }
+    if (dRoutes && dRoutes.includes(routeKey)) return false;
 
-    // Check Excluded Combos
-    if (excludedCombos && excludedCombos.length > 0) {
-        for (let combo of excludedCombos) {
+    if (exCombos && exCombos.length > 0) {
+        for (let combo of exCombos) {
             const cells = combo.cells || combo;
             if (Array.isArray(cells) && cells.length >= 2) {
-                const allPresent = cells.every(c => partsMeta.some(p => p.r === c.r && p.c === c.c));
-                if (allPresent) return false;
+                if (cells.every(c => partsMeta.some(p => p.r === c.r && p.c === c.c))) return false;
             }
         }
     }
 
-    // Legacy Excluded Pairs
-    if (excludedPairs && excludedPairs.length > 0) {
-        for (let pair of excludedPairs) {
-            const hasA = partsMeta.some(p => p.r === pair.a.r && p.c === pair.a.c);
-            const hasB = partsMeta.some(p => p.r === pair.b.r && p.c === pair.b.c);
-            if (hasA && hasB) return false;
+    if (exPairs && exPairs.length > 0) {
+        for (let pair of exPairs) {
+            if (partsMeta.some(p => p.r === pair.a.r && p.c === pair.a.c) && partsMeta.some(p => p.r === pair.b.r && p.c === pair.b.c)) return false;
         }
     }
 
-    // Check Required Combos
-    if (requiredCombos && requiredCombos.length > 0) {
-        for (let combo of requiredCombos) {
+    if (reqCombos && reqCombos.length > 0) {
+        for (let combo of reqCombos) {
             const cellA = combo.cellA || combo.a;
             const cellB = combo.cellB || combo.b;
             if (cellA && cellB) {
-                const hasA = partsMeta.some(p => p.r === cellA.r && p.c === cellA.c);
-                const hasB = partsMeta.some(p => p.r === cellB.r && p.c === cellB.c);
-                if (hasA && !hasB) return false;
+                if (partsMeta.some(p => p.r === cellA.r && p.c === cellA.c) && !partsMeta.some(p => p.r === cellB.r && p.c === cellB.c)) return false;
             }
         }
     }
@@ -3829,62 +3908,19 @@ function cleanSentenceSpacing(str) {
         .replace(/\s+/g, ' ')                          // Collapses multiple spaces
         .trim();
 }
-function findPaths(r, c, activeRow = null) {
-    let cell = getCellAt(r, c);
+function findPaths(r, c, activeRow = null, customCtx = null) {
+    const targetGrid = (customCtx && customCtx.grid) ? customCtx.grid : (activeAssignmentGrid || grid);
+    let cell = getCellAt(r, c, targetGrid);
     if (!cell) return [];
 
-    let currentActiveRow = (activeRow !== null) ? activeRow : r;
-
-    const getCellRowSpan = (row, col, cObj) => {
-        if (cObj && (cObj.rS || cObj.rowSpan)) return cObj.rS || cObj.rowSpan;
-        let span = 1;
-        for (let testR = row + 1; testR < grid.length; testR++) {
-            if (grid[testR] && grid[testR][col] && grid[testR][col].hidden) span++;
-            else break;
-        }
-        return span;
-    };
-
-    const getCellColSpan = (row, col, cObj) => {
-        if (cObj && (cObj.cS || cObj.colSpan)) return cObj.cS || cObj.colSpan;
-        let span = 1;
-        if (grid[row]) {
-            for (let testC = col + 1; testC < grid[row].length; testC++) {
-                if (grid[row][testC] && grid[row][testC].hidden) span++;
-                else break;
-            }
-        }
-        return span;
-    };
-
-    const getRootRow = (row, col) => {
-        for (let testR = row; testR >= 0; testR--) {
-            if (grid[testR] && grid[testR][col] && !grid[testR][col].hidden) {
-                return testR;
-            }
-        }
-        return row;
-    };
-
-    let cellRowSpan = getCellRowSpan(r, c, cell);
-    let cellColSpan = getCellColSpan(r, c, cell);
+    let cellRowSpan = (cell.rS || cell.rowSpan || 1);
+    let cellColSpan = (cell.cS || cell.colSpan || 1);
     let nextCol = c + cellColSpan;
 
-    const isCellEmpty = (cObj) => {
-        if (!cObj || !cObj.items || cObj.items.length === 0) return true;
-        return cObj.items.every(it => !it.t || it.t.trim() === "");
-    };
-
-    const isBridgeCell = (cObj) => {
-        if (!cObj) return false;
-        if (cObj.compact || cObj.isBridge || cObj.type === 'bridge') return true;
-        if (cObj.items && cObj.items.some(it => it.t && it.t.trim().toLowerCase() === 'bridge')) return true;
-        if (isCellEmpty(cObj)) return true;
-        return false;
-    };
+    const isCellEmpty = (cObj) => !cObj || !cObj.items || cObj.items.length === 0 || cObj.items.every(it => !it.t || it.t.trim() === "");
+    const isBridgeCell = (cObj) => cObj && (cObj.compact || cObj.isBridge || isCellEmpty(cObj));
 
     const isCurrBridge = isBridgeCell(cell);
-
     let currentOptions = isCurrBridge ? [] : (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "" && it.t.trim().toLowerCase() !== "bridge")
         .map(it => ({
@@ -3894,8 +3930,8 @@ function findPaths(r, c, activeRow = null) {
             details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
         }));
 
-    if (nextCol >= grid[0].length) {
-        return currentOptions.filter(path => isPathValid(path.parts));
+    if (nextCol >= targetGrid[0].length) {
+        return currentOptions.filter(path => isPathValid(path.parts, customCtx));
     }
 
     let combinedSubPaths = [];
@@ -3903,53 +3939,47 @@ function findPaths(r, c, activeRow = null) {
 
     for (let rowOffset = 0; rowOffset < cellRowSpan; rowOffset++) {
         let evalRow = r + rowOffset;
-        if (evalRow >= grid.length) break;
+        if (evalRow >= targetGrid.length) break;
 
-        let targetRawCell = grid[evalRow] ? grid[evalRow][nextCol] : null;
-        let targetCell = targetRawCell ? getCellAt(evalRow, nextCol) : null;
-
+        let targetCell = getCellAt(evalRow, nextCol, targetGrid);
         if (!targetCell) continue;
 
-        let targetRootRow = getRootRow(evalRow, nextCol);
-        let targetKey = `${targetRootRow}_${nextCol}`;
+        let targetRootRow = evalRow;
+        for (let testR = evalRow; testR >= 0; testR--) {
+            if (targetGrid[testR] && targetGrid[testR][nextCol] && !targetGrid[testR][nextCol].hidden) {
+                targetRootRow = testR;
+                break;
+            }
+        }
 
+        let targetKey = `${targetRootRow}_${nextCol}`;
         if (visitedTargetRoots.has(targetKey)) continue;
         visitedTargetRoots.add(targetKey);
 
-        if (isBridgeCell(targetCell)) {
-            let subPaths = findPaths(targetRootRow, nextCol, evalRow);
-            combinedSubPaths = combinedSubPaths.concat(subPaths);
-        } else if (!isCellEmpty(targetCell)) {
-            combinedSubPaths = combinedSubPaths.concat(
-                findPaths(targetRootRow, nextCol, evalRow)
-            );
-        }
+        combinedSubPaths = combinedSubPaths.concat(findPaths(targetRootRow, nextCol, evalRow, customCtx));
     }
 
     if (isCurrBridge) {
         return combinedSubPaths.map(sp => ({
-            t: sp.t,
-            tr: sp.tr,
+            t: sp.t, tr: sp.tr,
             parts: [{ r: r, c: c, isBridge: true }, ...sp.parts],
             details: sp.details || []
         }));
     }
 
-    if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts));
-    if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts));
+    if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts, customCtx));
+    if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts, customCtx));
 
     let finalPaths = [];
     currentOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
             const combinedParts = [...curr.parts, ...sub.parts];
-            const combinedDetails = [...(curr.details || []), ...(sub.details || [])];
-            
-            if (isPathValid(combinedParts)) {
+            if (isPathValid(combinedParts, customCtx)) {
                 finalPaths.push({
                     t: cleanSentenceSpacing(curr.t + " " + sub.t),
                     tr: cleanSentenceSpacing(curr.tr + " " + sub.tr),
                     parts: combinedParts,
-                    details: combinedDetails
+                    details: [...(curr.details || []), ...(sub.details || [])]
                 });
             }
         });
@@ -4306,14 +4336,16 @@ function saveRoutesAndCombos() {
     closeModals();
     render();
 }
-function getCellAt(r, c) {
-    if (r < 0 || r >= grid.length || c < 0 || c >= grid[0].length) return null;
-    let cell = grid[r][c];
+function getCellAt(r, c, customGrid = null) {
+    const targetGrid = customGrid || activeAssignmentGrid || grid;
+    if (!targetGrid || r < 0 || r >= targetGrid.length || !targetGrid[0] || c < 0 || c >= targetGrid[0].length) return null;
+    let cell = targetGrid[r][c];
+    if (!cell) return null;
     if (!cell.hidden) return cell;
 
     for (let i = r; i >= 0; i--) {
         for (let j = c; j >= 0; j--) {
-            let root = grid[i][j];
+            let root = targetGrid[i] ? targetGrid[i][j] : null;
             if (root && !root.hidden && (i + (root.rS || 1) > r) && (j + (root.cS || 1) > c)) {
                 return root;
             }
@@ -4327,42 +4359,35 @@ function getCellAt(r, c) {
 ========================= */
 function isEligibleForFaulty(sentence) {
     if (!sentence || !sentence.parts || sentence.parts.length === 0) return false;
+    const targetGrid = activeAssignmentGrid || grid;
     return sentence.parts.some(p => {
-        const cell = getCellAt(p.r, p.c);
+        const cell = getCellAt(p.r, p.c, targetGrid);
         if (!cell || !cell.items) return false;
-        const validTrs = cell.items.filter(it => it.tr && it.tr.trim() !== "");
-        return validTrs.length > 1;
+        return cell.items.filter(it => it.tr && it.tr.trim() !== "").length > 1;
     });
 }
 
 function generateFaultySentenceObj(sentence) {
     if (!sentence || !sentence.parts || sentence.parts.length === 0) return null;
+    const targetGrid = activeAssignmentGrid || grid;
+    const rules = activeAssignmentTransformationsText !== null ? activeAssignmentTransformationsText : (document.getElementById('transformations-input')?.value || transformationsText || "");
 
-    const rules = document.getElementById('transformations-input')?.value || transformationsText || "";
-
-    // Identify parts in the sentence route that come from cells with multiple alternative options
     const eligiblePartIndices = [];
     sentence.parts.forEach((p, idx) => {
         if (p.isBridge) return;
-        const cell = getCellAt(p.r, p.c);
-        if (!cell || !cell.items) return;
-        const validItems = cell.items.filter(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
-        if (validItems.length > 1) {
+        const cell = getCellAt(p.r, p.c, targetGrid);
+        if (cell && cell.items && cell.items.filter(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim())).length > 1) {
             eligiblePartIndices.push(idx);
         }
     });
 
     if (eligiblePartIndices.length === 0) return null;
-
-    // Pick a random eligible cell position in the path
     const chosenIdx = eligiblePartIndices[Math.floor(Math.random() * eligiblePartIndices.length)];
     const chosenPart = sentence.parts[chosenIdx];
-    const cell = getCellAt(chosenPart.r, chosenPart.c);
+    const cell = getCellAt(chosenPart.r, chosenPart.c, targetGrid);
 
     const origTr = (chosenPart.tr || "").trim().toLowerCase();
     const origT = (chosenPart.t || "").trim().toLowerCase();
-
-    // Pick an alternative distractor item from that cell
     const alternatives = (cell.items || []).filter(it => {
         const tr = (it.tr || "").trim().toLowerCase();
         const t = (it.t || "").trim().toLowerCase();
@@ -4372,34 +4397,13 @@ function generateFaultySentenceObj(sentence) {
     if (alternatives.length === 0) return null;
     const faultyItem = alternatives[Math.floor(Math.random() * alternatives.length)];
 
-    // Rebuild the route by swapping the target cell item with the alternative distractor item
-    const faultyParts = sentence.parts.map((p, idx) => {
-        if (idx === chosenIdx) {
-            return {
-                ...p,
-                t: faultyItem.t || p.t,
-                tr: faultyItem.tr || ""
-            };
-        }
-        return p;
-    });
+    const faultyParts = sentence.parts.map((p, idx) => idx === chosenIdx ? { ...p, t: faultyItem.t || p.t, tr: faultyItem.tr || "" } : p);
+    const rawFaultyTr = faultyParts.filter(p => !p.isBridge && p.tr && p.tr.trim() !== "").map(p => p.tr.trim()).join(" ");
 
-    // Re-assemble the raw English path before transformations
-    const rawFaultyTr = faultyParts
-        .filter(p => !p.isBridge && p.tr && p.tr.trim() !== "")
-        .map(p => p.tr.trim())
-        .join(" ");
-
-    // Run the raw faulty English path through the exact same transformation rules pipeline
-    let faultyTr = applyTransformations(rawFaultyTr, rules);
-    faultyTr = cleanSentenceSpacing(faultyTr);
-
-    // Fallback: If transformations produced identical text or an empty string, append distractor in brackets
+    let faultyTr = cleanSentenceSpacing(applyTransformations(rawFaultyTr, rules));
     if (!faultyTr || faultyTr.toLowerCase() === (sentence.tr || "").toLowerCase()) {
-        const distractorText = (faultyItem.tr || faultyItem.t || "").trim();
-        faultyTr = `${sentence.tr} (${distractorText})`;
+        faultyTr = `${sentence.tr} (${(faultyItem.tr || faultyItem.t || "").trim()})`;
     }
-
     return { faultyTr: faultyTr };
 }
 
@@ -5074,6 +5078,17 @@ async function publishTaskToClassroom() {
         gcScheduledTime = new Date(scheduleDateVal).toISOString();
     }
 
+    // Builder binding & snapshot payload
+    const targetBuilderId = activeAssignmentBuilderId || currentDocId || null;
+    const builderSnapshot = {
+        grid: JSON.stringify(activeAssignmentGrid || grid),
+        disabledRoutes: activeAssignmentDisabledRoutes || disabledRoutes || [],
+        excludedCombos: activeAssignmentExcludedCombos || excludedCombos || [],
+        requiredCombos: activeAssignmentRequiredCombos || requiredCombos || [],
+        excludedPairs: activeAssignmentExcludedPairs || excludedPairs || [],
+        transformationsText: activeAssignmentTransformationsText || transformationsText || ""
+    };
+
     await ensureGapiClassroomLoaded();
 
     if (editingAssignmentId) {
@@ -5083,6 +5098,8 @@ async function publishTaskToClassroom() {
 
             const updatePayload = {
                 title: title,
+                builderId: targetBuilderId,
+                builderSnapshot: builderSnapshot,
                 selectedActivities: selectedActivities,
                 sentencesPerActivity: structuredSentencesPerActivity,
                 maxPoints: maxPoints > 0 ? maxPoints : 10,
@@ -5167,8 +5184,10 @@ async function publishTaskToClassroom() {
         });
     }
 
-   await assignmentRef.set({
+    await assignmentRef.set({
         id: assignmentId,
+        builderId: targetBuilderId,
+        builderSnapshot: builderSnapshot,
         gClassroomAssignmentId: res.result.id,
         courseId: courseId,
         courseName: courseName,
@@ -6309,16 +6328,14 @@ async function duplicateCurrentAssignmentToClass() {
     if (!doc.exists) return alert("Assignment not found.");
 
     const assign = doc.data();
-    
-    // Set editingAssignmentId to null so publishing creates a NEW assignment in the target course
     editingAssignmentId = null;
 
-    // Deep clone the original sentences map and language to lock in exact duplicate content
+    await setupAssignmentBuilderContext(assign);
+
     const clonedSentencesMap = assign.sentencesPerActivity ? JSON.parse(JSON.stringify(assign.sentencesPerActivity)) : null;
     window.duplicatingAssignmentLang = assign.lang || null;
 
     const currentLang = assign.lang || meta.lang || "Target Language";
-    
     const list = [
         {id:'study', label:'Sentence Table (Reference)'}, 
         {id:'match', label:'Match up'}, 
@@ -6371,7 +6388,6 @@ async function duplicateCurrentAssignmentToClass() {
 
     await openClassroomPublishSection();
     
-    // Reset dates for new duplicate assignment
     document.getElementById('gc-due-date').value = '';
     document.getElementById('gc-schedule-date').value = '';
 
@@ -6813,8 +6829,9 @@ async function editCurrentAssignment() {
     const assign = doc.data();
     editingAssignmentId = assignmentId;
 
+    await setupAssignmentBuilderContext(assign);
+
     const currentLang = assign.lang || meta.lang || "Target Language";
-    
     const list = [
         {id:'study', label:'Sentence Table (Reference)'}, 
         {id:'match', label:'Match up'}, 
@@ -6857,7 +6874,7 @@ async function editCurrentAssignment() {
 
     renderPerActivitySentenceBoxes(assign.sentencesPerActivity || null);
 
-    document.getElementById('activity-menu').style.display = 'flex'; // CHANGED FROM 'block'
+    document.getElementById('activity-menu').style.display = 'flex';
     document.getElementById('overlay').style.display = 'block';
 
     await openClassroomPublishSection();
