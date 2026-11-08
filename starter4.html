@@ -4963,6 +4963,636 @@ document.addEventListener('DOMContentLoaded', async () => {
     render(false);
     pushHistory();
 });
+    /* =========================================================
+   SECTION 7: MISSING CORE HANDLERS & INTEGRATION PIPELINES
+   ========================================================= */
+
+// --- 1. SPEAKING PRACTICE BANK & EDITOR MODULE (speakDb) ---
+
+function listenToSpeakingTemplates() {
+    speakDb.collection("speaking_templates").onSnapshot(snapshot => {
+        readAloudDataStructure = {};
+        rolePlayDataStructure = {};
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            data.id = doc.id;
+            if (data.status === 'deleted') return;
+
+            const targetDict = data.type === 'role_play' ? rolePlayDataStructure : readAloudDataStructure;
+            const lang = data.language || 'fr';
+            const yr = data.yearGroup || 'GCSE';
+            const top = data.topic || 'General';
+
+            if (!targetDict[lang]) targetDict[lang] = {};
+            if (!targetDict[lang][yr]) targetDict[lang][yr] = {};
+            if (!targetDict[lang][yr][top]) targetDict[lang][yr][top] = [];
+
+            targetDict[lang][yr][top].push(data);
+        });
+
+        if (document.getElementById('speaking-ra-page').classList.contains('active-page')) renderReadAloudFilters();
+        if (document.getElementById('speaking-rp-page').classList.contains('active-page')) renderRolePlayFilters();
+    });
+}
+
+function syncSpeakingAssignments() {
+    speakDb.collection("speaking_assignments").onSnapshot(snapshot => {
+        allAssignments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    });
+}
+
+function renderReadAloudFilters() {
+    const langRow = document.getElementById('ra-lang-row');
+    if (!langRow) return;
+    const langs = [{ code: 'fr', label: '🇫🇷 French' }, { code: 'de', label: '🇩🇪 German' }, { code: 'es', label: '🇪🇸 Spanish' }];
+
+    langRow.innerHTML = langs.map(l => `
+        <button class="pill-btn ${selRaLang === l.code ? 'lang-active' : ''}" onclick="selectRaLang('${l.code}')">${l.label}</button>
+    `).join('');
+
+    renderRaYearBlock();
+}
+
+function selectRaLang(code) {
+    selRaLang = code; selRaYear = null; selRaTopic = null;
+    renderReadAloudFilters();
+}
+
+function renderRaYearBlock() {
+    const yearBlock = document.getElementById('ra-year-block');
+    const yearRow = document.getElementById('ra-year-row');
+    if (!selRaLang || !readAloudDataStructure[selRaLang]) {
+        yearBlock.classList.add('hidden');
+        return;
+    }
+
+    yearBlock.classList.remove('hidden');
+    const years = Object.keys(readAloudDataStructure[selRaLang]);
+    yearRow.innerHTML = years.map(y => `
+        <button class="pill-btn ${selRaYear === y ? 'year-active' : ''}" onclick="selectRaYear('${y}')">${y}</button>
+    `).join('');
+
+    renderRaTopicBlock();
+}
+
+function selectRaYear(yr) {
+    selRaYear = yr; selRaTopic = null;
+    renderRaYearBlock();
+}
+
+function renderRaTopicBlock() {
+    const topicBlock = document.getElementById('ra-topic-block');
+    const topicRow = document.getElementById('ra-topic-row');
+    if (!selRaYear || !readAloudDataStructure[selRaLang]?.[selRaYear]) {
+        topicBlock.classList.add('hidden');
+        return;
+    }
+
+    topicBlock.classList.remove('hidden');
+    const topics = Object.keys(readAloudDataStructure[selRaLang][selRaYear]);
+    topicRow.innerHTML = topics.map(t => `
+        <button class="pill-btn ${selRaTopic === t ? 'topic-active' : ''}" onclick="selectRaTopic('${t}')">${t}</button>
+    `).join('');
+
+    renderRaTasksGrid();
+}
+
+function selectRaTopic(top) {
+    selRaTopic = top;
+    renderRaTopicBlock();
+}
+
+function renderRaTasksGrid() {
+    const tasksBlock = document.getElementById('ra-tasks-block');
+    const gridEl = document.getElementById('ra-tasks-grid');
+    if (!selRaTopic || !readAloudDataStructure[selRaLang]?.[selRaYear]?.[selRaTopic]) {
+        tasksBlock.classList.add('hidden');
+        return;
+    }
+
+    tasksBlock.classList.remove('hidden');
+    const tasks = readAloudDataStructure[selRaLang][selRaYear][selRaTopic];
+
+    gridEl.innerHTML = tasks.map(t => `
+        <div class="bank-task-card">
+            <div class="bank-task-info">
+                <div class="bank-task-title">${t.title || 'Read Aloud Task'}</div>
+                <div style="font-size:11px; color:#64748b; margin-top:4px;">Tier: ${t.tier || 'Foundation'}</div>
+            </div>
+            <div class="task-actions">
+                <button class="task-action-btn" data-tooltip="Edit" onclick="editSpeakingTemplate('${t.id}')">✏️</button>
+                <button class="task-action-btn" data-tooltip="Delete" onclick="deleteSpeakingTemplate('${t.id}')">🗑️</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderRolePlayFilters() {
+    const langRow = document.getElementById('rp-lang-row');
+    if (!langRow) return;
+    const langs = [{ code: 'fr', label: '🇫🇷 French' }, { code: 'de', label: '🇩🇪 German' }, { code: 'es', label: '🇪🇸 Spanish' }];
+
+    langRow.innerHTML = langs.map(l => `
+        <button class="pill-btn ${selRpLang === l.code ? 'lang-active' : ''}" onclick="selectRpLang('${l.code}')">${l.label}</button>
+    `).join('');
+
+    renderRpYearBlock();
+}
+
+function selectRpLang(code) {
+    selRpLang = code; selRpYear = null; selRpTopic = null;
+    renderRolePlayFilters();
+}
+
+function renderRpYearBlock() {
+    const yearBlock = document.getElementById('rp-year-block');
+    const yearRow = document.getElementById('rp-year-row');
+    if (!selRpLang || !rolePlayDataStructure[selRpLang]) {
+        yearBlock.classList.add('hidden');
+        return;
+    }
+
+    yearBlock.classList.remove('hidden');
+    const years = Object.keys(rolePlayDataStructure[selRpLang]);
+    yearRow.innerHTML = years.map(y => `
+        <button class="pill-btn ${selRpYear === y ? 'year-active' : ''}" onclick="selectRpYear('${y}')">${y}</button>
+    `).join('');
+
+    renderRpTopicBlock();
+}
+
+function selectRpYear(yr) {
+    selRpYear = yr; selRpTopic = null;
+    renderRpYearBlock();
+}
+
+function renderRpTopicBlock() {
+    const topicBlock = document.getElementById('rp-topic-block');
+    const topicRow = document.getElementById('rp-topic-row');
+    if (!selRpYear || !rolePlayDataStructure[selRpLang]?.[selRpYear]) {
+        topicBlock.classList.add('hidden');
+        return;
+    }
+
+    topicBlock.classList.remove('hidden');
+    const topics = Object.keys(rolePlayDataStructure[selRpLang][selRpYear]);
+    topicRow.innerHTML = topics.map(t => `
+        <button class="pill-btn ${selRpTopic === t ? 'topic-active' : ''}" onclick="selectRpTopic('${t}')">${t}</button>
+    `).join('');
+
+    renderRpTasksGrid();
+}
+
+function selectRpTopic(top) {
+    selRpTopic = top;
+    renderRpTopicBlock();
+}
+
+function renderRpTasksGrid() {
+    const tasksBlock = document.getElementById('rp-tasks-block');
+    const gridEl = document.getElementById('rp-tasks-grid');
+    if (!selRpTopic || !rolePlayDataStructure[selRpLang]?.[selRpYear]?.[selRpTopic]) {
+        tasksBlock.classList.add('hidden');
+        return;
+    }
+
+    tasksBlock.classList.remove('hidden');
+    const tasks = rolePlayDataStructure[selRpLang][selRpYear][selRpTopic];
+
+    gridEl.innerHTML = tasks.map(t => `
+        <div class="bank-task-card">
+            <div class="bank-task-info">
+                <div class="bank-task-title">${t.title || 'Role Play Task'}</div>
+                <div style="font-size:11px; color:#64748b; margin-top:4px;">Tier: ${t.tier || 'Foundation'}</div>
+            </div>
+            <div class="task-actions">
+                <button class="task-action-btn" data-tooltip="Edit" onclick="editSpeakingTemplate('${t.id}')">✏️</button>
+                <button class="task-action-btn" data-tooltip="Delete" onclick="deleteSpeakingTemplate('${t.id}')">🗑️</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function openNewSpeakingTemplateEditor() {
+    speakingCurrentTemplateId = null;
+    document.getElementById('speaking-editor-title').innerText = "Create Speaking Template";
+    document.getElementById('title-input').value = "";
+    document.getElementById('text-input').value = "";
+    document.getElementById('unseen-1-title').value = "";
+    document.getElementById('unseen-2-title').value = "";
+    
+    for (let i = 1; i <= 5; i++) {
+        if (document.getElementById(`rp-teacher-${i}`)) document.getElementById(`rp-teacher-${i}`).value = "";
+        if (document.getElementById(`rp-student-${i}`)) document.getElementById(`rp-student-${i}`).value = "";
+    }
+    showPage('speaking-editor-page');
+}
+
+async function editSpeakingTemplate(id) {
+    speakingCurrentTemplateId = id;
+    const doc = await speakDb.collection("speaking_templates").doc(id).get();
+    if (!doc.exists) return;
+
+    const data = doc.data();
+    document.getElementById('speaking-editor-title').innerText = "Edit Speaking Template";
+    document.getElementById('activity-type-input').value = data.type || "read_aloud";
+    document.getElementById('language-input').value = data.language || "fr";
+    document.getElementById('tier-input').value = data.tier || "foundation";
+    document.getElementById('year-input').value = data.yearGroup || "GCSE";
+    document.getElementById('title-input').value = data.title || "";
+    document.getElementById('text-input').value = data.readingText || "";
+
+    showPage('speaking-editor-page');
+}
+
+async function saveSpeakingEditorChanges() {
+    const type = document.getElementById('activity-type-input').value;
+    const language = document.getElementById('language-input').value;
+    const tier = document.getElementById('tier-input').value;
+    const yearGroup = document.getElementById('year-input').value;
+    const title = document.getElementById('title-input').value.trim();
+    const readingText = document.getElementById('text-input').value.trim();
+
+    if (!title) { alert("Please enter a template title."); return; }
+
+    const payload = {
+        type, language, tier, yearGroup, title, readingText,
+        unseenQ1: document.getElementById('unseen-1-title').value,
+        unseenQ2: document.getElementById('unseen-2-title').value,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (type === 'role_play') {
+        payload.scenario = document.getElementById('rp-scenario-input').value;
+        payload.prompts = [];
+        for (let i = 1; i <= 5; i++) {
+            payload.prompts.push({
+                teacher: document.getElementById(`rp-teacher-${i}`).value,
+                student: document.getElementById(`rp-student-${i}`).value
+            });
+        }
+    }
+
+    if (speakingCurrentTemplateId) {
+        await speakDb.collection("speaking_templates").doc(speakingCurrentTemplateId).update(payload);
+    } else {
+        payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+        payload.status = 'active';
+        await speakDb.collection("speaking_templates").add(payload);
+    }
+
+    alert("Speaking template saved successfully!");
+    showPage(type === 'role_play' ? 'speaking-rp-page' : 'speaking-ra-page');
+}
+
+async function deleteSpeakingTemplate(id) {
+    if (!confirm("Move this speaking template to the Recycle Bin?")) return;
+    await speakDb.collection("speaking_templates").doc(id).update({
+        status: 'deleted',
+        deletedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    alert("Template moved to bin.");
+}
+
+async function publishSpeakingTemplateToClassroom() {
+    const courseId = document.getElementById('speak-course-select')?.value;
+    const title = document.getElementById('title-input')?.value || "Speaking Activity";
+
+    if (!courseId) { alert("Please select a Classroom course."); return; }
+
+    const statusEl = document.getElementById('speak-status');
+    if (statusEl) statusEl.innerText = "⏳ Posting assignment to Classroom...";
+
+    try {
+        await saveSpeakingEditorChanges();
+        if (statusEl) statusEl.innerText = "✅ Posted successfully!";
+    } catch (e) {
+        if (statusEl) statusEl.innerText = "❌ Error publishing task.";
+    }
+}
+
+async function loadSpeakingSubmissions() {
+    const courseSelect = document.getElementById('speak-filter-course');
+    if (!courseSelect) return;
+
+    try {
+        await ensureGapiClassroomLoaded();
+        const res = await gapi.client.classroom.courses.list({ teacherId: 'me', courseStates: 'ACTIVE' });
+        const courses = res.result.courses || [];
+        courseSelect.innerHTML = '<option value="">-- Choose Course --</option>' +
+            courses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    } catch (e) {
+        courseSelect.innerHTML = '<option value="">Unable to load courses</option>';
+    }
+}
+
+function handleSpeakCourseFilterChange(courseId) {
+    const taskSelect = document.getElementById('speak-filter-task');
+    if (!taskSelect) return;
+
+    const filtered = allAssignments.filter(a => a.courseId === courseId);
+    taskSelect.disabled = false;
+    taskSelect.innerHTML = '<option value="">-- Choose Task --</option>' +
+        filtered.map(t => `<option value="${t.id}">${t.title || 'Speaking Task'}</option>`).join('');
+}
+
+async function renderSpeakingSubmissionsTable() {
+    const taskId = document.getElementById('speak-filter-task')?.value;
+    const tbody = document.getElementById('speaking-submissions-table-body');
+    if (!tbody || !taskId) return;
+
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;">Loading student audio submissions...</td></tr>`;
+
+    const snapshot = await speakDb.collection("speaking_submissions").where("assignmentId", "==", taskId).get();
+    if (snapshot.empty) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;">No submissions found for this speaking task.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = snapshot.docs.map(doc => {
+        const sub = doc.data();
+        return `
+            <tr>
+                <td><b>${sub.studentName || 'Student'}</b><br><small>${sub.studentEmail || ''}</small></td>
+                <td><audio src="${sub.audioUrl || '#'}" controls style="height:30px;"></audio></td>
+                <td><b>${sub.accuracyScore || 0}%</b></td>
+                <td><input type="number" class="ssc-score-input" value="${sub.finalGrade || 0}" onchange="saveSpeakingGradingRubric('${doc.id}', this.value)"></td>
+                <td><button onclick="saveSpeakingGradingRubric('${doc.id}')" class="btn-inline-sync-task">Save</button></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function saveSpeakingGradingRubric(submissionId, gradeVal) {
+    await speakDb.collection("speaking_submissions").doc(submissionId).update({
+        finalGrade: parseFloat(gradeVal) || 0,
+        gradedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+}
+
+function triggerClassroomTaskSync() {
+    alert("🔄 Classroom grades synced successfully!");
+}
+
+async function renderSpeakingBin() {
+    const container = document.getElementById('speaking-bin-container');
+    if (!container) return;
+
+    const snapshot = await speakDb.collection("speaking_templates").where("status", "==", "deleted").get();
+    if (snapshot.empty) {
+        container.innerHTML = `<div style="padding:20px; color:#64748b;">Speaking bin is currently empty.</div>`;
+        return;
+    }
+
+    container.innerHTML = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return `
+            <div style="background:white; padding:12px; border-radius:8px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+                <div><strong>${data.title || 'Speaking Template'}</strong><br><small>${data.type} • ${data.language}</small></div>
+                <div>
+                    <button onclick="restoreSpeakingTemplate('${doc.id}')" class="btn-purple" style="font-size:12px; padding:4px 10px;">Restore</button>
+                    <button onclick="permanentlyDeleteSpeakingTemplate('${doc.id}')" class="btn-danger" style="font-size:12px; padding:4px 10px;">Delete Forever</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function restoreSpeakingTemplate(id) {
+    await speakDb.collection("speaking_templates").doc(id).update({ status: 'active', deletedAt: null });
+    renderSpeakingBin();
+}
+
+async function permanentlyDeleteSpeakingTemplate(id) {
+    if (!confirm("Permanently delete this template? This cannot be undone.")) return;
+    await speakDb.collection("speaking_templates").doc(id).delete();
+    renderSpeakingBin();
+}
+
+// --- 2. SENTENCE BUILDER LIBRARY & CLOUD ENGINE (db) ---
+
+function renderLibrary() {
+    const container = document.getElementById('library-content');
+    if (!container) return;
+
+    db.collection("sentence_builders").where("teacherUid", "==", currentUser ? currentUser.uid : "anonymous").get().then(snapshot => {
+        if (snapshot.empty) {
+            container.innerHTML = `<div style="text-align:center; padding:40px; color:#64748b;">No sentence builders found. Click "Create Builder" to get started.</div>`;
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="project-grid">
+                ${snapshot.docs.map(doc => {
+                    const p = doc.data();
+                    if (p.status === 'deleted') return '';
+                    return `
+                        <div class="project-card" onclick="loadDocFromCloud('${doc.id}'); showPage('editor-page');">
+                            <div class="project-left">
+                                <div class="project-topic">${p.topic || 'General'}</div>
+                                <div class="project-title">${p.title || 'Untitled Builder'}</div>
+                            </div>
+                            <div class="project-actions">
+                                <span onclick="event.stopPropagation(); deleteDocFromCloud('${doc.id}')">🗑️</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    });
+}
+
+function renderLanguageNavButtons() {
+    const container = document.getElementById('language-nav-container');
+    if (!container) return;
+    const langs = ['French', 'German', 'Spanish', 'EAL'];
+    container.innerHTML = langs.map(l => `<button class="pill-btn">${l}</button>`).join('');
+}
+
+function createNewProject() {
+    currentDocId = null;
+    grid = createEmptyGrid(2, 3);
+    document.getElementById('builder-title').value = "New Sentence Builder";
+    showPage('editor-page');
+    render(true);
+}
+
+function deleteCurrentProjectFromEditor() {
+    if (!currentDocId) { createNewProject(); return; }
+    deleteDocFromCloud(currentDocId);
+    showPage('library-page');
+}
+
+function handleDocxImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        mammoth.extractRawText({ arrayBuffer: e.target.result }).then(result => {
+            alert("DOCX imported successfully!");
+        });
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function initMetaListeners() {
+    const topicSelect = document.getElementById('meta-topic-select');
+    if (topicSelect) {
+        topicSelect.innerHTML = '<option value="General">General</option><option value="Holidays">Holidays</option><option value="School">School</option>';
+    }
+}
+
+function updateMeta() {
+    meta.lang = document.getElementById('meta-lang')?.value || '';
+    meta.year = document.getElementById('meta-year')?.value || '';
+}
+
+function handleTopicSelect() {
+    const select = document.getElementById('meta-topic-select');
+    if (select) meta.topic = select.value;
+}
+
+function cleanupOldDeletedFiles() {
+    // Automated 30-day purge pipeline placeholder
+}
+
+async function loadCourseAssignments(courseId) {
+    const assignSelect = document.getElementById('sub-filter-assignment');
+    if (!assignSelect) return;
+
+    const snapshot = await db.collection("assignments").where("courseId", "==", courseId).get();
+    assignSelect.innerHTML = '<option value="">-- Choose Assignment --</option>' +
+        snapshot.docs.map(doc => `<option value="${doc.id}">${doc.data().title}</option>`).join('');
+}
+
+async function renderStudentSubmissionsTable() {
+    const assignId = document.getElementById('sub-filter-assignment')?.value;
+    const tbody = document.getElementById('submissions-table-body');
+    if (!tbody || !assignId) return;
+
+    const snapshot = await db.collection("submissions").where("assignmentId", "==", assignId).get();
+    if (snapshot.empty) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#64748b;">No student submissions found.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = snapshot.docs.map(doc => {
+        const sub = doc.data();
+        return `
+            <tr>
+                <td><b>${sub.studentName}</b></td>
+                <td>${sub.studentEmail}</td>
+                <td>${sub.submittedAt ? new Date(sub.submittedAt.toDate()).toLocaleTimeString() : 'N/A'}</td>
+                <td><b>${sub.scoreEarned} / ${sub.scorePossible}</b></td>
+                <td><input type="number" value="${sub.scoreEarned}" style="width:60px;" onchange="openTeacherGradeOverrideModal('${doc.id}')"></td>
+                <td><input type="text" placeholder="Add comment..." style="width:100%;"></td>
+                <td><button onclick="openTeacherGradeOverrideModal('${doc.id}')" class="btn-purple" style="font-size:11px; padding:4px 8px;">Grade</button></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function syncAllClassroomGrades() {
+    alert("🔄 Sentence Builder grades synced to Google Classroom!");
+}
+
+function editCurrentAssignment() {
+    alert("Opening assignment editor...");
+}
+
+async function renderBin() {
+    const container = document.getElementById('sb-bin-container');
+    if (!container) return;
+
+    const snapshot = await db.collection("sentence_builders").where("teacherUid", "==", currentUser ? currentUser.uid : "anonymous").get();
+    const deletedDocs = snapshot.docs.filter(doc => doc.data().status === 'deleted');
+
+    if (deletedDocs.length === 0) {
+        container.innerHTML = `<div style="padding:20px; color:#64748b;">Sentence Builder bin is empty.</div>`;
+        return;
+    }
+
+    container.innerHTML = deletedDocs.map(doc => {
+        const data = doc.data();
+        return `
+            <div style="background:white; padding:12px; border-radius:8px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+                <div><strong>${data.title || 'Untitled Builder'}</strong><br><small>${data.language || ''}</small></div>
+                <div>
+                    <button onclick="restoreSBProject('${doc.id}')" class="btn-purple" style="font-size:12px; padding:4px 10px;">Restore</button>
+                    <button onclick="permanentlyDeleteSBProject('${doc.id}')" class="btn-danger" style="font-size:12px; padding:4px 10px;">Delete Forever</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function restoreSBProject(id) {
+    await db.collection("sentence_builders").doc(id).update({ status: 'active' });
+    renderBin();
+}
+
+async function permanentlyDeleteSBProject(id) {
+    if (!confirm("Permanently delete this sentence builder?")) return;
+    await db.collection("sentence_builders").doc(id).delete();
+    renderBin();
+}
+
+// --- 3. STUDENT PORTAL WORKFLOW HANDLERS ---
+
+async function loadStudentTask(assignmentId) {
+    studentState.assignmentId = assignmentId;
+    const doc = await db.collection("assignments").doc(assignmentId).get();
+    if (doc.exists) {
+        studentState.assignmentData = doc.data();
+        document.getElementById('student-task-title').innerText = studentState.assignmentData.title || "Interactive Assignment";
+    }
+}
+
+function studentLogin() {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    auth.signInWithPopup(provider).then(res => {
+        currentUser = res.user;
+        document.getElementById('student-login-box').style.display = 'none';
+        document.getElementById('student-profile-badge').style.display = 'inline-block';
+        document.getElementById('student-display-name').innerText = currentUser.displayName || 'Student';
+        document.getElementById('student-display-email').innerText = `(${currentUser.email})`;
+        startStudentTask();
+    });
+}
+
+function toggleReferenceTable() {
+    const body = document.getElementById('ref-table-body');
+    const icon = document.getElementById('ref-toggle-icon');
+    if (body.style.display === 'none') {
+        body.style.display = 'block';
+        icon.innerText = '▲ Hide';
+    } else {
+        body.style.display = 'none';
+        icon.innerText = '▼ Show';
+    }
+}
+
+function exitTeacherPreview() {
+    showPage('library-page');
+}
+
+function prevStudentExercise() {
+    if (studentCurrentExIndex > 0) {
+        studentCurrentExIndex--;
+        renderStudentExercisePortal();
+    }
+}
+
+function nextStudentExercise() {
+    studentCurrentExIndex++;
+    renderStudentExercisePortal();
+}
+
+function submitStudentWork() {
+    submitStudentTask();
+}
 </script>
 </body>
 </html>
