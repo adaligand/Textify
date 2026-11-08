@@ -3611,8 +3611,9 @@ function openPreview() {
 }
 
 function openActivityMenu() {
-   editingAssignmentId = null;
+    editingAssignmentId = null;
     window.editingSavedSentencesMap = null;
+    window.duplicatingAssignmentLang = null;
     
     const btn = document.getElementById('gc-publish-btn');
     if (btn) btn.innerText = "📢 Publish Assignment Now";
@@ -3636,15 +3637,15 @@ function openActivityMenu() {
         {id:'trans-target', label:`Translate (${currentLang})`}
     ];
 
-   document.getElementById('activity-list').innerHTML = list.map(a => `
-    <div class="activity-row" style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
-        <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
-        <label for="chk-${a.id}" style="cursor:pointer; font-weight:500; font-size: 13px;">${a.label}</label>
-    </div>
-`).join('');
+    document.getElementById('activity-list').innerHTML = list.map(a => `
+        <div class="activity-row" style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
+            <label for="chk-${a.id}" style="cursor:pointer; font-weight:500; font-size: 13px;">${a.label}</label>
+        </div>
+    `).join('');
     
-   renderPerActivitySentenceBoxes();
-    document.getElementById('activity-menu').style.display = 'flex'; // CHANGED FROM 'block'
+    renderPerActivitySentenceBoxes();
+    document.getElementById('activity-menu').style.display = 'flex';
     document.getElementById('overlay').style.display = 'block';
 }
 
@@ -5038,6 +5039,12 @@ async function publishTaskToClassroom() {
             if (actId !== 'study') {
                 totalSentencesCount += sents.length;
             }
+        } else if (window.editingSavedSentencesMap && window.editingSavedSentencesMap[actId] && window.editingSavedSentencesMap[actId].length > 0) {
+            // Preserve exact duplicated sentences without re-shuffling from grid
+            structuredSentencesPerActivity[actId] = window.editingSavedSentencesMap[actId];
+            if (actId !== 'study') {
+                totalSentencesCount += window.editingSavedSentencesMap[actId].length;
+            }
         } else {
             if (actId === 'study') {
                 structuredSentencesPerActivity['study'] = getBalancedSelection(allSentences, tableLimit);
@@ -5160,13 +5167,13 @@ async function publishTaskToClassroom() {
         });
     }
 
-    await assignmentRef.set({
+   await assignmentRef.set({
         id: assignmentId,
         gClassroomAssignmentId: res.result.id,
         courseId: courseId,
         courseName: courseName,
         title: title,
-        lang: document.getElementById('meta-lang').value || meta.lang || "French",
+        lang: window.duplicatingAssignmentLang || document.getElementById('meta-lang').value || meta.lang || "French",
         selectedActivities: selectedActivities,
         sentencesPerActivity: structuredSentencesPerActivity,
         maxPoints: maxPoints > 0 ? maxPoints : 10,
@@ -6191,6 +6198,10 @@ async function duplicateCurrentAssignmentToClass() {
     // Set editingAssignmentId to null so publishing creates a NEW assignment in the target course
     editingAssignmentId = null;
 
+    // Deep clone the original sentences map and language to lock in exact duplicate content
+    const clonedSentencesMap = assign.sentencesPerActivity ? JSON.parse(JSON.stringify(assign.sentencesPerActivity)) : null;
+    window.duplicatingAssignmentLang = assign.lang || null;
+
     const currentLang = assign.lang || meta.lang || "Target Language";
     
     const list = [
@@ -6222,10 +6233,10 @@ async function duplicateCurrentAssignmentToClass() {
     });
 
     let detectedCount = 10;
-    if (assign.sentencesPerActivity) {
-        for (let actKey in assign.sentencesPerActivity) {
-            if (actKey !== 'study' && assign.sentencesPerActivity[actKey].length > 0) {
-                detectedCount = assign.sentencesPerActivity[actKey].length;
+    if (clonedSentencesMap) {
+        for (let actKey in clonedSentencesMap) {
+            if (actKey !== 'study' && clonedSentencesMap[actKey].length > 0) {
+                detectedCount = clonedSentencesMap[actKey].length;
                 break;
             }
         }
@@ -6233,18 +6244,24 @@ async function duplicateCurrentAssignmentToClass() {
     const sentCountSelect = document.getElementById('sentence-count');
     if (sentCountSelect) sentCountSelect.value = String(detectedCount);
 
-    renderPerActivitySentenceBoxes(assign.sentencesPerActivity || null);
+    if (clonedSentencesMap && clonedSentencesMap['study']) {
+        const tableCountSelect = document.getElementById('table-sentence-count');
+        if (tableCountSelect) tableCountSelect.value = String(clonedSentencesMap['study'].length);
+    }
 
-    document.getElementById('activity-menu').style.display = 'flex'; // CHANGED FROM 'block'
+    renderPerActivitySentenceBoxes(clonedSentencesMap);
+
+    document.getElementById('activity-menu').style.display = 'flex';
     document.getElementById('overlay').style.display = 'block';
 
     await openClassroomPublishSection();
+    
     // Reset dates for new duplicate assignment
     document.getElementById('gc-due-date').value = '';
     document.getElementById('gc-schedule-date').value = '';
 
     const gcBtn = document.getElementById('gc-publish-btn');
-    if (gcBtn) gcBtn.innerText = "📋 Duplicate & Publish to Selected Class";
+    if (gcBtn) gcBtn.innerText = "📋 Duplicate & Publish";
 }
 
 async function downloadActiveAssignmentWorksheet() {
