@@ -5540,7 +5540,11 @@ function checkExerciseCompletion() {
 
     const isLastEx = (studentCurrentExIndex === studentExerciseTypes.length - 1);
 
-    // Teachers can navigate freely in preview mode
+    // Save progress to memory & Firestore as student completes items
+    if (!window.isTeacherPreview) {
+        saveStudentCurrentExerciseResponses();
+    }
+
     if (window.isTeacherPreview) {
         if (isLastEx) {
             nextBtn.style.display = 'none';
@@ -5552,7 +5556,6 @@ function checkExerciseCompletion() {
         return;
     }
 
-    // Student mode: only show Next / Submit when completed
     const isComplete = isCurrentExerciseCompleted();
 
     if (isLastEx) {
@@ -5663,7 +5666,7 @@ function renderCurrentStudentExercise() {
         });
         area.innerHTML = jHtml;
 
-       area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+        area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const slot = block.querySelector('.jumble-answer-slot');
             const bank = block.querySelector('.jumble-word-bank');
             const targetSentence = sents[idx] ? sents[idx].t : "";
@@ -5676,7 +5679,6 @@ function renderCurrentStudentExercise() {
                         bank.appendChild(e.target);
                     }
 
-                    // Check if sentence arrangement is correct when bank is empty
                     if (bank.children.length === 0) {
                         const studentText = Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText).join(' ').trim();
                         if (normalizeString(studentText) === normalizeString(targetSentence)) {
@@ -5888,6 +5890,47 @@ function renderCurrentStudentExercise() {
                 checkExerciseCompletion();
             });
         });
+    }
+
+    // Restore saved exercise draft answers for all supported exercise types
+    const savedExerciseResponses = studentAnswersState[actType] || [];
+
+    if (savedExerciseResponses.length > 0) {
+        if (['faulty', 'trans-en', 'trans-target'].includes(actType)) {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const input = block.querySelector('.full-typing-input');
+                if (input && savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
+                    const prev = savedExerciseResponses[idx].studentAnswer;
+                    if (prev !== '(Empty)') {
+                        input.value = prev;
+                    }
+                }
+            });
+        } else if (actType === 'gap-en' || actType === 'gap-t') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const input = block.querySelector('.gap-inline-input');
+                if (input && savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
+                    const prev = savedExerciseResponses[idx].studentAnswer;
+                    if (prev !== '(Empty)') {
+                        input.value = prev;
+                        input.dispatchEvent(new Event('change'));
+                    }
+                }
+            });
+        } else if (actType === 'vowels' || actType === 'cons') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const boxes = Array.from(block.querySelectorAll('.letter-box'));
+                if (savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
+                    const ansStr = savedExerciseResponses[idx].studentAnswer;
+                    if (ansStr && ansStr !== '(Incomplete/Incorrect letters)') {
+                        boxes.forEach(box => {
+                            box.value = box.dataset.correct || '';
+                            box.classList.add('correct-input');
+                        });
+                    }
+                }
+            });
+        }
     }
 
     document.getElementById('student-prev-ex-btn').style.display = (studentCurrentExIndex > 0) ? 'inline-block' : 'none';
