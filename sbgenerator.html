@@ -5247,7 +5247,6 @@ async function loadStudentTask(assignmentId) {
     window.isTeacherPreview = false;
     const previewBanner = document.getElementById('teacher-preview-banner');
     if (previewBanner) previewBanner.style.display = 'none';
-
     try {
         const doc = await db.collection("assignments").doc(assignmentId).get();
         if (!doc.exists) {
@@ -5287,7 +5286,6 @@ async function loadStudentTask(assignmentId) {
         }
 
         if (currentUser && currentUser.email) {
-            // Check for completed submission first
             try {
                 const subSnap = await db.collection("submissions")
                     .where("assignmentId", "==", assignmentId)
@@ -5304,31 +5302,7 @@ async function loadStudentTask(assignmentId) {
                     return;
                 }
             } catch (subErr) {
-                console.warn("Could not query previous submissions:", subErr);
-            }
-
-            // If no submission exists, check for saved draft progress
-            try {
-                const sanitizedEmail = currentUser.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
-                const draftDocId = `${assignmentId}_${sanitizedEmail}`;
-                const draftDoc = await db.collection("drafts").doc(draftDocId).get();
-
-                if (draftDoc.exists) {
-                    const draftData = draftDoc.data();
-                    
-                    if (draftData.studentAnswersState) {
-                        studentAnswersState = draftData.studentAnswersState;
-                    }
-                    if (typeof draftData.studentCurrentExIndex === 'number' && draftData.studentCurrentExIndex < studentExerciseTypes.length) {
-                        studentCurrentExIndex = draftData.studentCurrentExIndex;
-                    }
-
-                    if (taskTitleEl) {
-                        taskTitleEl.innerHTML = `${currentStudentAssignment.title || "Interactive Practice"} <span style="font-size:12px; background:#dcfce7; color:#15803d; padding:2px 8px; border-radius:10px; margin-left:8px;">✓ Resumed Progress</span>`;
-                    }
-                }
-            } catch (draftErr) {
-                console.warn("Error loading saved draft:", draftErr);
+                console.warn("Could not query previous submissions, displaying activity instead:", subErr);
             }
         }
 
@@ -6069,7 +6043,6 @@ function evaluateTextSimilarity(studentAns, correctAns) {
 
 function saveStudentCurrentExerciseResponses() {
     const actType = studentExerciseTypes[studentCurrentExIndex];
-    if (!actType) return;
     const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
     const responses = [];
 
@@ -6219,37 +6192,7 @@ function saveStudentCurrentExerciseResponses() {
     }
 
     studentAnswersState[actType] = responses;
-
-    // Trigger background draft auto-save to Firestore
-    if (!window.isTeacherPreview) {
-        saveDraftProgress();
-    }
 }
-// Auto-saves active student progress to Firestore drafts collection
-async function saveDraftProgress() {
-    if (window.isTeacherPreview || !currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id) return;
-
-    try {
-        const sanitizedEmail = currentUser.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
-        const draftDocId = `${currentStudentAssignment.id}_${sanitizedEmail}`;
-        const draftRef = db.collection("drafts").doc(draftDocId);
-
-        const draftData = {
-            assignmentId: currentStudentAssignment.id,
-            studentEmail: currentUser.email.toLowerCase(),
-            studentName: currentUser.displayName || 'Student',
-            studentCurrentExIndex: studentCurrentExIndex,
-            studentAnswersState: studentAnswersState,
-            lastSavedAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-
-        await draftRef.set(draftData, { merge: true });
-        console.log("Draft progress auto-saved successfully.");
-    } catch (err) {
-        console.warn("Could not save draft progress:", err);
-    }
-}
-    
 function nextStudentExercise() {
     saveStudentCurrentExerciseResponses();
     if (studentCurrentExIndex < studentExerciseTypes.length - 1) {
@@ -6311,19 +6254,12 @@ async function submitStudentWork() {
 
     try {
         await db.collection("submissions").add(subData);
-
-        // Clear active draft from Firestore upon completion
-        const sanitizedEmail = currentUser.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
-        const draftDocId = `${currentStudentAssignment.id}_${sanitizedEmail}`;
-        await db.collection("drafts").doc(draftDocId).delete().catch(err => console.warn("Draft cleanup skipped:", err));
-
         alert("🎉 Activity Submitted Successfully!\nYour work has been submitted to your teacher for review.");
         renderStudentPendingReviewCard(subData);
     } catch (err) {
         console.error("Submission failed:", err);
         alert("❌ Failed to save submission to database: " + err.message + "\nPlease check your Firestore database rules.");
     }
-}
 }
    async function previewActiveAssignmentAsStudent() {
     window.isTeacherPreview = true;
