@@ -1037,17 +1037,29 @@ bindClick('menu-sb-bank', () => showSection('sentence-builder-bank-section'));
         initCardAllocator();
     };
 
-    function toggleFormVisibility(type) {
-        if (type === 'role_play') {
-            document.getElementById('read-aloud-inputs-container').classList.add('hidden');
-            document.getElementById('role-play-inputs-container').classList.remove('hidden');
-            document.getElementById('rp-scenario-container').classList.remove('hidden');
-        } else {
-            document.getElementById('read-aloud-inputs-container').classList.remove('hidden');
-            document.getElementById('role-play-inputs-container').classList.add('hidden');
-            document.getElementById('rp-scenario-container').classList.add('hidden');
-        }
+   function toggleFormVisibility(type) {
+    const raContainer = document.getElementById('read-aloud-inputs-container');
+    const rpContainer = document.getElementById('role-play-inputs-container');
+    const rpScenario = document.getElementById('rp-scenario-container');
+    const sbContainer = document.getElementById('sentence-builder-inputs-container');
+
+    // Hide all containers first
+    if (raContainer) raContainer.classList.add('hidden');
+    if (rpContainer) rpContainer.classList.add('hidden');
+    if (rpScenario) rpScenario.classList.add('hidden');
+    if (sbContainer) sbContainer.classList.add('hidden');
+
+    if (type === 'role_play') {
+        if (rpContainer) rpContainer.classList.remove('hidden');
+        if (rpScenario) rpScenario.classList.remove('hidden');
+    } else if (type === 'sentence_builder') {
+        if (sbContainer) sbContainer.classList.remove('hidden');
+        // If you use text-input for Sentence Builder text, show raContainer instead:
+        if (!sbContainer && raContainer) raContainer.classList.remove('hidden');
+    } else {
+        if (raContainer) raContainer.classList.remove('hidden');
     }
+}
 
     async function loadGoogleClassroomTopics(courseId) {
         const gcTopicSelect = document.getElementById('gc-topic-select');
@@ -2599,55 +2611,65 @@ card.innerHTML = `
     document.getElementById('assign-section').classList.remove('hidden');
 }
 
-    async function saveTemplateData() {
-        const activityType = document.getElementById('activity-type-input').value;
-        const language = document.getElementById('language-input').value;
-        const tier = document.getElementById('tier-input').value;
-        
-        const yearGroup = document.getElementById('year-input').value;
-        const topicSelectVal = document.getElementById('topic-select').value;
-        let topic = "";
-        if (topicSelectVal === '__NEW__') {
-            topic = document.getElementById('topic-input').value.trim();
-        } else {
-            topic = topicSelectVal;
+   async function saveTemplateData() {
+    const activityType = document.getElementById('activity-type-input').value;
+    const language = document.getElementById('language-input').value;
+    const tier = document.getElementById('tier-input').value;
+    
+    const yearGroup = document.getElementById('year-input').value;
+    const topicSelectVal = document.getElementById('topic-select').value;
+    let topic = (topicSelectVal === '__NEW__') 
+        ? document.getElementById('topic-input').value.trim() 
+        : topicSelectVal;
+    
+    const title = document.getElementById('title-input').value.trim();
+
+    if (!yearGroup || !topic || !title) {
+        alert("Please input general core title parameters!");
+        return null;
+    }
+
+    let payload = { 
+        activityType, 
+        language, 
+        tier, 
+        yearGroup, 
+        topic, 
+        title, 
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp() 
+    };
+
+    if (activityType === "role_play") {
+        let rolePlayPrompts = [];
+        for (let i = 1; i <= 5; i++) {
+            rolePlayPrompts.push({
+                teacher: document.getElementById(`rp-teacher-${i}`).value.trim(),
+                student: document.getElementById(`rp-student-${i}`).value.trim()
+            });
         }
-        
-        const title = document.getElementById('title-input').value.trim();
-
-        if (!yearGroup || !topic || !title) {
-            alert("Please input general core title parameters!");
-            return null;
-        }
-
-        let payload = { activityType, language, tier, yearGroup, topic, title, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
-
-        if (activityType === "role_play") {
-            let rolePlayPrompts = [];
-            for (let i = 1; i <= 5; i++) {
-                rolePlayPrompts.push({
-                    teacher: document.getElementById(`rp-teacher-${i}`).value.trim(),
-                    student: document.getElementById(`rp-student-${i}`).value.trim()
-                });
-            }
-            payload.rolePlayPrompts = rolePlayPrompts;
-            payload.scenario = document.getElementById('rp-scenario-input').value.trim();
-        } else {
-            payload.text = document.getElementById('text-input').value.trim();
-            payload.unseenQ1Title = document.getElementById('unseen-1-title').value.trim();
-            payload.unseenQ2Title = document.getElementById('unseen-2-title').value.trim();
-            if (!payload.text) { alert("Passage script text context cannot be left clear."); return null; }
-        }
-
-        if (currentTemplateId) {
-            await db.collection("passages").doc(currentTemplateId).update(payload);
-            return currentTemplateId;
-        } else {
-            const docRef = await db.collection("passages").add(payload);
-            currentTemplateId = docRef.id;
-            return docRef.id;
+        payload.rolePlayPrompts = rolePlayPrompts;
+        payload.scenario = document.getElementById('rp-scenario-input').value.trim();
+    } else if (activityType === "sentence_builder") {
+        payload.text = document.getElementById('text-input')?.value.trim() || "";
+    } else {
+        payload.text = document.getElementById('text-input').value.trim();
+        payload.unseenQ1Title = document.getElementById('unseen-1-title').value.trim();
+        payload.unseenQ2Title = document.getElementById('unseen-2-title').value.trim();
+        if (!payload.text) { 
+            alert("Passage script text context cannot be left clear."); 
+            return null; 
         }
     }
+
+    if (currentTemplateId) {
+        await db.collection("passages").doc(currentTemplateId).update(payload);
+        return currentTemplateId;
+    } else {
+        const docRef = await db.collection("passages").add(payload);
+        currentTemplateId = docRef.id;
+        return docRef.id;
+    }
+}
 
     async function loadTemplateIntoEditor(id) {
         try {
