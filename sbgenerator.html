@@ -1906,102 +1906,92 @@ function insertVirtualChar(char) {
     activeInputForVK.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-
 /* =========================
-   HELPER VALIDATORS
+   INITIALIZATION & AUTH
 ========================= */
-function isSchoolUser(email) {
-    if (!email || typeof email !== 'string') return false;
-    return email.toLowerCase().endsWith('@cedarsupper.co.uk');
-}
-
-function isTeacher(email) {
-    if (!isSchoolUser(email)) return false;
-    // Teacher emails do NOT start with a digit 0-9
-    return !/^[0-9]/.test(email.trim());
-}
-
 /* =========================
-   DOM HELPERS FOR STUDENT UI
+   INITIALIZATION & AUTH
 ========================= */
-function setStudentLoggedOutUI() {
-    const authTextEl = document.getElementById('student-auth-instruction-text');
-    document.getElementById('student-login-box').style.display = 'block';
-    if (authTextEl) authTextEl.style.display = 'block';
-    document.getElementById('student-profile-badge').style.display = 'none';
-    document.getElementById('student-active-exercise-card').style.display = 'none';
-    document.getElementById('student-marksheet-card').style.display = 'none';
-    document.getElementById('student-pending-review-card').style.display = 'none';
-    document.getElementById('student-reference-banner').style.display = 'none';
-    document.getElementById('student-nav-actions').style.display = 'none';
-    document.getElementById('virtual-keyboard-bar').style.display = 'none';
-}
+window.onload = async () => {
+    gisInit();
 
-function setStudentLoggedInUI(user) {
-    const authTextEl = document.getElementById('student-auth-instruction-text');
-    document.getElementById('student-login-box').style.display = 'none';
-    if (authTextEl) authTextEl.style.display = 'none';
-    document.getElementById('student-profile-badge').style.display = 'inline-block';
-    document.getElementById('student-display-name').innerText = user.displayName || 'Student';
-    document.getElementById('student-display-email').innerText = `(${user.email})`;
-}
+    if (window.gapi) {
+        gapi.load('client', () => {
+            gapi.client.init({}).then(() => {
+                gapi.client.load('classroom', 'v1');
+            });
+        });
+    }
 
-/* =========================
-   UNIFIED AUTH STATE OBSERVER
-========================= */
-auth.onAuthStateChanged((user) => {
     const urlParams = new URLSearchParams(window.location.search);
     const assignmentId = urlParams.get('assignmentId');
 
-    // Scenario 1: Logged Out
-    if (!user || !user.email) {
-        currentUser = null;
-        if (assignmentId) {
-            showPage('student-portal-page');
-            setStudentLoggedOutUI();
-        } else {
-            showPage('login-page');
-        }
-        return;
-    }
-
-    const email = user.email.toLowerCase();
-
-    // Scenario 2: Unauthorized Domain
-    if (!isSchoolUser(email)) {
-        alert("Access Denied: Please sign in with your official school email (@cedarsupper.co.uk).");
-        auth.signOut();
-        return;
-    }
-
-    currentUser = user;
-
-    // Scenario 3: Opened Direct Student Assignment Link (?assignmentId=...)
     if (assignmentId) {
         showPage('student-portal-page');
-        setStudentLoggedInUI(currentUser);
-        loadStudentTask(assignmentId);
+        
+        auth.onAuthStateChanged(user => {
+            const authTextEl = document.getElementById('student-auth-instruction-text');
+            if (user && user.email.toLowerCase().endsWith("@cedarsupper.co.uk")) {
+                currentUser = user;
+                document.getElementById('student-login-box').style.display = 'none';
+                if (authTextEl) authTextEl.style.display = 'none';
+                document.getElementById('student-profile-badge').style.display = 'inline-block';
+                document.getElementById('student-display-name').innerText = currentUser.displayName || 'Student';
+                document.getElementById('student-display-email').innerText = `(${currentUser.email})`;
+                
+                loadStudentTask(assignmentId);
+            } else {
+                document.getElementById('student-login-box').style.display = 'block';
+                if (authTextEl) authTextEl.style.display = 'block';
+                document.getElementById('student-profile-badge').style.display = 'none';
+                document.getElementById('student-active-exercise-card').style.display = 'none';
+                document.getElementById('student-marksheet-card').style.display = 'none';
+                document.getElementById('student-pending-review-card').style.display = 'none';
+                document.getElementById('student-reference-banner').style.display = 'none';
+                document.getElementById('student-nav-actions').style.display = 'none';
+                document.getElementById('virtual-keyboard-bar').style.display = 'none';
+            }
+        });
         return;
     }
 
-    // Scenario 4: Main Page Access (No Assignment ID in URL)
-    if (isTeacher(email)) {
-        const userDisplayEl = document.getElementById('user-display');
-        if (userDisplayEl) userDisplayEl.innerText = email;
-        showPage('library-page');
-        if (typeof renderLibrary === 'function') renderLibrary();
-    } else {
-        // Students trying to log in on the main page without an assignment link are signed out
-        alert("Students can only log in using an assignment link provided by a teacher.");
-        auth.signOut();
-        currentUser = null;
-        showPage('login-page');
-    }
-});
+    // 🔒 TEACHER PLATFORM ACCESS CONTROL (Triggers when no assignmentId is present)
+    auth.onAuthStateChanged(async (user) => {
+        initMetaListeners();
+        if (user) {
+            const email = user.email.toLowerCase();
+            
+            if (!email.endsWith("@cedarsupper.co.uk")) {
+                await auth.signOut();
+                alert("Access Denied: Use school email.");
+                showPage('login-page');
+                return;
+            }
 
-/* =========================
-   LOGIN & INITIALIZATION
-========================= */
+            // 👇 ADD YOUR TEACHER EMAIL(S) HERE 👇
+            const AUTHORIZED_TEACHERS = [
+                "adaligand@cedarsupper.co.uk" // Add any additional teacher emails here if needed
+            ];
+
+            if (!AUTHORIZED_TEACHERS.includes(email)) {
+                await auth.signOut();
+                alert("Access Denied: Teacher portal access is restricted. Students must access tasks via their assigned link.");
+                showPage('login-page');
+                return;
+            }
+
+            currentUser = user;
+            document.getElementById('user-display').innerText = email;
+            cleanupOldDeletedFiles(); 
+            showPage('library-page');
+            renderLibrary();
+        } else {
+            currentUser = null;
+            showPage('login-page');
+        }
+    });
+};
+
 async function login() {
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
@@ -2017,25 +2007,22 @@ async function login() {
         const result = await auth.signInWithPopup(provider);
         const email = result.user.email.toLowerCase();
 
-        if (!isSchoolUser(email)) {
+        if (!email.endsWith("@cedarsupper.co.uk")) {
             alert("Access Denied: Please sign in with your official school email (@cedarsupper.co.uk).");
             await auth.signOut();
             return;
         }
 
-        const urlParams = new URLSearchParams(window.location.search);
-        const assignmentId = urlParams.get('assignmentId');
-
-        if (!isTeacher(email) && !assignmentId) {
-            alert("Students can only log in using an assignment link provided by a teacher.");
-            await auth.signOut();
-            return;
-        }
-
+        currentUser = result.user;
         if (result.credential && result.credential.accessToken) {
             localStorage.setItem('oauth_token', result.credential.accessToken);
             localStorage.setItem('oauth_token_expiry', Date.now() + (3600 * 1000));
         }
+
+        document.getElementById('user-display').innerText = email;
+        showPage('library-page');
+        renderLibrary();
+
     } catch (e) {
         alert("Sign-in failed: " + e.message);
     }
@@ -2047,15 +2034,25 @@ async function studentLogin() {
         const result = await auth.signInWithPopup(provider);
         const email = result.user.email.toLowerCase();
 
-        // Use helper function for domain checking
-        if (!isSchoolUser(email)) {
+        if (!email.endsWith("@cedarsupper.co.uk")) {
             alert("Access Denied: Please use your official school Google account (@cedarsupper.co.uk).");
             await auth.signOut();
             return;
         }
 
-        // DOM state updates and assignment loading are handled 
-        // automatically by auth.onAuthStateChanged above upon successful sign-in.
+        currentUser = result.user;
+        document.getElementById('student-login-box').style.display = 'none';
+        const authTextEl = document.getElementById('student-auth-instruction-text');
+        if (authTextEl) authTextEl.style.display = 'none';
+
+        document.getElementById('student-profile-badge').style.display = 'inline-block';
+        document.getElementById('student-display-name').innerText = currentUser.displayName || 'Student';
+        document.getElementById('student-display-email').innerText = `(${currentUser.email})`;
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const assignmentId = urlParams.get('assignmentId');
+        if (assignmentId) loadStudentTask(assignmentId);
+
     } catch (e) {
         alert("Authentication failed: " + e.message);
     }
@@ -5614,7 +5611,6 @@ async function loadStudentTask(assignmentId) {
             if (refBanner) refBanner.style.display = 'none';
         }
 
-        // 1. Check if student already has a final completed submission
         if (currentUser && currentUser.email) {
             try {
                 const subSnap = await db.collection("submissions")
@@ -5636,25 +5632,6 @@ async function loadStudentTask(assignmentId) {
             }
         }
 
-        // 2. Check for saved incomplete draft progress in Firestore
-        if (currentUser && currentUser.email) {
-            try {
-                const progressDocId = `${assignmentId}_${currentUser.email.toLowerCase()}`;
-                const progressSnap = await db.collection("studentProgress").doc(progressDocId).get();
-                if (progressSnap.exists) {
-                    const progressData = progressSnap.data();
-                    if (progressData.studentAnswersState) {
-                        studentAnswersState = progressData.studentAnswersState || {};
-                    }
-                    if (progressData.studentCurrentExIndex !== undefined) {
-                        studentCurrentExIndex = Math.min(progressData.studentCurrentExIndex, studentExerciseTypes.length - 1);
-                    }
-                }
-            } catch (progErr) {
-                console.warn("Could not load saved progress:", progErr);
-            }
-        }
-
         const msCard = document.getElementById('student-marksheet-card');
         const pendingCard = document.getElementById('student-pending-review-card');
         const exCard = document.getElementById('student-active-exercise-card');
@@ -5672,7 +5649,6 @@ async function loadStudentTask(assignmentId) {
         alert("Error loading assignment task: " + err.message);
     }
 }
-
 function renderStudentPendingReviewCard(sub) {
     document.getElementById('student-active-exercise-card').style.display = 'none';
     document.getElementById('student-nav-actions').style.display = 'none';
@@ -6086,11 +6062,9 @@ if (actType === 'match') {
 
         setupAutoAdvanceInputs(area, '.cons-input');
     }
- // Inside renderCurrentStudentExercise():
     else if (actType === 'gap-en' || actType === 'gap-t') {
         let gHtml = '';
         const usedGapWords = new Set();
-        const savedResp = studentAnswersState[actType] || [];
 
         sents.forEach((s, idx) => {
             const isTarget = (actType === 'gap-t');
@@ -6114,10 +6088,7 @@ if (actType === 'match') {
 
             let displaySentence = fullSentence;
             if (fullMatch && cleanGap) {
-                const savedVal = (savedResp[idx] && savedResp[idx].studentAnswer && savedResp[idx].studentAnswer !== '(Empty)') 
-                    ? savedResp[idx].studentAnswer 
-                    : '';
-                const inputHtml = `<input type="text" class="gap-inline-input" value="${savedVal.replace(/"/g, '&quot;')}" data-correct="${cleanGap.replace(/"/g, '&quot;')}" style="padding:3px 6px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold; width:120px; margin:0 3px;">`;
+                const inputHtml = `<input type="text" class="gap-inline-input" data-correct="${cleanGap.replace(/"/g, '&quot;')}" style="padding:3px 6px; border:1px solid #cbd5e1; border-radius:4px; font-weight:bold; width:120px; margin:0 3px;">`;
                 displaySentence = displaySentence.replace(fullMatch, inputHtml);
             }
 
@@ -6139,8 +6110,6 @@ if (actType === 'match') {
     }
     else {
         let tHtml = '';
-        const savedResp = studentAnswersState[actType] || [];
-
         sents.forEach((s, idx) => {
             let promptText = '';
             let answerRef = '';
@@ -6157,14 +6126,10 @@ if (actType === 'match') {
                 answerRef = s.t;
             }
 
-            const savedVal = (savedResp[idx] && savedResp[idx].studentAnswer && savedResp[idx].studentAnswer !== '(Empty)') 
-                ? savedResp[idx].studentAnswer 
-                : '';
-
             tHtml += `
                 <div class="student-item-block" data-idx="${idx}" data-correct="${(answerRef||'').replace(/"/g, '&quot;')}" style="margin-bottom:10px;">
                     <label style="display:block; margin-bottom:4px; font-size:14px;"><b>${idx + 1}.</b> ${promptText}</label>
-                    <input type="text" class="full-typing-input" value="${savedVal.replace(/"/g, '&quot;')}" placeholder="Type correct translation..." style="width:100%; padding:6px 10px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
+                    <input type="text" class="full-typing-input" placeholder="Type correct translation..." style="width:100%; padding:6px 10px; border:1px solid #cbd5e1; border-radius:4px; box-sizing:border-box;">
                 </div>
             `;
         });
@@ -6316,39 +6281,7 @@ function setupAutoAdvanceInputs(area, selector) {
         };
     });
 }
-/* =========================
-   STUDENT PROGRESS PERSISTENCE
-========================= */
-async function saveStudentProgressToCloud() {
-    if (!currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id) return;
-    if (window.isTeacherPreview) return; // Do not overwrite real progress in teacher preview mode
 
-    const progressDocId = `${currentStudentAssignment.id}_${currentUser.email.toLowerCase()}`;
-    const progressData = {
-        assignmentId: currentStudentAssignment.id,
-        studentEmail: currentUser.email.toLowerCase(),
-        studentName: currentUser.displayName || 'Student',
-        studentCurrentExIndex: studentCurrentExIndex,
-        studentAnswersState: studentAnswersState,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-
-    try {
-        await db.collection("studentProgress").doc(progressDocId).set(progressData, { merge: true });
-    } catch (err) {
-        console.warn("Error saving student progress to cloud:", err);
-    }
-}
-
-async function deleteStudentProgressFromCloud() {
-    if (!currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id) return;
-    const progressDocId = `${currentStudentAssignment.id}_${currentUser.email.toLowerCase()}`;
-    try {
-        await db.collection("studentProgress").doc(progressDocId).delete();
-    } catch (err) {
-        console.warn("Error removing draft progress:", err);
-    }
-}
 /* =========================
    WORD-LEVEL SIMILARITY CHECK (50% THRESHOLD)
 ========================= */
@@ -6601,20 +6534,18 @@ function saveStudentCurrentExerciseResponses() {
 
     studentAnswersState[actType] = responses;
 }
-async function nextStudentExercise() {
+function nextStudentExercise() {
     saveStudentCurrentExerciseResponses();
     if (studentCurrentExIndex < studentExerciseTypes.length - 1) {
         studentCurrentExIndex++;
-        await saveStudentProgressToCloud();
         renderCurrentStudentExercise();
     }
 }
 
-async function prevStudentExercise() {
+function prevStudentExercise() {
     saveStudentCurrentExerciseResponses();
     if (studentCurrentExIndex > 0) {
         studentCurrentExIndex--;
-        await saveStudentProgressToCloud();
         renderCurrentStudentExercise();
     }
 }
@@ -6664,7 +6595,6 @@ async function submitStudentWork() {
 
     try {
         await db.collection("submissions").add(subData);
-        await deleteStudentProgressFromCloud(); // Delete draft progress after successful final submission
         alert("🎉 Activity Submitted Successfully!\nYour work has been submitted to your teacher for review.");
         renderStudentPendingReviewCard(subData);
     } catch (err) {
