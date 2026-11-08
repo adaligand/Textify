@@ -2513,43 +2513,63 @@ function toggleFormVisibility(type) {
         }
     }
 
-    function listenToTemplateCollection() {
-    db.collection("passages").orderBy("yearGroup").onSnapshot((snapshot) => {
+function listenToTemplateCollection() {
+    // Function to populate data structures flexibly
+    function processDoc(doc, isFromBuilders = false) {
+        const task = doc.data();
+        task.id = doc.id;
+        
+        const lang = task.language || task.lang || "fr"; 
+        const year = task.yearGroup || task.year || "General";
+        const topic = task.topic || "Default Topic";
+        const actType = isFromBuilders ? "sentence_builder" : (task.activityType || "read_aloud");
+        task.activityType = actType;
+
+        if (actType === "role_play") {
+            if (!rolePlayDataStructure[lang]) rolePlayDataStructure[lang] = {};
+            if (!rolePlayDataStructure[lang][year]) rolePlayDataStructure[lang][year] = {};
+            if (!rolePlayDataStructure[lang][year][topic]) rolePlayDataStructure[lang][year][topic] = [];
+            rolePlayDataStructure[lang][year][topic].push(task);
+        } else if (actType === "sentence_builder") {
+            if (!sentenceBuilderDataStructure[lang]) sentenceBuilderDataStructure[lang] = {};
+            if (!sentenceBuilderDataStructure[lang][year]) sentenceBuilderDataStructure[lang][year] = {};
+            if (!sentenceBuilderDataStructure[lang][year][topic]) sentenceBuilderDataStructure[lang][year][topic] = [];
+            sentenceBuilderDataStructure[lang][year][topic].push(task);
+        } else {
+            if (!readAloudDataStructure[lang]) readAloudDataStructure[lang] = {};
+            if (!readAloudDataStructure[lang][year]) readAloudDataStructure[lang][year] = {};
+            if (!readAloudDataStructure[lang][year][topic]) readAloudDataStructure[lang][year][topic] = [];
+            readAloudDataStructure[lang][year][topic].push(task);
+        }
+    }
+
+    function refreshAllStructures() {
         readAloudDataStructure = {};
         rolePlayDataStructure = {};
         sentenceBuilderDataStructure = {};
 
-        snapshot.forEach((doc) => {
-            const task = doc.data();
-            task.id = doc.id;
-            const lang = task.language || "fr"; 
-            const year = task.yearGroup || "General";
-            const topic = task.topic || "Default Topic";
+        // Fetch from 'passages'
+        db.collection("passages").get().then((passagesSnap) => {
+            passagesSnap.forEach(doc => processDoc(doc, false));
+            
+            // Fetch from legacy 'builders' collection
+            db.collection("builders").get().then((buildersSnap) => {
+                buildersSnap.forEach(doc => {
+                    if (!doc.data().isDeleted) processDoc(doc, true);
+                });
 
-            if (task.activityType === "role_play") {
-                if (!rolePlayDataStructure[lang]) rolePlayDataStructure[lang] = {};
-                if (!rolePlayDataStructure[lang][year]) rolePlayDataStructure[lang][year] = {};
-                if (!rolePlayDataStructure[lang][year][topic]) rolePlayDataStructure[lang][year][topic] = [];
-                rolePlayDataStructure[lang][year][topic].push(task);
-            } else if (task.activityType === "sentence_builder") {
-                if (!sentenceBuilderDataStructure[lang]) sentenceBuilderDataStructure[lang] = {};
-                if (!sentenceBuilderDataStructure[lang][year]) sentenceBuilderDataStructure[lang][year] = {};
-                if (!sentenceBuilderDataStructure[lang][year][topic]) sentenceBuilderDataStructure[lang][year][topic] = [];
-                sentenceBuilderDataStructure[lang][year][topic].push(task);
-            } else {
-                if (!readAloudDataStructure[lang]) readAloudDataStructure[lang] = {};
-                if (!readAloudDataStructure[lang][year]) readAloudDataStructure[lang][year] = {};
-                if (!readAloudDataStructure[lang][year][topic]) readAloudDataStructure[lang][year][topic] = [];
-                readAloudDataStructure[lang][year][topic].push(task);
-            }
+                populateYearDropdown();
+                updateEditorTopicDropdown();
+                renderReadAloudFilters();
+                renderRolePlayFilters();
+                renderSentenceBuilderFilters();
+            });
         });
+    }
 
-        populateYearDropdown();
-        updateEditorTopicDropdown();
-        renderReadAloudFilters();
-        renderRolePlayFilters();
-        renderSentenceBuilderFilters();
-    });
+    // Set real-time listeners
+    db.collection("passages").onSnapshot(() => refreshAllStructures());
+    db.collection("builders").onSnapshot(() => refreshAllStructures());
 }
 
    function renderReadAloudFilters() {
