@@ -448,10 +448,11 @@
         <div id="editor-mode-indicator" style="font-size: 12px; color: #e67e22; font-weight: bold; margin-bottom: 15px;"></div>
         
         <div id="meta-fields" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 15px;">
-           <select id="activity-type-input" style="margin: 0;" required>
-                <option value="read_aloud">📖 Read Aloud</option>
-                <option value="role_play">🎭 Role Play</option>
-            </select>
+          <select id="activity-type-input" style="margin: 0;" required>
+    <option value="read_aloud">📖 Read Aloud</option>
+    <option value="role_play">🎭 Role Play</option>
+    <option value="sentence_builder">🧩 Sentence Builder</option>
+</select>
            <select id="language-input" style="margin: 0;" required>
                 <option value="fr">French</option>
                 <option value="de">German</option>
@@ -729,6 +730,30 @@
     let selRpLang = null, selRpYear = null, selRpTopic = null, selRpTier = 'all';
 let currentActiveSection = 'main-menu-section';
 let previousSection = 'main-menu-section';
+    // State tracking variables
+let sentenceBuilderDataStructure = {};
+let activeSubmissionsTab = 'speaking'; // 'speaking' or 'sentence_builder'
+let activeBinTab = 'speaking';        // 'speaking' or 'sentence_builder'
+
+let selSbLang = null, selSbYear = null, selSbTopic = null, selSbTier = 'all';
+
+// Submissions Sub-Tab Switcher
+function switchSubmissionsTab(tabType) {
+    activeSubmissionsTab = tabType;
+    document.getElementById('sub-tab-speaking').classList.toggle('active', tabType === 'speaking');
+    document.getElementById('sub-tab-sentence-builder').classList.toggle('active', tabType === 'sentence_builder');
+    
+    updateClassroomDropdownFilters();
+    renderDynamicMetrics();
+}
+
+// Recycle Bin Sub-Tab Switcher
+function switchBinTab(tabType) {
+    activeBinTab = tabType;
+    document.getElementById('bin-tab-speaking').classList.toggle('active', tabType === 'speaking');
+    document.getElementById('bin-tab-sb').classList.toggle('active', tabType === 'sentence_builder');
+    loadRecycleBin();
+}
     function getErrorMessage(e) {
         if (!e) return "Unknown error occurred.";
         if (typeof e === 'string') return e;
@@ -914,6 +939,8 @@ let previousSection = 'main-menu-section';
 
     window.onload = () => {
         gapi.load('client', () => {
+            bindClick('header-sb-bank-btn', () => showSection('sentence-builder-bank-section'));
+bindClick('menu-sb-bank', () => showSection('sentence-builder-bank-section'));
             gapiStart();
         });
 
@@ -1047,41 +1074,46 @@ let previousSection = 'main-menu-section';
         }
     }
 
-   function showSection(sectionId, preserveFilters = false) {
+  function showSection(sectionId, preserveFilters = false) {
     if (currentActiveSection !== 'editor-section' && currentActiveSection !== sectionId) {
         previousSection = currentActiveSection;
     }
     currentActiveSection = sectionId;
 
-    document.getElementById('main-menu-section').classList.add('hidden');
-    document.getElementById('read-aloud-bank-section').classList.add('hidden');
-    document.getElementById('role-play-bank-section').classList.add('hidden');
-    document.getElementById('submissions-section').classList.add('hidden');
-    document.getElementById('bin-section').classList.add('hidden');
-    document.getElementById('editor-section').classList.add('hidden');
-    document.getElementById('card-allocator-section').classList.add('hidden');
+    const sections = [
+        'main-menu-section', 'read-aloud-bank-section', 'role-play-bank-section', 
+        'sentence-builder-bank-section', 'submissions-section', 'bin-section', 
+        'editor-section', 'card-allocator-section'
+    ];
+    sections.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+    });
 
     document.getElementById(sectionId).classList.remove('hidden');
-
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     
     if (sectionId === 'read-aloud-bank-section') {
-        document.getElementById('header-ra-bank-btn').classList.add('active');
-        if (!preserveFilters) {
-            selRaLang = null; selRaYear = null; selRaTopic = null; selRaTier = 'all';
-        }
+        document.getElementById('header-ra-bank-btn')?.classList.add('active');
+        if (!preserveFilters) { selRaLang = null; selRaYear = null; selRaTopic = null; selRaTier = 'all'; }
         renderReadAloudFilters();
     }
     if (sectionId === 'role-play-bank-section') {
-        document.getElementById('header-rp-bank-btn').classList.add('active');
-        if (!preserveFilters) {
-            selRpLang = null; selRpYear = null; selRpTopic = null; selRpTier = 'all';
-        }
+        document.getElementById('header-rp-bank-btn')?.classList.add('active');
+        if (!preserveFilters) { selRpLang = null; selRpYear = null; selRpTopic = null; selRpTier = 'all'; }
         renderRolePlayFilters();
     }
-    if (sectionId === 'submissions-section') document.getElementById('header-submissions-btn').classList.add('active');
-    if (sectionId === 'bin-section') document.getElementById('header-bin-btn').classList.add('active');
-    if (sectionId === 'card-allocator-section') document.getElementById('header-allocator-btn').classList.add('active');
+    if (sectionId === 'sentence-builder-bank-section') {
+        document.getElementById('header-sb-bank-btn')?.classList.add('active');
+        if (!preserveFilters) { selSbLang = null; selSbYear = null; selSbTopic = null; selSbTier = 'all'; }
+        renderSentenceBuilderFilters();
+    }
+    if (sectionId === 'submissions-section') document.getElementById('header-submissions-btn')?.classList.add('active');
+    if (sectionId === 'bin-section') {
+        document.getElementById('header-bin-btn')?.classList.add('active');
+        loadRecycleBin();
+    }
+    if (sectionId === 'card-allocator-section') document.getElementById('header-allocator-btn')?.classList.add('active');
 
     if (sectionId === 'main-menu-section') {
         document.getElementById('header-nav-container').classList.add('hidden');
@@ -1219,36 +1251,43 @@ let previousSection = 'main-menu-section';
     }
 
     function listenToTemplateCollection() {
-        db.collection("passages").orderBy("yearGroup").onSnapshot((snapshot) => {
-            readAloudDataStructure = {};
-            rolePlayDataStructure = {};
+    db.collection("passages").orderBy("yearGroup").onSnapshot((snapshot) => {
+        readAloudDataStructure = {};
+        rolePlayDataStructure = {};
+        sentenceBuilderDataStructure = {};
 
-            snapshot.forEach((doc) => {
-                const task = doc.data();
-                task.id = doc.id;
-                const lang = task.language || "fr"; 
-                const year = task.yearGroup || "General";
-                const topic = task.topic || "Default Topic";
+        snapshot.forEach((doc) => {
+            const task = doc.data();
+            task.id = doc.id;
+            const lang = task.language || "fr"; 
+            const year = task.yearGroup || "General";
+            const topic = task.topic || "Default Topic";
 
-                if (task.activityType === "role_play") {
-                    if (!rolePlayDataStructure[lang]) rolePlayDataStructure[lang] = {};
-                    if (!rolePlayDataStructure[lang][year]) rolePlayDataStructure[lang][year] = {};
-                    if (!rolePlayDataStructure[lang][year][topic]) rolePlayDataStructure[lang][year][topic] = [];
-                    rolePlayDataStructure[lang][year][topic].push(task);
-                } else {
-                    if (!readAloudDataStructure[lang]) readAloudDataStructure[lang] = {};
-                    if (!readAloudDataStructure[lang][year]) readAloudDataStructure[lang][year] = {};
-                    if (!readAloudDataStructure[lang][year][topic]) readAloudDataStructure[lang][year][topic] = [];
-                    readAloudDataStructure[lang][year][topic].push(task);
-                }
-            });
-
-            populateYearDropdown();
-            updateEditorTopicDropdown();
-            renderReadAloudFilters();
-            renderRolePlayFilters();
+            if (task.activityType === "role_play") {
+                if (!rolePlayDataStructure[lang]) rolePlayDataStructure[lang] = {};
+                if (!rolePlayDataStructure[lang][year]) rolePlayDataStructure[lang][year] = {};
+                if (!rolePlayDataStructure[lang][year][topic]) rolePlayDataStructure[lang][year][topic] = [];
+                rolePlayDataStructure[lang][year][topic].push(task);
+            } else if (task.activityType === "sentence_builder") {
+                if (!sentenceBuilderDataStructure[lang]) sentenceBuilderDataStructure[lang] = {};
+                if (!sentenceBuilderDataStructure[lang][year]) sentenceBuilderDataStructure[lang][year] = {};
+                if (!sentenceBuilderDataStructure[lang][year][topic]) sentenceBuilderDataStructure[lang][year][topic] = [];
+                sentenceBuilderDataStructure[lang][year][topic].push(task);
+            } else {
+                if (!readAloudDataStructure[lang]) readAloudDataStructure[lang] = {};
+                if (!readAloudDataStructure[lang][year]) readAloudDataStructure[lang][year] = {};
+                if (!readAloudDataStructure[lang][year][topic]) readAloudDataStructure[lang][year][topic] = [];
+                readAloudDataStructure[lang][year][topic].push(task);
+            }
         });
-    }
+
+        populateYearDropdown();
+        updateEditorTopicDropdown();
+        renderReadAloudFilters();
+        renderRolePlayFilters();
+        renderSentenceBuilderFilters();
+    });
+}
 
    function renderReadAloudFilters() {
     const langRow = document.getElementById('ra-lang-row');
@@ -1726,48 +1765,46 @@ card.innerHTML = `
     filterTask.onchange = renderDynamicMetrics;
 
     function updateClassroomDropdownFilters() {
-        const selectedCourseId = filterCourse.value;
-        filterTask.innerHTML = '';
+    const selectedCourseId = filterCourse.value;
+    filterTask.innerHTML = '';
 
-        if (!selectedCourseId) {
-            filterTask.innerHTML = '<option value="">-- Select a Class first --</option>';
-            filterTask.disabled = true;
-            document.getElementById('active-assignment-info').classList.add('hidden');
-            return;
-        }
-
-        const classSpecificAssignments = allAssignments.filter(a => a.courseId === selectedCourseId);
-        
-        if (classSpecificAssignments.length === 0) {
-            filterTask.innerHTML = '<option value="">No Assignments in this Class</option>';
-            filterTask.disabled = true;
-            document.getElementById('active-assignment-info').classList.add('hidden');
-            return;
-        }
-
-        filterTask.disabled = false;
-        filterTask.innerHTML = '<option value="">-- Choose an Assignment --</option>';
-
-        const sortedAssigns = classSpecificAssignments.sort((a, b) => {
-            const getMillis = (obj) => {
-                if (!obj || !obj.timestamp) return 0;
-                if (obj.timestamp.seconds) return obj.timestamp.seconds * 1000;
-                if (typeof obj.timestamp.toDate === 'function') return obj.timestamp.toDate().getTime();
-                const d = new Date(obj.timestamp);
-                return isNaN(d.getTime()) ? 0 : d.getTime();
-            };
-            return getMillis(b) - getMillis(a);
-        });
-
-        sortedAssigns.forEach(assign => {
-            const opt = document.createElement('option');
-            opt.value = assign.id;
-            const tierLabel = (assign.tier === 'higher') ? 'Ⓗ ' : 'Ⓕ ';
-            const prefix = (assign.activityType === 'role_play') ? '🎭 ' : '📖 ';
-            opt.textContent = tierLabel + prefix + assign.title;
-            filterTask.appendChild(opt);
-        });
+    if (!selectedCourseId) {
+        filterTask.innerHTML = '<option value="">-- Select a Class first --</option>';
+        filterTask.disabled = true;
+        document.getElementById('active-assignment-info').classList.add('hidden');
+        return;
     }
+
+    // Filter by active tab (speaking vs sentence_builder)
+    const classSpecificAssignments = allAssignments.filter(a => {
+        if (a.courseId !== selectedCourseId) return false;
+        const actType = a.activityType || 'read_aloud';
+        if (activeSubmissionsTab === 'speaking') {
+            return actType === 'read_aloud' || actType === 'role_play';
+        } else {
+            return actType === 'sentence_builder';
+        }
+    });
+
+    if (classSpecificAssignments.length === 0) {
+        filterTask.innerHTML = `<option value="">No ${activeSubmissionsTab === 'speaking' ? 'Speaking' : 'Sentence Builder'} Assignments in this Class</option>`;
+        filterTask.disabled = true;
+        document.getElementById('active-assignment-info').classList.add('hidden');
+        return;
+    }
+
+    filterTask.disabled = false;
+    filterTask.innerHTML = '<option value="">-- Choose an Assignment --</option>';
+
+    classSpecificAssignments.forEach(assign => {
+        const opt = document.createElement('option');
+        opt.value = assign.id;
+        const tierLabel = (assign.tier === 'higher') ? 'Ⓗ ' : 'Ⓕ ';
+        const prefix = (assign.activityType === 'role_play') ? '🎭 ' : (assign.activityType === 'sentence_builder' ? '🧩 ' : '📖 ');
+        opt.textContent = tierLabel + prefix + assign.title;
+        filterTask.appendChild(opt);
+    });
+}
 
     function updateRubricFeedbackText(submissionId, activeTier) {
         const rubricVal = parseInt(document.getElementById(`rubric-${submissionId}`).value, 10) || 0;
@@ -2529,53 +2566,38 @@ card.innerHTML = `
         }
     }
 
-    function openNewTemplateEditor() {
-        activeEditorMode = "template";
-        currentTemplateId = null;
-        document.getElementById('editor-title').innerText = "Create Template Activity";
-        document.getElementById('editor-mode-indicator').innerText = "";
-        
-        document.getElementById('assign-section-title').innerText = "🏫 Publish to Google Classroom";
-        document.getElementById('assign-section-desc').innerText = "Select a class to publish and post this template instantly as an interactive speaking activity.";
-        document.getElementById('assign-btn').innerText = "Post Assignment to Classroom";
+    function openNewTemplateEditor(activityType = 'read_aloud') {
+    activeEditorMode = "template";
+    currentTemplateId = null;
 
-        const allStudentsBtn = document.getElementById('all-students-btn');
-        if (allStudentsBtn) {
-            allStudentsBtn.disabled = false;
-            allStudentsBtn.style.opacity = '1';
-            allStudentsBtn.style.cursor = 'pointer';
-            allStudentsBtn.title = '';
-        }
+    const titleMap = {
+        read_aloud: "Create Read Aloud Task",
+        role_play: "Create Role Play Task",
+        sentence_builder: "Create Sentence Builder Task"
+    };
 
-        document.getElementById('activity-type-input').value = 'read_aloud';
-        document.getElementById('language-input').value = 'fr';
-        document.getElementById('tier-input').value = 'foundation';
-        
-        populateYearDropdown();
-        document.getElementById('year-input').value = 'Year 9';
-        updateEditorTopicDropdown();
-        document.getElementById('topic-select').value = '__NEW__';
-        
-        const topicInput = document.getElementById('topic-input');
-        topicInput.value = '';
-        topicInput.classList.remove('hidden');
-        document.getElementById('title-input').value = '';
-        
-        document.getElementById('text-input').value = '';
-        document.getElementById('unseen-1-title').value = '';
-        document.getElementById('unseen-2-title').value = '';
-        document.getElementById('rp-scenario-input').value = '';
+    document.getElementById('editor-title').innerText = titleMap[activityType] || "Create Template Activity";
+    document.getElementById('editor-mode-indicator').innerText = "";
 
-        for (let i = 1; i <= 5; i++) {
-            document.getElementById(`rp-teacher-${i}`).value = '';
-            document.getElementById(`rp-student-${i}`).value = '';
-        }
+    document.getElementById('activity-type-input').value = activityType;
+    document.getElementById('language-input').value = 'fr';
+    document.getElementById('tier-input').value = 'foundation';
 
-        toggleFormVisibility('read_aloud');
-        adjustPublishFrameAlignment('read_aloud');
-        showSection('editor-section');
-        document.getElementById('assign-section').classList.remove('hidden');
-    }
+    populateYearDropdown();
+    document.getElementById('year-input').value = 'Year 9';
+    updateEditorTopicDropdown();
+    document.getElementById('topic-select').value = '__NEW__';
+
+    const topicInput = document.getElementById('topic-input');
+    topicInput.value = '';
+    topicInput.classList.remove('hidden');
+    document.getElementById('title-input').value = '';
+
+    toggleFormVisibility(activityType);
+    adjustPublishFrameAlignment(activityType);
+    showSection('editor-section');
+    document.getElementById('assign-section').classList.remove('hidden');
+}
 
     async function saveTemplateData() {
         const activityType = document.getElementById('activity-type-input').value;
@@ -3323,84 +3345,91 @@ initialiseClassroomStudentSelector();
         } catch (e) { alert("Error: " + getErrorMessage(e)); }
     }
 
-    async function loadRecycleBin() {
-        const binList = document.getElementById('bin-list');
-        binList.innerHTML = '<div style="padding:15px; text-align:center;">Loading Recycle Bin...</div>';
-        try {
-            const snapshot = await db.collection("recycle_bin").get();
-            if (snapshot.empty) { 
-                binList.innerHTML = '<div style="padding:20px; text-align:center; color:#7f8c8d;">Recycle Bin empty.</div>'; 
-                return; 
-            }
-            
-            binList.innerHTML = '';
-            let binStructure = {};
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                data.id = doc.id;
-                const lang = data.language || 'fr';
-                const year = data.yearGroup || 'Year 9';
-                
-                if (!binStructure[lang]) binStructure[lang] = {};
-                if (!binStructure[lang][year]) binStructure[lang][year] = [];
-                binStructure[lang][year].push(data);
-            });
-
-            for (const lang of Object.keys(binStructure).sort()) {
-                const langHeader = document.createElement('div');
-                langHeader.style.cssText = "background: #fde8e8; border-left: 5px solid #e74c3c; padding: 12px 20px; font-size: 20px; font-weight: bold; color: #c0392b; border-radius: 4px; margin-top: 25px; margin-bottom: 15px;";
-                langHeader.textContent = getLanguageName(lang);
-                binList.appendChild(langHeader);
-
-                for (const year of Object.keys(binStructure[lang]).sort((a,b) => a.localeCompare(b, undefined, {numeric: true}))) {
-                    const yearHeader = document.createElement('div');
-                    yearHeader.style.cssText = "font-weight: bold; font-size: 14px; color: #e74c3c; margin: 15px 0 10px 5px; display: flex; align-items: center; gap: 6px; text-transform: uppercase;";
-                    yearHeader.innerHTML = `📅 ${year}`;
-                    binList.appendChild(yearHeader);
-
-                    const gridContainer = document.createElement('div');
-                    gridContainer.className = 'tasks-display-container';
-                    gridContainer.style.cssText = "display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;";
-                    binList.appendChild(gridContainer);
-
-                    binStructure[lang][year].sort((a,b) => a.title.localeCompare(b.title)).forEach(data => {
-                        const card = document.createElement('div');
-                        card.className = 'bank-task-card'; 
-                        card.style.cssText = "width: 300px; box-sizing: border-box; background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; display: inline-flex; align-items: center; justify-content: space-between; gap: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);";
-                        
-                        const tierLetter = (data.tier === 'higher') ? 'H' : 'F';
-                        const activityIcon = (data.activityType === 'role_play') ? '🎭' : '📖';
-                        
-                        let deletedDateStr = '';
-                        if (data.deletedAt) {
-                            const d = data.deletedAt.toDate ? data.deletedAt.toDate() : new Date(data.deletedAt.seconds * 1000);
-                            deletedDateStr = d.toLocaleDateString('en-GB');
-                        }
-
-card.innerHTML = `
-    <div style="min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px;">
-        <div style="font-weight: bold; color: #1e293b; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px;">
-            <span style="font-size: 14px;" title="${data.activityType === 'role_play' ? 'Role Play':'Read Aloud'}">${activityIcon}</span>
-            <span class="badge tier" style="margin: 0; padding: 2px 6px; background: #9b59b6; font-size: 11px;">${tierLetter}</span>
-            <span title="${data.title}">${data.title}</span>
-        </div>
-        <div style="font-size: 12px; color: #7f8c8d; font-weight: 500;">Topic: ${data.topic}</div>
-        ${deletedDateStr ? `<div style="font-size: 11px; color: #94a3b8;">Deleted: ${deletedDateStr}</div>` : ''}
-    </div>
-    <div class="task-actions" style="display: flex; gap: 8px; flex-shrink: 0; align-items: center;">
-        <button class="task-action-btn" title="Restore template" onclick="restoreTemplate('${data.id}')" style="background: transparent; border: none; cursor: pointer; font-size: 18px; padding: 4px; display: inline-flex; align-items: center; justify-content: center; margin: 0; width: auto;">🔄</button>
-        <button class="task-action-btn" title="Purge Forever" onclick="permanentlyDeleteTemplate('${data.id}')" style="background: transparent; border: none; cursor: pointer; font-size: 18px; padding: 4px; display: inline-flex; align-items: center; justify-content: center; margin: 0; width: auto;">❌</button>
-    </div>
-`;
-                        gridContainer.appendChild(card);
-                    });
-                }
-            }
-        } catch (e) { 
-            binList.innerHTML = `<div style="padding:15px; color:red;">Error loading Recycle Bin elements: ${getErrorMessage(e)}</div>`; 
+ async function loadRecycleBin() {
+    const binList = document.getElementById('bin-list');
+    binList.innerHTML = '<div style="padding:15px; text-align:center;">Loading Recycle Bin...</div>';
+    
+    try {
+        const snapshot = await db.collection("recycle_bin").get();
+        if (snapshot.empty) { 
+            binList.innerHTML = '<div style="padding:20px; text-align:center; color:#7f8c8d;">Recycle Bin is empty.</div>'; 
+            return; 
         }
-    }
+        
+        binList.innerHTML = '';
+        let binStructure = {};
 
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            data.id = doc.id;
+            const actType = data.activityType || 'read_aloud';
+
+            // Filter by active Bin tab
+            if (activeBinTab === 'speaking' && actType === 'sentence_builder') return;
+            if (activeBinTab === 'sentence_builder' && actType !== 'sentence_builder') return;
+
+            const lang = data.language || 'fr';
+            const year = data.yearGroup || 'Year 9';
+            
+            if (!binStructure[lang]) binStructure[lang] = {};
+            if (!binStructure[lang][year]) binStructure[lang][year] = [];
+            binStructure[lang][year].push(data);
+        });
+
+        if (Object.keys(binStructure).length === 0) {
+            binList.innerHTML = `<div style="padding:20px; text-align:center; color:#7f8c8d;">No ${activeBinTab === 'speaking' ? 'Speaking' : 'Sentence Builder'} items in Recycle Bin.</div>`;
+            return;
+        }
+
+        for (const lang of Object.keys(binStructure).sort()) {
+            const langHeader = document.createElement('div');
+            langHeader.style.cssText = "background: #fde8e8; border-left: 5px solid #e74c3c; padding: 12px 20px; font-size: 18px; font-weight: bold; color: #c0392b; border-radius: 4px; margin-top: 20px; margin-bottom: 10px;";
+            langHeader.textContent = getLanguageName(lang);
+            binList.appendChild(langHeader);
+
+            for (const year of Object.keys(binStructure[lang]).sort((a,b) => a.localeCompare(b, undefined, {numeric: true}))) {
+                const yearHeader = document.createElement('div');
+                yearHeader.style.cssText = "font-weight: bold; font-size: 13px; color: #e74c3c; margin: 12px 0 8px 5px; text-transform: uppercase;";
+                yearHeader.innerHTML = `📅 ${year}`;
+                binList.appendChild(yearHeader);
+
+                const gridContainer = document.createElement('div');
+                gridContainer.style.cssText = "display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 15px;";
+                binList.appendChild(gridContainer);
+
+                binStructure[lang][year].sort((a,b) => a.title.localeCompare(b.title)).forEach(data => {
+                    const card = document.createElement('div');
+                    card.className = 'bank-task-card';
+                    card.style.cssText = "width: 320px; background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; display: flex; justify-content: space-between; align-items: center;";
+                    
+                    const iconMap = { read_aloud: '📖', role_play: '🎭', sentence_builder: '🧩' };
+                    let deletedDateStr = '';
+                    if (data.deletedAt) {
+                        const d = data.deletedAt.toDate ? data.deletedAt.toDate() : new Date(data.deletedAt.seconds * 1000);
+                        deletedDateStr = d.toLocaleDateString('en-GB');
+                    }
+
+                    card.innerHTML = `
+                        <div style="min-width: 0; flex: 1;">
+                            <div style="font-weight: bold; color: #1e293b; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                <span>${iconMap[data.activityType] || '📖'}</span> ${data.title}
+                            </div>
+                            <div style="font-size: 12px; color: #7f8c8d;">Topic: ${data.topic}</div>
+                            ${deletedDateStr ? `<div style="font-size: 11px; color: #94a3b8;">Deleted: ${deletedDateStr}</div>` : ''}
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="task-action-btn" title="Restore" onclick="restoreTemplate('${data.id}')">🔄</button>
+                            <button class="task-action-btn" title="Purge" onclick="permanentlyDeleteTemplate('${data.id}')">❌</button>
+                        </div>
+                    `;
+                    gridContainer.appendChild(card);
+                });
+            }
+        }
+    } catch (e) {
+        binList.innerHTML = `<div style="padding:15px; color:red;">Error: ${getErrorMessage(e)}</div>`;
+    }
+}
     async function restoreTemplate(id) {
         try {
             const doc = await db.collection("recycle_bin").doc(id).get();
@@ -4111,6 +4140,106 @@ card.innerHTML = `
         exportExcelBtnBottom.addEventListener('click', exportToExcel);
         initializeStudiedThemes();
     }
+    function renderSentenceBuilderFilters() {
+    const langRow = document.getElementById('sb-lang-row');
+    if (!langRow) return;
+    langRow.innerHTML = '';
+    
+    const languages = Object.keys(sentenceBuilderDataStructure).sort();
+    if (languages.length === 0) {
+        langRow.innerHTML = '<p style="color:#7f8c8d; font-size:13px;">No Sentence Builders found in database.</p>';
+        return;
+    }
+
+    languages.forEach(lang => {
+        const btn = document.createElement('button');
+        btn.className = `pill-btn ${selSbLang === lang ? 'lang-active' : ''}`;
+        btn.innerHTML = `${getLanguageFlag(lang)} <span>${getLanguageName(lang)}</span>`;
+        btn.onclick = () => {
+            selSbLang = lang; selSbYear = null; selSbTopic = null; selSbTier = 'all';
+            renderSentenceBuilderFilters();
+        };
+        langRow.appendChild(btn);
+    });
+
+    const yearBlock = document.getElementById('sb-year-block');
+    const topicBlock = document.getElementById('sb-topic-block');
+    const tierBlock = document.getElementById('sb-tier-block');
+    const tasksBlock = document.getElementById('sb-tasks-block');
+
+    if (!selSbLang) {
+        yearBlock.classList.add('hidden'); topicBlock.classList.add('hidden'); if(tierBlock) tierBlock.classList.add('hidden'); tasksBlock.classList.add('hidden');
+        return;
+    }
+
+    yearBlock.classList.remove('hidden');
+    const yearRow = document.getElementById('sb-year-row');
+    yearRow.innerHTML = '';
+    
+    const years = Object.keys(sentenceBuilderDataStructure[selSbLang] || {}).sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
+    years.forEach(year => {
+        const btn = document.createElement('button');
+        btn.className = `pill-btn ${selSbYear === year ? 'year-active' : ''}`;
+        btn.innerHTML = `🏫 ${year}`;
+        btn.onclick = () => {
+            selSbYear = year; selSbTopic = null; selSbTier = 'all';
+            renderSentenceBuilderFilters();
+        };
+        yearRow.appendChild(btn);
+    });
+
+    if (!selSbYear) {
+        topicBlock.classList.add('hidden'); if(tierBlock) tierBlock.classList.add('hidden'); tasksBlock.classList.add('hidden');
+        return;
+    }
+
+    topicBlock.classList.remove('hidden');
+    const topicRow = document.getElementById('sb-topic-row');
+    topicRow.innerHTML = '';
+
+    const topics = Object.keys(sentenceBuilderDataStructure[selSbLang][selSbYear] || {}).sort();
+    topics.forEach(topic => {
+        const btn = document.createElement('button');
+        btn.className = `pill-btn ${selSbTopic === topic ? 'topic-active' : ''}`;
+        btn.innerHTML = `📁 ${topic}`;
+        btn.onclick = () => {
+            selSbTopic = topic; selSbTier = 'all';
+            renderSentenceBuilderFilters();
+        };
+        topicRow.appendChild(btn);
+    });
+
+    if (!selSbTopic) {
+        if(tierBlock) tierBlock.classList.add('hidden');
+        tasksBlock.classList.add('hidden');
+        return;
+    }
+
+    tasksBlock.classList.remove('hidden');
+    const tasksGrid = document.getElementById('sb-tasks-grid');
+    tasksGrid.innerHTML = '';
+
+    let matchedTasks = sentenceBuilderDataStructure[selSbLang][selSbYear][selSbTopic] || [];
+
+    matchedTasks.sort((a,b) => a.title.localeCompare(b.title)).forEach(task => {
+        const card = document.createElement('div');
+        card.className = 'bank-task-card';
+        const tierLetter = (task.tier === 'higher') ? 'H' : 'F'; 
+
+        card.innerHTML = `
+            <div class="bank-task-info">
+                <div class="bank-task-title" onclick="loadTemplateIntoEditor('${task.id}')">
+                    <span class="badge tier">${tierLetter}</span> ${task.title}
+                </div>
+            </div>
+            <div class="task-actions">
+                <button class="task-action-btn" data-tooltip="Duplicate" title="Duplicate" onclick="duplicateTemplate('${task.id}', event)">📋</button>
+                <button class="task-action-btn" data-tooltip="Delete" title="Delete" onclick="moveToBin('${task.id}', event)">🗑️</button>
+            </div>
+        `;
+        tasksGrid.appendChild(card);
+    });
+}
 </script>
 <script src="https://accounts.google.com/gsi/client" onload="gisInit()"></script>
 </body>
