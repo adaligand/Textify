@@ -1765,38 +1765,64 @@ window.onload = async () => {
 
 auth.onAuthStateChanged(async (user) => {
     initMetaListeners();
-    if (user) {
-        const email = user.email.toLowerCase();
-        
-        // 1. Verify school domain
-        if (!email.endsWith("@cedarsupper.co.uk")) {
-            await auth.signOut();
-            alert("Access Denied: Please use your official school email account.");
-            showPage('login-page');
-            return;
-        }
 
-        // 2. Determine role by checking if email starts with a digit
-        const isStudent = /^[0-9]/.test(email);
-        const urlParams = new URLSearchParams(window.location.search);
-        const hasAssignmentLink = !!urlParams.get('assignmentId');
-
-        // 3. Block students attempting to log in on the base URL without an assignmentId
-        if (isStudent && !hasAssignmentLink) {
-            await auth.signOut();
-            alert("Access Denied: Students can only log in using a direct Google Classroom assignment link.");
-            showPage('login-page');
-            return;
-        }
-
-        currentUser = user;
-        document.getElementById('user-display').innerText = email;
-        cleanupOldDeletedFiles(); 
-        showPage('library-page');
-        renderLibrary();
-    } else {
+    if (!user) {
         currentUser = null;
         showPage('login-page');
+        return;
+    }
+
+    const email = user.email.toLowerCase();
+
+    // 1. Verify school domain
+    if (!email.endsWith("@cedarsupper.co.uk")) {
+        alert("Access Denied: Please use your official school email account.");
+        auth.signOut();
+        showPage('login-page');
+        return;
+    }
+
+    // 2. Determine role and assignment link parameters
+    const isStudent = /^[0-9]/.test(email);
+    const urlParams = new URLSearchParams(window.location.search);
+    const assignmentId = urlParams.get('assignmentId');
+
+    // 3. Block students attempting to log in on the base URL without an assignmentId
+    if (isStudent && !assignmentId) {
+        alert("Access Denied: Students can only log in using a direct Google Classroom assignment link.");
+        auth.signOut();
+        showPage('login-page');
+        return;
+    }
+
+    currentUser = user;
+
+    // Safely update navbar display if present
+    const userDisplay = document.getElementById('user-display');
+    if (userDisplay) userDisplay.innerText = email;
+
+    // 4. Route based on context (Student Task Portal vs Teacher Library)
+    if (assignmentId) {
+        showPage('student-portal-page');
+
+        const authTextEl = document.getElementById('student-auth-instruction-text');
+        const loginBox = document.getElementById('student-login-box');
+        const profileBadge = document.getElementById('student-profile-badge');
+
+        if (loginBox) loginBox.style.display = 'none';
+        if (authTextEl) authTextEl.style.display = 'none';
+        if (profileBadge) profileBadge.style.display = 'inline-block';
+
+        const nameEl = document.getElementById('student-display-name');
+        const emailEl = document.getElementById('student-display-email');
+        if (nameEl) nameEl.innerText = user.displayName || 'Student';
+        if (emailEl) emailEl.innerText = `(${user.email})`;
+
+        loadStudentTask(assignmentId);
+    } else {
+        cleanupOldDeletedFiles();
+        showPage('library-page');
+        renderLibrary();
     }
 });
 
