@@ -6325,87 +6325,137 @@ function saveStudentCurrentExerciseResponses() {
     const actType = studentExerciseTypes[studentCurrentExIndex];
     const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
     const responses = [];
-
     const area = document.getElementById('exercise-interactive-area');
 
     if (actType === 'match') {
+        const totalPairs = sents.length;
+        const maxAllowedWrong = Math.max(1, Math.floor(totalPairs * 0.5));
+
         sents.forEach((s, idx) => {
             const tile = area.querySelector(`.match-t-tile[data-id="${idx}"]`);
             const isDone = tile && tile.classList.contains('correct-match');
             const wrongAttempts = tile ? parseInt(tile.dataset.wrongAttempts || "0", 10) : 0;
-            const points = isDone ? (wrongAttempts === 0 ? 1 : 0.5) : 0;
+
+            let points = 0;
+            if (isDone) {
+                if (wrongAttempts === 0) {
+                    points = 1.0;
+                } else if (wrongAttempts <= maxAllowedWrong) {
+                    points = 0.5;
+                } else {
+                    points = 0.0;
+                }
+            }
 
             responses.push({
                 prompt: s.t,
                 studentAnswer: isDone ? s.tr : '(Unmatched)',
                 correctAnswer: s.tr,
-                isCorrect: isDone && (wrongAttempts === 0),
+                isCorrect: points === 1.0,
                 points: points,
                 mistakes: wrongAttempts
             });
         });
-    } else if (actType === 'jumbled') {
+    } 
+    else if (actType === 'jumbled') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const slot = block.querySelector('.jumble-answer-slot');
-            const studentText = Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText).join(' ').trim();
-            const mistakes = parseInt(block.dataset.mistakes || "0", 10);
-            const isTextCorrect = normalizeString(studentText) === normalizeString(s.t);
-            const points = isTextCorrect ? (mistakes === 0 ? 1 : 0.5) : 0;
+            const studentWords = Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText.trim());
+            const targetWords = s.t.trim().split(/\s+/);
+
+            // Calculate misplaced tiles by comparing student positions vs target positions
+            let misplacedCount = 0;
+            const maxLen = Math.max(studentWords.length, targetWords.length);
+            for (let i = 0; i < maxLen; i++) {
+                if (studentWords[i] !== targetWords[i]) {
+                    misplacedCount++;
+                }
+            }
+
+            // mistakes logged during tile removal count towards misplaced count if higher
+            const interactiveMistakes = parseInt(block.dataset.mistakes || "0", 10);
+            const totalErrors = Math.max(misplacedCount, interactiveMistakes);
+
+            let points = 0;
+            if (totalErrors === 0) {
+                points = 1.0;
+            } else if (totalErrors === 1 || totalErrors === 2) {
+                points = 0.5;
+            } else {
+                points = 0.0;
+            }
 
             responses.push({
                 prompt: s.tr,
-                studentAnswer: studentText || '(Empty)',
+                studentAnswer: studentWords.join(' ') || '(Empty)',
                 correctAnswer: s.t,
-                isCorrect: isTextCorrect && (mistakes === 0),
+                isCorrect: points === 1.0,
                 points: points,
-                mistakes: mistakes
+                mistakes: totalErrors
             });
         });
-    } else if (actType === 'nospaces') {
+    } 
+    else if (actType === 'nospaces') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
+            const totalSpaces = (s.t.match(/\s/g) || []).length;
             const unrevealed = block.querySelectorAll('.space-inner:not(.revealed-space)');
             const wrongClicks = parseInt(block.dataset.wrongClicks || "0", 10);
-            
-            const isFullyCorrect = (unrevealed.length === 0) && (wrongClicks === 0);
-            const isDoneWithMistakes = (unrevealed.length === 0) && (wrongClicks > 0);
+            const maxAllowedWrong = Math.max(1, Math.ceil(totalSpaces * 0.5));
 
             let points = 0;
-            if (isFullyCorrect) points = 1;
-            else if (isDoneWithMistakes) points = 0.5;
+            if (unrevealed.length === 0) {
+                if (wrongClicks === 0) {
+                    points = 1.0;
+                } else if (wrongClicks <= maxAllowedWrong) {
+                    points = 0.5;
+                } else {
+                    points = 0.0;
+                }
+            }
 
             responses.push({
                 prompt: s.tr,
                 studentAnswer: (unrevealed.length === 0) ? s.t : `(Incomplete - ${unrevealed.length} gaps left)`,
                 correctAnswer: s.t,
-                isCorrect: isFullyCorrect,
+                isCorrect: points === 1.0,
                 points: points,
                 mistakes: wrongClicks
             });
         });
-    } else if (actType === 'vowels' || actType === 'cons') {
+    } 
+    else if (actType === 'vowels' || actType === 'cons') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const boxes = Array.from(block.querySelectorAll('.letter-box'));
+            const totalBoxes = boxes.length;
             const allCorrect = boxes.every(b => b.classList.contains('correct-input'));
             const mistakes = parseInt(block.dataset.mistakes || "0", 10);
+            const maxAllowedWrong = Math.max(1, Math.ceil(totalBoxes * 0.5));
 
             let points = 0;
             if (allCorrect) {
-                points = (mistakes === 0) ? 1 : 0.5;
+                if (mistakes === 0) {
+                    points = 1.0;
+                } else if (mistakes <= maxAllowedWrong) {
+                    points = 0.5;
+                } else {
+                    points = 0.0;
+                }
             }
 
             responses.push({
                 prompt: s.tr,
                 studentAnswer: allCorrect ? s.t : '(Incomplete/Incorrect letters)',
                 correctAnswer: s.t,
-                isCorrect: allCorrect && (mistakes === 0),
+                isCorrect: points === 1.0,
                 points: points,
                 mistakes: mistakes
             });
         });
-    } else if (actType === 'gap-en' || actType === 'gap-t') {
+    } 
+    else if (actType === 'gap-en' || actType === 'gap-t') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const input = block.querySelector('.gap-inline-input');
@@ -6415,22 +6465,32 @@ function saveStudentCurrentExerciseResponses() {
             const normCorrect = normalizeString(correct);
             const mistakes = parseInt(block.dataset.mistakes || "0", 10);
 
+            const gapCount = 1; // standard per-sentence gap count
+            const maxAllowedWrong = Math.max(1, Math.ceil(gapCount * 0.5));
+
             const isExact = normAns.length > 0 && normCorrect.length > 0 && (normAns === normCorrect);
             let points = 0;
             if (isExact) {
-                points = (mistakes === 0) ? 1 : 0.5;
+                if (mistakes === 0) {
+                    points = 1.0;
+                } else if (mistakes <= maxAllowedWrong) {
+                    points = 0.5;
+                } else {
+                    points = 0.0;
+                }
             }
 
             responses.push({
                 prompt: s.t,
                 studentAnswer: ans || '(Empty)',
                 correctAnswer: correct || '(No gap answer set)',
-                isCorrect: isExact && (mistakes === 0),
+                isCorrect: points === 1.0,
                 points: points,
                 mistakes: mistakes
             });
         });
-    } else if (actType === 'faulty') {
+    } 
+    else if (actType === 'faulty') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const input = block.querySelector('.full-typing-input');
@@ -6444,12 +6504,14 @@ function saveStudentCurrentExerciseResponses() {
                 prompt: `Correct English for: "${s.t}" (Faulty was: "${s.faultyTr || getOrGenerateFaultyTr(s)}")`,
                 studentAnswer: ans || '(Empty)',
                 correctAnswer: correct || '(No markscheme translation set)',
-                isCorrect: evalResult.points === 1,
+                isCorrect: evalResult.points === 1.0,
                 points: evalResult.points,
                 mistakes: mistakes
             });
         });
-    } else {
+    } 
+    else {
+        // Free typing & standard text input activities
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const input = block.querySelector('.full-typing-input');
@@ -6463,7 +6525,7 @@ function saveStudentCurrentExerciseResponses() {
                 prompt: s.t || s.tr,
                 studentAnswer: ans || '(Empty)',
                 correctAnswer: correct || '(No markscheme translation set)',
-                isCorrect: evalResult.points === 1,
+                isCorrect: evalResult.points === 1.0,
                 points: evalResult.points,
                 mistakes: mistakes
             });
