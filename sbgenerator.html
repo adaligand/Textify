@@ -5289,108 +5289,99 @@ async function handleClassroomCourseChange(courseId) {
     }
 }
 async function publishTaskToClassroom() {
-    try {
-        const courseSelect = document.getElementById('gc-course-select');
-        const courseId = courseSelect.value;
-        const courseName = courseSelect.options[courseSelect.selectedIndex]?.text || '';
+    const courseSelect = document.getElementById('gc-course-select');
+    const courseId = courseSelect.value;
+    const courseName = courseSelect.options[courseSelect.selectedIndex]?.text || '';
 
-        if (!courseId) return alert("Select a Google Classroom course.");
+    if (!courseId) return alert("Select a Google Classroom course.");
 
-        const selectedActivities = Array.from(document.querySelectorAll('#activity-list input:checked')).map(c => c.value);
-        if (selectedActivities.length === 0) return alert("Select at least one activity!");
+    const selectedActivities = Array.from(document.querySelectorAll('#activity-list input:checked')).map(c => c.value);
+    if (selectedActivities.length === 0) return alert("Select at least one activity!");
 
-        const tableLimit = parseInt(document.getElementById('table-sentence-count').value, 10);
-        const allSentences = getAssembledSentences();
+    const tableLimit = parseInt(document.getElementById('table-sentence-count').value, 10);
+    const allSentences = getAssembledSentences();
 
-        const structuredSentencesPerActivity = {};
-        let totalSentencesCount = 0;
+    const structuredSentencesPerActivity = {};
+    let totalSentencesCount = 0;
 
-        selectedActivities.forEach(actId => {
-            const bodyEl = document.getElementById(`act-body-${actId}`);
-            const sents = [];
-            if (bodyEl) {
-                const rows = bodyEl.querySelectorAll('.act-sentence-row');
-                const targets = rows.length > 0 ? rows : bodyEl.children;
-                Array.from(targets).forEach(row => {
-                    const tInput = row.querySelector('.edit-t');
-                    const trInput = row.querySelector('.edit-tr');
-                    const faultyTrInput = row.querySelector('.edit-faulty-tr');
-                    if (tInput) {
-                        const t = tInput.value.trim();
-                        const tr = trInput ? trInput.value.trim() : "";
-                        const faultyTr = faultyTrInput ? faultyTrInput.value.trim() : "";
-                        if (t || tr) {
-                            const itemObj = { t, tr: tr };
-                            if (actId === 'faulty' && faultyTr) {
-                                itemObj.faultyTr = faultyTr;
-                            }
-                            sents.push(itemObj);
+    selectedActivities.forEach(actId => {
+        const bodyEl = document.getElementById(`act-body-${actId}`);
+        const sents = [];
+        if (bodyEl) {
+            const rows = bodyEl.querySelectorAll('.act-sentence-row');
+            const targets = rows.length > 0 ? rows : bodyEl.children;
+            Array.from(targets).forEach(row => {
+                const tInput = row.querySelector('.edit-t');
+                const trInput = row.querySelector('.edit-tr');
+                const faultyTrInput = row.querySelector('.edit-faulty-tr');
+                if (tInput) {
+                    const t = tInput.value.trim();
+                    const tr = trInput ? trInput.value.trim() : "";
+                    const faultyTr = faultyTrInput ? faultyTrInput.value.trim() : "";
+                    if (t || tr) {
+                        const itemObj = { t, tr: tr };
+                        if (actId === 'faulty' && faultyTr) {
+                            itemObj.faultyTr = faultyTr;
                         }
+                        sents.push(itemObj);
                     }
-                });
-            }
-
-            if (sents.length > 0) {
-                structuredSentencesPerActivity[actId] = sents;
-                if (actId !== 'study') {
-                    totalSentencesCount += sents.length;
                 }
+            });
+        }
+
+        if (sents.length > 0) {
+            structuredSentencesPerActivity[actId] = sents;
+            if (actId !== 'study') {
+                totalSentencesCount += sents.length;
+            }
+        } else {
+            if (actId === 'study') {
+                structuredSentencesPerActivity['study'] = getBalancedSelection(allSentences, tableLimit);
             } else {
-                if (actId === 'study') {
-                    structuredSentencesPerActivity['study'] = getBalancedSelection(allSentences, tableLimit);
-                } else {
-                    const exerciseLimit = parseInt(document.getElementById('sentence-count').value, 10);
-                    structuredSentencesPerActivity[actId] = getBalancedSelection(allSentences, exerciseLimit);
-                    totalSentencesCount += structuredSentencesPerActivity[actId].length;
-                }
+                const exerciseLimit = parseInt(document.getElementById('sentence-count').value, 10);
+                structuredSentencesPerActivity[actId] = getBalancedSelection(allSentences, exerciseLimit);
+                totalSentencesCount += structuredSentencesPerActivity[actId].length;
             }
-        });
-
-        const title = document.getElementById('builder-title').value || "Sentence Practice";
-        const maxPoints = totalSentencesCount * 1;
-        const dueDateVal = document.getElementById('gc-due-date').value;
-        const scheduleDateVal = document.getElementById('gc-schedule-date').value;
-        const topicId = document.getElementById('gc-topic-select').value;
-
-        let gcDueDate = null, gcDueTime = null;
-        if (dueDateVal) {
-            const dateObj = new Date(dueDateVal);
-            gcDueDate = { year: dateObj.getFullYear(), month: dateObj.getMonth() + 1, day: dateObj.getDate() };
-            gcDueTime = { hours: dateObj.getHours(), minutes: dateObj.getMinutes(), seconds: 0, nanos: 0 };
         }
+    });
 
-        let gcScheduledTime = null;
-        if (scheduleDateVal) {
-            const scheduledDateObj = new Date(scheduleDateVal);
-            const now = new Date();
-            
-            // Google Classroom API requires scheduledTime to be at least 5 minutes in the future
-            if (scheduledDateObj <= new Date(now.getTime() + 2 * 60 * 1000)) {
-                return alert("Scheduled time must be set at least 5 minutes in the future.");
-            }
-            gcScheduledTime = scheduledDateObj.toISOString();
-        }
+    const title = document.getElementById('builder-title').value || "Sentence Practice";
+    const maxPoints = totalSentencesCount * 1;
+    const dueDateVal = document.getElementById('gc-due-date').value;
+    const scheduleDateVal = document.getElementById('gc-schedule-date').value;
+    const topicId = document.getElementById('gc-topic-select').value;
 
-        const isLoaded = await ensureGapiClassroomLoaded();
-        if (!isLoaded) {
-            return alert("Could not connect to Google Classroom. Please check your account permissions.");
-        }
+    let gcDueDate = null, gcDueTime = null;
+    if (dueDateVal) {
+        const dateObj = new Date(dueDateVal);
+        gcDueDate = { year: dateObj.getFullYear(), month: dateObj.getMonth() + 1, day: dateObj.getDate() };
+        gcDueTime = { hours: dateObj.getHours(), minutes: dateObj.getMinutes(), seconds: 0, nanos: 0 };
+    }
 
-        if (!studentSelectorCourseId || studentSelectorCourseId !== courseId) {
-            await loadClassroomStudents(courseId);
-        }
+    let gcScheduledTime = null;
+    if (scheduleDateVal) {
+        gcScheduledTime = new Date(scheduleDateVal).toISOString();
+    }
 
-        const selectedStudentIds = [...selectedClassroomStudentIds];
-        if (selectedStudentIds.length === 0) {
-            return alert("Please select at least one student before posting the assignment.");
-        }
+    await ensureGapiClassroomLoaded();
 
-        const allStudentIds = classroomStudents.map(student => student.userId);
-        const assigningToEntireClass = allStudentIds.length > 0 && 
-            selectedStudentIds.length === allStudentIds.length && 
-            selectedStudentIds.every(id => allStudentIds.includes(id));
+    // 🔽 INSERT STUDENT SELECTION VALIDATION & LOGIC HERE 🔽
+    if (!studentSelectorCourseId || studentSelectorCourseId !== courseId) {
+        await loadClassroomStudents(courseId);
+    }
 
-        if (editingAssignmentId) {
+    const selectedStudentIds = [...selectedClassroomStudentIds];
+    if (selectedStudentIds.length === 0) {
+        alert("Please select at least one student before posting the assignment.");
+        return;
+    }
+
+    const allStudentIds = classroomStudents.map(student => student.userId);
+    const assigningToEntireClass = allStudentIds.length > 0 && selectedStudentIds.length === allStudentIds.length && selectedStudentIds.every(id => allStudentIds.includes(id));
+    // 🔼 END OF INSERTION 🔼
+
+    if (editingAssignmentId) {
+        try {
             const assignDoc = await db.collection("assignments").doc(editingAssignmentId).get();
             const existingData = assignDoc.data();
 
@@ -5441,76 +5432,70 @@ async function publishTaskToClassroom() {
             closeModals();
             renderStudentSubmissionsTable();
             return;
+        } catch (e) {
+            alert("Error updating assignment: " + e.message);
+            return;
         }
-
-        const assignmentRef = db.collection("assignments").doc();
-        const assignmentId = assignmentRef.id;
-        const studentUrl = `${window.location.origin}${window.location.pathname}?assignmentId=${assignmentId}`;
-
-        const cwPayload = {
-            title: `🧩 ${title}`,
-            description: `Complete the interactive sentence practice online.`,
-            workType: 'ASSIGNMENT',
-            assigneeMode: assigningToEntireClass ? 'ALL_STUDENTS' : 'INDIVIDUAL_STUDENTS',
-            maxPoints: maxPoints > 0 ? maxPoints : 10,
-            materials: [{ link: { url: studentUrl, title: "Interactive Sentence Task" } }]
-        };
-
-        if (!assigningToEntireClass) {
-            cwPayload.individualStudentsOptions = { studentIds: selectedStudentIds };
-        }
-
-        if (gcDueDate && gcDueTime) {
-            cwPayload.dueDate = gcDueDate;
-            cwPayload.dueTime = gcDueTime;
-        }
-
-        if (topicId) cwPayload.topicId = topicId;
-
-        if (gcScheduledTime) {
-            cwPayload.scheduledTime = gcScheduledTime;
-            cwPayload.state = 'DRAFT';
-        } else {
-            cwPayload.state = 'PUBLISHED';
-        }
-
-        const res = await gapi.client.classroom.courses.courseWork.create({ 
-            courseId: courseId, 
-            resource: cwPayload 
-        });
-
-        if (!gcScheduledTime) {
-            await gapi.client.classroom.courses.courseWork.patch({
-                courseId: courseId, 
-                id: res.result.id, 
-                updateMask: "state", 
-                resource: { state: 'PUBLISHED' }
-            });
-        }
-
-        await assignmentRef.set({
-            id: assignmentId,
-            gClassroomAssignmentId: res.result.id,
-            courseId: courseId,
-            courseName: courseName,
-            title: title,
-            lang: document.getElementById('meta-lang').value || meta.lang || "French",
-            selectedActivities: selectedActivities,
-            sentencesPerActivity: structuredSentencesPerActivity,
-            maxPoints: maxPoints > 0 ? maxPoints : 10,
-            assignedStudentIds: selectedStudentIds,
-            dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
-            scheduleDate: scheduleDateVal ? new Date(scheduleDateVal).toISOString() : null,
-            topicId: topicId || null,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-
-        alert(gcScheduledTime ? "📅 Assignment scheduled for publication on Google Classroom!" : "🎉 Assignment successfully posted to Google Classroom!");
-        closeModals();
-    } catch (err) {
-        console.error("Publish Task Error:", err);
-        alert("Failed to publish assignment: " + (err.result?.error?.message || err.message || "Unknown error"));
     }
+
+    const assignmentRef = db.collection("assignments").doc();
+    const assignmentId = assignmentRef.id;
+    const studentUrl = `${window.location.origin}${window.location.pathname}?assignmentId=${assignmentId}`;
+
+    const cwPayload = {
+        title: `🧩 ${title}`,
+        description: `Complete the interactive sentence practice online.`,
+        workType: 'ASSIGNMENT',
+        assigneeMode: assigningToEntireClass ? 'ALL_STUDENTS' : 'INDIVIDUAL_STUDENTS',
+        maxPoints: maxPoints > 0 ? maxPoints : 10,
+        materials: [{ link: { url: studentUrl, title: "Interactive Sentence Task" } }]
+    };
+
+    if (!assigningToEntireClass) {
+        cwPayload.individualStudentsOptions = { studentIds: selectedStudentIds };
+    }
+
+    if (gcDueDate && gcDueTime) {
+        cwPayload.dueDate = gcDueDate;
+        cwPayload.dueTime = gcDueTime;
+    }
+
+    if (topicId) cwPayload.topicId = topicId;
+
+    if (gcScheduledTime) {
+        cwPayload.scheduledTime = gcScheduledTime;
+        cwPayload.state = 'DRAFT';
+    } else {
+        cwPayload.state = 'PUBLISHED';
+    }
+
+    const res = await gapi.client.classroom.courses.courseWork.create({ courseId: courseId, resource: cwPayload });
+
+    if (!gcScheduledTime) {
+        await gapi.client.classroom.courses.courseWork.patch({
+            courseId: courseId, id: res.result.id, updateMask: "state", resource: { state: 'PUBLISHED' }
+        });
+    }
+
+    await assignmentRef.set({
+        id: assignmentId,
+        gClassroomAssignmentId: res.result.id,
+        courseId: courseId,
+        courseName: courseName,
+        title: title,
+        lang: document.getElementById('meta-lang').value || meta.lang || "French",
+        selectedActivities: selectedActivities,
+        sentencesPerActivity: structuredSentencesPerActivity,
+        maxPoints: maxPoints > 0 ? maxPoints : 10,
+        assignedStudentIds: selectedStudentIds,
+        dueDate: dueDateVal ? new Date(dueDateVal).toISOString() : null,
+        scheduleDate: scheduleDateVal ? new Date(scheduleDateVal).toISOString() : null,
+        topicId: topicId || null,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    alert(gcScheduledTime ? "📅 Assignment scheduled for publication on Google Classroom!" : "🎉 Assignment successfully posted to Google Classroom!");
+    closeModals();
 }
 
 /* =========================
