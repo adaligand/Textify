@@ -1108,16 +1108,19 @@ th { background: #f1f5f9; color: #334155; }
 
         <!-- STUDENT NAVIGATION ACTION BUTTONS -->
         <div id="student-nav-actions" style="display:none; justify-content:space-between; gap:10px; margin-top:10px;">
-            <button id="student-prev-ex-btn" onclick="prevStudentExercise()" class="btn-outline" style="display:none;">
-                ⬅️ Previous Exercise
-            </button>
-            <button id="student-next-ex-btn" onclick="nextStudentExercise()" class="btn-purple" style="flex:1; height:44px; font-size:15px;">
-                Next Exercise ➡️
-            </button>
-            <button id="student-submit-btn" onclick="submitStudentWork()" class="btn-purple" style="flex:1; height:44px; font-size:15px; background:#10b981; display:none;">
-                ✅ Submit Final Assignment
-            </button>
-        </div>
+    <button id="student-prev-ex-btn" onclick="prevStudentExercise()" class="btn-outline" style="display:none;">
+        ⬅️ Previous Exercise
+    </button>
+    <button id="student-submit-ex-btn" onclick="submitCurrentExercise()" class="btn-purple" style="flex:1; height:44px; font-size:15px; background:#2563eb; display:none;">
+        💾 Submit Exercise
+    </button>
+    <button id="student-next-ex-btn" onclick="nextStudentExercise()" class="btn-purple" style="flex:1; height:44px; font-size:15px; display:none;">
+        Next Exercise ➡️
+    </button>
+    <button id="student-submit-btn" onclick="submitStudentWork()" class="btn-purple" style="flex:1; height:44px; font-size:15px; background:#10b981; display:none;">
+        ✅ Submit Final Assignment
+    </button>
+</div>
     </div>
 </div>
 
@@ -1426,6 +1429,7 @@ window.editingSavedSentencesMap = null;
 let studentExerciseTypes = [];
 let studentCurrentExIndex = 0;
 let studentAnswersState = {};
+window.studentCompletedExercises = window.studentCompletedExercises || {};
 
 let nav = {
     lang: null,
@@ -5247,6 +5251,7 @@ async function loadStudentTask(assignmentId) {
     window.isTeacherPreview = false;
     const previewBanner = document.getElementById('teacher-preview-banner');
     if (previewBanner) previewBanner.style.display = 'none';
+
     try {
         const doc = await db.collection("assignments").doc(assignmentId).get();
         if (!doc.exists) {
@@ -5264,6 +5269,7 @@ async function loadStudentTask(assignmentId) {
         studentExerciseTypes = selectedActivities.filter(a => a !== 'study');
         studentCurrentExIndex = 0;
         studentAnswersState = {};
+        window.studentCompletedExercises = {};
 
         const perActSentences = currentStudentAssignment.sentencesPerActivity || {};
         const hasStudySelected = selectedActivities.includes('study');
@@ -5286,10 +5292,13 @@ async function loadStudentTask(assignmentId) {
         }
 
         if (currentUser && currentUser.email) {
+            const studentEmail = currentUser.email.toLowerCase();
+
+            // 1. Check if final submission already exists
             try {
                 const subSnap = await db.collection("submissions")
                     .where("assignmentId", "==", assignmentId)
-                    .where("studentEmail", "==", currentUser.email.toLowerCase())
+                    .where("studentEmail", "==", studentEmail)
                     .get();
 
                 if (!subSnap.empty) {
@@ -5302,7 +5311,47 @@ async function loadStudentTask(assignmentId) {
                     return;
                 }
             } catch (subErr) {
-                console.warn("Could not query previous submissions, displaying activity instead:", subErr);
+                console.warn("Could not query previous submissions:", subErr);
+            }
+
+            // 2. Fetch saved draft progress (Firestore + Local Storage fallback)
+            try {
+                const draftId = `${assignmentId}_${studentEmail}`;
+                let draftData = null;
+
+                try {
+                    const draftDoc = await db.collection("student_drafts").doc(draftId).get();
+                    if (draftDoc.exists) {
+                        draftData = draftDoc.data();
+                    }
+                } catch (fsErr) {
+                    console.warn("Could not fetch draft from Firestore:", fsErr);
+                }
+
+                const localDraftRaw = localStorage.getItem(`student_draft_${draftId}`);
+                if (localDraftRaw) {
+                    try {
+                        const localDraft = JSON.parse(localDraftRaw);
+                        if (!draftData || (localDraft.studentCompletedExercises && Object.keys(localDraft.studentCompletedExercises).length >= Object.keys(draftData.studentCompletedExercises || {}).length)) {
+                            draftData = localDraft;
+                        }
+                    } catch (pErr) {}
+                }
+
+                if (draftData) {
+                    studentAnswersState = draftData.studentAnswersState || {};
+                    window.studentCompletedExercises = draftData.studentCompletedExercises || {};
+
+                    // Resume on the first uncompleted exercise
+                    const firstUncompletedIdx = studentExerciseTypes.findIndex(act => !window.studentCompletedExercises[act]);
+                    if (firstUncompletedIdx !== -1) {
+                        studentCurrentExIndex = firstUncompletedIdx;
+                    } else if (studentExerciseTypes.length > 0) {
+                        studentCurrentExIndex = studentExerciseTypes.length - 1;
+                    }
+                }
+            } catch (draftErr) {
+                console.warn("Could not load draft progress:", draftErr);
             }
         }
 
@@ -5323,7 +5372,6 @@ async function loadStudentTask(assignmentId) {
         alert("Error loading assignment task: " + err.message);
     }
 }
-
 function renderStudentPendingReviewCard(sub) {
     document.getElementById('student-active-exercise-card').style.display = 'none';
     document.getElementById('student-nav-actions').style.display = 'none';
@@ -5506,16 +5554,82 @@ function isCurrentExerciseCompleted() {
 
     return true;
 }
+async function saveDraftProgress() {
+    if (!currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id) return;
 
+    const studentEmail = currentUser.email.toLowerCase();
+    const assignmentId = currentStudentAssignment.id;
+    const draftId = `${assignmentId}_${studentEmail}`;
+
+    const draftPayload = {
+        assignmentId: assignmentId,
+        studentEmail: studentEmail,
+        studentAnswersState: studentAnswersState,
+        studentCompletedExercises: window.studentCompletedExercises || {},
+        lastUpdatedIndex: studentCurrentExIndex,
+        updatedAt: new Date().toISOString()
+    };
+
+    // 1. Instant local persistence fallback
+    try {
+        localStorage.setItem(`student_draft_${draftId}`, JSON.stringify(draftPayload));
+    } catch (lsErr) {
+        console.warn("LocalStorage save error:", lsErr);
+    }
+
+    // 2. Cloud Firestore persistence
+    try {
+        await db.collection("student_drafts").doc(draftId).set({
+            ...draftPayload,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    } catch (e) {
+        console.warn("Could not save draft progress to Firestore:", e);
+    }
+}
+
+function lockCurrentExerciseUI() {
+    const area = document.getElementById('exercise-interactive-area');
+    if (!area) return;
+
+    area.querySelectorAll('input, button, .interactive-tile, .space-span, .letter-span, .jumble-word-tile').forEach(el => {
+        el.disabled = true;
+        el.style.pointerEvents = 'none';
+        el.style.opacity = '0.75';
+    });
+}
+
+async function submitCurrentExercise() {
+    const actType = studentExerciseTypes[studentCurrentExIndex];
+
+    // 1. Record current exercise answers into memory
+    saveStudentCurrentExerciseResponses();
+
+    // 2. Mark exercise as completed
+    window.studentCompletedExercises[actType] = true;
+
+    // 3. Persist draft progress to Firestore
+    await saveDraftProgress();
+
+    // 4. Lock UI so answers cannot be altered
+    lockCurrentExerciseUI();
+
+    // 5. Update action buttons (hides Submit Exercise, shows Next Exercise / Final Submit)
+    checkExerciseCompletion();
+}
 function checkExerciseCompletion() {
+    const submitExBtn = document.getElementById('student-submit-ex-btn');
     const nextBtn = document.getElementById('student-next-ex-btn');
     const submitBtn = document.getElementById('student-submit-btn');
-    if (!nextBtn || !submitBtn) return;
+    if (!nextBtn || !submitBtn || !submitExBtn) return;
 
+    const actType = studentExerciseTypes[studentCurrentExIndex];
+    const isSubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
     const isLastEx = (studentCurrentExIndex === studentExerciseTypes.length - 1);
 
-    // Teachers can navigate freely in preview mode
+    // Teacher preview mode
     if (window.isTeacherPreview) {
+        submitExBtn.style.display = 'none';
         if (isLastEx) {
             nextBtn.style.display = 'none';
             submitBtn.style.display = 'inline-block';
@@ -5526,18 +5640,23 @@ function checkExerciseCompletion() {
         return;
     }
 
-    // Student mode: only show Next / Submit when completed
-    const isComplete = isCurrentExerciseCompleted();
-
-    if (isLastEx) {
-        nextBtn.style.display = 'none';
-        submitBtn.style.display = isComplete ? 'inline-block' : 'none';
+    // Student mode
+    if (isSubmitted) {
+        submitExBtn.style.display = 'none';
+        if (isLastEx) {
+            nextBtn.style.display = 'none';
+            submitBtn.style.display = 'inline-block';
+        } else {
+            nextBtn.style.display = 'inline-block';
+            submitBtn.style.display = 'none';
+        }
     } else {
+        nextBtn.style.display = 'none';
         submitBtn.style.display = 'none';
-        nextBtn.style.display = isComplete ? 'inline-block' : 'none';
+        const isComplete = isCurrentExerciseCompleted();
+        submitExBtn.style.display = isComplete ? 'inline-block' : 'none';
     }
 }
-
 /* =========================
    UPDATED STUDENT EXERCISE RENDERER
 ========================= */
@@ -5558,7 +5677,7 @@ function renderCurrentStudentExercise() {
     const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
 
     let html = `
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1.5px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
+        <div style="display:flex; justify-space-between; align-items:center; border-bottom:1.5px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
             <h3 style="margin:0; font-size:17px; color:#0f172a;">Exercise ${studentCurrentExIndex + 1} of ${studentExerciseTypes.length}: ${actTitle}</h3>
             <span style="background:#e2e8f0; padding:3px 8px; border-radius:12px; font-size:12px; font-weight:bold; color:#475569;">
                 ${sents.length} Items
@@ -5637,7 +5756,7 @@ function renderCurrentStudentExercise() {
         });
         area.innerHTML = jHtml;
 
-       area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+        area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const slot = block.querySelector('.jumble-answer-slot');
             const bank = block.querySelector('.jumble-word-bank');
             const targetSentence = sents[idx] ? sents[idx].t : "";
@@ -5650,7 +5769,6 @@ function renderCurrentStudentExercise() {
                         bank.appendChild(e.target);
                     }
 
-                    // Check if sentence arrangement is correct when bank is empty
                     if (bank.children.length === 0) {
                         const studentText = Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText).join(' ').trim();
                         if (normalizeString(studentText) === normalizeString(targetSentence)) {
@@ -5864,6 +5982,106 @@ function renderCurrentStudentExercise() {
         });
     }
 
+    // --- RESTORE PREVIOUS ANSWERS IF ALREADY SAVED ---
+    const savedExerciseResponses = studentAnswersState[actType] || [];
+    const isAlreadySubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
+
+    if (savedExerciseResponses.length > 0) {
+        if (['faulty', 'trans-en', 'trans-target'].includes(actType)) {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const input = block.querySelector('.full-typing-input');
+                if (input && savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
+                    const prev = savedExerciseResponses[idx].studentAnswer;
+                    if (prev !== '(Empty)') input.value = prev;
+                }
+            });
+        } else if (actType === 'gap-en' || actType === 'gap-t') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const input = block.querySelector('.gap-inline-input');
+                if (input && savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
+                    const prev = savedExerciseResponses[idx].studentAnswer;
+                    if (prev !== '(Empty)') {
+                        input.value = prev;
+                        input.dispatchEvent(new Event('change'));
+                    }
+                }
+            });
+        } else if (actType === 'vowels' || actType === 'cons') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const boxes = Array.from(block.querySelectorAll('.letter-box'));
+                const resp = savedExerciseResponses[idx];
+                if (resp) {
+                    if (resp.letterValues && Array.isArray(resp.letterValues)) {
+                        boxes.forEach((box, bIdx) => {
+                            if (resp.letterValues[bIdx] !== undefined) {
+                                box.value = resp.letterValues[bIdx];
+                                if (box.value.toLowerCase() === (box.dataset.correct || '').toLowerCase() && box.value !== '') {
+                                    box.classList.add('correct-input');
+                                } else if (box.value !== '') {
+                                    box.classList.add('wrong-input');
+                                }
+                            }
+                        });
+                    } else if (resp.studentAnswer && resp.studentAnswer !== '(Incomplete/Incorrect letters)') {
+                        boxes.forEach(box => {
+                            box.value = box.dataset.correct || '';
+                            box.classList.add('correct-input');
+                        });
+                    }
+                }
+            });
+        } else if (actType === 'jumbled') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const slot = block.querySelector('.jumble-answer-slot');
+                const bank = block.querySelector('.jumble-word-bank');
+                const resp = savedExerciseResponses[idx];
+                if (resp && resp.studentAnswer && resp.studentAnswer !== '(Empty)') {
+                    const wordList = resp.studentAnswer.split(' ');
+                    wordList.forEach(w => {
+                        const tiles = Array.from(bank.querySelectorAll('.jumble-word-tile'));
+                        const matchingTile = tiles.find(t => t.innerText === w);
+                        if (matchingTile) slot.appendChild(matchingTile);
+                    });
+                    slot.style.borderColor = '#10b981';
+                    slot.style.backgroundColor = '#ecfdf5';
+                }
+            });
+        } else if (actType === 'nospaces') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const resp = savedExerciseResponses[idx];
+                if (resp && (resp.isDone || (resp.studentAnswer && !resp.studentAnswer.startsWith('(Incomplete')))) {
+                    block.querySelectorAll('.space-inner').forEach(inner => {
+                        inner.style.display = 'inline';
+                        inner.style.visibility = 'visible';
+                        inner.classList.add('revealed-space');
+                    });
+                    if (typeof updateNoSpaceCounter === 'function') {
+                        updateNoSpaceCounter(block);
+                    }
+                }
+            });
+        } else if (actType === 'match') {
+            savedExerciseResponses.forEach((resp, idx) => {
+                if (resp && (resp.isDone || resp.studentAnswer !== '(Unmatched)')) {
+                    const targetTile = area.querySelector(`.match-t-tile[data-id="${idx}"]`);
+                    const engTile = area.querySelector(`.match-tr-tile[data-id="${idx}"]`);
+                    if (targetTile) {
+                        targetTile.classList.add('correct-match');
+                        targetTile.style.opacity = '0.3';
+                    }
+                    if (engTile) {
+                        engTile.classList.add('correct-match');
+                        engTile.style.opacity = '0.3';
+                    }
+                }
+            });
+        }
+    }
+
+    if (isAlreadySubmitted) {
+        lockCurrentExerciseUI();
+    }
+
     document.getElementById('student-prev-ex-btn').style.display = (studentCurrentExIndex > 0) ? 'inline-block' : 'none';
     checkExerciseCompletion();
 }
@@ -6047,6 +6265,7 @@ function saveStudentCurrentExerciseResponses() {
     const responses = [];
 
     const area = document.getElementById('exercise-interactive-area');
+    if (!area) return;
 
     if (actType === 'match') {
         sents.forEach((s, idx) => {
@@ -6065,7 +6284,8 @@ function saveStudentCurrentExerciseResponses() {
                 correctAnswer: s.tr,
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongAttempts
+                mistakes: wrongAttempts,
+                isDone: isDone
             });
         });
     } else if (actType === 'jumbled') {
@@ -6108,13 +6328,15 @@ function saveStudentCurrentExerciseResponses() {
                 correctAnswer: s.t,
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongClicks
+                mistakes: wrongClicks,
+                isDone: isDone
             });
         });
     } else if (actType === 'vowels' || actType === 'cons') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const boxes = Array.from(block.querySelectorAll('.letter-box'));
+            const letterValues = boxes.map(b => b.value || '');
             const wrongEntries = parseInt(block.dataset.wrongEntries || "0", 10);
             const allCorrect = boxes.length > 0 && boxes.every(b => b.classList.contains('correct-input'));
 
@@ -6125,11 +6347,12 @@ function saveStudentCurrentExerciseResponses() {
 
             responses.push({
                 prompt: s.tr,
-                studentAnswer: allCorrect ? s.t : '(Incomplete/Incorrect letters)',
+                studentAnswer: allCorrect ? s.t : (letterValues.some(v => v !== '') ? letterValues.join('') : '(Incomplete/Incorrect letters)'),
                 correctAnswer: s.t,
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongEntries
+                mistakes: wrongEntries,
+                letterValues: letterValues
             });
         });
     } else if (actType === 'gap-en' || actType === 'gap-t') {
@@ -6195,6 +6418,7 @@ function saveStudentCurrentExerciseResponses() {
 }
 function nextStudentExercise() {
     saveStudentCurrentExerciseResponses();
+    saveDraftProgress();
     if (studentCurrentExIndex < studentExerciseTypes.length - 1) {
         studentCurrentExIndex++;
         renderCurrentStudentExercise();
@@ -6203,6 +6427,7 @@ function nextStudentExercise() {
 
 function prevStudentExercise() {
     saveStudentCurrentExerciseResponses();
+    saveDraftProgress();
     if (studentCurrentExIndex > 0) {
         studentCurrentExIndex--;
         renderCurrentStudentExercise();
@@ -6254,6 +6479,11 @@ async function submitStudentWork() {
 
     try {
         await db.collection("submissions").add(subData);
+
+        // Delete draft from Firestore upon final assignment submission
+        const draftId = `${currentStudentAssignment.id}_${currentUser.email.toLowerCase()}`;
+        db.collection("student_drafts").doc(draftId).delete().catch(e => console.warn("Draft cleanup failed:", e));
+
         alert("🎉 Activity Submitted Successfully!\nYour work has been submitted to your teacher for review.");
         renderStudentPendingReviewCard(subData);
     } catch (err) {
