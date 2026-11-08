@@ -5395,25 +5395,25 @@ function renderStudentMarksheetReview(sub) {
                         Exercise ${actIdx + 1}: ${act.activityTitle}
                     </div>
                     <div style="padding:12px;">
-                        ${(act.responses || []).map((r, i) => `
-                            <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
-                                <div style="flex:1;">
-                                    <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
-                                    <div style="color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
-                                        <b>Your Answer:</b> ${r.studentAnswer}
-                                        ${r.mistakes !== undefined ? `
-                                            <span style="display:inline-block; margin-left:8px; font-size:11px; padding:2px 6px; border-radius:4px; font-weight:bold; background:${r.mistakes === 0 ? '#d1fae5' : '#fef3c7'}; color:${r.mistakes === 0 ? '#065f46' : '#92400e'};">
-                                                ${r.mistakes === 0 ? '✓ 0 Mistakes (1st try)' : `⚠️ ${r.mistakes} Mistake(s) made`}
-                                            </span>
-                                        ` : ''}
-                                    </div>
-                                    ${r.points < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:13px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
-                                </div>
-                                <div style="font-weight:bold; color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; padding-left:10px;">
-                                    ${r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0)} / 1 pt
-                                </div>
-                            </div>
-                        `).join('')}
+                       ${(act.responses || []).map((r, i) => `
+    <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
+        <div style="flex:1;">
+            <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
+            <div style="color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
+                <b>Your Answer:</b> ${r.studentAnswer}
+                ${r.mistakes !== undefined ? `
+                    <span style="display:inline-block; margin-left:8px; font-size:11px; padding:2px 6px; border-radius:4px; font-weight:bold; background:${r.mistakes === 0 ? '#d1fae5' : '#fef3c7'}; color:${r.mistakes === 0 ? '#065f46' : '#92400e'};">
+                        ${r.mistakes === 0 ? '✓ 0 Mistakes (1st try)' : `⚠️ ${r.mistakes} Mistake(s) made before correct answer`}
+                    </span>
+                ` : ''}
+            </div>
+            ${r.points < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:13px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
+        </div>
+        <div style="font-weight:bold; color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; padding-left:10px;">
+            ${r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0)} / 1 pt
+        </div>
+    </div>
+`).join('')}
                     </div>
                 </div>
             `;
@@ -5618,9 +5618,10 @@ function renderCurrentStudentExercise() {
         });
         area.innerHTML = jHtml;
 
-        area.querySelectorAll('.student-item-block').forEach(block => {
+       area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const slot = block.querySelector('.jumble-answer-slot');
             const bank = block.querySelector('.jumble-word-bank');
+            const targetSentence = sents[idx] ? sents[idx].t : "";
 
             block.addEventListener('click', (e) => {
                 if (e.target.classList.contains('jumble-word-tile')) {
@@ -5629,6 +5630,23 @@ function renderCurrentStudentExercise() {
                     } else {
                         bank.appendChild(e.target);
                     }
+
+                    // Check if sentence arrangement is correct when bank is empty
+                    if (bank.children.length === 0) {
+                        const studentText = Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText).join(' ').trim();
+                        if (normalizeString(studentText) === normalizeString(targetSentence)) {
+                            slot.style.borderColor = '#10b981';
+                            slot.style.backgroundColor = '#ecfdf5';
+                        } else {
+                            slot.style.borderColor = '#ef4444';
+                            slot.style.backgroundColor = '#fef2f2';
+                            block.dataset.wrongAttempts = parseInt(block.dataset.wrongAttempts || "0", 10) + 1;
+                        }
+                    } else {
+                        slot.style.borderColor = '#cbd5e1';
+                        slot.style.backgroundColor = 'white';
+                    }
+
                     checkExerciseCompletion();
                 }
             });
@@ -5769,6 +5787,25 @@ function renderCurrentStudentExercise() {
         area.innerHTML = gHtml;
 
         area.querySelectorAll('.gap-inline-input').forEach(input => {
+            const checkGapVal = () => {
+                const correct = input.dataset.correct || '';
+                const val = input.value.trim();
+                if (val.length === 0) {
+                    input.style.borderColor = '#cbd5e1';
+                    input.style.backgroundColor = 'white';
+                    return;
+                }
+                if (normalizeString(val) === normalizeString(correct)) {
+                    input.style.borderColor = '#10b981';
+                    input.style.backgroundColor = '#ecfdf5';
+                } else {
+                    input.style.borderColor = '#ef4444';
+                    input.style.backgroundColor = '#fef2f2';
+                    input.dataset.wrongAttempts = parseInt(input.dataset.wrongAttempts || "0", 10) + 1;
+                }
+            };
+
+            input.addEventListener('change', checkGapVal);
             input.addEventListener('input', () => {
                 checkExerciseCompletion();
             });
@@ -5900,6 +5937,11 @@ function checkMatchPair(state, sents) {
             feedback.innerText = 'Incorrect pair. Try again!';
             targetEl.classList.add('wrong-match');
             engEl.classList.add('wrong-match');
+            
+            // Increment mistake counters on tiles
+            targetEl.dataset.wrongAttempts = parseInt(targetEl.dataset.wrongAttempts || "0", 10) + 1;
+            engEl.dataset.wrongAttempts = parseInt(engEl.dataset.wrongAttempts || "0", 10) + 1;
+
             setTimeout(() => {
                 targetEl?.classList.remove('wrong-match', 'selected');
                 engEl?.classList.remove('wrong-match', 'selected');
@@ -5921,6 +5963,7 @@ function setupAutoAdvanceInputs(area, selector) {
         input.oninput = function() {
             const correctChar = this.dataset.correct;
             const val = this.value.toLowerCase();
+            const block = this.closest('.student-item-block');
 
             if (val === correctChar) {
                 this.classList.add('correct-input');
@@ -5929,6 +5972,9 @@ function setupAutoAdvanceInputs(area, selector) {
             } else if (val.length > 0) {
                 this.classList.add('wrong-input');
                 this.classList.remove('correct-input');
+                if (block) {
+                    block.dataset.wrongEntries = parseInt(block.dataset.wrongEntries || "0", 10) + 1;
+                }
             } else {
                 this.classList.remove('correct-input', 'wrong-input');
             }
@@ -5990,7 +6036,6 @@ function saveStudentCurrentExerciseResponses() {
     const area = document.getElementById('exercise-interactive-area');
 
     if (actType === 'match') {
-        const totalChoices = sents.length;
         sents.forEach((s, idx) => {
             const tile = area.querySelector(`.match-t-tile[data-id="${idx}"]`);
             const isDone = tile && tile.classList.contains('correct-match');
@@ -5998,13 +6043,7 @@ function saveStudentCurrentExerciseResponses() {
             
             let points = 0;
             if (isDone) {
-                if (wrongAttempts === 0) {
-                    points = 1.0;
-                } else if (wrongAttempts <= Math.ceil(totalChoices * 0.5)) {
-                    points = 0.5;
-                } else {
-                    points = 0.0;
-                }
+                points = (wrongAttempts === 0) ? 1.0 : 0.5;
             }
 
             responses.push({
@@ -6013,8 +6052,7 @@ function saveStudentCurrentExerciseResponses() {
                 correctAnswer: s.tr,
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongAttempts,
-                thresholdInfo: `${wrongAttempts} wrong attempt(s)`
+                mistakes: wrongAttempts
             });
         });
     } else if (actType === 'jumbled') {
@@ -6027,13 +6065,7 @@ function saveStudentCurrentExerciseResponses() {
 
             let points = 0;
             if (isExactMatch) {
-                if (wrongAttempts === 0) {
-                    points = 1.0;
-                } else if (wrongAttempts <= 2) { // 1 or 2 mistakes before correct
-                    points = 0.5;
-                } else {
-                    points = 0.0;
-                }
+                points = (wrongAttempts === 0) ? 1.0 : 0.5;
             }
 
             responses.push({
@@ -6042,28 +6074,19 @@ function saveStudentCurrentExerciseResponses() {
                 correctAnswer: s.t,
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongAttempts,
-                thresholdInfo: `${wrongAttempts} mistake(s)/misplacement(s)`
+                mistakes: wrongAttempts
             });
         });
     } else if (actType === 'nospaces') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const unrevealed = block.querySelectorAll('.space-inner:not(.revealed-space)');
-            const totalSpaces = block.querySelectorAll('.space-span').length || 1;
             const wrongClicks = parseInt(block.dataset.wrongClicks || "0", 10);
-            
-            let points = 0;
             const isDone = (unrevealed.length === 0);
 
+            let points = 0;
             if (isDone) {
-                if (wrongClicks === 0) {
-                    points = 1.0;
-                } else if (wrongClicks <= Math.ceil(totalSpaces * 0.5)) {
-                    points = 0.5;
-                } else {
-                    points = 0.0;
-                }
+                points = (wrongClicks === 0) ? 1.0 : 0.5;
             }
 
             responses.push({
@@ -6072,27 +6095,19 @@ function saveStudentCurrentExerciseResponses() {
                 correctAnswer: s.t,
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongClicks,
-                thresholdInfo: `${wrongClicks} wrong click(s) / ${totalSpaces} total space(s)`
+                mistakes: wrongClicks
             });
         });
     } else if (actType === 'vowels' || actType === 'cons') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const boxes = Array.from(block.querySelectorAll('.letter-box'));
-            const totalLetters = boxes.length || 1;
             const wrongEntries = parseInt(block.dataset.wrongEntries || "0", 10);
-            const allCorrect = boxes.every(b => b.classList.contains('correct-input'));
+            const allCorrect = boxes.length > 0 && boxes.every(b => b.classList.contains('correct-input'));
 
             let points = 0;
             if (allCorrect) {
-                if (wrongEntries === 0) {
-                    points = 1.0;
-                } else if (wrongEntries <= Math.ceil(totalLetters * 0.5)) {
-                    points = 0.5;
-                } else {
-                    points = 0.0;
-                }
+                points = (wrongEntries === 0) ? 1.0 : 0.5;
             }
 
             responses.push({
@@ -6101,8 +6116,7 @@ function saveStudentCurrentExerciseResponses() {
                 correctAnswer: s.t,
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongEntries,
-                thresholdInfo: `${wrongEntries} wrong entry(ies) / ${totalLetters} letter(s)`
+                mistakes: wrongEntries
             });
         });
     } else if (actType === 'gap-en' || actType === 'gap-t') {
@@ -6115,15 +6129,8 @@ function saveStudentCurrentExerciseResponses() {
             
             const isMatch = (normalizeString(ans) === normalizeString(correct));
             let points = 0;
-
             if (isMatch) {
-                if (wrongAttempts === 0) {
-                    points = 1.0;
-                } else if (wrongAttempts === 1) { // 50% threshold (1 mistake)
-                    points = 0.5;
-                } else {
-                    points = 0.0;
-                }
+                points = (wrongAttempts === 0) ? 1.0 : 0.5;
             }
 
             responses.push({
@@ -6132,8 +6139,7 @@ function saveStudentCurrentExerciseResponses() {
                 correctAnswer: correct || '(No gap set)',
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongAttempts,
-                thresholdInfo: `${wrongAttempts} wrong attempt(s)`
+                mistakes: wrongAttempts
             });
         });
     } else if (actType === 'faulty') {
@@ -6975,34 +6981,34 @@ async function inspectStudentAnswers(subId) {
                         Exercise ${actIdx + 1}: ${act.activityTitle}
                     </div>
                     <div style="padding:12px;">
-                        ${(act.responses || []).map((r, i) => {
-                            const currentScore = r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0);
-                            return `
-                                <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; gap:10px;">
-                                    <div style="flex:1;">
-                                        <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
-                                        <div style="color:${currentScore >= 1 ? '#10b981' : (currentScore > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
-                                            <b>Student Answer:</b> ${r.studentAnswer}
-                                            ${r.mistakes !== undefined ? `
-                                                <span style="display:inline-block; margin-left:8px; font-size:11px; padding:2px 6px; border-radius:4px; font-weight:bold; background:${r.mistakes === 0 ? '#d1fae5' : '#fef3c7'}; color:${r.mistakes === 0 ? '#065f46' : '#92400e'};">
-                                                    ${r.thresholdInfo ? `⚠️ ${r.thresholdInfo}` : (r.mistakes === 0 ? '✓ 0 Mistakes' : `⚠️ ${r.mistakes} Mistake(s)`)}
-                                                </span>
-                                            ` : ''}
-                                        </div>
-                                        ${currentScore < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:12px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
-                                    </div>
-                                    <div style="display:flex; align-items:center; gap:4px; font-weight:bold; background:#f8fafc; padding:4px 8px; border-radius:6px; border:1px solid #cbd5e1;">
-                                        <input type="number" step="0.5" min="0" max="1" 
-                                            class="item-score-input" 
-                                            data-act-idx="${actIdx}" 
-                                            data-resp-idx="${i}" 
-                                            value="${currentScore}" 
-                                            style="width:50px; padding:4px; text-align:center; border:1px solid #94a3b8; border-radius:4px; font-weight:bold;">
-                                        <span>/ 1 pt</span>
-                                    </div>
-                                </div>
-                            `;
-                        }).join('')}
+                       ${(act.responses || []).map((r, i) => {
+    const currentScore = r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0);
+    return `
+        <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <div style="flex:1;">
+                <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
+                <div style="color:${currentScore >= 1 ? '#10b981' : (currentScore > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
+                    <b>Student Answer:</b> ${r.studentAnswer}
+                    ${r.mistakes !== undefined ? `
+                        <span style="display:inline-block; margin-left:8px; font-size:11px; padding:2px 6px; border-radius:4px; font-weight:bold; background:${r.mistakes === 0 ? '#d1fae5' : '#fef3c7'}; color:${r.mistakes === 0 ? '#065f46' : '#92400e'};">
+                            ${r.mistakes === 0 ? '✓ 0 Mistakes (1st try)' : `⚠️ ${r.mistakes} Mistake(s) made before correct answer`}
+                        </span>
+                    ` : ''}
+                </div>
+                ${currentScore < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:12px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
+            </div>
+            <div style="display:flex; align-items:center; gap:4px; font-weight:bold; background:#f8fafc; padding:4px 8px; border-radius:6px; border:1px solid #cbd5e1;">
+                <input type="number" step="0.5" min="0" max="1" 
+                    class="item-score-input" 
+                    data-act-idx="${actIdx}" 
+                    data-resp-idx="${i}" 
+                    value="${currentScore}" 
+                    style="width:50px; padding:4px; text-align:center; border:1px solid #94a3b8; border-radius:4px; font-weight:bold;">
+                <span>/ 1 pt</span>
+            </div>
+        </div>
+    `;
+}).join('')}
                     </div>
                 </div>
             `;
