@@ -1408,11 +1408,8 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-auth.setPersistence('session');
-
-/* =========================
-   STATE
-========================= */
+// Change 'session' to 'local' so the login state persists across tabs and window reopens
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 /* =========================
    STATE
 ========================= */
@@ -3614,8 +3611,9 @@ function openPreview() {
 }
 
 function openActivityMenu() {
-   editingAssignmentId = null;
+    editingAssignmentId = null;
     window.editingSavedSentencesMap = null;
+    window.duplicatingAssignmentLang = null;
     
     const btn = document.getElementById('gc-publish-btn');
     if (btn) btn.innerText = "📢 Publish Assignment Now";
@@ -3639,15 +3637,15 @@ function openActivityMenu() {
         {id:'trans-target', label:`Translate (${currentLang})`}
     ];
 
-   document.getElementById('activity-list').innerHTML = list.map(a => `
-    <div class="activity-row" style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
-        <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
-        <label for="chk-${a.id}" style="cursor:pointer; font-weight:500; font-size: 13px;">${a.label}</label>
-    </div>
-`).join('');
+    document.getElementById('activity-list').innerHTML = list.map(a => `
+        <div class="activity-row" style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
+            <label for="chk-${a.id}" style="cursor:pointer; font-weight:500; font-size: 13px;">${a.label}</label>
+        </div>
+    `).join('');
     
-   renderPerActivitySentenceBoxes();
-    document.getElementById('activity-menu').style.display = 'flex'; // CHANGED FROM 'block'
+    renderPerActivitySentenceBoxes();
+    document.getElementById('activity-menu').style.display = 'flex';
     document.getElementById('overlay').style.display = 'block';
 }
 
@@ -5041,6 +5039,12 @@ async function publishTaskToClassroom() {
             if (actId !== 'study') {
                 totalSentencesCount += sents.length;
             }
+        } else if (window.editingSavedSentencesMap && window.editingSavedSentencesMap[actId] && window.editingSavedSentencesMap[actId].length > 0) {
+            // Preserve exact duplicated sentences without re-shuffling from grid
+            structuredSentencesPerActivity[actId] = window.editingSavedSentencesMap[actId];
+            if (actId !== 'study') {
+                totalSentencesCount += window.editingSavedSentencesMap[actId].length;
+            }
         } else {
             if (actId === 'study') {
                 structuredSentencesPerActivity['study'] = getBalancedSelection(allSentences, tableLimit);
@@ -5163,13 +5167,13 @@ async function publishTaskToClassroom() {
         });
     }
 
-    await assignmentRef.set({
+   await assignmentRef.set({
         id: assignmentId,
         gClassroomAssignmentId: res.result.id,
         courseId: courseId,
         courseName: courseName,
         title: title,
-        lang: document.getElementById('meta-lang').value || meta.lang || "French",
+        lang: window.duplicatingAssignmentLang || document.getElementById('meta-lang').value || meta.lang || "French",
         selectedActivities: selectedActivities,
         sentencesPerActivity: structuredSentencesPerActivity,
         maxPoints: maxPoints > 0 ? maxPoints : 10,
@@ -5309,8 +5313,52 @@ function renderStudentPendingReviewCard(sub) {
 
     const pendingCard = document.getElementById('student-pending-review-card');
     pendingCard.style.display = 'block';
-}
 
+    const translationTypes = ['faulty', 'trans-en', 'trans-target'];
+    let selfEarned = 0;
+    let selfPossible = 0;
+    let hasTranslation = false;
+
+    if (sub && sub.detailedReport && Array.isArray(sub.detailedReport)) {
+        sub.detailedReport.forEach(act => {
+            if (translationTypes.includes(act.activityType)) {
+                hasTranslation = true;
+            } else {
+                (act.responses || []).forEach(r => {
+                    selfEarned += (r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0));
+                    selfPossible += 1;
+                });
+            }
+        });
+    }
+
+    let scoreHtml = '';
+    if (selfPossible > 0) {
+        const selfPct = Math.round((selfEarned / selfPossible) * 100);
+        scoreHtml = `
+            <div style="background:white; padding:15px; border-radius:8px; border:1px solid #bfdbfe; margin-bottom:15px; text-align:center;">
+                <span style="font-size:13px; font-weight:bold; color:#475569; text-transform:uppercase; letter-spacing:0.5px;">Self-Marked Exercises Score</span>
+                <div style="font-size:28px; font-weight:bold; color:#2563eb; margin-top:4px;">
+                    ${selfEarned} / ${selfPossible} (${selfPct}%)
+                </div>
+            </div>
+        `;
+    }
+
+    let noteText = hasTranslation
+        ? `Translation tasks are currently <b>pending teacher review</b>.<br>Please return to this assignment link once your teacher has reviewed your work in Google Classroom to view your final grade and corrections.`
+        : `Your assignment is currently <b>pending teacher review</b>.<br>Please return to this assignment link once your teacher has reviewed your work in Google Classroom to view your final grade and corrections.`;
+
+    pendingCard.innerHTML = `
+        <div style="background:#eff6ff; padding:24px; border-radius:10px; border:1px solid #bfdbfe; text-align:center;">
+            <h3 style="margin:0 0 14px 0; color:#1e40af; font-size:20px;">✅ Assignment Submitted Successfully!</h3>
+            ${scoreHtml}
+            <div style="background:#f8fafc; padding:14px 18px; border-radius:8px; border:1px solid #cbd5e1; color:#1e3a8a; font-size:14px; line-height:1.5;">
+                ⏳ ${noteText}
+            </div>
+        </div>
+    `;
+}
 function renderStudentMarksheetReview(sub) {
     document.getElementById('student-active-exercise-card').style.display = 'none';
     document.getElementById('student-nav-actions').style.display = 'none';
@@ -6194,6 +6242,10 @@ async function duplicateCurrentAssignmentToClass() {
     // Set editingAssignmentId to null so publishing creates a NEW assignment in the target course
     editingAssignmentId = null;
 
+    // Deep clone the original sentences map and language to lock in exact duplicate content
+    const clonedSentencesMap = assign.sentencesPerActivity ? JSON.parse(JSON.stringify(assign.sentencesPerActivity)) : null;
+    window.duplicatingAssignmentLang = assign.lang || null;
+
     const currentLang = assign.lang || meta.lang || "Target Language";
     
     const list = [
@@ -6225,10 +6277,10 @@ async function duplicateCurrentAssignmentToClass() {
     });
 
     let detectedCount = 10;
-    if (assign.sentencesPerActivity) {
-        for (let actKey in assign.sentencesPerActivity) {
-            if (actKey !== 'study' && assign.sentencesPerActivity[actKey].length > 0) {
-                detectedCount = assign.sentencesPerActivity[actKey].length;
+    if (clonedSentencesMap) {
+        for (let actKey in clonedSentencesMap) {
+            if (actKey !== 'study' && clonedSentencesMap[actKey].length > 0) {
+                detectedCount = clonedSentencesMap[actKey].length;
                 break;
             }
         }
@@ -6236,18 +6288,24 @@ async function duplicateCurrentAssignmentToClass() {
     const sentCountSelect = document.getElementById('sentence-count');
     if (sentCountSelect) sentCountSelect.value = String(detectedCount);
 
-    renderPerActivitySentenceBoxes(assign.sentencesPerActivity || null);
+    if (clonedSentencesMap && clonedSentencesMap['study']) {
+        const tableCountSelect = document.getElementById('table-sentence-count');
+        if (tableCountSelect) tableCountSelect.value = String(clonedSentencesMap['study'].length);
+    }
 
-    document.getElementById('activity-menu').style.display = 'flex'; // CHANGED FROM 'block'
+    renderPerActivitySentenceBoxes(clonedSentencesMap);
+
+    document.getElementById('activity-menu').style.display = 'flex';
     document.getElementById('overlay').style.display = 'block';
 
     await openClassroomPublishSection();
+    
     // Reset dates for new duplicate assignment
     document.getElementById('gc-due-date').value = '';
     document.getElementById('gc-schedule-date').value = '';
 
     const gcBtn = document.getElementById('gc-publish-btn');
-    if (gcBtn) gcBtn.innerText = "📋 Duplicate & Publish to Selected Class";
+    if (gcBtn) gcBtn.innerText = "📋 Duplicate & Publish";
 }
 
 async function downloadActiveAssignmentWorksheet() {
