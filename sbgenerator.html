@@ -1906,92 +1906,102 @@ function insertVirtualChar(char) {
     activeInputForVK.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-/* =========================
-   INITIALIZATION & AUTH
-========================= */
-/* =========================
-   INITIALIZATION & AUTH
-========================= */
-window.onload = async () => {
-    gisInit();
 
-    if (window.gapi) {
-        gapi.load('client', () => {
-            gapi.client.init({}).then(() => {
-                gapi.client.load('classroom', 'v1');
-            });
-        });
-    }
+/* =========================
+   HELPER VALIDATORS
+========================= */
+function isSchoolUser(email) {
+    if (!email || typeof email !== 'string') return false;
+    return email.toLowerCase().endsWith('@cedarsupper.co.uk');
+}
 
+function isTeacher(email) {
+    if (!isSchoolUser(email)) return false;
+    // Teacher emails do NOT start with a digit 0-9
+    return !/^[0-9]/.test(email.trim());
+}
+
+/* =========================
+   DOM HELPERS FOR STUDENT UI
+========================= */
+function setStudentLoggedOutUI() {
+    const authTextEl = document.getElementById('student-auth-instruction-text');
+    document.getElementById('student-login-box').style.display = 'block';
+    if (authTextEl) authTextEl.style.display = 'block';
+    document.getElementById('student-profile-badge').style.display = 'none';
+    document.getElementById('student-active-exercise-card').style.display = 'none';
+    document.getElementById('student-marksheet-card').style.display = 'none';
+    document.getElementById('student-pending-review-card').style.display = 'none';
+    document.getElementById('student-reference-banner').style.display = 'none';
+    document.getElementById('student-nav-actions').style.display = 'none';
+    document.getElementById('virtual-keyboard-bar').style.display = 'none';
+}
+
+function setStudentLoggedInUI(user) {
+    const authTextEl = document.getElementById('student-auth-instruction-text');
+    document.getElementById('student-login-box').style.display = 'none';
+    if (authTextEl) authTextEl.style.display = 'none';
+    document.getElementById('student-profile-badge').style.display = 'inline-block';
+    document.getElementById('student-display-name').innerText = user.displayName || 'Student';
+    document.getElementById('student-display-email').innerText = `(${user.email})`;
+}
+
+/* =========================
+   UNIFIED AUTH STATE OBSERVER
+========================= */
+auth.onAuthStateChanged((user) => {
     const urlParams = new URLSearchParams(window.location.search);
     const assignmentId = urlParams.get('assignmentId');
 
-    if (assignmentId) {
-        showPage('student-portal-page');
-        
-        auth.onAuthStateChanged(user => {
-            const authTextEl = document.getElementById('student-auth-instruction-text');
-            if (user && user.email.toLowerCase().endsWith("@cedarsupper.co.uk")) {
-                currentUser = user;
-                document.getElementById('student-login-box').style.display = 'none';
-                if (authTextEl) authTextEl.style.display = 'none';
-                document.getElementById('student-profile-badge').style.display = 'inline-block';
-                document.getElementById('student-display-name').innerText = currentUser.displayName || 'Student';
-                document.getElementById('student-display-email').innerText = `(${currentUser.email})`;
-                
-                loadStudentTask(assignmentId);
-            } else {
-                document.getElementById('student-login-box').style.display = 'block';
-                if (authTextEl) authTextEl.style.display = 'block';
-                document.getElementById('student-profile-badge').style.display = 'none';
-                document.getElementById('student-active-exercise-card').style.display = 'none';
-                document.getElementById('student-marksheet-card').style.display = 'none';
-                document.getElementById('student-pending-review-card').style.display = 'none';
-                document.getElementById('student-reference-banner').style.display = 'none';
-                document.getElementById('student-nav-actions').style.display = 'none';
-                document.getElementById('virtual-keyboard-bar').style.display = 'none';
-            }
-        });
+    // Scenario 1: Logged Out
+    if (!user || !user.email) {
+        currentUser = null;
+        if (assignmentId) {
+            showPage('student-portal-page');
+            setStudentLoggedOutUI();
+        } else {
+            showPage('login-page');
+        }
         return;
     }
 
-    // 🔒 TEACHER PLATFORM ACCESS CONTROL (Triggers when no assignmentId is present)
-    auth.onAuthStateChanged(async (user) => {
-        initMetaListeners();
-        if (user) {
-            const email = user.email.toLowerCase();
-            
-            if (!email.endsWith("@cedarsupper.co.uk")) {
-                await auth.signOut();
-                alert("Access Denied: Use school email.");
-                showPage('login-page');
-                return;
-            }
+    const email = user.email.toLowerCase();
 
-            // 👇 ADD YOUR TEACHER EMAIL(S) HERE 👇
-            const AUTHORIZED_TEACHERS = [
-                "adaligand@cedarsupper.co.uk" // Add any additional teacher emails here if needed
-            ];
+    // Scenario 2: Unauthorized Domain
+    if (!isSchoolUser(email)) {
+        alert("Access Denied: Please sign in with your official school email (@cedarsupper.co.uk).");
+        auth.signOut();
+        return;
+    }
 
-            if (!AUTHORIZED_TEACHERS.includes(email)) {
-                await auth.signOut();
-                alert("Access Denied: Teacher portal access is restricted. Students must access tasks via their assigned link.");
-                showPage('login-page');
-                return;
-            }
+    currentUser = user;
 
-            currentUser = user;
-            document.getElementById('user-display').innerText = email;
-            cleanupOldDeletedFiles(); 
-            showPage('library-page');
-            renderLibrary();
-        } else {
-            currentUser = null;
-            showPage('login-page');
-        }
-    });
-};
+    // Scenario 3: Opened Direct Student Assignment Link (?assignmentId=...)
+    if (assignmentId) {
+        showPage('student-portal-page');
+        setStudentLoggedInUI(currentUser);
+        loadStudentTask(assignmentId);
+        return;
+    }
 
+    // Scenario 4: Main Page Access (No Assignment ID in URL)
+    if (isTeacher(email)) {
+        const userDisplayEl = document.getElementById('user-display');
+        if (userDisplayEl) userDisplayEl.innerText = email;
+        showPage('library-page');
+        if (typeof renderLibrary === 'function') renderLibrary();
+    } else {
+        // Students trying to log in on the main page without an assignment link are signed out
+        alert("Students can only log in using an assignment link provided by a teacher.");
+        auth.signOut();
+        currentUser = null;
+        showPage('login-page');
+    }
+});
+
+/* =========================
+   LOGIN & INITIALIZATION
+========================= */
 async function login() {
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
@@ -2007,22 +2017,25 @@ async function login() {
         const result = await auth.signInWithPopup(provider);
         const email = result.user.email.toLowerCase();
 
-        if (!email.endsWith("@cedarsupper.co.uk")) {
+        if (!isSchoolUser(email)) {
             alert("Access Denied: Please sign in with your official school email (@cedarsupper.co.uk).");
             await auth.signOut();
             return;
         }
 
-        currentUser = result.user;
+        const urlParams = new URLSearchParams(window.location.search);
+        const assignmentId = urlParams.get('assignmentId');
+
+        if (!isTeacher(email) && !assignmentId) {
+            alert("Students can only log in using an assignment link provided by a teacher.");
+            await auth.signOut();
+            return;
+        }
+
         if (result.credential && result.credential.accessToken) {
             localStorage.setItem('oauth_token', result.credential.accessToken);
             localStorage.setItem('oauth_token_expiry', Date.now() + (3600 * 1000));
         }
-
-        document.getElementById('user-display').innerText = email;
-        showPage('library-page');
-        renderLibrary();
-
     } catch (e) {
         alert("Sign-in failed: " + e.message);
     }
@@ -2034,25 +2047,15 @@ async function studentLogin() {
         const result = await auth.signInWithPopup(provider);
         const email = result.user.email.toLowerCase();
 
-        if (!email.endsWith("@cedarsupper.co.uk")) {
+        // Use helper function for domain checking
+        if (!isSchoolUser(email)) {
             alert("Access Denied: Please use your official school Google account (@cedarsupper.co.uk).");
             await auth.signOut();
             return;
         }
 
-        currentUser = result.user;
-        document.getElementById('student-login-box').style.display = 'none';
-        const authTextEl = document.getElementById('student-auth-instruction-text');
-        if (authTextEl) authTextEl.style.display = 'none';
-
-        document.getElementById('student-profile-badge').style.display = 'inline-block';
-        document.getElementById('student-display-name').innerText = currentUser.displayName || 'Student';
-        document.getElementById('student-display-email').innerText = `(${currentUser.email})`;
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const assignmentId = urlParams.get('assignmentId');
-        if (assignmentId) loadStudentTask(assignmentId);
-
+        // DOM state updates and assignment loading are handled 
+        // automatically by auth.onAuthStateChanged above upon successful sign-in.
     } catch (e) {
         alert("Authentication failed: " + e.message);
     }
