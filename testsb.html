@@ -5401,6 +5401,11 @@ function renderStudentMarksheetReview(sub) {
                                     <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
                                     <div style="color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
                                         <b>Your Answer:</b> ${r.studentAnswer}
+                                        ${r.mistakes !== undefined ? `
+                                            <span style="display:inline-block; margin-left:8px; font-size:11px; padding:2px 6px; border-radius:4px; font-weight:bold; background:${r.mistakes === 0 ? '#d1fae5' : '#fef3c7'}; color:${r.mistakes === 0 ? '#065f46' : '#92400e'};">
+                                                ${r.mistakes === 0 ? '✓ 0 Mistakes (1st try)' : `⚠️ ${r.mistakes} Mistake(s) made`}
+                                            </span>
+                                        ` : ''}
                                     </div>
                                     ${r.points < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:13px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
                                 </div>
@@ -5985,15 +5990,31 @@ function saveStudentCurrentExerciseResponses() {
     const area = document.getElementById('exercise-interactive-area');
 
     if (actType === 'match') {
+        const totalChoices = sents.length;
         sents.forEach((s, idx) => {
             const tile = area.querySelector(`.match-t-tile[data-id="${idx}"]`);
             const isDone = tile && tile.classList.contains('correct-match');
+            const wrongAttempts = parseInt(tile?.dataset.wrongAttempts || "0", 10);
+            
+            let points = 0;
+            if (isDone) {
+                if (wrongAttempts === 0) {
+                    points = 1.0;
+                } else if (wrongAttempts <= Math.ceil(totalChoices * 0.5)) {
+                    points = 0.5;
+                } else {
+                    points = 0.0;
+                }
+            }
+
             responses.push({
                 prompt: s.t,
                 studentAnswer: isDone ? s.tr : '(Unmatched)',
                 correctAnswer: s.tr,
-                isCorrect: isDone,
-                points: isDone ? 1 : 0
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongAttempts,
+                thresholdInfo: `${wrongAttempts} wrong attempt(s)`
             });
         });
     } else if (actType === 'jumbled') {
@@ -6001,49 +6022,87 @@ function saveStudentCurrentExerciseResponses() {
             const s = sents[idx];
             const slot = block.querySelector('.jumble-answer-slot');
             const studentText = Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText).join(' ').trim();
-            const isCorrect = normalizeString(studentText) === normalizeString(s.t);
+            const wrongAttempts = parseInt(block.dataset.wrongAttempts || "0", 10);
+            const isExactMatch = (normalizeString(studentText) === normalizeString(s.t));
+
+            let points = 0;
+            if (isExactMatch) {
+                if (wrongAttempts === 0) {
+                    points = 1.0;
+                } else if (wrongAttempts <= 2) { // 1 or 2 mistakes before correct
+                    points = 0.5;
+                } else {
+                    points = 0.0;
+                }
+            }
 
             responses.push({
                 prompt: s.tr,
                 studentAnswer: studentText || '(Empty)',
                 correctAnswer: s.t,
-                isCorrect: isCorrect,
-                points: isCorrect ? 1 : 0
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongAttempts,
+                thresholdInfo: `${wrongAttempts} mistake(s)/misplacement(s)`
             });
         });
     } else if (actType === 'nospaces') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const unrevealed = block.querySelectorAll('.space-inner:not(.revealed-space)');
+            const totalSpaces = block.querySelectorAll('.space-span').length || 1;
             const wrongClicks = parseInt(block.dataset.wrongClicks || "0", 10);
             
-            const isFullyCorrect = (unrevealed.length === 0) && (wrongClicks === 0);
-            const isDoneWithMistakes = (unrevealed.length === 0) && (wrongClicks > 0);
-
             let points = 0;
-            if (isFullyCorrect) points = 1;
-            else if (isDoneWithMistakes) points = 0.5;
+            const isDone = (unrevealed.length === 0);
+
+            if (isDone) {
+                if (wrongClicks === 0) {
+                    points = 1.0;
+                } else if (wrongClicks <= Math.ceil(totalSpaces * 0.5)) {
+                    points = 0.5;
+                } else {
+                    points = 0.0;
+                }
+            }
 
             responses.push({
                 prompt: s.tr,
-                studentAnswer: (unrevealed.length === 0) ? s.t : `(Incomplete - ${unrevealed.length} gaps left)`,
+                studentAnswer: isDone ? s.t : `(Incomplete - ${unrevealed.length} gaps left)`,
                 correctAnswer: s.t,
-                isCorrect: isFullyCorrect,
-                points: points
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongClicks,
+                thresholdInfo: `${wrongClicks} wrong click(s) / ${totalSpaces} total space(s)`
             });
         });
     } else if (actType === 'vowels' || actType === 'cons') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const boxes = Array.from(block.querySelectorAll('.letter-box'));
+            const totalLetters = boxes.length || 1;
+            const wrongEntries = parseInt(block.dataset.wrongEntries || "0", 10);
             const allCorrect = boxes.every(b => b.classList.contains('correct-input'));
+
+            let points = 0;
+            if (allCorrect) {
+                if (wrongEntries === 0) {
+                    points = 1.0;
+                } else if (wrongEntries <= Math.ceil(totalLetters * 0.5)) {
+                    points = 0.5;
+                } else {
+                    points = 0.0;
+                }
+            }
 
             responses.push({
                 prompt: s.tr,
                 studentAnswer: allCorrect ? s.t : '(Incomplete/Incorrect letters)',
                 correctAnswer: s.t,
-                isCorrect: allCorrect,
-                points: allCorrect ? 1 : 0
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongEntries,
+                thresholdInfo: `${wrongEntries} wrong entry(ies) / ${totalLetters} letter(s)`
             });
         });
     } else if (actType === 'gap-en' || actType === 'gap-t') {
@@ -6052,17 +6111,29 @@ function saveStudentCurrentExerciseResponses() {
             const input = block.querySelector('.gap-inline-input');
             const ans = input ? input.value.trim() : '';
             const correct = input ? input.dataset.correct : '';
-            const normAns = normalizeString(ans);
-            const normCorrect = normalizeString(correct);
+            const wrongAttempts = parseInt(input?.dataset.wrongAttempts || "0", 10);
+            
+            const isMatch = (normalizeString(ans) === normalizeString(correct));
+            let points = 0;
 
-            const isCorrect = normAns.length > 0 && normCorrect.length > 0 && (normAns === normCorrect);
+            if (isMatch) {
+                if (wrongAttempts === 0) {
+                    points = 1.0;
+                } else if (wrongAttempts === 1) { // 50% threshold (1 mistake)
+                    points = 0.5;
+                } else {
+                    points = 0.0;
+                }
+            }
 
             responses.push({
                 prompt: s.t,
                 studentAnswer: ans || '(Empty)',
-                correctAnswer: correct || '(No gap answer set)',
-                isCorrect: isCorrect,
-                points: isCorrect ? 1 : 0
+                correctAnswer: correct || '(No gap set)',
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongAttempts,
+                thresholdInfo: `${wrongAttempts} wrong attempt(s)`
             });
         });
     } else if (actType === 'faulty') {
@@ -6912,6 +6983,11 @@ async function inspectStudentAnswers(subId) {
                                         <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
                                         <div style="color:${currentScore >= 1 ? '#10b981' : (currentScore > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
                                             <b>Student Answer:</b> ${r.studentAnswer}
+                                            ${r.mistakes !== undefined ? `
+                                                <span style="display:inline-block; margin-left:8px; font-size:11px; padding:2px 6px; border-radius:4px; font-weight:bold; background:${r.mistakes === 0 ? '#d1fae5' : '#fef3c7'}; color:${r.mistakes === 0 ? '#065f46' : '#92400e'};">
+                                                    ${r.thresholdInfo ? `⚠️ ${r.thresholdInfo}` : (r.mistakes === 0 ? '✓ 0 Mistakes' : `⚠️ ${r.mistakes} Mistake(s)`)}
+                                                </span>
+                                            ` : ''}
                                         </div>
                                         ${currentScore < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:12px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
                                     </div>
