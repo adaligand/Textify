@@ -1108,16 +1108,19 @@ th { background: #f1f5f9; color: #334155; }
 
         <!-- STUDENT NAVIGATION ACTION BUTTONS -->
         <div id="student-nav-actions" style="display:none; justify-content:space-between; gap:10px; margin-top:10px;">
-            <button id="student-prev-ex-btn" onclick="prevStudentExercise()" class="btn-outline" style="display:none;">
-                ⬅️ Previous Exercise
-            </button>
-            <button id="student-next-ex-btn" onclick="nextStudentExercise()" class="btn-purple" style="flex:1; height:44px; font-size:15px;">
-                Next Exercise ➡️
-            </button>
-            <button id="student-submit-btn" onclick="submitStudentWork()" class="btn-purple" style="flex:1; height:44px; font-size:15px; background:#10b981; display:none;">
-                ✅ Submit Final Assignment
-            </button>
-        </div>
+    <button id="student-prev-ex-btn" onclick="prevStudentExercise()" class="btn-outline" style="display:none;">
+        ⬅️ Previous Exercise
+    </button>
+    <button id="student-submit-ex-btn" onclick="submitCurrentExercise()" class="btn-purple" style="flex:1; height:44px; font-size:15px; background:#2563eb; display:none;">
+        💾 Submit Exercise
+    </button>
+    <button id="student-next-ex-btn" onclick="nextStudentExercise()" class="btn-purple" style="flex:1; height:44px; font-size:15px; display:none;">
+        Next Exercise ➡️
+    </button>
+    <button id="student-submit-btn" onclick="submitStudentWork()" class="btn-purple" style="flex:1; height:44px; font-size:15px; background:#10b981; display:none;">
+        ✅ Submit Final Assignment
+    </button>
+</div>
     </div>
 </div>
 
@@ -1426,6 +1429,7 @@ window.editingSavedSentencesMap = null;
 let studentExerciseTypes = [];
 let studentCurrentExIndex = 0;
 let studentAnswersState = {};
+window.studentCompletedExercises = window.studentCompletedExercises || {};
 
 let nav = {
     lang: null,
@@ -5264,6 +5268,7 @@ async function loadStudentTask(assignmentId) {
         studentExerciseTypes = selectedActivities.filter(a => a !== 'study');
         studentCurrentExIndex = 0;
         studentAnswersState = {};
+        window.studentCompletedExercises = {};
 
         const perActSentences = currentStudentAssignment.sentencesPerActivity || {};
         const hasStudySelected = selectedActivities.includes('study');
@@ -5286,10 +5291,13 @@ async function loadStudentTask(assignmentId) {
         }
 
         if (currentUser && currentUser.email) {
+            const studentEmail = currentUser.email.toLowerCase();
+
+            // 1. Check if final submission already exists
             try {
                 const subSnap = await db.collection("submissions")
                     .where("assignmentId", "==", assignmentId)
-                    .where("studentEmail", "==", currentUser.email.toLowerCase())
+                    .where("studentEmail", "==", studentEmail)
                     .get();
 
                 if (!subSnap.empty) {
@@ -5302,7 +5310,28 @@ async function loadStudentTask(assignmentId) {
                     return;
                 }
             } catch (subErr) {
-                console.warn("Could not query previous submissions, displaying activity instead:", subErr);
+                console.warn("Could not query previous submissions:", subErr);
+            }
+
+            // 2. Fetch saved draft progress if present
+            try {
+                const draftId = `${assignmentId}_${studentEmail}`;
+                const draftDoc = await db.collection("student_drafts").doc(draftId).get();
+                if (draftDoc.exists) {
+                    const draftData = draftDoc.data();
+                    studentAnswersState = draftData.studentAnswersState || {};
+                    window.studentCompletedExercises = draftData.studentCompletedExercises || {};
+
+                    // Resume on the first uncompleted exercise
+                    const firstUncompletedIdx = studentExerciseTypes.findIndex(act => !window.studentCompletedExercises[act]);
+                    if (firstUncompletedIdx !== -1) {
+                        studentCurrentExIndex = firstUncompletedIdx;
+                    } else if (studentExerciseTypes.length > 0) {
+                        studentCurrentExIndex = studentExerciseTypes.length - 1;
+                    }
+                }
+            } catch (draftErr) {
+                console.warn("Could not load draft progress:", draftErr);
             }
         }
 
@@ -5506,16 +5535,69 @@ function isCurrentExerciseCompleted() {
 
     return true;
 }
+async function saveDraftProgress() {
+    if (!currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id) return;
 
+    const studentEmail = currentUser.email.toLowerCase();
+    const assignmentId = currentStudentAssignment.id;
+    const draftId = `${assignmentId}_${studentEmail}`;
+
+    try {
+        await db.collection("student_drafts").doc(draftId).set({
+            assignmentId: assignmentId,
+            studentEmail: studentEmail,
+            studentAnswersState: studentAnswersState,
+            studentCompletedExercises: window.studentCompletedExercises || {},
+            lastUpdatedIndex: studentCurrentExIndex,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    } catch (e) {
+        console.warn("Could not save draft progress:", e);
+    }
+}
+
+function lockCurrentExerciseUI() {
+    const area = document.getElementById('exercise-interactive-area');
+    if (!area) return;
+
+    area.querySelectorAll('input, button, .interactive-tile, .space-span, .letter-span, .jumble-word-tile').forEach(el => {
+        el.disabled = true;
+        el.style.pointerEvents = 'none';
+        el.style.opacity = '0.75';
+    });
+}
+
+async function submitCurrentExercise() {
+    const actType = studentExerciseTypes[studentCurrentExIndex];
+
+    // 1. Record current exercise answers into memory
+    saveStudentCurrentExerciseResponses();
+
+    // 2. Mark exercise as completed
+    window.studentCompletedExercises[actType] = true;
+
+    // 3. Persist draft progress to Firestore
+    await saveDraftProgress();
+
+    // 4. Lock UI so answers cannot be altered
+    lockCurrentExerciseUI();
+
+    // 5. Update action buttons (hides Submit Exercise, shows Next Exercise / Final Submit)
+    checkExerciseCompletion();
+}
 function checkExerciseCompletion() {
+    const submitExBtn = document.getElementById('student-submit-ex-btn');
     const nextBtn = document.getElementById('student-next-ex-btn');
     const submitBtn = document.getElementById('student-submit-btn');
-    if (!nextBtn || !submitBtn) return;
+    if (!nextBtn || !submitBtn || !submitExBtn) return;
 
+    const actType = studentExerciseTypes[studentCurrentExIndex];
+    const isSubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
     const isLastEx = (studentCurrentExIndex === studentExerciseTypes.length - 1);
 
-    // Teachers can navigate freely in preview mode
+    // Teacher preview mode
     if (window.isTeacherPreview) {
+        submitExBtn.style.display = 'none';
         if (isLastEx) {
             nextBtn.style.display = 'none';
             submitBtn.style.display = 'inline-block';
@@ -5526,18 +5608,23 @@ function checkExerciseCompletion() {
         return;
     }
 
-    // Student mode: only show Next / Submit when completed
-    const isComplete = isCurrentExerciseCompleted();
-
-    if (isLastEx) {
-        nextBtn.style.display = 'none';
-        submitBtn.style.display = isComplete ? 'inline-block' : 'none';
+    // Student mode
+    if (isSubmitted) {
+        submitExBtn.style.display = 'none';
+        if (isLastEx) {
+            nextBtn.style.display = 'none';
+            submitBtn.style.display = 'inline-block';
+        } else {
+            nextBtn.style.display = 'inline-block';
+            submitBtn.style.display = 'none';
+        }
     } else {
+        nextBtn.style.display = 'none';
         submitBtn.style.display = 'none';
-        nextBtn.style.display = isComplete ? 'inline-block' : 'none';
+        const isComplete = isCurrentExerciseCompleted();
+        submitExBtn.style.display = isComplete ? 'inline-block' : 'none';
     }
 }
-
 /* =========================
    UPDATED STUDENT EXERCISE RENDERER
 ========================= */
@@ -5637,7 +5724,7 @@ function renderCurrentStudentExercise() {
         });
         area.innerHTML = jHtml;
 
-       area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+        area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const slot = block.querySelector('.jumble-answer-slot');
             const bank = block.querySelector('.jumble-word-bank');
             const targetSentence = sents[idx] ? sents[idx].t : "";
@@ -5650,7 +5737,6 @@ function renderCurrentStudentExercise() {
                         bank.appendChild(e.target);
                     }
 
-                    // Check if sentence arrangement is correct when bank is empty
                     if (bank.children.length === 0) {
                         const studentText = Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText).join(' ').trim();
                         if (normalizeString(studentText) === normalizeString(targetSentence)) {
@@ -5862,6 +5948,83 @@ function renderCurrentStudentExercise() {
                 checkExerciseCompletion();
             });
         });
+    }
+
+    // --- RESTORE PREVIOUS ANSWERS IF ALREADY SAVED ---
+    const savedExerciseResponses = studentAnswersState[actType] || [];
+    const isAlreadySubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
+
+    if (savedExerciseResponses.length > 0) {
+        if (['faulty', 'trans-en', 'trans-target'].includes(actType)) {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const input = block.querySelector('.full-typing-input');
+                if (input && savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
+                    const prev = savedExerciseResponses[idx].studentAnswer;
+                    if (prev !== '(Empty)') input.value = prev;
+                }
+            });
+        } else if (actType === 'gap-en' || actType === 'gap-t') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const input = block.querySelector('.gap-inline-input');
+                if (input && savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
+                    const prev = savedExerciseResponses[idx].studentAnswer;
+                    if (prev !== '(Empty)') {
+                        input.value = prev;
+                        input.dispatchEvent(new Event('change'));
+                    }
+                }
+            });
+        } else if (actType === 'vowels' || actType === 'cons') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const boxes = Array.from(block.querySelectorAll('.letter-box'));
+                if (savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
+                    const ansStr = savedExerciseResponses[idx].studentAnswer;
+                    if (ansStr && ansStr !== '(Incomplete/Incorrect letters)') {
+                        boxes.forEach(box => {
+                            box.value = box.dataset.correct || '';
+                            box.classList.add('correct-input');
+                        });
+                    }
+                }
+            });
+        } else if (actType === 'jumbled') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const slot = block.querySelector('.jumble-answer-slot');
+                const bank = block.querySelector('.jumble-word-bank');
+                if (savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer && savedExerciseResponses[idx].studentAnswer !== '(Empty)') {
+                    const wordList = savedExerciseResponses[idx].studentAnswer.split(' ');
+                    wordList.forEach(w => {
+                        const tiles = Array.from(bank.querySelectorAll('.jumble-word-tile'));
+                        const matchingTile = tiles.find(t => t.innerText === w);
+                        if (matchingTile) slot.appendChild(matchingTile);
+                    });
+                    slot.style.borderColor = '#10b981';
+                    slot.style.backgroundColor = '#ecfdf5';
+                }
+            });
+        } else if (actType === 'nospaces') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                if (savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer && !savedExerciseResponses[idx].studentAnswer.startsWith('(Incomplete')) {
+                    block.querySelectorAll('.space-inner').forEach(inner => {
+                        inner.style.display = 'inline';
+                        inner.style.visibility = 'visible';
+                        inner.classList.add('revealed-space');
+                    });
+                    updateNoSpaceCounter(block);
+                }
+            });
+        } else if (actType === 'match') {
+            if (savedExerciseResponses.length > 0 && savedExerciseResponses.every(r => r.studentAnswer !== '(Unmatched)')) {
+                area.querySelectorAll('.match-t-tile, .match-tr-tile').forEach(tile => {
+                    tile.classList.add('correct-match');
+                    tile.style.opacity = '0.3';
+                });
+            }
+        }
+    }
+
+    if (isAlreadySubmitted) {
+        lockCurrentExerciseUI();
     }
 
     document.getElementById('student-prev-ex-btn').style.display = (studentCurrentExIndex > 0) ? 'inline-block' : 'none';
@@ -6254,6 +6417,11 @@ async function submitStudentWork() {
 
     try {
         await db.collection("submissions").add(subData);
+
+        // Delete draft from Firestore upon final assignment submission
+        const draftId = `${currentStudentAssignment.id}_${currentUser.email.toLowerCase()}`;
+        db.collection("student_drafts").doc(draftId).delete().catch(e => console.warn("Draft cleanup failed:", e));
+
         alert("🎉 Activity Submitted Successfully!\nYour work has been submitted to your teacher for review.");
         renderStudentPendingReviewCard(subData);
     } catch (err) {
