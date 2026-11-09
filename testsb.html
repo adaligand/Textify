@@ -871,6 +871,40 @@ th { background: #f1f5f9; color: #334155; }
     white-space: nowrap;
     margin: 0 22px; /* Generous space between words */
 }
+        /* ==========================================
+   FULLSCREEN BUILDER & TTS STYLES
+   ========================================== */
+#grid-container.fullscreen-mode {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 999999 !important;
+    background: #ffffff !important;
+    padding: 25px !important;
+    box-sizing: border-box !important;
+    overflow: auto !important;
+}
+
+/* Hide top checkboxes/tickboxes when in fullscreen mode */
+#grid-container.fullscreen-mode .top-ui,
+#grid-container.fullscreen-mode .cell-checkbox {
+    display: none !important;
+}
+
+/* Audio click effect on target text */
+.tl-speakable {
+    cursor: pointer;
+    transition: transform 0.1s ease, color 0.1s ease;
+}
+.tl-speakable:hover {
+    color: #2563eb;
+    text-decoration: underline;
+}
+.tl-speakable:active {
+    transform: scale(0.96);
+}
     </style>
 </head>
 <body>
@@ -961,8 +995,9 @@ th { background: #f1f5f9; color: #334155; }
     <button onclick="mergeSelected()">🔗 Merge</button>
     <button onclick="openRoutesModal()" class="btn-purple" style="background:#8b5cf6;">🔀 Routes</button>
     <button onclick="exportPDF()" class="btn-danger">📄 PDF</button>
-    <button onclick="openPreview()" class="btn-info">👁️ Preview</button>
-    <button onclick="openInteractiveClassDisplay()" class="btn-purple" style="background:#0284c7;">👩‍🏫 Live</button>
+   <button onclick="openPreview()" class="btn-info">👁️ Sentence List</button>
+<button id="btn-fullscreen-builder" onclick="toggleFullscreenBuilder()" class="btn-purple" style="background:#059669;">🖥️ Fullscreen</button>
+<button onclick="openInteractiveClassDisplay()" class="btn-purple" style="background:#0284c7;">👩‍🏫 Live</button>
     <button onclick="openActivityMenu()" class="btn-purple">📜 Worksheet & Assign</button>
 </div>
 
@@ -2689,18 +2724,16 @@ function render(doSave = true) {
         }
     }
 
-// Inside render():
-const firstVisibleRowInCol = new Array(cols).fill(-1);
-for (let c = 0; c < cols; c++) {
-    for (let r = 0; r < rows; r++) {
-        if (grid[r]?.[c] && !grid[r][c].hidden) {
-            firstVisibleRowInCol[c] = r;
-            break;
+    const firstVisibleRowInCol = new Array(cols).fill(-1);
+    for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+            if (grid[r]?.[c] && !grid[r][c].hidden) {
+                firstVisibleRowInCol[c] = r;
+                break;
+            }
         }
+        if (firstVisibleRowInCol[c] === -1) firstVisibleRowInCol[c] = 0;
     }
-    // Fallback: if no visible cell in col, force index 0 so delete button renders
-    if (firstVisibleRowInCol[c] === -1) firstVisibleRowInCol[c] = 0;
-}
 
     const escapeAttr = (str) => (str || '').replace(/"/g, '&quot;');
 
@@ -2748,6 +2781,7 @@ for (let c = 0; c < cols; c++) {
             const items = cell.items || [];
             const listHTML = items.map((item, i) => `
                 <div class="vocab-item">
+                    <button class="tts-btn" title="Listen" onclick="speakTL(grid[${r}][${cIdx}].items[${i}].t, event)">🔊</button>
                     <input type="text" class="target-input" placeholder="Target" 
                         data-pos="${r}-${cIdx}-${i}-t"
                         onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')" 
@@ -2779,17 +2813,17 @@ for (let c = 0; c < cols; c++) {
             `;
 
             if (typeof currentMode !== 'undefined') {
-    if (currentMode === 'add-col' && r === firstVisibleRowInCol[cIdx]) {
-        addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
-        if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
-    }
-    if (currentMode === 'del-col' && r === firstVisibleRowInCol[cIdx]) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
-    if (currentMode === 'add-row' && cIdx === firstVisibleColInRow[r]) {
-        addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
-        if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
-    }
-    if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
-}
+                if (currentMode === 'add-col' && r === firstVisibleRowInCol[cIdx]) {
+                    addIcon(cellDiv, 'btn-plus', 'left', '+', () => insertCol(cIdx));
+                    if (cIdx === cols - 1) addIcon(cellDiv, 'btn-plus', 'right', '+', () => insertCol(cols));
+                }
+                if (currentMode === 'del-col' && r === firstVisibleRowInCol[cIdx]) addIcon(cellDiv, 'btn-minus', 'top-center', '×', () => deleteCol(cIdx));
+                if (currentMode === 'add-row' && cIdx === firstVisibleColInRow[r]) {
+                    addIcon(cellDiv, 'btn-plus', 'top-edge', '+', () => insertRow(r));
+                    if (r === grid.length - 1) addIcon(cellDiv, 'btn-plus', 'bottom-edge', '+', () => insertRow(grid.length));
+                }
+                if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
+            }
 
             container.appendChild(cellDiv);
             cellDiv.querySelectorAll('input').forEach(syncSize);
@@ -3695,6 +3729,79 @@ async function handleDocxImport(event) {
 /* =========================
     PREVIEW & OPTIONS MENU
 ========================= */
+    /* ==========================================
+   1. FULLSCREEN TOGGLE FUNCTIONALITY
+   ========================================== */
+function toggleFullscreenBuilder() {
+    const gridContainer = document.getElementById('grid-container');
+    const btn = document.getElementById('btn-fullscreen-builder');
+    
+    if (!document.fullscreenElement) {
+        if (gridContainer.requestFullscreen) {
+            gridContainer.requestFullscreen();
+        } else if (gridContainer.webkitRequestFullscreen) {
+            gridContainer.webkitRequestFullscreen();
+        } else if (gridContainer.msRequestFullscreen) {
+            gridContainer.msRequestFullscreen();
+        }
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        }
+    }
+}
+
+// Track full screen state changes to adjust CSS class and button label
+document.addEventListener('fullscreenchange', handleFullscreenChange);
+document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+
+function handleFullscreenChange() {
+    const gridContainer = document.getElementById('grid-container');
+    const btn = document.getElementById('btn-fullscreen-builder');
+    const isFullscreen = !!document.fullscreenElement;
+
+    if (isFullscreen) {
+        gridContainer.classList.add('fullscreen-mode');
+        if (btn) btn.innerHTML = '❌ Exit Fullscreen';
+    } else {
+        gridContainer.classList.remove('fullscreen-mode');
+        if (btn) btn.innerHTML = '🖥️ Fullscreen';
+    }
+}
+
+/* ==========================================
+   2. TARGET LANGUAGE TEXT-TO-SPEECH (TTS)
+   ========================================== */
+function speakTL(text) {
+    if (!text || !('speechSynthesis' in window)) return;
+    
+    // Stop any currently playing audio
+    window.speechSynthesis.cancel();
+    
+    // Clean text (remove brackets or punctuation markers if present)
+    const cleanText = text.replace(/[\(\)\[\]\{\}]/g, '').trim();
+    if (!cleanText) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+
+    // Detect language code from project dropdown or default to French
+    const langSelect = document.getElementById('project-lang');
+    const selectedLang = langSelect ? langSelect.value.toLowerCase() : 'french';
+
+    let langCode = 'fr-FR';
+    if (selectedLang.includes('es') || selectedLang.includes('spanish')) langCode = 'es-ES';
+    else if (selectedLang.includes('de') || selectedLang.includes('german')) langCode = 'de-DE';
+    else if (selectedLang.includes('it') || selectedLang.includes('italian')) langCode = 'it-IT';
+    else if (selectedLang.includes('fr') || selectedLang.includes('french')) langCode = 'fr-FR';
+    else if (selectedLang.includes('zh') || selectedLang.includes('mandarin')) langCode = 'zh-CN';
+    else if (selectedLang.includes('ja') || selectedLang.includes('japanese')) langCode = 'ja-JP';
+
+    utterance.lang = langCode;
+    utterance.rate = 0.95; // Slightly slower for clear classroom pronunciation
+    utterance.pitch = 1.0;
+
+    window.speechSynthesis.speak(utterance);
+}
 function openPreview() {
     const sentences = getAssembledSentences();
     const content = sentences.map((s, i) => `<div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`).join('');
