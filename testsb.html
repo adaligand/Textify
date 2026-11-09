@@ -891,9 +891,9 @@ th { background: #f1f5f9; color: #334155; }
     height: 100vh !important;
     z-index: 999999 !important;
     background: #ffffff !important;
-    padding: 65px 25px 110px 25px !important;
+    padding: 65px 20px 30px 20px !important;
     box-sizing: border-box !important;
-    overflow-x: hidden !important; /* Prevents unwanted horizontal scrolling */
+    overflow-x: hidden !important;
     overflow-y: auto !important;
     display: flex !important;
     flex-direction: column !important;
@@ -905,15 +905,15 @@ th { background: #f1f5f9; color: #334155; }
 #grid-container.fullscreen-mode > .fullscreen-grid-wrapper {
     width: var(--fs-width) !important;
     max-width: 100% !important;
-    height: 100% !important;
-    max-height: 100% !important;
-    margin: 0 auto !important; /* Centers grid horizontally when width is reduced */
+    min-height: 100% !important;
+    height: auto !important;
+    margin: 0 auto !important;
     display: grid !important;
-    grid-template-columns: repeat(var(--grid-cols, 1), minmax(0, 1fr)) !important; /* Forces columns to fit inside wrapper width */
-    grid-auto-rows: 1fr !important;
+    grid-template-columns: repeat(var(--grid-cols, 1), minmax(0, 1fr)) !important;
+    grid-auto-rows: minmax(min-content, max-content) !important;
     align-content: stretch !important;
     justify-content: stretch !important;
-    gap: 4px !important;
+    gap: 6px !important;
     transition: width 0.15s ease;
     box-sizing: border-box !important;
 }
@@ -925,25 +925,25 @@ th { background: #f1f5f9; color: #334155; }
     display: none !important;
 }
 
-/* Force cells and inputs to compress within grid tracks without breaking layout boundaries */
+/* Flexible cell containers and input scaling */
 #grid-container.fullscreen-mode .cell,
 #grid-container.fullscreen-mode .vocab-list,
-#grid-container.fullscreen-mode .bracket-wrapper,
-#grid-container.fullscreen-mode input {
+#grid-container.fullscreen-mode .bracket-wrapper {
     min-width: 0 !important;
     max-width: 100% !important;
     box-sizing: border-box !important;
 }
 
 #grid-container.fullscreen-mode input {
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
 }
 
 /* Cell Layout & Padding in Fullscreen */
 #grid-container.fullscreen-mode .cell {
-    height: 100% !important;
-    padding: calc(16px * var(--fs-scale)) calc(20px * var(--fs-scale)) !important;
+    min-height: 100% !important;
+    height: auto !important;
+    padding: calc(12px * var(--fs-scale)) calc(14px * var(--fs-scale)) !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: center !important;
@@ -953,26 +953,39 @@ th { background: #f1f5f9; color: #334155; }
 #grid-container.fullscreen-mode .target-input {
     font-size: calc(clamp(14px, 1.8vw, 32px) * var(--fs-scale)) !important;
     font-weight: 700 !important;
-    line-height: 1.2 !important;
+    line-height: 1.3 !important;
     flex: 1 1 auto !important;
     min-width: 0 !important;
+    width: 100% !important;
 }
+
 /* Translation Text & Brackets Scaling */
-#grid-container.fullscreen-mode .bracket-wrapper,
+#grid-container.fullscreen-mode .bracket-wrapper {
+    font-size: calc(clamp(12px, 1.4vw, 24px) * var(--fs-scale)) !important;
+    line-height: 1.3 !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    display: inline-flex !important;
+    flex-wrap: wrap !important;
+}
+
 #grid-container.fullscreen-mode .translation-input {
     font-size: calc(clamp(12px, 1.4vw, 24px) * var(--fs-scale)) !important;
-    line-height: 1.2 !important;
+    line-height: 1.3 !important;
     flex: 1 1 auto !important;
     min-width: 0 !important;
 }
 
-/* Correct Flex Container Behavior */
+/* Allow vocab item elements to wrap smoothly */
 #grid-container.fullscreen-mode .vocab-item {
     display: flex !important;
-    flex-wrap: nowrap !important;
+    flex-wrap: wrap !important;
     align-items: baseline !important;
     width: 100% !important;
-    overflow: hidden !important;
+    row-gap: 2px !important;
+    column-gap: 4px !important;
+    overflow: visible !important;
 }
 
 /* Toolbar Control Bar inside Fullscreen */
@@ -1031,7 +1044,6 @@ th { background: #f1f5f9; color: #334155; }
     margin-right: 2px;
 }
 
-/* Audio click effect on target text */
 .tl-speakable {
     cursor: pointer;
     transition: transform 0.1s ease, color 0.1s ease;
@@ -1658,10 +1670,9 @@ function updateFullscreenStyles() {
     if (scaleLabel) scaleLabel.innerText = Math.round(fsFontScale * 100) + '%';
     if (widthLabel) widthLabel.innerText = fsWidthPercent + '%';
 
-    // Recalculate input sizes to prevent text clipping
+    // Recalculate and resize inputs to fit text content without truncation
     document.querySelectorAll('#grid-container input').forEach(syncSize);
 }
-
 function adjustFsZoom(delta) {
     fsFontScale = Math.max(0.6, Math.min(2.5, fsFontScale + delta));
     updateFullscreenStyles();
@@ -3215,10 +3226,25 @@ function updateVal(r, cIdx, i, f, v) {
 function syncSize(el) { 
     if (!el) return;
     const isFullscreen = el.closest('#grid-container')?.classList.contains('fullscreen-mode');
+    
     if (isFullscreen) {
-        el.style.width = ''; // Hands sizing control over to CSS flexbox
+        if (!el.value) {
+            el.style.width = '100%';
+            return;
+        }
+        // Calculate scroll width for accurate expansion, constrained within 100% cell width
+        el.style.width = '0px';
+        const neededWidth = el.scrollWidth + 6;
+        const parentWidth = el.parentElement ? el.parentElement.clientWidth : 0;
+        
+        if (parentWidth > 0 && neededWidth > parentWidth) {
+            el.style.width = '100%';
+        } else {
+            el.style.width = neededWidth + 'px';
+        }
         return;
     }
+
     if (el.value === "") {
         el.style.width = el.classList.contains('target-input') ? "120px" : "90px"; 
     } else {
