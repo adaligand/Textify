@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Cedars Builder</title>
+     <link rel="icon" href="Assets/sb.png" type="image/png" />
     <!-- PDF & File Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
@@ -1107,16 +1108,19 @@ th { background: #f1f5f9; color: #334155; }
 
         <!-- STUDENT NAVIGATION ACTION BUTTONS -->
         <div id="student-nav-actions" style="display:none; justify-content:space-between; gap:10px; margin-top:10px;">
-            <button id="student-prev-ex-btn" onclick="prevStudentExercise()" class="btn-outline" style="display:none;">
-                ⬅️ Previous Exercise
-            </button>
-            <button id="student-next-ex-btn" onclick="nextStudentExercise()" class="btn-purple" style="flex:1; height:44px; font-size:15px;">
-                Next Exercise ➡️
-            </button>
-            <button id="student-submit-btn" onclick="submitStudentWork()" class="btn-purple" style="flex:1; height:44px; font-size:15px; background:#10b981; display:none;">
-                ✅ Submit Final Assignment
-            </button>
-        </div>
+    <button id="student-prev-ex-btn" onclick="prevStudentExercise()" class="btn-outline" style="display:none;">
+        ⬅️ Previous Exercise
+    </button>
+    <button id="student-submit-ex-btn" onclick="submitCurrentExercise()" class="btn-purple" style="flex:1; height:44px; font-size:15px; background:#2563eb; display:none;">
+        💾 Submit Exercise
+    </button>
+    <button id="student-next-ex-btn" onclick="nextStudentExercise()" class="btn-purple" style="flex:1; height:44px; font-size:15px; display:none;">
+        Next Exercise ➡️
+    </button>
+    <button id="student-submit-btn" onclick="submitStudentWork()" class="btn-purple" style="flex:1; height:44px; font-size:15px; background:#10b981; display:none;">
+        ✅ Submit Final Assignment
+    </button>
+</div>
     </div>
 </div>
 
@@ -1407,11 +1411,8 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-auth.setPersistence('session');
-
-/* =========================
-   STATE
-========================= */
+// Change 'session' to 'local' so the login state persists across tabs and window reopens
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 /* =========================
    STATE
 ========================= */
@@ -1428,6 +1429,7 @@ window.editingSavedSentencesMap = null;
 let studentExerciseTypes = [];
 let studentCurrentExIndex = 0;
 let studentAnswersState = {};
+window.studentCompletedExercises = window.studentCompletedExercises || {};
 
 let nav = {
     lang: null,
@@ -1451,7 +1453,69 @@ let historyStep = 0;
 let currentMode = null;
 let typingTimer;
 let meta = { lang: '', year: '', topic: '' };
+let activeAssignmentBuilderId = null;
+let activeAssignmentGrid = null;
+let activeAssignmentDisabledRoutes = null;
+let activeAssignmentExcludedCombos = null;
+let activeAssignmentRequiredCombos = null;
+let activeAssignmentExcludedPairs = null;
+let activeAssignmentTransformationsText = null;
 
+async function setupAssignmentBuilderContext(assign) {
+    activeAssignmentBuilderId = assign.builderId || null;
+    let bData = null;
+
+    // 1. Try loading directly via builderId
+    if (assign.builderId) {
+        try {
+            const builderDoc = await db.collection("builders").doc(assign.builderId).get();
+            if (builderDoc.exists) {
+                bData = builderDoc.data();
+            }
+        } catch (e) {
+            console.warn("Could not fetch builder by builderId:", e);
+        }
+    }
+
+    // 2. Fallback to assignment snapshot if builder document is unavailable
+    if (!bData && assign.builderSnapshot) {
+        bData = assign.builderSnapshot;
+    }
+
+    // 3. Fallback search by language and topic/title
+    if (!bData && (assign.topic || assign.title)) {
+        try {
+            let q = db.collection("builders").where("isDeleted", "==", false);
+            if (assign.lang) q = q.where("lang", "==", assign.lang);
+            if (assign.topic) q = q.where("topic", "==", assign.topic);
+            const snap = await q.get();
+            if (!snap.empty) {
+                const matched = snap.docs.find(d => d.data().title === assign.title) || snap.docs[0];
+                bData = matched.data();
+                activeAssignmentBuilderId = matched.id;
+            }
+        } catch (e) {
+            console.warn("Could not search builder fallback:", e);
+        }
+    }
+
+    // 4. Bind target builder grid and rules to the assignment session
+    if (bData && bData.grid) {
+        activeAssignmentGrid = typeof bData.grid === 'string' ? JSON.parse(bData.grid) : bData.grid;
+        activeAssignmentDisabledRoutes = bData.disabledRoutes || [];
+        activeAssignmentExcludedCombos = bData.excludedCombos || [];
+        activeAssignmentRequiredCombos = bData.requiredCombos || [];
+        activeAssignmentExcludedPairs = bData.excludedPairs || [];
+        activeAssignmentTransformationsText = bData.transformationsText || bData.transformations || "";
+    } else {
+        activeAssignmentGrid = JSON.parse(JSON.stringify(grid));
+        activeAssignmentDisabledRoutes = Array.isArray(disabledRoutes) ? [...disabledRoutes] : [];
+        activeAssignmentExcludedCombos = JSON.parse(JSON.stringify(excludedCombos || []));
+        activeAssignmentRequiredCombos = JSON.parse(JSON.stringify(requiredCombos || []));
+        activeAssignmentExcludedPairs = JSON.parse(JSON.stringify(excludedPairs || []));
+        activeAssignmentTransformationsText = document.getElementById('transformations-input')?.value || transformationsText || "";
+    }
+}
 const allColors = ["#ffffff","#f1f5f9","#fee2e2","#ffedd5","#fef9c3","#dcfce7","#d1fae5","#e0f2fe","#e0e7ff","#ede9fe","#fae8ff","#fce7f3","#ffccd5","#bbf7d0"];
 
 const VOWELS_REGEX = /[aeiouàéèíóúüÄÖÜäöü]/i;
@@ -1701,26 +1765,46 @@ window.onload = async () => {
 
     auth.onAuthStateChanged(async (user) => {
         initMetaListeners();
-        if (user) {
-            const email = user.email.toLowerCase();
-            if (!email.endsWith("@cedarsupper.co.uk")) {
-                await auth.signOut();
-                alert("Access Denied: Use school email.");
-                showPage('login-page');
-                return;
-            }
 
-            currentUser = user;
-            document.getElementById('user-display').innerText = email;
-            cleanupOldDeletedFiles(); 
-            showPage('library-page');
-            renderLibrary();
-        } else {
+        if (!user) {
             currentUser = null;
             showPage('login-page');
+            return;
         }
+
+        const email = user.email.toLowerCase();
+
+        // 1. Verify school domain
+        if (!email.endsWith("@cedarsupper.co.uk")) {
+            alert("Access Denied: Please use your official school email account.");
+            auth.signOut();
+            showPage('login-page');
+            return;
+        }
+
+        // 2. Determine role and assignment link parameters
+        const isStudent = /^[0-9]/.test(email);
+
+        // 3. Block students attempting to log in on the base URL without an assignmentId
+        if (isStudent && !assignmentId) {
+            alert("Access Denied: Students can only log in using a direct Google Classroom assignment link.");
+            auth.signOut();
+            showPage('login-page');
+            return;
+        }
+
+        currentUser = user;
+
+        // Safely update navbar display if present
+        const userDisplay = document.getElementById('user-display');
+        if (userDisplay) userDisplay.innerText = email;
+
+        // 4. Route based on context (Student Task Portal vs Teacher Library)
+        cleanupOldDeletedFiles();
+        showPage('library-page');
+        renderLibrary();
     });
-};
+}; 
 
 async function login() {
     const provider = new firebase.auth.GoogleAuthProvider();
@@ -3013,9 +3097,16 @@ function handleKey(e, r, cIdx, i, type) {
 }
 
 function closeModals() { 
-    document.body.style.overflow = ''; // Restores standard browser scrolling
+    document.body.style.overflow = '';
     document.querySelectorAll('.modal').forEach(m => m.style.display='none'); 
     document.getElementById('overlay').style.display='none'; 
+    activeAssignmentGrid = null;
+    activeAssignmentBuilderId = null;
+    activeAssignmentDisabledRoutes = null;
+    activeAssignmentExcludedCombos = null;
+    activeAssignmentRequiredCombos = null;
+    activeAssignmentExcludedPairs = null;
+    activeAssignmentTransformationsText = null;
 }
 
 async function createNewProject() {
@@ -3613,9 +3704,19 @@ function openPreview() {
 }
 
 function openActivityMenu() {
-   editingAssignmentId = null;
+    editingAssignmentId = null;
     window.editingSavedSentencesMap = null;
-    
+    window.duplicatingAssignmentLang = null;
+
+    // Bind current editor state to assignment options modal
+    activeAssignmentBuilderId = currentDocId || null;
+    activeAssignmentGrid = JSON.parse(JSON.stringify(grid));
+    activeAssignmentDisabledRoutes = Array.isArray(disabledRoutes) ? [...disabledRoutes] : [];
+    activeAssignmentExcludedCombos = JSON.parse(JSON.stringify(excludedCombos || []));
+    activeAssignmentRequiredCombos = JSON.parse(JSON.stringify(requiredCombos || []));
+    activeAssignmentExcludedPairs = JSON.parse(JSON.stringify(excludedPairs || []));
+    activeAssignmentTransformationsText = document.getElementById('transformations-input')?.value || transformationsText || "";
+
     const btn = document.getElementById('gc-publish-btn');
     if (btn) btn.innerText = "📢 Publish Assignment Now";
     
@@ -3623,7 +3724,6 @@ function openActivityMenu() {
     document.getElementById('gc-schedule-date').value = "";
 
     const currentLang = meta.lang || document.getElementById('meta-lang')?.value || "Target Language";
-    
     const list = [
         {id:'study', label:'Sentence Table (Reference)'}, 
         {id:'match', label:'Match up'}, 
@@ -3638,15 +3738,15 @@ function openActivityMenu() {
         {id:'trans-target', label:`Translate (${currentLang})`}
     ];
 
-   document.getElementById('activity-list').innerHTML = list.map(a => `
-    <div class="activity-row" style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
-        <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
-        <label for="chk-${a.id}" style="cursor:pointer; font-weight:500; font-size: 13px;">${a.label}</label>
-    </div>
-`).join('');
+    document.getElementById('activity-list').innerHTML = list.map(a => `
+        <div class="activity-row" style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" value="${a.id}" id="chk-${a.id}" onchange="renderPerActivitySentenceBoxes()">
+            <label for="chk-${a.id}" style="cursor:pointer; font-weight:500; font-size: 13px;">${a.label}</label>
+        </div>
+    `).join('');
     
-   renderPerActivitySentenceBoxes();
-    document.getElementById('activity-menu').style.display = 'flex'; // CHANGED FROM 'block'
+    renderPerActivitySentenceBoxes();
+    document.getElementById('activity-menu').style.display = 'flex';
     document.getElementById('overlay').style.display = 'block';
 }
 
@@ -3710,36 +3810,44 @@ function applyTransformations(text, rulesText) {
     return text.replace(/\s+/g, ' ').trim();
 }
 
-function getAssembledSentences() {
+function getAssembledSentences(customGridContext = null) {
+    let ctx = customGridContext;
+    if (!ctx && activeAssignmentGrid) {
+        ctx = {
+            grid: activeAssignmentGrid,
+            disabledRoutes: activeAssignmentDisabledRoutes || [],
+            excludedCombos: activeAssignmentExcludedCombos || [],
+            requiredCombos: activeAssignmentRequiredCombos || [],
+            excludedPairs: activeAssignmentExcludedPairs || [],
+            transformationsText: activeAssignmentTransformationsText || ""
+        };
+    }
+
+    let targetGrid = (ctx && ctx.grid) ? ctx.grid : grid;
+    let targetRules = (ctx && ctx.transformationsText !== undefined)
+        ? ctx.transformationsText
+        : (activeAssignmentTransformationsText !== null ? activeAssignmentTransformationsText : (document.getElementById('transformations-input')?.value || transformationsText || ""));
+
     let allSentences = [];
-    
-    for (let r = 0; r < grid.length; r++) {
-        if (!grid[r][0].hidden) {
-            let cell = grid[r][0];
+    for (let r = 0; r < targetGrid.length; r++) {
+        if (!targetGrid[r][0].hidden) {
+            let cell = targetGrid[r][0];
             let rSpan = cell.rS || 1;
             for (let subR = r; subR < r + rSpan; subR++) {
-                let paths = findPaths(r, 0, subR);
+                let paths = findPaths(r, 0, subR, ctx);
                 paths.forEach(p => { p.originRow = subR; });
                 allSentences = allSentences.concat(paths);
             }
         }
     }
 
-    const rules = document.getElementById('transformations-input')?.value || transformationsText || "";
-
     const unique = [];
     const seen = new Set();
     allSentences.forEach(s => {
-        if (shouldExcludeSentence(s.t, rules) || shouldExcludeSentence(s.tr, rules)) {
-            return;
-        }
+        if (shouldExcludeSentence(s.t, targetRules) || shouldExcludeSentence(s.tr, targetRules)) return;
 
-        s.t = applyTransformations(s.t, rules);
-        s.tr = applyTransformations(s.tr, rules);
-
-        // Strip leading spaces before punctuation and apostrophes
-        s.t = cleanSentenceSpacing(s.t);
-        s.tr = cleanSentenceSpacing(s.tr);
+        s.t = cleanSentenceSpacing(applyTransformations(s.t, targetRules));
+        s.tr = cleanSentenceSpacing(applyTransformations(s.tr, targetRules));
 
         const text = s.t.trim();
         if (text && !seen.has(text)) {
@@ -3774,45 +3882,39 @@ function shouldExcludeSentence(text, rulesText) {
 /* =========================
    PATH VALIDATION ENGINE
 ========================= */
-function isPathValid(partsMeta) {
+function isPathValid(partsMeta, ctx = null) {
     if (!partsMeta || partsMeta.length === 0) return true;
 
-    // Filter out bridge cells when checking disabled route keys
+    const dRoutes = (ctx && ctx.disabledRoutes !== undefined) ? ctx.disabledRoutes : (activeAssignmentDisabledRoutes !== null ? activeAssignmentDisabledRoutes : disabledRoutes);
+    const exCombos = (ctx && ctx.excludedCombos !== undefined) ? ctx.excludedCombos : (activeAssignmentExcludedCombos !== null ? activeAssignmentExcludedCombos : excludedCombos);
+    const exPairs = (ctx && ctx.excludedPairs !== undefined) ? ctx.excludedPairs : (activeAssignmentExcludedPairs !== null ? activeAssignmentExcludedPairs : excludedPairs);
+    const reqCombos = (ctx && ctx.requiredCombos !== undefined) ? ctx.requiredCombos : (activeAssignmentRequiredCombos !== null ? activeAssignmentRequiredCombos : requiredCombos);
+
     const contentParts = partsMeta.filter(p => !p.isBridge);
     const routeKey = contentParts.map(p => `${p.r + 1}.${p.c + 1}`).join('+');
-    if (disabledRoutes && disabledRoutes.includes(routeKey)) {
-        return false;
-    }
+    if (dRoutes && dRoutes.includes(routeKey)) return false;
 
-    // Check Excluded Combos
-    if (excludedCombos && excludedCombos.length > 0) {
-        for (let combo of excludedCombos) {
+    if (exCombos && exCombos.length > 0) {
+        for (let combo of exCombos) {
             const cells = combo.cells || combo;
             if (Array.isArray(cells) && cells.length >= 2) {
-                const allPresent = cells.every(c => partsMeta.some(p => p.r === c.r && p.c === c.c));
-                if (allPresent) return false;
+                if (cells.every(c => partsMeta.some(p => p.r === c.r && p.c === c.c))) return false;
             }
         }
     }
 
-    // Legacy Excluded Pairs
-    if (excludedPairs && excludedPairs.length > 0) {
-        for (let pair of excludedPairs) {
-            const hasA = partsMeta.some(p => p.r === pair.a.r && p.c === pair.a.c);
-            const hasB = partsMeta.some(p => p.r === pair.b.r && p.c === pair.b.c);
-            if (hasA && hasB) return false;
+    if (exPairs && exPairs.length > 0) {
+        for (let pair of exPairs) {
+            if (partsMeta.some(p => p.r === pair.a.r && p.c === pair.a.c) && partsMeta.some(p => p.r === pair.b.r && p.c === pair.b.c)) return false;
         }
     }
 
-    // Check Required Combos
-    if (requiredCombos && requiredCombos.length > 0) {
-        for (let combo of requiredCombos) {
+    if (reqCombos && reqCombos.length > 0) {
+        for (let combo of reqCombos) {
             const cellA = combo.cellA || combo.a;
             const cellB = combo.cellB || combo.b;
             if (cellA && cellB) {
-                const hasA = partsMeta.some(p => p.r === cellA.r && p.c === cellA.c);
-                const hasB = partsMeta.some(p => p.r === cellB.r && p.c === cellB.c);
-                if (hasA && !hasB) return false;
+                if (partsMeta.some(p => p.r === cellA.r && p.c === cellA.c) && !partsMeta.some(p => p.r === cellB.r && p.c === cellB.c)) return false;
             }
         }
     }
@@ -3830,62 +3932,19 @@ function cleanSentenceSpacing(str) {
         .replace(/\s+/g, ' ')                          // Collapses multiple spaces
         .trim();
 }
-function findPaths(r, c, activeRow = null) {
-    let cell = getCellAt(r, c);
+function findPaths(r, c, activeRow = null, customCtx = null) {
+    const targetGrid = (customCtx && customCtx.grid) ? customCtx.grid : (activeAssignmentGrid || grid);
+    let cell = getCellAt(r, c, targetGrid);
     if (!cell) return [];
 
-    let currentActiveRow = (activeRow !== null) ? activeRow : r;
-
-    const getCellRowSpan = (row, col, cObj) => {
-        if (cObj && (cObj.rS || cObj.rowSpan)) return cObj.rS || cObj.rowSpan;
-        let span = 1;
-        for (let testR = row + 1; testR < grid.length; testR++) {
-            if (grid[testR] && grid[testR][col] && grid[testR][col].hidden) span++;
-            else break;
-        }
-        return span;
-    };
-
-    const getCellColSpan = (row, col, cObj) => {
-        if (cObj && (cObj.cS || cObj.colSpan)) return cObj.cS || cObj.colSpan;
-        let span = 1;
-        if (grid[row]) {
-            for (let testC = col + 1; testC < grid[row].length; testC++) {
-                if (grid[row][testC] && grid[row][testC].hidden) span++;
-                else break;
-            }
-        }
-        return span;
-    };
-
-    const getRootRow = (row, col) => {
-        for (let testR = row; testR >= 0; testR--) {
-            if (grid[testR] && grid[testR][col] && !grid[testR][col].hidden) {
-                return testR;
-            }
-        }
-        return row;
-    };
-
-    let cellRowSpan = getCellRowSpan(r, c, cell);
-    let cellColSpan = getCellColSpan(r, c, cell);
+    let cellRowSpan = (cell.rS || cell.rowSpan || 1);
+    let cellColSpan = (cell.cS || cell.colSpan || 1);
     let nextCol = c + cellColSpan;
 
-    const isCellEmpty = (cObj) => {
-        if (!cObj || !cObj.items || cObj.items.length === 0) return true;
-        return cObj.items.every(it => !it.t || it.t.trim() === "");
-    };
-
-    const isBridgeCell = (cObj) => {
-        if (!cObj) return false;
-        if (cObj.compact || cObj.isBridge || cObj.type === 'bridge') return true;
-        if (cObj.items && cObj.items.some(it => it.t && it.t.trim().toLowerCase() === 'bridge')) return true;
-        if (isCellEmpty(cObj)) return true;
-        return false;
-    };
+    const isCellEmpty = (cObj) => !cObj || !cObj.items || cObj.items.length === 0 || cObj.items.every(it => !it.t || it.t.trim() === "");
+    const isBridgeCell = (cObj) => cObj && (cObj.compact || cObj.isBridge || isCellEmpty(cObj));
 
     const isCurrBridge = isBridgeCell(cell);
-
     let currentOptions = isCurrBridge ? [] : (cell.items || [])
         .filter(it => it.t && it.t.trim() !== "" && it.t.trim().toLowerCase() !== "bridge")
         .map(it => ({
@@ -3895,8 +3954,8 @@ function findPaths(r, c, activeRow = null) {
             details: [{ tWord: it.t, eWord: it.tr || "", r: r, c: c }]
         }));
 
-    if (nextCol >= grid[0].length) {
-        return currentOptions.filter(path => isPathValid(path.parts));
+    if (nextCol >= targetGrid[0].length) {
+        return currentOptions.filter(path => isPathValid(path.parts, customCtx));
     }
 
     let combinedSubPaths = [];
@@ -3904,53 +3963,47 @@ function findPaths(r, c, activeRow = null) {
 
     for (let rowOffset = 0; rowOffset < cellRowSpan; rowOffset++) {
         let evalRow = r + rowOffset;
-        if (evalRow >= grid.length) break;
+        if (evalRow >= targetGrid.length) break;
 
-        let targetRawCell = grid[evalRow] ? grid[evalRow][nextCol] : null;
-        let targetCell = targetRawCell ? getCellAt(evalRow, nextCol) : null;
-
+        let targetCell = getCellAt(evalRow, nextCol, targetGrid);
         if (!targetCell) continue;
 
-        let targetRootRow = getRootRow(evalRow, nextCol);
-        let targetKey = `${targetRootRow}_${nextCol}`;
+        let targetRootRow = evalRow;
+        for (let testR = evalRow; testR >= 0; testR--) {
+            if (targetGrid[testR] && targetGrid[testR][nextCol] && !targetGrid[testR][nextCol].hidden) {
+                targetRootRow = testR;
+                break;
+            }
+        }
 
+        let targetKey = `${targetRootRow}_${nextCol}`;
         if (visitedTargetRoots.has(targetKey)) continue;
         visitedTargetRoots.add(targetKey);
 
-        if (isBridgeCell(targetCell)) {
-            let subPaths = findPaths(targetRootRow, nextCol, evalRow);
-            combinedSubPaths = combinedSubPaths.concat(subPaths);
-        } else if (!isCellEmpty(targetCell)) {
-            combinedSubPaths = combinedSubPaths.concat(
-                findPaths(targetRootRow, nextCol, evalRow)
-            );
-        }
+        combinedSubPaths = combinedSubPaths.concat(findPaths(targetRootRow, nextCol, evalRow, customCtx));
     }
 
     if (isCurrBridge) {
         return combinedSubPaths.map(sp => ({
-            t: sp.t,
-            tr: sp.tr,
+            t: sp.t, tr: sp.tr,
             parts: [{ r: r, c: c, isBridge: true }, ...sp.parts],
             details: sp.details || []
         }));
     }
 
-    if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts));
-    if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts));
+    if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts, customCtx));
+    if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts, customCtx));
 
     let finalPaths = [];
     currentOptions.forEach(curr => {
         combinedSubPaths.forEach(sub => {
             const combinedParts = [...curr.parts, ...sub.parts];
-            const combinedDetails = [...(curr.details || []), ...(sub.details || [])];
-            
-            if (isPathValid(combinedParts)) {
+            if (isPathValid(combinedParts, customCtx)) {
                 finalPaths.push({
                     t: cleanSentenceSpacing(curr.t + " " + sub.t),
                     tr: cleanSentenceSpacing(curr.tr + " " + sub.tr),
                     parts: combinedParts,
-                    details: combinedDetails
+                    details: [...(curr.details || []), ...(sub.details || [])]
                 });
             }
         });
@@ -4307,14 +4360,16 @@ function saveRoutesAndCombos() {
     closeModals();
     render();
 }
-function getCellAt(r, c) {
-    if (r < 0 || r >= grid.length || c < 0 || c >= grid[0].length) return null;
-    let cell = grid[r][c];
+function getCellAt(r, c, customGrid = null) {
+    const targetGrid = customGrid || activeAssignmentGrid || grid;
+    if (!targetGrid || r < 0 || r >= targetGrid.length || !targetGrid[0] || c < 0 || c >= targetGrid[0].length) return null;
+    let cell = targetGrid[r][c];
+    if (!cell) return null;
     if (!cell.hidden) return cell;
 
     for (let i = r; i >= 0; i--) {
         for (let j = c; j >= 0; j--) {
-            let root = grid[i][j];
+            let root = targetGrid[i] ? targetGrid[i][j] : null;
             if (root && !root.hidden && (i + (root.rS || 1) > r) && (j + (root.cS || 1) > c)) {
                 return root;
             }
@@ -4328,42 +4383,35 @@ function getCellAt(r, c) {
 ========================= */
 function isEligibleForFaulty(sentence) {
     if (!sentence || !sentence.parts || sentence.parts.length === 0) return false;
+    const targetGrid = activeAssignmentGrid || grid;
     return sentence.parts.some(p => {
-        const cell = getCellAt(p.r, p.c);
+        const cell = getCellAt(p.r, p.c, targetGrid);
         if (!cell || !cell.items) return false;
-        const validTrs = cell.items.filter(it => it.tr && it.tr.trim() !== "");
-        return validTrs.length > 1;
+        return cell.items.filter(it => it.tr && it.tr.trim() !== "").length > 1;
     });
 }
 
 function generateFaultySentenceObj(sentence) {
     if (!sentence || !sentence.parts || sentence.parts.length === 0) return null;
+    const targetGrid = activeAssignmentGrid || grid;
+    const rules = activeAssignmentTransformationsText !== null ? activeAssignmentTransformationsText : (document.getElementById('transformations-input')?.value || transformationsText || "");
 
-    const rules = document.getElementById('transformations-input')?.value || transformationsText || "";
-
-    // Identify parts in the sentence route that come from cells with multiple alternative options
     const eligiblePartIndices = [];
     sentence.parts.forEach((p, idx) => {
         if (p.isBridge) return;
-        const cell = getCellAt(p.r, p.c);
-        if (!cell || !cell.items) return;
-        const validItems = cell.items.filter(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim()));
-        if (validItems.length > 1) {
+        const cell = getCellAt(p.r, p.c, targetGrid);
+        if (cell && cell.items && cell.items.filter(it => (it.t && it.t.trim()) || (it.tr && it.tr.trim())).length > 1) {
             eligiblePartIndices.push(idx);
         }
     });
 
     if (eligiblePartIndices.length === 0) return null;
-
-    // Pick a random eligible cell position in the path
     const chosenIdx = eligiblePartIndices[Math.floor(Math.random() * eligiblePartIndices.length)];
     const chosenPart = sentence.parts[chosenIdx];
-    const cell = getCellAt(chosenPart.r, chosenPart.c);
+    const cell = getCellAt(chosenPart.r, chosenPart.c, targetGrid);
 
     const origTr = (chosenPart.tr || "").trim().toLowerCase();
     const origT = (chosenPart.t || "").trim().toLowerCase();
-
-    // Pick an alternative distractor item from that cell
     const alternatives = (cell.items || []).filter(it => {
         const tr = (it.tr || "").trim().toLowerCase();
         const t = (it.t || "").trim().toLowerCase();
@@ -4373,34 +4421,13 @@ function generateFaultySentenceObj(sentence) {
     if (alternatives.length === 0) return null;
     const faultyItem = alternatives[Math.floor(Math.random() * alternatives.length)];
 
-    // Rebuild the route by swapping the target cell item with the alternative distractor item
-    const faultyParts = sentence.parts.map((p, idx) => {
-        if (idx === chosenIdx) {
-            return {
-                ...p,
-                t: faultyItem.t || p.t,
-                tr: faultyItem.tr || ""
-            };
-        }
-        return p;
-    });
+    const faultyParts = sentence.parts.map((p, idx) => idx === chosenIdx ? { ...p, t: faultyItem.t || p.t, tr: faultyItem.tr || "" } : p);
+    const rawFaultyTr = faultyParts.filter(p => !p.isBridge && p.tr && p.tr.trim() !== "").map(p => p.tr.trim()).join(" ");
 
-    // Re-assemble the raw English path before transformations
-    const rawFaultyTr = faultyParts
-        .filter(p => !p.isBridge && p.tr && p.tr.trim() !== "")
-        .map(p => p.tr.trim())
-        .join(" ");
-
-    // Run the raw faulty English path through the exact same transformation rules pipeline
-    let faultyTr = applyTransformations(rawFaultyTr, rules);
-    faultyTr = cleanSentenceSpacing(faultyTr);
-
-    // Fallback: If transformations produced identical text or an empty string, append distractor in brackets
+    let faultyTr = cleanSentenceSpacing(applyTransformations(rawFaultyTr, rules));
     if (!faultyTr || faultyTr.toLowerCase() === (sentence.tr || "").toLowerCase()) {
-        const distractorText = (faultyItem.tr || faultyItem.t || "").trim();
-        faultyTr = `${sentence.tr} (${distractorText})`;
+        faultyTr = `${sentence.tr} (${(faultyItem.tr || faultyItem.t || "").trim()})`;
     }
-
     return { faultyTr: faultyTr };
 }
 
@@ -5040,6 +5067,12 @@ async function publishTaskToClassroom() {
             if (actId !== 'study') {
                 totalSentencesCount += sents.length;
             }
+        } else if (window.editingSavedSentencesMap && window.editingSavedSentencesMap[actId] && window.editingSavedSentencesMap[actId].length > 0) {
+            // Preserve exact duplicated sentences without re-shuffling from grid
+            structuredSentencesPerActivity[actId] = window.editingSavedSentencesMap[actId];
+            if (actId !== 'study') {
+                totalSentencesCount += window.editingSavedSentencesMap[actId].length;
+            }
         } else {
             if (actId === 'study') {
                 structuredSentencesPerActivity['study'] = getBalancedSelection(allSentences, tableLimit);
@@ -5069,6 +5102,17 @@ async function publishTaskToClassroom() {
         gcScheduledTime = new Date(scheduleDateVal).toISOString();
     }
 
+    // Builder binding & snapshot payload
+    const targetBuilderId = activeAssignmentBuilderId || currentDocId || null;
+    const builderSnapshot = {
+        grid: JSON.stringify(activeAssignmentGrid || grid),
+        disabledRoutes: activeAssignmentDisabledRoutes || disabledRoutes || [],
+        excludedCombos: activeAssignmentExcludedCombos || excludedCombos || [],
+        requiredCombos: activeAssignmentRequiredCombos || requiredCombos || [],
+        excludedPairs: activeAssignmentExcludedPairs || excludedPairs || [],
+        transformationsText: activeAssignmentTransformationsText || transformationsText || ""
+    };
+
     await ensureGapiClassroomLoaded();
 
     if (editingAssignmentId) {
@@ -5078,6 +5122,8 @@ async function publishTaskToClassroom() {
 
             const updatePayload = {
                 title: title,
+                builderId: targetBuilderId,
+                builderSnapshot: builderSnapshot,
                 selectedActivities: selectedActivities,
                 sentencesPerActivity: structuredSentencesPerActivity,
                 maxPoints: maxPoints > 0 ? maxPoints : 10,
@@ -5164,11 +5210,13 @@ async function publishTaskToClassroom() {
 
     await assignmentRef.set({
         id: assignmentId,
+        builderId: targetBuilderId,
+        builderSnapshot: builderSnapshot,
         gClassroomAssignmentId: res.result.id,
         courseId: courseId,
         courseName: courseName,
         title: title,
-        lang: document.getElementById('meta-lang').value || meta.lang || "French",
+        lang: window.duplicatingAssignmentLang || document.getElementById('meta-lang').value || meta.lang || "French",
         selectedActivities: selectedActivities,
         sentencesPerActivity: structuredSentencesPerActivity,
         maxPoints: maxPoints > 0 ? maxPoints : 10,
@@ -5223,6 +5271,7 @@ async function loadStudentTask(assignmentId) {
     window.isTeacherPreview = false;
     const previewBanner = document.getElementById('teacher-preview-banner');
     if (previewBanner) previewBanner.style.display = 'none';
+
     try {
         const doc = await db.collection("assignments").doc(assignmentId).get();
         if (!doc.exists) {
@@ -5240,6 +5289,7 @@ async function loadStudentTask(assignmentId) {
         studentExerciseTypes = selectedActivities.filter(a => a !== 'study');
         studentCurrentExIndex = 0;
         studentAnswersState = {};
+        window.studentCompletedExercises = {};
 
         const perActSentences = currentStudentAssignment.sentencesPerActivity || {};
         const hasStudySelected = selectedActivities.includes('study');
@@ -5262,10 +5312,13 @@ async function loadStudentTask(assignmentId) {
         }
 
         if (currentUser && currentUser.email) {
+            const studentEmail = currentUser.email.toLowerCase();
+
+            // 1. Check if final submission already exists
             try {
                 const subSnap = await db.collection("submissions")
                     .where("assignmentId", "==", assignmentId)
-                    .where("studentEmail", "==", currentUser.email.toLowerCase())
+                    .where("studentEmail", "==", studentEmail)
                     .get();
 
                 if (!subSnap.empty) {
@@ -5278,7 +5331,47 @@ async function loadStudentTask(assignmentId) {
                     return;
                 }
             } catch (subErr) {
-                console.warn("Could not query previous submissions, displaying activity instead:", subErr);
+                console.warn("Could not query previous submissions:", subErr);
+            }
+
+            // 2. Fetch saved draft progress (Firestore + Local Storage fallback)
+            try {
+                const draftId = `${assignmentId}_${studentEmail}`;
+                let draftData = null;
+
+                try {
+                    const draftDoc = await db.collection("student_drafts").doc(draftId).get();
+                    if (draftDoc.exists) {
+                        draftData = draftDoc.data();
+                    }
+                } catch (fsErr) {
+                    console.warn("Could not fetch draft from Firestore:", fsErr);
+                }
+
+                const localDraftRaw = localStorage.getItem(`student_draft_${draftId}`);
+                if (localDraftRaw) {
+                    try {
+                        const localDraft = JSON.parse(localDraftRaw);
+                        if (!draftData || (localDraft.studentCompletedExercises && Object.keys(localDraft.studentCompletedExercises).length >= Object.keys(draftData.studentCompletedExercises || {}).length)) {
+                            draftData = localDraft;
+                        }
+                    } catch (pErr) {}
+                }
+
+                if (draftData) {
+                    studentAnswersState = draftData.studentAnswersState || {};
+                    window.studentCompletedExercises = draftData.studentCompletedExercises || {};
+
+                    // Resume on the first uncompleted exercise
+                    const firstUncompletedIdx = studentExerciseTypes.findIndex(act => !window.studentCompletedExercises[act]);
+                    if (firstUncompletedIdx !== -1) {
+                        studentCurrentExIndex = firstUncompletedIdx;
+                    } else if (studentExerciseTypes.length > 0) {
+                        studentCurrentExIndex = studentExerciseTypes.length - 1;
+                    }
+                }
+            } catch (draftErr) {
+                console.warn("Could not load draft progress:", draftErr);
             }
         }
 
@@ -5299,7 +5392,6 @@ async function loadStudentTask(assignmentId) {
         alert("Error loading assignment task: " + err.message);
     }
 }
-
 function renderStudentPendingReviewCard(sub) {
     document.getElementById('student-active-exercise-card').style.display = 'none';
     document.getElementById('student-nav-actions').style.display = 'none';
@@ -5308,8 +5400,52 @@ function renderStudentPendingReviewCard(sub) {
 
     const pendingCard = document.getElementById('student-pending-review-card');
     pendingCard.style.display = 'block';
-}
 
+    const translationTypes = ['faulty', 'trans-en', 'trans-target'];
+    let selfEarned = 0;
+    let selfPossible = 0;
+    let hasTranslation = false;
+
+    if (sub && sub.detailedReport && Array.isArray(sub.detailedReport)) {
+        sub.detailedReport.forEach(act => {
+            if (translationTypes.includes(act.activityType)) {
+                hasTranslation = true;
+            } else {
+                (act.responses || []).forEach(r => {
+                    selfEarned += (r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0));
+                    selfPossible += 1;
+                });
+            }
+        });
+    }
+
+    let scoreHtml = '';
+    if (selfPossible > 0) {
+        const selfPct = Math.round((selfEarned / selfPossible) * 100);
+        scoreHtml = `
+            <div style="background:white; padding:15px; border-radius:8px; border:1px solid #bfdbfe; margin-bottom:15px; text-align:center;">
+                <span style="font-size:13px; font-weight:bold; color:#475569; text-transform:uppercase; letter-spacing:0.5px;">Self-Marked Exercises Score</span>
+                <div style="font-size:28px; font-weight:bold; color:#2563eb; margin-top:4px;">
+                    ${selfEarned} / ${selfPossible} (${selfPct}%)
+                </div>
+            </div>
+        `;
+    }
+
+    let noteText = hasTranslation
+        ? `Translation tasks are currently <b>pending teacher review</b>.<br>Please return to this assignment link once your teacher has reviewed your work in Google Classroom to view your final grade and corrections.`
+        : `Your assignment is currently <b>pending teacher review</b>.<br>Please return to this assignment link once your teacher has reviewed your work in Google Classroom to view your final grade and corrections.`;
+
+    pendingCard.innerHTML = `
+        <div style="background:#eff6ff; padding:24px; border-radius:10px; border:1px solid #bfdbfe; text-align:center;">
+            <h3 style="margin:0 0 14px 0; color:#1e40af; font-size:20px;">✅ Assignment Submitted Successfully!</h3>
+            ${scoreHtml}
+            <div style="background:#f8fafc; padding:14px 18px; border-radius:8px; border:1px solid #cbd5e1; color:#1e3a8a; font-size:14px; line-height:1.5;">
+                ⏳ ${noteText}
+            </div>
+        </div>
+    `;
+}
 function renderStudentMarksheetReview(sub) {
     document.getElementById('student-active-exercise-card').style.display = 'none';
     document.getElementById('student-nav-actions').style.display = 'none';
@@ -5346,20 +5482,25 @@ function renderStudentMarksheetReview(sub) {
                         Exercise ${actIdx + 1}: ${act.activityTitle}
                     </div>
                     <div style="padding:12px;">
-                        ${(act.responses || []).map((r, i) => `
-                            <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
-                                <div style="flex:1;">
-                                    <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
-                                    <div style="color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
-                                        <b>Your Answer:</b> ${r.studentAnswer}
-                                    </div>
-                                    ${r.points < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:13px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
-                                </div>
-                                <div style="font-weight:bold; color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; padding-left:10px;">
-                                    ${r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0)} / 1 pt
-                                </div>
-                            </div>
-                        `).join('')}
+                       ${(act.responses || []).map((r, i) => `
+    <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
+        <div style="flex:1;">
+            <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
+            <div style="color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
+                <b>Your Answer:</b> ${r.studentAnswer}
+                ${r.mistakes !== undefined ? `
+                    <span style="display:inline-block; margin-left:8px; font-size:11px; padding:2px 6px; border-radius:4px; font-weight:bold; background:${r.mistakes === 0 ? '#d1fae5' : '#fef3c7'}; color:${r.mistakes === 0 ? '#065f46' : '#92400e'};">
+                        ${r.mistakes === 0 ? '✓' : `⚠️ ${r.mistakes} Mistake(s)`}
+                    </span>
+                ` : ''}
+            </div>
+            ${r.points < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:13px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
+        </div>
+        <div style="font-weight:bold; color:${r.points >= 1 ? '#10b981' : (r.points > 0 ? '#d97706' : '#ef4444')}; padding-left:10px;">
+            ${r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0)} / 1 pt
+        </div>
+    </div>
+`).join('')}
                     </div>
                 </div>
             `;
@@ -5433,16 +5574,82 @@ function isCurrentExerciseCompleted() {
 
     return true;
 }
+async function saveDraftProgress() {
+    if (!currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id) return;
 
+    const studentEmail = currentUser.email.toLowerCase();
+    const assignmentId = currentStudentAssignment.id;
+    const draftId = `${assignmentId}_${studentEmail}`;
+
+    const draftPayload = {
+        assignmentId: assignmentId,
+        studentEmail: studentEmail,
+        studentAnswersState: studentAnswersState,
+        studentCompletedExercises: window.studentCompletedExercises || {},
+        lastUpdatedIndex: studentCurrentExIndex,
+        updatedAt: new Date().toISOString()
+    };
+
+    // 1. Instant local persistence fallback
+    try {
+        localStorage.setItem(`student_draft_${draftId}`, JSON.stringify(draftPayload));
+    } catch (lsErr) {
+        console.warn("LocalStorage save error:", lsErr);
+    }
+
+    // 2. Cloud Firestore persistence
+    try {
+        await db.collection("student_drafts").doc(draftId).set({
+            ...draftPayload,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    } catch (e) {
+        console.warn("Could not save draft progress to Firestore:", e);
+    }
+}
+
+function lockCurrentExerciseUI() {
+    const area = document.getElementById('exercise-interactive-area');
+    if (!area) return;
+
+    area.querySelectorAll('input, button, .interactive-tile, .space-span, .letter-span, .jumble-word-tile').forEach(el => {
+        el.disabled = true;
+        el.style.pointerEvents = 'none';
+        el.style.opacity = '0.75';
+    });
+}
+
+async function submitCurrentExercise() {
+    const actType = studentExerciseTypes[studentCurrentExIndex];
+
+    // 1. Record current exercise answers into memory
+    saveStudentCurrentExerciseResponses();
+
+    // 2. Mark exercise as completed
+    window.studentCompletedExercises[actType] = true;
+
+    // 3. Persist draft progress to Firestore
+    await saveDraftProgress();
+
+    // 4. Lock UI so answers cannot be altered
+    lockCurrentExerciseUI();
+
+    // 5. Update action buttons (hides Submit Exercise, shows Next Exercise / Final Submit)
+    checkExerciseCompletion();
+}
 function checkExerciseCompletion() {
+    const submitExBtn = document.getElementById('student-submit-ex-btn');
     const nextBtn = document.getElementById('student-next-ex-btn');
     const submitBtn = document.getElementById('student-submit-btn');
-    if (!nextBtn || !submitBtn) return;
+    if (!nextBtn || !submitBtn || !submitExBtn) return;
 
+    const actType = studentExerciseTypes[studentCurrentExIndex];
+    const isSubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
     const isLastEx = (studentCurrentExIndex === studentExerciseTypes.length - 1);
 
-    // Teachers can navigate freely in preview mode
+    // Teacher preview mode
     if (window.isTeacherPreview) {
+        submitExBtn.style.display = 'none';
         if (isLastEx) {
             nextBtn.style.display = 'none';
             submitBtn.style.display = 'inline-block';
@@ -5453,18 +5660,23 @@ function checkExerciseCompletion() {
         return;
     }
 
-    // Student mode: only show Next / Submit when completed
-    const isComplete = isCurrentExerciseCompleted();
-
-    if (isLastEx) {
-        nextBtn.style.display = 'none';
-        submitBtn.style.display = isComplete ? 'inline-block' : 'none';
+    // Student mode
+    if (isSubmitted) {
+        submitExBtn.style.display = 'none';
+        if (isLastEx) {
+            nextBtn.style.display = 'none';
+            submitBtn.style.display = 'inline-block';
+        } else {
+            nextBtn.style.display = 'inline-block';
+            submitBtn.style.display = 'none';
+        }
     } else {
+        nextBtn.style.display = 'none';
         submitBtn.style.display = 'none';
-        nextBtn.style.display = isComplete ? 'inline-block' : 'none';
+        const isComplete = isCurrentExerciseCompleted();
+        submitExBtn.style.display = isComplete ? 'inline-block' : 'none';
     }
 }
-
 /* =========================
    UPDATED STUDENT EXERCISE RENDERER
 ========================= */
@@ -5485,7 +5697,7 @@ function renderCurrentStudentExercise() {
     const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
 
     let html = `
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1.5px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
+        <div style="display:flex; justify-space-between; align-items:center; border-bottom:1.5px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
             <h3 style="margin:0; font-size:17px; color:#0f172a;">Exercise ${studentCurrentExIndex + 1} of ${studentExerciseTypes.length}: ${actTitle}</h3>
             <span style="background:#e2e8f0; padding:3px 8px; border-radius:12px; font-size:12px; font-weight:bold; color:#475569;">
                 ${sents.length} Items
@@ -5564,9 +5776,10 @@ function renderCurrentStudentExercise() {
         });
         area.innerHTML = jHtml;
 
-        area.querySelectorAll('.student-item-block').forEach(block => {
+        area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const slot = block.querySelector('.jumble-answer-slot');
             const bank = block.querySelector('.jumble-word-bank');
+            const targetSentence = sents[idx] ? sents[idx].t : "";
 
             block.addEventListener('click', (e) => {
                 if (e.target.classList.contains('jumble-word-tile')) {
@@ -5575,6 +5788,22 @@ function renderCurrentStudentExercise() {
                     } else {
                         bank.appendChild(e.target);
                     }
+
+                    if (bank.children.length === 0) {
+                        const studentText = Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText).join(' ').trim();
+                        if (normalizeString(studentText) === normalizeString(targetSentence)) {
+                            slot.style.borderColor = '#10b981';
+                            slot.style.backgroundColor = '#ecfdf5';
+                        } else {
+                            slot.style.borderColor = '#ef4444';
+                            slot.style.backgroundColor = '#fef2f2';
+                            block.dataset.wrongAttempts = parseInt(block.dataset.wrongAttempts || "0", 10) + 1;
+                        }
+                    } else {
+                        slot.style.borderColor = '#cbd5e1';
+                        slot.style.backgroundColor = 'white';
+                    }
+
                     checkExerciseCompletion();
                 }
             });
@@ -5715,6 +5944,25 @@ function renderCurrentStudentExercise() {
         area.innerHTML = gHtml;
 
         area.querySelectorAll('.gap-inline-input').forEach(input => {
+            const checkGapVal = () => {
+                const correct = input.dataset.correct || '';
+                const val = input.value.trim();
+                if (val.length === 0) {
+                    input.style.borderColor = '#cbd5e1';
+                    input.style.backgroundColor = 'white';
+                    return;
+                }
+                if (normalizeString(val) === normalizeString(correct)) {
+                    input.style.borderColor = '#10b981';
+                    input.style.backgroundColor = '#ecfdf5';
+                } else {
+                    input.style.borderColor = '#ef4444';
+                    input.style.backgroundColor = '#fef2f2';
+                    input.dataset.wrongAttempts = parseInt(input.dataset.wrongAttempts || "0", 10) + 1;
+                }
+            };
+
+            input.addEventListener('change', checkGapVal);
             input.addEventListener('input', () => {
                 checkExerciseCompletion();
             });
@@ -5752,6 +6000,106 @@ function renderCurrentStudentExercise() {
                 checkExerciseCompletion();
             });
         });
+    }
+
+    // --- RESTORE PREVIOUS ANSWERS IF ALREADY SAVED ---
+    const savedExerciseResponses = studentAnswersState[actType] || [];
+    const isAlreadySubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
+
+    if (savedExerciseResponses.length > 0) {
+        if (['faulty', 'trans-en', 'trans-target'].includes(actType)) {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const input = block.querySelector('.full-typing-input');
+                if (input && savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
+                    const prev = savedExerciseResponses[idx].studentAnswer;
+                    if (prev !== '(Empty)') input.value = prev;
+                }
+            });
+        } else if (actType === 'gap-en' || actType === 'gap-t') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const input = block.querySelector('.gap-inline-input');
+                if (input && savedExerciseResponses[idx] && savedExerciseResponses[idx].studentAnswer) {
+                    const prev = savedExerciseResponses[idx].studentAnswer;
+                    if (prev !== '(Empty)') {
+                        input.value = prev;
+                        input.dispatchEvent(new Event('change'));
+                    }
+                }
+            });
+        } else if (actType === 'vowels' || actType === 'cons') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const boxes = Array.from(block.querySelectorAll('.letter-box'));
+                const resp = savedExerciseResponses[idx];
+                if (resp) {
+                    if (resp.letterValues && Array.isArray(resp.letterValues)) {
+                        boxes.forEach((box, bIdx) => {
+                            if (resp.letterValues[bIdx] !== undefined) {
+                                box.value = resp.letterValues[bIdx];
+                                if (box.value.toLowerCase() === (box.dataset.correct || '').toLowerCase() && box.value !== '') {
+                                    box.classList.add('correct-input');
+                                } else if (box.value !== '') {
+                                    box.classList.add('wrong-input');
+                                }
+                            }
+                        });
+                    } else if (resp.studentAnswer && resp.studentAnswer !== '(Incomplete/Incorrect letters)') {
+                        boxes.forEach(box => {
+                            box.value = box.dataset.correct || '';
+                            box.classList.add('correct-input');
+                        });
+                    }
+                }
+            });
+        } else if (actType === 'jumbled') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const slot = block.querySelector('.jumble-answer-slot');
+                const bank = block.querySelector('.jumble-word-bank');
+                const resp = savedExerciseResponses[idx];
+                if (resp && resp.studentAnswer && resp.studentAnswer !== '(Empty)') {
+                    const wordList = resp.studentAnswer.split(' ');
+                    wordList.forEach(w => {
+                        const tiles = Array.from(bank.querySelectorAll('.jumble-word-tile'));
+                        const matchingTile = tiles.find(t => t.innerText === w);
+                        if (matchingTile) slot.appendChild(matchingTile);
+                    });
+                    slot.style.borderColor = '#10b981';
+                    slot.style.backgroundColor = '#ecfdf5';
+                }
+            });
+        } else if (actType === 'nospaces') {
+            area.querySelectorAll('.student-item-block').forEach((block, idx) => {
+                const resp = savedExerciseResponses[idx];
+                if (resp && (resp.isDone || (resp.studentAnswer && !resp.studentAnswer.startsWith('(Incomplete')))) {
+                    block.querySelectorAll('.space-inner').forEach(inner => {
+                        inner.style.display = 'inline';
+                        inner.style.visibility = 'visible';
+                        inner.classList.add('revealed-space');
+                    });
+                    if (typeof updateNoSpaceCounter === 'function') {
+                        updateNoSpaceCounter(block);
+                    }
+                }
+            });
+        } else if (actType === 'match') {
+            savedExerciseResponses.forEach((resp, idx) => {
+                if (resp && (resp.isDone || resp.studentAnswer !== '(Unmatched)')) {
+                    const targetTile = area.querySelector(`.match-t-tile[data-id="${idx}"]`);
+                    const engTile = area.querySelector(`.match-tr-tile[data-id="${idx}"]`);
+                    if (targetTile) {
+                        targetTile.classList.add('correct-match');
+                        targetTile.style.opacity = '0.3';
+                    }
+                    if (engTile) {
+                        engTile.classList.add('correct-match');
+                        engTile.style.opacity = '0.3';
+                    }
+                }
+            });
+        }
+    }
+
+    if (isAlreadySubmitted) {
+        lockCurrentExerciseUI();
     }
 
     document.getElementById('student-prev-ex-btn').style.display = (studentCurrentExIndex > 0) ? 'inline-block' : 'none';
@@ -5819,8 +6167,6 @@ function updateNoSpaceCounter(block) {
         }
     }
 }
-
-
 function checkMatchPair(state, sents) {
     if (state.selectedTarget && state.selectedEng) {
         const idT = state.selectedTarget.dataset.id;
@@ -5846,6 +6192,10 @@ function checkMatchPair(state, sents) {
             feedback.innerText = 'Incorrect pair. Try again!';
             targetEl.classList.add('wrong-match');
             engEl.classList.add('wrong-match');
+            
+            targetEl.dataset.wrongAttempts = parseInt(targetEl.dataset.wrongAttempts || "0", 10) + 1;
+            engEl.dataset.wrongAttempts = parseInt(engEl.dataset.wrongAttempts || "0", 10) + 1;
+
             setTimeout(() => {
                 targetEl?.classList.remove('wrong-match', 'selected');
                 engEl?.classList.remove('wrong-match', 'selected');
@@ -5860,13 +6210,13 @@ function checkMatchPair(state, sents) {
         checkExerciseCompletion();
     }
 }
-
 function setupAutoAdvanceInputs(area, selector) {
     const inputs = Array.from(area.querySelectorAll(selector));
     inputs.forEach((input, idx) => {
         input.oninput = function() {
             const correctChar = this.dataset.correct;
             const val = this.value.toLowerCase();
+            const block = this.closest('.student-item-block');
 
             if (val === correctChar) {
                 this.classList.add('correct-input');
@@ -5875,6 +6225,9 @@ function setupAutoAdvanceInputs(area, selector) {
             } else if (val.length > 0) {
                 this.classList.add('wrong-input');
                 this.classList.remove('correct-input');
+                if (block) {
+                    block.dataset.wrongEntries = parseInt(block.dataset.wrongEntries || "0", 10) + 1;
+                }
             } else {
                 this.classList.remove('correct-input', 'wrong-input');
             }
@@ -5917,10 +6270,8 @@ function evaluateTextSimilarity(studentAns, correctAns) {
         }
     });
 
-    // Calculate ratio against the longer word count
     const ratio = matchedCount / Math.max(ansWords.length, correctWords.length);
 
-    // Requires at least 50% word match for 0.5 points
     if (ratio >= 0.50) {
         return { points: 0.5, isCorrect: false };
     }
@@ -5934,17 +6285,27 @@ function saveStudentCurrentExerciseResponses() {
     const responses = [];
 
     const area = document.getElementById('exercise-interactive-area');
+    if (!area) return;
 
     if (actType === 'match') {
         sents.forEach((s, idx) => {
             const tile = area.querySelector(`.match-t-tile[data-id="${idx}"]`);
             const isDone = tile && tile.classList.contains('correct-match');
+            const wrongAttempts = parseInt(tile?.dataset.wrongAttempts || "0", 10);
+            
+            let points = 0;
+            if (isDone) {
+                points = (wrongAttempts === 0) ? 1.0 : 0.5;
+            }
+
             responses.push({
                 prompt: s.t,
                 studentAnswer: isDone ? s.tr : '(Unmatched)',
                 correctAnswer: s.tr,
-                isCorrect: isDone,
-                points: isDone ? 1 : 0
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongAttempts,
+                isDone: isDone
             });
         });
     } else if (actType === 'jumbled') {
@@ -5952,14 +6313,21 @@ function saveStudentCurrentExerciseResponses() {
             const s = sents[idx];
             const slot = block.querySelector('.jumble-answer-slot');
             const studentText = Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText).join(' ').trim();
-            const isCorrect = normalizeString(studentText) === normalizeString(s.t);
+            const wrongAttempts = parseInt(block.dataset.wrongAttempts || "0", 10);
+            const isExactMatch = (normalizeString(studentText) === normalizeString(s.t));
+
+            let points = 0;
+            if (isExactMatch) {
+                points = (wrongAttempts === 0) ? 1.0 : 0.5;
+            }
 
             responses.push({
                 prompt: s.tr,
                 studentAnswer: studentText || '(Empty)',
                 correctAnswer: s.t,
-                isCorrect: isCorrect,
-                points: isCorrect ? 1 : 0
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongAttempts
             });
         });
     } else if (actType === 'nospaces') {
@@ -5967,34 +6335,44 @@ function saveStudentCurrentExerciseResponses() {
             const s = sents[idx];
             const unrevealed = block.querySelectorAll('.space-inner:not(.revealed-space)');
             const wrongClicks = parseInt(block.dataset.wrongClicks || "0", 10);
-            
-            const isFullyCorrect = (unrevealed.length === 0) && (wrongClicks === 0);
-            const isDoneWithMistakes = (unrevealed.length === 0) && (wrongClicks > 0);
+            const isDone = (unrevealed.length === 0);
 
             let points = 0;
-            if (isFullyCorrect) points = 1;
-            else if (isDoneWithMistakes) points = 0.5;
+            if (isDone) {
+                points = (wrongClicks === 0) ? 1.0 : 0.5;
+            }
 
             responses.push({
                 prompt: s.tr,
-                studentAnswer: (unrevealed.length === 0) ? s.t : `(Incomplete - ${unrevealed.length} gaps left)`,
+                studentAnswer: isDone ? s.t : `(Incomplete - ${unrevealed.length} gaps left)`,
                 correctAnswer: s.t,
-                isCorrect: isFullyCorrect,
-                points: points
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongClicks,
+                isDone: isDone
             });
         });
     } else if (actType === 'vowels' || actType === 'cons') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const boxes = Array.from(block.querySelectorAll('.letter-box'));
-            const allCorrect = boxes.every(b => b.classList.contains('correct-input'));
+            const letterValues = boxes.map(b => b.value || '');
+            const wrongEntries = parseInt(block.dataset.wrongEntries || "0", 10);
+            const allCorrect = boxes.length > 0 && boxes.every(b => b.classList.contains('correct-input'));
+
+            let points = 0;
+            if (allCorrect) {
+                points = (wrongEntries === 0) ? 1.0 : 0.5;
+            }
 
             responses.push({
                 prompt: s.tr,
-                studentAnswer: allCorrect ? s.t : '(Incomplete/Incorrect letters)',
+                studentAnswer: allCorrect ? s.t : (letterValues.some(v => v !== '') ? letterValues.join('') : '(Incomplete/Incorrect letters)'),
                 correctAnswer: s.t,
-                isCorrect: allCorrect,
-                points: allCorrect ? 1 : 0
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongEntries,
+                letterValues: letterValues
             });
         });
     } else if (actType === 'gap-en' || actType === 'gap-t') {
@@ -6003,17 +6381,21 @@ function saveStudentCurrentExerciseResponses() {
             const input = block.querySelector('.gap-inline-input');
             const ans = input ? input.value.trim() : '';
             const correct = input ? input.dataset.correct : '';
-            const normAns = normalizeString(ans);
-            const normCorrect = normalizeString(correct);
-
-            const isCorrect = normAns.length > 0 && normCorrect.length > 0 && (normAns === normCorrect);
+            const wrongAttempts = parseInt(input?.dataset.wrongAttempts || "0", 10);
+            
+            const isMatch = (normalizeString(ans) === normalizeString(correct));
+            let points = 0;
+            if (isMatch) {
+                points = (wrongAttempts === 0) ? 1.0 : 0.5;
+            }
 
             responses.push({
                 prompt: s.t,
                 studentAnswer: ans || '(Empty)',
-                correctAnswer: correct || '(No gap answer set)',
-                isCorrect: isCorrect,
-                points: isCorrect ? 1 : 0
+                correctAnswer: correct || '(No gap set)',
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongAttempts
             });
         });
     } else if (actType === 'faulty') {
@@ -6056,6 +6438,7 @@ function saveStudentCurrentExerciseResponses() {
 }
 function nextStudentExercise() {
     saveStudentCurrentExerciseResponses();
+    saveDraftProgress();
     if (studentCurrentExIndex < studentExerciseTypes.length - 1) {
         studentCurrentExIndex++;
         renderCurrentStudentExercise();
@@ -6064,6 +6447,7 @@ function nextStudentExercise() {
 
 function prevStudentExercise() {
     saveStudentCurrentExerciseResponses();
+    saveDraftProgress();
     if (studentCurrentExIndex > 0) {
         studentCurrentExIndex--;
         renderCurrentStudentExercise();
@@ -6115,6 +6499,11 @@ async function submitStudentWork() {
 
     try {
         await db.collection("submissions").add(subData);
+
+        // Delete draft from Firestore upon final assignment submission
+        const draftId = `${currentStudentAssignment.id}_${currentUser.email.toLowerCase()}`;
+        db.collection("student_drafts").doc(draftId).delete().catch(e => console.warn("Draft cleanup failed:", e));
+
         alert("🎉 Activity Submitted Successfully!\nYour work has been submitted to your teacher for review.");
         renderStudentPendingReviewCard(subData);
     } catch (err) {
@@ -6189,12 +6578,14 @@ async function duplicateCurrentAssignmentToClass() {
     if (!doc.exists) return alert("Assignment not found.");
 
     const assign = doc.data();
-    
-    // Set editingAssignmentId to null so publishing creates a NEW assignment in the target course
     editingAssignmentId = null;
 
+    await setupAssignmentBuilderContext(assign);
+
+    const clonedSentencesMap = assign.sentencesPerActivity ? JSON.parse(JSON.stringify(assign.sentencesPerActivity)) : null;
+    window.duplicatingAssignmentLang = assign.lang || null;
+
     const currentLang = assign.lang || meta.lang || "Target Language";
-    
     const list = [
         {id:'study', label:'Sentence Table (Reference)'}, 
         {id:'match', label:'Match up'}, 
@@ -6224,10 +6615,10 @@ async function duplicateCurrentAssignmentToClass() {
     });
 
     let detectedCount = 10;
-    if (assign.sentencesPerActivity) {
-        for (let actKey in assign.sentencesPerActivity) {
-            if (actKey !== 'study' && assign.sentencesPerActivity[actKey].length > 0) {
-                detectedCount = assign.sentencesPerActivity[actKey].length;
+    if (clonedSentencesMap) {
+        for (let actKey in clonedSentencesMap) {
+            if (actKey !== 'study' && clonedSentencesMap[actKey].length > 0) {
+                detectedCount = clonedSentencesMap[actKey].length;
                 break;
             }
         }
@@ -6235,18 +6626,23 @@ async function duplicateCurrentAssignmentToClass() {
     const sentCountSelect = document.getElementById('sentence-count');
     if (sentCountSelect) sentCountSelect.value = String(detectedCount);
 
-    renderPerActivitySentenceBoxes(assign.sentencesPerActivity || null);
+    if (clonedSentencesMap && clonedSentencesMap['study']) {
+        const tableCountSelect = document.getElementById('table-sentence-count');
+        if (tableCountSelect) tableCountSelect.value = String(clonedSentencesMap['study'].length);
+    }
 
-    document.getElementById('activity-menu').style.display = 'flex'; // CHANGED FROM 'block'
+    renderPerActivitySentenceBoxes(clonedSentencesMap);
+
+    document.getElementById('activity-menu').style.display = 'flex';
     document.getElementById('overlay').style.display = 'block';
 
     await openClassroomPublishSection();
-    // Reset dates for new duplicate assignment
+    
     document.getElementById('gc-due-date').value = '';
     document.getElementById('gc-schedule-date').value = '';
 
     const gcBtn = document.getElementById('gc-publish-btn');
-    if (gcBtn) gcBtn.innerText = "📋 Duplicate & Publish to Selected Class";
+    if (gcBtn) gcBtn.innerText = "📋 Duplicate & Publish";
 }
 
 async function downloadActiveAssignmentWorksheet() {
@@ -6683,8 +7079,9 @@ async function editCurrentAssignment() {
     const assign = doc.data();
     editingAssignmentId = assignmentId;
 
+    await setupAssignmentBuilderContext(assign);
+
     const currentLang = assign.lang || meta.lang || "Target Language";
-    
     const list = [
         {id:'study', label:'Sentence Table (Reference)'}, 
         {id:'match', label:'Match up'}, 
@@ -6727,7 +7124,7 @@ async function editCurrentAssignment() {
 
     renderPerActivitySentenceBoxes(assign.sentencesPerActivity || null);
 
-    document.getElementById('activity-menu').style.display = 'flex'; // CHANGED FROM 'block'
+    document.getElementById('activity-menu').style.display = 'flex';
     document.getElementById('overlay').style.display = 'block';
 
     await openClassroomPublishSection();
@@ -6845,29 +7242,34 @@ async function inspectStudentAnswers(subId) {
                         Exercise ${actIdx + 1}: ${act.activityTitle}
                     </div>
                     <div style="padding:12px;">
-                        ${(act.responses || []).map((r, i) => {
-                            const currentScore = r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0);
-                            return `
-                                <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; gap:10px;">
-                                    <div style="flex:1;">
-                                        <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
-                                        <div style="color:${currentScore >= 1 ? '#10b981' : (currentScore > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
-                                            <b>Student Answer:</b> ${r.studentAnswer}
-                                        </div>
-                                        ${currentScore < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:12px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
-                                    </div>
-                                    <div style="display:flex; align-items:center; gap:4px; font-weight:bold; background:#f8fafc; padding:4px 8px; border-radius:6px; border:1px solid #cbd5e1;">
-                                        <input type="number" step="0.5" min="0" max="1" 
-                                            class="item-score-input" 
-                                            data-act-idx="${actIdx}" 
-                                            data-resp-idx="${i}" 
-                                            value="${currentScore}" 
-                                            style="width:50px; padding:4px; text-align:center; border:1px solid #94a3b8; border-radius:4px; font-weight:bold;">
-                                        <span>/ 1 pt</span>
-                                    </div>
-                                </div>
-                            `;
-                        }).join('')}
+                       ${(act.responses || []).map((r, i) => {
+    const currentScore = r.points !== undefined ? r.points : (r.isCorrect ? 1 : 0);
+    return `
+        <div style="padding:8px 0; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <div style="flex:1;">
+                <div><b>${i + 1}. Prompt:</b> ${r.prompt}</div>
+                <div style="color:${currentScore >= 1 ? '#10b981' : (currentScore > 0 ? '#d97706' : '#ef4444')}; margin-top:2px;">
+                    <b>Student Answer:</b> ${r.studentAnswer}
+                    ${r.mistakes !== undefined ? `
+                        <span style="display:inline-block; margin-left:8px; font-size:11px; padding:2px 6px; border-radius:4px; font-weight:bold; background:${r.mistakes === 0 ? '#d1fae5' : '#fef3c7'}; color:${r.mistakes === 0 ? '#065f46' : '#92400e'};">
+                            ${r.mistakes === 0 ? '✓' : `⚠️ ${r.mistakes} Mistake(s)`}
+                        </span>
+                    ` : ''}
+                </div>
+                ${currentScore < 1 ? `<div style="color:#2563eb; font-weight:bold; font-size:12px; margin-top:3px;"><b>Correct Answer:</b> ${r.correctAnswer}</div>` : ''}
+            </div>
+            <div style="display:flex; align-items:center; gap:4px; font-weight:bold; background:#f8fafc; padding:4px 8px; border-radius:6px; border:1px solid #cbd5e1;">
+                <input type="number" step="0.5" min="0" max="1" 
+                    class="item-score-input" 
+                    data-act-idx="${actIdx}" 
+                    data-resp-idx="${i}" 
+                    value="${currentScore}" 
+                    style="width:50px; padding:4px; text-align:center; border:1px solid #94a3b8; border-radius:4px; font-weight:bold;">
+                <span>/ 1 pt</span>
+            </div>
+        </div>
+    `;
+}).join('')}
                     </div>
                 </div>
             `;
@@ -7126,16 +7528,9 @@ let isAnswerRevealed = false;
 let classDisplaySentences = []; // Holds the randomized sentence list
 
 function openInteractiveClassDisplay() {
-    const sentences = getAssembledSentences();
-    if (!sentences || sentences.length === 0) {
-        alert("Please add vocabulary and structure to your grid before opening the display.");
-        return;
-    }
-    
+    // 1. Display the modal immediately so the UI opens instantly without lag
+    const modal = document.getElementById('class-display-modal');
     document.body.style.overflow = 'hidden';
-    classDisplaySentences = shuffleArray(sentences);
-    currentClassDisplayIndex = 0;
-    isAnswerRevealed = false;
 
     // Reset dropdown selection back to the top activity on re-open
     const gameSelect = document.getElementById('class-display-game-select');
@@ -7143,8 +7538,22 @@ function openInteractiveClassDisplay() {
         gameSelect.selectedIndex = 0;
     }
 
-    document.getElementById('class-display-modal').style.display = 'flex';
-    playClassDisplayGame();
+    modal.style.display = 'flex';
+
+    // 2. Defer heavy sentence generation to allow the browser thread to paint the screen
+    setTimeout(() => {
+        const sentences = getAssembledSentences();
+        if (!sentences || sentences.length === 0) {
+            closeModals();
+            alert("Please add vocabulary and structure to your grid before opening the display.");
+            return;
+        }
+
+        classDisplaySentences = shuffleArray(sentences);
+        currentClassDisplayIndex = 0;
+        isAnswerRevealed = false;
+        playClassDisplayGame();
+    }, 0);
 }
     function handleClassDisplayActivityChange() {
     isAnswerRevealed = false;
