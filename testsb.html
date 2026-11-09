@@ -883,10 +883,10 @@ th { background: #f1f5f9; color: #334155; }
     margin: 0 22px; /* Generous space between words */
 }
 /* ==========================================
-   FULLSCREEN MODE - FAITHFUL GRID REPRODUCTION
+   FULLSCREEN MODE STYLES
    ========================================== */
 
-/* Fullscreen Overlay Container */
+/* Fullscreen Root Container */
 #grid-container.fullscreen-mode {
     position: fixed !important;
     top: 0 !important;
@@ -895,12 +895,14 @@ th { background: #f1f5f9; color: #334155; }
     height: 100vh !important;
     z-index: 999999 !important;
     background: #ffffff !important;
-    padding: 60px 24px 24px 24px !important;
+    padding: 65px 20px 20px 20px !important;
     box-sizing: border-box !important;
     overflow: auto !important;
+    --fs-font-size: 18px; /* High contrast starting font size */
+    --fs-width: 95%;      /* Default matrix width */
 }
 
-/* Hide editor controls only; keep grid & cell content intact */
+/* Hide design controls only */
 #grid-container.fullscreen-mode .top-ui,
 #grid-container.fullscreen-mode .bottom-ui,
 #grid-container.fullscreen-mode .cell-checkbox,
@@ -909,62 +911,78 @@ th { background: #f1f5f9; color: #334155; }
 #grid-container.fullscreen-mode .add-row-btn,
 #grid-container.fullscreen-mode .add-col-btn,
 #grid-container.fullscreen-mode .delete-col-btn,
-#grid-container.fullscreen-mode .delete-row-btn {
+#grid-container.fullscreen-mode .delete-row-btn,
+#grid-container.fullscreen-mode .autosave-indicator {
     display: none !important;
 }
 
-/* Preserve original CSS Grid tracks, spans, and dimensions */
+/* Matrix Wrapper - Eliminates Grey Gaps after Bridge Cells */
 #grid-container.fullscreen-mode .grid-wrapper,
-#grid-container.fullscreen-mode #grid-matrix,
-#grid-container.fullscreen-mode .grid-container-inner {
-    width: 100% !important;
-    height: calc(100vh - 80px) !important;
+#grid-container.fullscreen-mode #grid-matrix {
+    width: var(--fs-width) !important;
+    margin: 0 auto !important;
+    background: #ffffff !important; /* Forces clean white background behind grid */
     box-sizing: border-box !important;
-    /* Retains the exact original grid-template-columns and grid-template-rows */
+    transition: width 0.15s ease-out;
 }
 
-/* Preserve cell alignment, padding, and borders */
+/* Grid Cells - Fully Scalable & Visible */
 #grid-container.fullscreen-mode .cell {
     box-sizing: border-box !important;
-    min-width: 0 !important;
-    min-height: 0 !important;
-    padding: 10px 14px !important;
-    overflow: hidden !important;
+    padding: 8px 12px !important;
+    overflow: visible !important; /* Prevents hiding text when font increases */
     display: flex !important;
     flex-direction: column !important;
     justify-content: center !important;
     align-items: flex-start !important;
+    font-size: var(--fs-font-size) !important;
 }
 
-/* Preserve split cell (2-column) vocabulary lists */
+/* Vocabulary Lists */
 #grid-container.fullscreen-mode .vocab-list {
     display: flex !important;
     flex-direction: column !important;
     gap: 4px !important;
     width: 100% !important;
+    font-size: inherit !important;
+    line-height: 1.35 !important;
 }
 
 #grid-container.fullscreen-mode .vocab-list.split {
     display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
-    column-gap: 12px !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    column-gap: 10px !important;
     row-gap: 4px !important;
     width: 100% !important;
 }
 
-/* Vocab items and inputs (TTS audio clicks preserved) */
 #grid-container.fullscreen-mode .vocab-item {
     display: flex !important;
     align-items: baseline !important;
     gap: 4px !important;
     white-space: nowrap !important;
-    cursor: pointer !important;
 }
 
-#grid-container.fullscreen-mode .target-input,
+/* Inputs & Bracket Styling Connected to Variable Font */
+#grid-container.fullscreen-mode .target-input {
+    font-size: var(--fs-font-size) !important;
+    font-weight: 700 !important;
+    line-height: 1.35 !important;
+    box-sizing: content-box !important;
+}
+
+#grid-container.fullscreen-mode .bracket-wrapper {
+    font-size: calc(var(--fs-font-size) - 2px) !important;
+    line-height: 1.35 !important;
+    display: inline-flex !important;
+    align-items: baseline !important;
+    white-space: nowrap !important;
+}
+
 #grid-container.fullscreen-mode .translation-input {
-    cursor: pointer !important;
-    pointer-events: auto !important;
+    font-size: calc(var(--fs-font-size) - 2px) !important;
+    line-height: 1.35 !important;
+    box-sizing: content-box !important;
 }
 
 /* Toolbar Control Bar inside Fullscreen */
@@ -1631,38 +1649,75 @@ let activeAssignmentExcludedCombos = null;
 let activeAssignmentRequiredCombos = null;
 let activeAssignmentExcludedPairs = null;
 let activeAssignmentTransformationsText = null;
-/* =========================
-   FULLSCREEN ZOOM & WIDTH STATE
-========================= */
-let fsFontScale = 1.0;
-let fsWidthPercent = 100;
+// State variables for Fullscreen controls
+let currentFsFontSize = 18; // Base font size in px
+let currentFsWidthPercent = 95; // Base grid width percentage
 
-function updateFullscreenStyles() {
-    const container = document.getElementById('grid-container');
-    if (!container) return;
+function initFullscreenToolbar() {
+    const fontMinusBtn = document.getElementById('fs-font-minus');
+    const fontPlusBtn  = document.getElementById('fs-font-plus');
+    const fontLabel    = document.getElementById('fs-font-label');
     
-    container.style.setProperty('--fs-scale', fsFontScale);
-    container.style.setProperty('--fs-width', fsWidthPercent + '%');
+    const widthMinusBtn = document.getElementById('fs-width-minus');
+    const widthPlusBtn  = document.getElementById('fs-width-plus');
+    const widthLabel    = document.getElementById('fs-width-label');
+
+    if (fontMinusBtn) {
+        fontMinusBtn.onclick = function() {
+            if (currentFsFontSize > 12) {
+                currentFsFontSize -= 1;
+                updateFsStyles();
+            }
+        };
+    }
+
+    if (fontPlusBtn) {
+        fontPlusBtn.onclick = function() {
+            if (currentFsFontSize < 32) {
+                currentFsFontSize += 1;
+                updateFsStyles();
+            }
+        };
+    }
+
+    if (widthMinusBtn) {
+        widthMinusBtn.onclick = function() {
+            if (currentFsWidthPercent > 50) {
+                currentFsWidthPercent -= 5;
+                updateFsStyles();
+            }
+        };
+    }
+
+    if (widthPlusBtn) {
+        widthPlusBtn.onclick = function() {
+            if (currentFsWidthPercent < 100) {
+                currentFsWidthPercent += 5;
+                updateFsStyles();
+            }
+        };
+    }
+}
+
+function updateFsStyles() {
+    const gridContainer = document.getElementById('grid-container');
+    if (!gridContainer) return;
     
-    const scaleLabel = document.getElementById('fs-scale-label');
+    // Set CSS Custom Variables dynamically
+    gridContainer.style.setProperty('--fs-font-size', currentFsFontSize + 'px');
+    gridContainer.style.setProperty('--fs-width', currentFsWidthPercent + '%');
+    
+    // Update toolbar display labels
+    const fontLabel  = document.getElementById('fs-font-label');
     const widthLabel = document.getElementById('fs-width-label');
-    if (scaleLabel) scaleLabel.innerText = Math.round(fsFontScale * 100) + '%';
-    if (widthLabel) widthLabel.innerText = fsWidthPercent + '%';
-}
-function adjustFsZoom(delta) {
-    fsFontScale = Math.max(0.6, Math.min(2.5, fsFontScale + delta));
-    updateFullscreenStyles();
-}
+    
+    if (fontLabel) fontLabel.textContent = Math.round((currentFsFontSize / 15) * 100) + '%';
+    if (widthLabel) widthLabel.textContent = currentFsWidthPercent + '%';
 
-function adjustFsWidth(delta) {
-    fsWidthPercent = Math.max(40, Math.min(100, fsWidthPercent + delta));
-    updateFullscreenStyles();
-}
-
-function resetFsZoomAndWidth() {
-    fsFontScale = 1.0;
-    fsWidthPercent = 100;
-    updateFullscreenStyles();
+    // Recalculate input bounding widths to keep bracket tight
+    document.querySelectorAll('#grid-container .translation-input, #grid-container .target-input').forEach(el => {
+        if (typeof syncSize === 'function') syncSize(el);
+    });
 }
 async function setupAssignmentBuilderContext(assign) {
     activeAssignmentBuilderId = assign.builderId || null;
@@ -3980,22 +4035,21 @@ function handleFullscreenChange() {
             toolbar.id = 'fullscreen-toolbar';
             toolbar.className = 'fullscreen-controls-bar no-export';
             toolbar.innerHTML = `
-                <span class="fs-label">Font:</span>
-                <div class="fs-btn-group">
-                    <button type="button" class="fs-control-btn" onclick="adjustFsZoom(-0.1)" title="Decrease Font Size">A-</button>
-                    <span id="fs-scale-label" style="font-size:12px; font-weight:bold; min-width:38px; text-align:center;">100%</span>
-                    <button type="button" class="fs-control-btn" onclick="adjustFsZoom(0.1)" title="Increase Font Size">A+</button>
-                </div>
-                
-                <span class="fs-label" style="margin-left:6px;">Width:</span>
-                <div class="fs-btn-group">
-                    <button type="button" class="fs-control-btn" onclick="adjustFsWidth(-10)" title="Reduce Width">↔-</button>
-                    <span id="fs-width-label" style="font-size:12px; font-weight:bold; min-width:38px; text-align:center;">100%</span>
-                    <button type="button" class="fs-control-btn" onclick="adjustFsWidth(10)" title="Expand Width">↔+</button>
-                </div>
-
-                <button type="button" class="fs-control-btn" onclick="resetFsZoomAndWidth()" title="Reset Zoom & Width" style="margin-left:4px;">🔄</button>
-                <button type="button" class="fs-control-btn" onclick="toggleFullscreenBuilder()" title="Exit Fullscreen" style="color:#f87171 !important; margin-left:4px;">✕</button>
+               <div class="fullscreen-toolbar">
+    <div class="fs-control-group">
+        <span>Font:</span>
+        <button id="fs-font-minus" class="fs-btn">A-</button>
+        <span id="fs-font-label">120%</span>
+        <button id="fs-font-plus" class="fs-btn">A+</button>
+    </div>
+    <div class="fs-control-group">
+        <span>Width:</span>
+        <button id="fs-width-minus" class="fs-btn">&larr;</button>
+        <span id="fs-width-label">95%</span>
+        <button id="fs-width-plus" class="fs-btn">&rarr;</button>
+    </div>
+    <button id="fs-close-btn" onclick="exitFullscreen()" class="fs-btn fs-close">&times;</button>
+</div>
             `;
             gridContainer.appendChild(toolbar);
         }
