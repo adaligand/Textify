@@ -875,9 +875,14 @@ th { background: #f1f5f9; color: #334155; }
     white-space: nowrap;
     margin: 0 22px; /* Generous space between words */
 }
-        /* ==========================================
+ /* ==========================================
    FULLSCREEN BUILDER & TTS STYLES
    ========================================== */
+#grid-container {
+    --fs-scale: 1;
+    --fs-width: 100%;
+}
+
 #grid-container.fullscreen-mode {
     position: fixed !important;
     top: 0 !important;
@@ -886,62 +891,106 @@ th { background: #f1f5f9; color: #334155; }
     height: 100vh !important;
     z-index: 999999 !important;
     background: #ffffff !important;
-    padding: 20px !important;
+    padding: 65px 25px 25px 25px !important; /* Top padding leaves space for floating toolbar */
     box-sizing: border-box !important;
-    overflow: hidden !important;
-    zoom: 1 !important;
-    display: grid !important;
-    grid-auto-rows: 1fr !important; /* Distributes 100vh height equally across all rows */
-    align-content: stretch !important;
-    justify-content: stretch !important;
+    overflow: auto !important; /* Allows scrolling when zoomed in */
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
 }
 
-/* Make grid cells stretch to full row height & width with centered items */
+/* Inner Grid Wrapper scaling */
+#grid-container.fullscreen-mode > .fullscreen-grid-wrapper {
+    width: var(--fs-width) !important;
+    height: 100% !important;
+    display: grid !important;
+    grid-auto-rows: 1fr !important;
+    align-content: stretch !important;
+    justify-content: stretch !important;
+    gap: 4px !important;
+    transition: width 0.15s ease;
+}
+
+/* Cell Layout & Padding in Fullscreen */
 #grid-container.fullscreen-mode .cell {
     height: 100% !important;
-    min-width: 0 !important; /* Prevents column blowout on small screens */
-    padding: 16px 20px !important;
+    min-width: 0 !important;
+    padding: calc(16px * var(--fs-scale)) calc(20px * var(--fs-scale)) !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: center !important;
     box-sizing: border-box !important;
 }
 
-/* Classroom High-Visibility Font Scaling for Target Language Text */
+/* Target Language Text Scaling */
 #grid-container.fullscreen-mode .target-input {
-    font-size: clamp(20px, 2.3vh, 34px) !important;
+    font-size: calc(clamp(26px, 3.2vh, 48px) * var(--fs-scale)) !important;
     font-weight: 700 !important;
-    line-height: 1.3 !important;
+    line-height: 1.25 !important;
 }
 
-/* Classroom High-Visibility Font Scaling for Translation Text & Brackets */
+/* Translation Text & Brackets Scaling */
 #grid-container.fullscreen-mode .bracket-wrapper,
 #grid-container.fullscreen-mode .translation-input {
-    font-size: clamp(16px, 1.9vh, 26px) !important;
-    line-height: 1.3 !important;
+    font-size: calc(clamp(20px, 2.5vh, 36px) * var(--fs-scale)) !important;
+    line-height: 1.25 !important;
 }
 
-/* Adjust list spacing inside full-screen cells */
-#grid-container.fullscreen-mode .vocab-item {
-    gap: 8px !important;
-    margin: 4px 0 !important;
+/* Toolbar Control Bar inside Fullscreen */
+.fullscreen-controls-bar {
+    position: fixed;
+    top: 12px;
+    right: 20px;
+    z-index: 1000000;
+    background: rgba(15, 23, 42, 0.92);
+    backdrop-filter: blur(4px);
+    padding: 6px 14px;
+    border-radius: 30px;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    color: white;
+    user-select: none;
 }
 
-/* Hide top checkboxes/tickboxes when in fullscreen presentation mode */
-#grid-container.fullscreen-mode .top-ui,
-#grid-container.fullscreen-mode .cell-checkbox {
-    display: none !important;
+#grid-container.fullscreen-mode .fullscreen-controls-bar {
+    display: flex !important;
 }
 
-/* Soften bottom toolbar icons so presentation remains clean for students */
-#grid-container.fullscreen-mode .bottom-ui {
-    opacity: 0.25 !important;
-    transition: opacity 0.2s ease !important;
-}
-#grid-container.fullscreen-mode .cell:hover .bottom-ui {
-    opacity: 1 !important;
+.fs-btn-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.12);
+    padding: 3px 6px;
+    border-radius: 20px;
 }
 
+.fs-control-btn {
+    background: transparent !important;
+    border: none !important;
+    color: #ffffff !important;
+    font-size: 14px !important;
+    font-weight: bold !important;
+    padding: 4px 8px !important;
+    margin: 0 !important;
+    cursor: pointer !important;
+    border-radius: 6px !important;
+    transition: background 0.15s ease !important;
+}
+
+.fs-control-btn:hover {
+    background: rgba(255, 255, 255, 0.25) !important;
+    transform: none !important;
+}
+
+.fs-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #94a3b8;
+    margin-right: 2px;
+}
 /* Audio click effect on target text */
 .tl-speakable {
     cursor: pointer;
@@ -1550,7 +1599,43 @@ let activeAssignmentExcludedCombos = null;
 let activeAssignmentRequiredCombos = null;
 let activeAssignmentExcludedPairs = null;
 let activeAssignmentTransformationsText = null;
+/* =========================
+   FULLSCREEN ZOOM & WIDTH STATE
+========================= */
+let fsFontScale = 1.0;
+let fsWidthPercent = 100;
 
+function updateFullscreenStyles() {
+    const container = document.getElementById('grid-container');
+    if (!container) return;
+    
+    container.style.setProperty('--fs-scale', fsFontScale);
+    container.style.setProperty('--fs-width', fsWidthPercent + '%');
+    
+    const scaleLabel = document.getElementById('fs-scale-label');
+    const widthLabel = document.getElementById('fs-width-label');
+    if (scaleLabel) scaleLabel.innerText = Math.round(fsFontScale * 100) + '%';
+    if (widthLabel) widthLabel.innerText = fsWidthPercent + '%';
+
+    // Recalculate input sizes to prevent text clipping
+    document.querySelectorAll('#grid-container input').forEach(syncSize);
+}
+
+function adjustFsZoom(delta) {
+    fsFontScale = Math.max(0.6, Math.min(2.5, fsFontScale + delta));
+    updateFullscreenStyles();
+}
+
+function adjustFsWidth(delta) {
+    fsWidthPercent = Math.max(40, Math.min(100, fsWidthPercent + delta));
+    updateFullscreenStyles();
+}
+
+function resetFsZoomAndWidth() {
+    fsFontScale = 1.0;
+    fsWidthPercent = 100;
+    updateFullscreenStyles();
+}
 async function setupAssignmentBuilderContext(assign) {
     activeAssignmentBuilderId = assign.builderId || null;
     let bData = null;
@@ -2758,13 +2843,35 @@ function render(doSave = true) {
     if (doSave) pushHistory();
 
     const container = document.getElementById('grid-container');
-    container.innerHTML = '';
+    if (!container) return;
     
-    if (!grid || !grid.length || !grid[0]) return;
+    if (!grid || !grid.length || !grid[0]) {
+        container.innerHTML = '';
+        return;
+    }
     
+    // 1. Preserve the floating fullscreen toolbar if present
+    const existingToolbar = document.getElementById('fullscreen-toolbar');
+
+    // 2. Locate or create the inner grid wrapper without wiping the toolbar
+    let gridWrapper = container.querySelector('.fullscreen-grid-wrapper');
+    if (!gridWrapper) {
+        container.innerHTML = '';
+        if (existingToolbar) container.appendChild(existingToolbar);
+        gridWrapper = document.createElement('div');
+        gridWrapper.className = 'fullscreen-grid-wrapper';
+        container.appendChild(gridWrapper);
+    } else {
+        gridWrapper.innerHTML = '';
+    }
+
     const cols = Math.max(...grid.map(r => r.length), 1);
     const rows = grid.length;
-    container.style.gridTemplateColumns = `repeat(${cols}, minmax(max-content, 1fr))`;
+
+    gridWrapper.style.display = 'grid';
+    gridWrapper.style.gridTemplateColumns = `repeat(${cols}, minmax(max-content, 1fr))`;
+    gridWrapper.style.gap = '2px';
+    gridWrapper.style.width = '100%';
 
     const pairColors = ['#e74c3c', '#9b59b6', '#3498db', '#e67e22', '#2ecc71', '#f1c40f'];
 
@@ -2797,10 +2904,10 @@ function render(doSave = true) {
             if (!cell || cell.hidden) return;
 
             const cellDiv = document.createElement('div');
-cellDiv.className = 'cell';
+            cellDiv.className = 'cell';
 
-if (cell.compact) cellDiv.classList.add('is-compact');
-if (cell.split) cellDiv.classList.add('is-split');
+            if (cell.compact) cellDiv.classList.add('is-compact');
+            if (cell.split) cellDiv.classList.add('is-split');
             cellDiv.ondblclick = (e) => { e.stopPropagation(); handleCellDblClick(r, cIdx, e); };
             cellDiv.style.outline = "none";
             cellDiv.style.border = "1px solid #ccc";
@@ -2834,22 +2941,22 @@ if (cell.split) cellDiv.classList.add('is-split');
             cellDiv.style.gridColumn = `${cIdx + 1} / span ${cell.cS || 1}`;
             cellDiv.style.backgroundColor = cell.color || "#ffffff";
 
-       const items = cell.items || [];
-const listHTML = items.map((item, i) => `
-    <div class="vocab-item">
-        <input type="text" class="target-input tl-speakable" placeholder="Target" 
-            data-pos="${r}-${cIdx}-${i}-t"
-            onclick="if(this.value) speakTL(this.value)"
-            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')" 
-            oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${escapeAttr(item.t)}">
-        <div class="bracket-wrapper"><span>(</span>
-        <input type="text" class="translation-input" placeholder="Translation" 
-            data-pos="${r}-${cIdx}-${i}-tr"
-            onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 'tr')" 
-            oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${escapeAttr(item.tr)}">
-        <span>)</span></div>
-    </div>
-`).join('');
+            const items = cell.items || [];
+            const listHTML = items.map((item, i) => `
+                <div class="vocab-item">
+                    <input type="text" class="target-input tl-speakable" placeholder="Target" 
+                        data-pos="${r}-${cIdx}-${i}-t"
+                        onclick="if(this.value) speakTL(this.value)"
+                        onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 't')" 
+                        oninput="updateVal(${r},${cIdx},${i},'t',this.value); syncSize(this)" value="${escapeAttr(item.t)}">
+                    <div class="bracket-wrapper"><span>(</span>
+                    <input type="text" class="translation-input" placeholder="Translation" 
+                        data-pos="${r}-${cIdx}-${i}-tr"
+                        onkeydown="handleKey(event, ${r}, ${cIdx}, ${i}, 'tr')" 
+                        oninput="updateVal(${r},${cIdx},${i},'tr',this.value); syncSize(this)" value="${escapeAttr(item.tr)}">
+                    <span>)</span></div>
+                </div>
+            `).join('');
 
             const swatchHTML = (typeof allColors !== 'undefined' && Array.isArray(allColors)) 
                 ? allColors.map(p => `<div class="swatch" style="background:${p}" onclick="setClr(${r},${cIdx},'${p}')"></div>`).join('') 
@@ -2881,10 +2988,16 @@ const listHTML = items.map((item, i) => `
                 if (currentMode === 'del-row' && cIdx === firstVisibleColInRow[r]) addIcon(cellDiv, 'btn-minus', 'left-edge', '×', () => deleteRow(r));
             }
 
-            container.appendChild(cellDiv);
+            // 3. Append cell to gridWrapper instead of container
+            gridWrapper.appendChild(cellDiv);
             cellDiv.querySelectorAll('input').forEach(syncSize);
         });
     });
+
+    // 4. Synchronize fullscreen scale rules after rendering
+    if (typeof updateFullscreenStyles === 'function' && container.classList.contains('fullscreen-mode')) {
+        updateFullscreenStyles();
+    }
 }
 function handleCellDblClick(r, c, event) {
     const cell = grid[r][c]; 
@@ -3819,12 +3932,41 @@ function handleFullscreenChange() {
     if (isFullscreen) {
         gridContainer.classList.add('fullscreen-mode');
         if (btn) btn.innerHTML = '❌ Exit Fullscreen';
+
+        // Inject control toolbar if not present
+        if (!document.getElementById('fullscreen-toolbar')) {
+            const toolbar = document.createElement('div');
+            toolbar.id = 'fullscreen-toolbar';
+            toolbar.className = 'fullscreen-controls-bar no-export';
+            toolbar.innerHTML = `
+                <span class="fs-label">Font:</span>
+                <div class="fs-btn-group">
+                    <button type="button" class="fs-control-btn" onclick="adjustFsZoom(-0.1)" title="Decrease Font Size">A-</button>
+                    <span id="fs-scale-label" style="font-size:12px; font-weight:bold; min-width:38px; text-align:center;">100%</span>
+                    <button type="button" class="fs-control-btn" onclick="adjustFsZoom(0.1)" title="Increase Font Size">A+</button>
+                </div>
+                
+                <span class="fs-label" style="margin-left:6px;">Width:</span>
+                <div class="fs-btn-group">
+                    <button type="button" class="fs-control-btn" onclick="adjustFsWidth(-10)" title="Reduce Width">↔-</button>
+                    <span id="fs-width-label" style="font-size:12px; font-weight:bold; min-width:38px; text-align:center;">100%</span>
+                    <button type="button" class="fs-control-btn" onclick="adjustFsWidth(10)" title="Expand Width">↔+</button>
+                </div>
+
+                <button type="button" class="fs-control-btn" onclick="resetFsZoomAndWidth()" title="Reset Zoom & Width" style="margin-left:4px;">🔄</button>
+                <button type="button" class="fs-control-btn" onclick="toggleFullscreenBuilder()" title="Exit Fullscreen" style="color:#f87171 !important; margin-left:4px;">✕</button>
+            `;
+            gridContainer.appendChild(toolbar);
+        }
+        updateFullscreenStyles();
     } else {
         gridContainer.classList.remove('fullscreen-mode');
         if (btn) btn.innerHTML = '🖥️ Fullscreen';
+        
+        const toolbar = document.getElementById('fullscreen-toolbar');
+        if (toolbar) toolbar.remove();
     }
 
-    // Recalculate input box widths so text resizes smoothly to the new classroom font scale
     setTimeout(() => {
         document.querySelectorAll('#grid-container input').forEach(syncSize);
     }, 50);
