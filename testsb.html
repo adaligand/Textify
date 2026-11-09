@@ -331,11 +331,18 @@ body {
 .bracket-wrapper {
     display: inline-flex;
     align-items: baseline;
+    white-space: nowrap;
     color: var(--translation-blue);
     font-size: 15px;
     font-style: italic;
+    flex-shrink: 0;
+    width: auto;
 }
-
+.bracket-wrapper span {
+    display: inline-block;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
 /* BUTTON SYSTEM */
 button, .btn {
     padding: 8px 16px;
@@ -876,7 +883,7 @@ th { background: #f1f5f9; color: #334155; }
     margin: 0 22px; /* Generous space between words */
 }
 /* ==========================================
-   FULLSCREEN BUILDER & TTS STYLES (FIXED)
+   FULLSCREEN BUILDER & TTS STYLES (UNIFORM ZOOM)
    ========================================== */
 #grid-container {
     --fs-scale: 1;
@@ -904,85 +911,83 @@ th { background: #f1f5f9; color: #334155; }
 #grid-container.fullscreen-mode > .fullscreen-grid-wrapper {
     width: var(--fs-width) !important;
     max-width: 100% !important;
-    height: calc(100vh - 85px) !important;
+    height: calc(100vh - 90px) !important;
     margin: 0 auto !important;
     display: grid !important;
     grid-template-columns: repeat(var(--grid-cols, 1), minmax(0, 1fr)) !important;
     grid-template-rows: repeat(var(--grid-rows, 1), minmax(0, 1fr)) !important;
     align-content: stretch !important;
     justify-content: stretch !important;
-    gap: 4px !important;
+    gap: 2px !important;
     transform: scale(var(--fs-scale)) !important;
     transform-origin: top center !important;
-    transition: transform 0.15s ease, width 0.15s ease !important;
+    transition: transform 0.15s ease !important;
     box-sizing: border-box !important;
 }
 
-/* Hide tickboxes & cell controls in presentation mode */
 #grid-container.fullscreen-mode .top-ui,
 #grid-container.fullscreen-mode .cell-checkbox,
 #grid-container.fullscreen-mode .bottom-ui {
     display: none !important;
 }
 
-/* Cells retain full height while showing all vertical lines */
+/* Cells retain fixed internal font size; whole matrix scales via transform */
 #grid-container.fullscreen-mode .cell {
     min-height: 0 !important;
     height: 100% !important;
-    padding: 8px 10px !important;
+    padding: 6px 8px !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: center !important;
     align-items: flex-start !important;
     box-sizing: border-box !important;
-    overflow: visible !important;
-    font-size: clamp(12px, 1.4vw, 22px) !important;
+    overflow: hidden !important; /* Prevents text from spilling out onto neighboring cells */
+    font-size: 15px !important;
 }
 
-/* Preserve vertical stacking and grid-split behavior for vocabulary lists */
 #grid-container.fullscreen-mode .vocab-list {
     display: flex !important;
     flex-direction: column !important;
-    gap: 4px !important;
+    gap: 2px !important;
     width: 100% !important;
     font-size: inherit !important;
-    line-height: 1.25 !important;
+    line-height: 1.2 !important;
 }
 
 #grid-container.fullscreen-mode .vocab-list.split {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    column-gap: 12px !important;
-    row-gap: 4px !important;
+    column-gap: 8px !important;
+    row-gap: 2px !important;
     width: 100% !important;
 }
 
 #grid-container.fullscreen-mode .vocab-item {
     display: flex !important;
-    flex-wrap: wrap !important;
+    flex-wrap: nowrap !important;
     align-items: baseline !important;
-    width: 100% !important;
-    row-gap: 2px !important;
-    column-gap: 4px !important;
-    white-space: normal !important;
+    width: auto !important;
+    gap: 4px !important;
+    white-space: nowrap !important;
 }
 
 #grid-container.fullscreen-mode .target-input {
-    font-size: inherit !important;
+    font-size: 15px !important;
     font-weight: 700 !important;
-    line-height: 1.25 !important;
-    flex: 0 1 auto !important;
+    line-height: 1.2 !important;
+    flex: 0 0 auto !important;
     min-width: 10px !important;
 }
 
-/* Keep translations and brackets locked on one line */
 #grid-container.fullscreen-mode .bracket-wrapper {
-    font-size: 0.9em !important;
-    line-height: 1.25 !important;
+    font-size: 14px !important;
+    line-height: 1.2 !important;
     display: inline-flex !important;
     flex-wrap: nowrap !important;
     white-space: nowrap !important;
     align-items: baseline !important;
+    flex-shrink: 0 !important;
+    width: auto !important;
 }
 
 #grid-container.fullscreen-mode .bracket-wrapper span {
@@ -992,9 +997,9 @@ th { background: #f1f5f9; color: #334155; }
 }
 
 #grid-container.fullscreen-mode .translation-input {
-    font-size: inherit !important;
-    line-height: 1.25 !important;
-    flex: 0 1 auto !important;
+    font-size: 14px !important;
+    line-height: 1.2 !important;
+    flex: 0 0 auto !important;
     min-width: 10px !important;
     display: inline-block !important;
 }
@@ -3232,34 +3237,24 @@ function updateVal(r, cIdx, i, f, v) {
     typingTimer = setTimeout(pushHistory, 1000); 
 }
 
+// Canvas text measurement helper for exact pixel widths
+let textMeasureCanvas = null;
+function getTextWidth(text, font) {
+    if (!textMeasureCanvas) textMeasureCanvas = document.createElement('canvas');
+    const context = textMeasureCanvas.getContext('2d');
+    context.font = font || '16px Arial';
+    return context.measureText(text).width;
+}
+
 function syncSize(el) { 
     if (!el) return;
-    const isFullscreen = el.closest('#grid-container')?.classList.contains('fullscreen-mode');
+    const val = el.value || el.placeholder || "";
+    const style = window.getComputedStyle(el);
+    const font = `${style.fontWeight || 'normal'} ${style.fontSize || '15px'} ${style.fontFamily || 'Arial, sans-serif'}`;
+    const measuredWidth = getTextWidth(val, font);
     
-    if (isFullscreen) {
-        if (!el.value) {
-            el.style.width = '100%';
-            return;
-        }
-        // Calculate scroll width for accurate expansion, constrained within 100% cell width
-        el.style.width = '0px';
-        const neededWidth = el.scrollWidth + 6;
-        const parentWidth = el.parentElement ? el.parentElement.clientWidth : 0;
-        
-        if (parentWidth > 0 && neededWidth > parentWidth) {
-            el.style.width = '100%';
-        } else {
-            el.style.width = neededWidth + 'px';
-        }
-        return;
-    }
-
-    if (el.value === "") {
-        el.style.width = el.classList.contains('target-input') ? "120px" : "90px"; 
-    } else {
-        el.style.width = '0px'; 
-        el.style.width = (el.scrollWidth + 5) + 'px'; 
-    } 
+    // Set width precisely to measured text width + 4px cushion
+    el.style.width = Math.max(10, Math.ceil(measuredWidth + 4)) + 'px';
 }
 
 function toggleAllActivities(master) {
