@@ -8083,57 +8083,37 @@ function clearCDTimer() {
 }
 
 // Removes a percentage (e.g. 0.25) or exact count of words from a sentence
-function removeWordsFromSentence(sentence, percentOrCount, minLength = 3) {
-    if (!sentence) return '';
-    const words = sentence.trim().split(/\s+/);
-    if (words.length === 0) return '';
-    
-    let numToRemove = 1;
-    if (typeof percentOrCount === 'number' && percentOrCount < 1) {
-        numToRemove = Math.max(1, Math.round(words.length * percentOrCount));
-    } else if (typeof percentOrCount === 'number') {
-        numToRemove = Math.min(words.length, percentOrCount);
-    }
-    
-    let candidateIndices = [];
-    words.forEach((w, idx) => {
-        const clean = w.replace(/[.,!?;:'"«»()]/g, '');
-        if (clean.length >= minLength) candidateIndices.push(idx);
-    });
+function removeWordsFromSentence(text) {
+    if (!text) return '';
 
-    if (candidateIndices.length === 0) {
-        words.forEach((w, idx) => {
-            const clean = w.replace(/[.,!?;:'"«»()]/g, '');
-            if (clean.length > 0) candidateIndices.push(idx);
-        });
-    }
+    const words = text.split(' ');
 
-    if (candidateIndices.length === 0) return sentence;
+    // Find indices of words with at least 3 letters (ignoring punctuation)
+    const eligibleIndices = words
+        .map((word, index) => {
+            const cleanWord = word.replace(/[^\p{L}\p{N}]/gu, '');
+            return cleanWord.length >= 3 ? index : -1;
+        })
+        .filter(index => index !== -1);
 
-    numToRemove = Math.min(numToRemove, candidateIndices.length);
+    // Fallback to any non-empty word if no word is >= 3 letters
+    const targetPool = eligibleIndices.length > 0
+        ? eligibleIndices
+        : words.map((w, i) => w.trim().length > 0 ? i : -1).filter(i => i !== -1);
 
-    const indicesToRemove = new Set();
-    const step = candidateIndices.length / numToRemove;
-    for (let i = 0; i < numToRemove; i++) {
-        const targetIdx = Math.floor(i * step + step / 2);
-        indicesToRemove.add(candidateIndices[Math.min(targetIdx, candidateIndices.length - 1)]);
-    }
+    if (targetPool.length === 0) return text;
 
-    const blankDisp = isAnswerRevealed ? 'none' : 'inline';
-    const ansDisp = isAnswerRevealed ? 'inline' : 'none';
+    // Randomly pick exactly ONE word index from eligible pool
+    const selectedIndex = targetPool[Math.floor(Math.random() * targetPool.length)];
 
-    return words.map((w, idx) => {
-        if (indicesToRemove.has(idx)) {
-            const match = w.match(/^([.,!?;:'"«»()]*)(.*?)([.,!?;:'"«»()]*)$/);
-            if (match && match[2]) {
-                const prefix = match[1] || '';
-                const word = match[2];
-                const suffix = match[3] || '';
-                return `${prefix}<span class="cd-gap-wrap"><span class="cd-gap-blank" style="display:${blankDisp}; font-weight:bold;">_____</span><span class="cd-gap-ans" style="display:${ansDisp}; color:#16a34a; font-weight:bold;">${word}</span></span>${suffix}`;
-            }
-            return '_____';
+    // Replace the selected word with a gap while keeping original punctuation
+    return words.map((word, index) => {
+        if (index === selectedIndex) {
+            const leadingPunct = word.match(/^[^\p{L}\p{N}]+/u)?.[0] || '';
+            const trailingPunct = word.match(/[^\p{L}\p{N}]+$/u)?.[0] || '';
+            return `${leadingPunct}_____ ${trailingPunct}`.trim();
         }
-        return w;
+        return word;
     }).join(' ');
 }
 function openInteractiveClassDisplay() {
@@ -8301,7 +8281,7 @@ function playClassDisplayGame() {
 
     // 3. Listening / Dictation
     else if (mode === 'listen-dictation') {
-        const gapTarget = removeWordsFromSentence(targetText, 0.25);
+        const gapTarget = removeWordsFromSentence(targetText);
         questionHTML = `
             <button onclick="speakTL('${safeTarget}')" class="btn-purple" style="font-size: 24px; padding: 12px 32px; margin-bottom: 25px;">🔊 Listen</button>
             <div class="cd-question-text">${gapTarget}</div>
@@ -8376,7 +8356,7 @@ function startDelayedDictation(targetText) {
                 if (statusMsg) statusMsg.innerHTML = `🧠 Memorise! <b>${count}</b>s`;
             } else {
                 clearCDTimer();
-                const gapText = removeWordsFromSentence(targetText, 0.25);
+                const gapText = removeWordsFromSentence(targetText);
                 if (statusMsg) {
                     statusMsg.style.color = '#000000';
                     statusMsg.innerHTML = gapText;
@@ -8432,7 +8412,7 @@ function startDelayedCopyingSequence(targetText) {
                     if (badge) badge.style.display = 'none';
                     if (textEl) {
                         textEl.style.color = '#000000';
-                        textEl.innerHTML = removeWordsFromSentence(targetText, 0.25);
+                        textEl.innerHTML = removeWordsFromSentence(targetText);
                         textEl.style.display = 'block';
                     }
                     if (reattemptBtn) reattemptBtn.style.display = 'inline-block';
