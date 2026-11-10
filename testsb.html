@@ -1664,13 +1664,17 @@ th { background: #f1f5f9; color: #334155; }
     <div id="class-display-header">
         <div style="display: flex; align-items: center; gap: 15px;">
             <h2 style="margin:0; font-size: 22px; color: #0f172a;">👩‍🏫 Live Activities</h2>
-            <select id="class-display-game-select" onchange="handleClassDisplayActivityChange();">
+    <select id="class-display-game-select" onchange="handleClassDisplayActivityChange();">
     <option value="no-spaces">No Spaces</option>
     <option value="unjumble">Unjumble Sentences</option>
     <option value="no-vowels">Missing Vowels</option>
     <option value="no-consonants">Missing Consonants</option>
     <option value="random-target">Random Target Language</option>
     <option value="random-en">Random English</option>
+    <option value="listen-trad">Listen / Trad</option>
+    <option value="listen-dictation">Listening / Dictation</option>
+    <option value="delayed-dictation">Delayed Dictation</option>
+    <option value="delayed-copying">Delayed Copying</option>
     <option value="match-up">Match Up</option>
     <option value="sentence-grid">Translation Grid</option>
 </select>
@@ -3491,6 +3495,8 @@ function closeModals() {
     activeAssignmentRequiredCombos = null;
     activeAssignmentExcludedPairs = null;
     activeAssignmentTransformationsText = null;
+    clearCDTimer();
+if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 }
 
 async function createNewProject() {
@@ -4177,15 +4183,21 @@ function handleFullscreenChange() {
 /* ==========================================
    TARGET LANGUAGE TEXT-TO-SPEECH (TTS)
    ========================================== */
-function speakTL(text) {
-    if (!text || !('speechSynthesis' in window)) return;
+function speakTL(text, onEndCallback = null) {
+    if (!text || !('speechSynthesis' in window)) {
+        if (onEndCallback) onEndCallback();
+        return;
+    }
     
     // Stop any currently playing audio
     window.speechSynthesis.cancel();
     
     // Clean text (remove brackets or punctuation markers if present)
     const cleanText = text.replace(/[\(\)\[\]\{\}]/g, '').trim();
-    if (!cleanText) return;
+    if (!cleanText) {
+        if (onEndCallback) onEndCallback();
+        return;
+    }
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
 
@@ -4209,6 +4221,22 @@ function speakTL(text) {
     utterance.lang = langCode;
     utterance.rate = 0.95; // Slightly slower for clear classroom pronunciation
     utterance.pitch = 1.0;
+
+    if (onEndCallback) {
+        let called = false;
+        const finishHandler = () => {
+            if (!called) {
+                called = true;
+                onEndCallback();
+            }
+        };
+        utterance.onend = finishHandler;
+        utterance.onerror = finishHandler;
+
+        // Fallback safety timer if browser fails to fire onend event
+        const fallbackMs = Math.max(3000, cleanText.length * 120);
+        setTimeout(finishHandler, fallbackMs);
+    }
 
     window.speechSynthesis.speak(utterance);
 }
@@ -8043,7 +8071,52 @@ function isExcludedCombination(partsMeta) {
 let currentClassDisplayIndex = 0;
 let isAnswerRevealed = false;
 let classDisplaySentences = []; // Holds the randomized sentence list
+// Live games timer reference & sentence processing helpers
+let cdTimer = null;
 
+function clearCDTimer() {
+    if (cdTimer) {
+        clearInterval(cdTimer);
+        clearTimeout(cdTimer);
+        cdTimer = null;
+    }
+}
+
+// Removes a percentage (e.g. 0.25) or exact count of words from a sentence
+function removeWordsFromSentence(sentence, percentOrCount) {
+    if (!sentence) return '';
+    const words = sentence.trim().split(/\s+/);
+    if (words.length === 0) return '';
+    
+    let numToRemove = 1;
+    if (typeof percentOrCount === 'number' && percentOrCount < 1) {
+        numToRemove = Math.max(1, Math.round(words.length * percentOrCount));
+    } else if (typeof percentOrCount === 'number') {
+        numToRemove = Math.min(words.length, percentOrCount);
+    }
+    
+    const candidateIndices = [];
+    words.forEach((w, idx) => {
+        const clean = w.replace(/[.,!?;:'"«»()]/g, '');
+        if (clean.length > 0) candidateIndices.push(idx);
+    });
+
+    if (candidateIndices.length === 0) return sentence;
+
+    const indicesToRemove = new Set();
+    const step = candidateIndices.length / float(numToRemove);
+    for (let i = 0; i < numToRemove; i++) {
+        const targetIdx = Math.floor(i * step + step / 2);
+        indicesToRemove.add(candidateIndices[Math.min(targetIdx, candidateIndices.length - 1)]);
+    }
+
+    return words.map((w, idx) => {
+        if (indicesToRemove.has(idx)) {
+            return '<span class="cd-blank-word" style="border-bottom: 4px solid #000; display: inline-block; min-width: 1.5em; margin: 0 4px; padding: 0 4px;">____</span>';
+        }
+        return w;
+    }).join(' ');
+}
 function openInteractiveClassDisplay() {
     // 1. Display the modal immediately so the UI opens instantly without lag
     const modal = document.getElementById('class-display-modal');
@@ -8072,10 +8145,11 @@ function openInteractiveClassDisplay() {
         playClassDisplayGame();
     }, 0);
 }
-    function handleClassDisplayActivityChange() {
+   function handleClassDisplayActivityChange() {
+    clearCDTimer();
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     isAnswerRevealed = false;
-    
-    // Automatically advance to a new sentence when switching activities
+
     if (classDisplaySentences && classDisplaySentences.length > 0) {
         currentClassDisplayIndex++;
         if (currentClassDisplayIndex >= classDisplaySentences.length) {
@@ -8083,7 +8157,7 @@ function openInteractiveClassDisplay() {
             currentClassDisplayIndex = 0;
         }
     }
-    
+
     playClassDisplayGame();
 }
 // Clean brackets from English sentences
@@ -8136,6 +8210,7 @@ function shuffleWordsCD(str) {
 }
 
 function playClassDisplayGame() {
+    clearCDTimer();
     const mode = document.getElementById('class-display-game-select').value;
     
     if (!classDisplaySentences || classDisplaySentences.length === 0) {
@@ -8158,10 +8233,12 @@ function playClassDisplayGame() {
     const item = classDisplaySentences[currentClassDisplayIndex % classDisplaySentences.length];
     const targetText = item.t || item.target || '';
     const englishText = cleanEnglishText(item.tr || item.en || item.english || '');
+    const safeTarget = targetText.replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
     let questionHTML = '';
-    let answerHTML = `<div id="cd-answer-box" class="cd-answer-text" style="display: ${isAnswerRevealed ? 'block' : 'none'};">${targetText}</div>`;
+    let answerHTML = `<div id="cd-answer-box" class="cd-answer-text" style="display: ${isAnswerRevealed ? 'block' : 'none'};">${targetText}<div style="font-size: 3.2rem; font-weight: 600; margin-top: 10px; color: #16a34a;">${englishText}</div></div>`;
 
+    // 1. Existing Standard Modes
     if (mode === 'random-target') {
         questionHTML = `<div class="cd-question-text">${targetText}</div>`;
         answerHTML = `<div id="cd-answer-box" class="cd-answer-text" style="display: ${isAnswerRevealed ? 'block' : 'none'};">${englishText}</div>`;
@@ -8172,29 +8249,57 @@ function playClassDisplayGame() {
     } 
     else if (mode === 'no-vowels') {
         const hiddenText = formatMissingChars(targetText, 'vowels');
-        questionHTML = `<div class="cd-question-text">${hiddenText}</div>
-                        <div class="cd-sub-text">${englishText}</div>`;
+        questionHTML = `<div class="cd-question-text">${hiddenText}</div><div class="cd-sub-text">${englishText}</div>`;
     } 
     else if (mode === 'no-consonants') {
         const hiddenText = formatMissingChars(targetText, 'consonants');
-        questionHTML = `<div class="cd-question-text">${hiddenText}</div>
-                        <div class="cd-sub-text">${englishText}</div>`;
+        questionHTML = `<div class="cd-question-text">${hiddenText}</div><div class="cd-sub-text">${englishText}</div>`;
     } 
-   else if (mode === 'no-spaces') {
+    else if (mode === 'no-spaces') {
         const noSpaceText = targetText.replace(/\s+/g, '');
         questionHTML = `<div class="cd-question-text" style="letter-spacing: 2px; word-break: break-all; overflow-wrap: anywhere;">${noSpaceText}</div>`;
-        answerHTML = `<div id="cd-answer-box" class="cd-answer-text" style="display: ${isAnswerRevealed ? 'block' : 'none'};">
-                        ${targetText}
-                        ${englishText ? `<div style="font-size: 3.2rem; font-weight: 600; margin-top: 10px;">${englishText}</div>` : ''}
-                      </div>`;
     }
     else if (mode === 'unjumble') {
         const words = shuffleArray(targetText.split(' '));
         questionHTML = `<div class="cd-question-text">${words.join(' &nbsp;•&nbsp; ')}</div>`;
-        answerHTML = `<div id="cd-answer-box" class="cd-answer-text" style="display: ${isAnswerRevealed ? 'block' : 'none'};">
-                        ${targetText}
-                        ${englishText ? `<div style="font-size: 3.2rem; font-weight: 600; margin-top: 10px;">${englishText}</div>` : ''}
-                      </div>`;
+    }
+
+    // 2. NEW GAME 1: Listen / Trad (English sentence with 25% words removed, teacher clicks button to play audio)
+    else if (mode === 'listen-trad') {
+        const gapEnglish = removeWordsFromSentence(englishText, 0.25);
+        questionHTML = `
+            <div class="cd-question-text">${gapEnglish}</div>
+            <button onclick="speakTL('${safeTarget}')" class="btn-purple" style="font-size: 24px; padding: 12px 32px; margin-top: 15px;">🔊 Listen (TL)</button>
+        `;
+    }
+
+    // 3. NEW GAME 2: Listening / Dictation (TL sentence with 25% words removed, teacher clicks button to play audio)
+    else if (mode === 'listen-dictation') {
+        const gapTarget = removeWordsFromSentence(targetText, 0.25);
+        questionHTML = `
+            <div class="cd-question-text">${gapTarget}</div>
+            <button onclick="speakTL('${safeTarget}')" class="btn-purple" style="font-size: 24px; padding: 12px 32px; margin-top: 15px;">🔊 Listen (TL)</button>
+        `;
+    }
+
+    // 4. NEW GAME 3: Delayed Dictation (Audio plays -> 3s memory countdown -> 1 word removed)
+    else if (mode === 'delayed-dictation') {
+        questionHTML = `
+            <div id="cd-delayed-stage" style="width: 100%; text-align: center;">
+                <div id="cd-status-msg" class="cd-question-text" style="color: #64748b;">🎧 Click to Listen</div>
+                <button id="cd-start-dd-btn" onclick="startDelayedDictation('${safeTarget}')" class="btn-purple" style="font-size: 24px; padding: 14px 36px; margin-top: 20px;">🔊 Listen & Start</button>
+            </div>
+        `;
+    }
+
+    // 5. NEW GAME 4: Delayed Copying (TL sentence shown 7s -> 3s memory countdown -> 1 word removed)
+    else if (mode === 'delayed-copying') {
+        questionHTML = `
+            <div id="cd-delayed-copy-stage" style="width: 100%; text-align: center;">
+                <div id="cd-copy-timer-badge" style="font-size: 2rem; font-weight: bold; color: #8b5cf6; margin-bottom: 15px;">⏳ Sentence disappearing in: <span id="cd-copy-sec">7</span>s</div>
+                <div id="cd-copy-text" class="cd-question-text">${targetText}</div>
+            </div>
+        `;
     }
 
     container.innerHTML = `
@@ -8207,6 +8312,85 @@ function playClassDisplayGame() {
             <button id="cd-reveal-btn" onclick="toggleClassDisplayAnswer(this)" class="btn-info" style="font-size: 20px; padding: 12px 28px;">${isAnswerRevealed ? '🙈 Hide' : '🔍 Reveal'}</button>
         </div>
     `;
+
+    // Start timer sequence immediately if in Delayed Copying mode
+    if (mode === 'delayed-copying') {
+        startDelayedCopyingSequence(targetText);
+    }
+}
+
+// Handler for Delayed Dictation: Audio plays -> 3s Memory Countdown -> 1 word removed
+function startDelayedDictation(targetText) {
+    const statusMsg = document.getElementById('cd-status-msg');
+    const startBtn = document.getElementById('cd-start-dd-btn');
+
+    if (startBtn) startBtn.style.display = 'none';
+    if (statusMsg) {
+        statusMsg.style.color = '#3b82f6';
+        statusMsg.innerHTML = '🎧 Listening carefully...';
+    }
+
+    speakTL(targetText, () => {
+        // Speech ended: start 3-second memory countdown
+        let count = 3;
+        if (statusMsg) {
+            statusMsg.style.color = '#eab308';
+            statusMsg.innerHTML = `🧠 Memorise! <b>${count}</b>s`;
+        }
+
+        cdTimer = setInterval(() => {
+            count--;
+            if (count > 0) {
+                if (statusMsg) statusMsg.innerHTML = `🧠 Memorise! <b>${count}</b>s`;
+            } else {
+                clearCDTimer();
+                const oneWordGap = removeWordsFromSentence(targetText, 1);
+                if (statusMsg) {
+                    statusMsg.style.color = '#000000';
+                    statusMsg.innerHTML = oneWordGap;
+                }
+            }
+        }, 1000);
+    });
+}
+
+// Handler for Delayed Copying: 7s display -> 3s memory countdown -> 1 word removed
+function startDelayedCopyingSequence(targetText) {
+    let phase1Count = 7;
+    const badge = document.getElementById('cd-copy-timer-badge');
+    const secSpan = document.getElementById('cd-copy-sec');
+    const textEl = document.getElementById('cd-copy-text');
+
+    clearCDTimer();
+
+    cdTimer = setInterval(() => {
+        phase1Count--;
+        if (phase1Count > 0) {
+            if (secSpan) secSpan.innerText = phase1Count;
+        } else {
+            clearCDTimer();
+            // Start Phase 2: 3-second memory countdown
+            let phase2Count = 3;
+            if (badge) badge.innerHTML = `🧠 Memorise! <span id="cd-copy-sec2">3</span>s`;
+            if (textEl) textEl.style.display = 'none';
+
+            cdTimer = setInterval(() => {
+                phase2Count--;
+                if (phase2Count > 0) {
+                    const secSpan2 = document.getElementById('cd-copy-sec2');
+                    if (secSpan2) secSpan2.innerText = phase2Count;
+                } else {
+                    clearCDTimer();
+                    // Phase 3: Display sentence with 1 word removed
+                    if (badge) badge.style.display = 'none';
+                    if (textEl) {
+                        textEl.innerHTML = removeWordsFromSentence(targetText, 1);
+                        textEl.style.display = 'block';
+                    }
+                }
+            }, 1000);
+        }
+    }, 1000);
 }
 
 function toggleClassDisplayAnswer(btn) {
@@ -8223,17 +8407,19 @@ function toggleClassDisplayAnswer(btn) {
 }
 
 function nextClassDisplaySentence() {
+    clearCDTimer();
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     if (!classDisplaySentences || classDisplaySentences.length === 0) {
         classDisplaySentences = shuffleArray(getAssembledSentences());
     }
-    
+
     currentClassDisplayIndex++;
-    
+
     if (currentClassDisplayIndex >= classDisplaySentences.length) {
         classDisplaySentences = shuffleArray(classDisplaySentences);
         currentClassDisplayIndex = 0;
     }
-    
+
     isAnswerRevealed = false;
     playClassDisplayGame();
 }
