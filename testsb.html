@@ -8083,7 +8083,7 @@ function clearCDTimer() {
 }
 
 // Removes a percentage (e.g. 0.25) or exact count of words from a sentence
-function removeWordsFromSentence(sentence, percentOrCount) {
+function removeWordsFromSentence(sentence, percentOrCount, minLength = 3) {
     if (!sentence) return '';
     const words = sentence.trim().split(/\s+/);
     if (words.length === 0) return '';
@@ -8095,16 +8095,27 @@ function removeWordsFromSentence(sentence, percentOrCount) {
         numToRemove = Math.min(words.length, percentOrCount);
     }
     
-    const candidateIndices = [];
+    // Filter candidate words that are at least 3 letters long (ignoring surrounding punctuation)
+    let candidateIndices = [];
     words.forEach((w, idx) => {
         const clean = w.replace(/[.,!?;:'"«»()]/g, '');
-        if (clean.length > 0) candidateIndices.push(idx);
+        if (clean.length >= minLength) candidateIndices.push(idx);
     });
+
+    // Fallback if no words in the sentence meet the 3-letter minimum
+    if (candidateIndices.length === 0) {
+        words.forEach((w, idx) => {
+            const clean = w.replace(/[.,!?;:'"«»()]/g, '');
+            if (clean.length > 0) candidateIndices.push(idx);
+        });
+    }
 
     if (candidateIndices.length === 0) return sentence;
 
+    numToRemove = Math.min(numToRemove, candidateIndices.length);
+
     const indicesToRemove = new Set();
-    const step = candidateIndices.length / float(numToRemove);
+    const step = candidateIndices.length / numToRemove; // Fixed: removed invalid float() call
     for (let i = 0; i < numToRemove; i++) {
         const targetIdx = Math.floor(i * step + step / 2);
         indicesToRemove.add(candidateIndices[Math.min(targetIdx, candidateIndices.length - 1)]);
@@ -8112,7 +8123,11 @@ function removeWordsFromSentence(sentence, percentOrCount) {
 
     return words.map((w, idx) => {
         if (indicesToRemove.has(idx)) {
-            return '<span class="cd-blank-word" style="border-bottom: 4px solid #000; display: inline-block; min-width: 1.5em; margin: 0 4px; padding: 0 4px;">____</span>';
+            const match = w.match(/^([.,!?;:'"«»()]*)(.*?)([.,!?;:'"«»()]*)$/);
+            if (match && match[2]) {
+                return match[1] + '_____' + match[3];
+            }
+            return '_____';
         }
         return w;
     }).join(' ');
@@ -8344,10 +8359,10 @@ function startDelayedDictation(targetText) {
                 if (statusMsg) statusMsg.innerHTML = `🧠 Memorise! <b>${count}</b>s`;
             } else {
                 clearCDTimer();
-                const oneWordGap = removeWordsFromSentence(targetText, 1);
+                const gapText = removeWordsFromSentence(targetText, 0.25);
                 if (statusMsg) {
                     statusMsg.style.color = '#000000';
-                    statusMsg.innerHTML = oneWordGap;
+                    statusMsg.innerHTML = gapText;
                 }
             }
         }, 1000);
@@ -8381,10 +8396,10 @@ function startDelayedCopyingSequence(targetText) {
                     if (secSpan2) secSpan2.innerText = phase2Count;
                 } else {
                     clearCDTimer();
-                    // Phase 3: Display sentence with 1 word removed
+                    // Phase 3: Display sentence with 25% of words removed
                     if (badge) badge.style.display = 'none';
                     if (textEl) {
-                        textEl.innerHTML = removeWordsFromSentence(targetText, 1);
+                        textEl.innerHTML = removeWordsFromSentence(targetText, 0.25);
                         textEl.style.display = 'block';
                     }
                 }
