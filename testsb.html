@@ -6182,12 +6182,22 @@ function isCurrentExerciseCompleted() {
         return inputs.every(i => i.value.trim().length > 0);
     }
 else if (['listen-trad', 'listen-dictation', 'delayed-dictation', 'delayed-copying'].includes(actType)) {
-    const gapInputs = Array.from(area.querySelectorAll('.gap-inline-input'));
-    if (gapInputs.length === 0) return true;
-    return gapInputs.every(i => i.value.trim().length > 0);
-}
-    return true;
-}
+        const area = document.getElementById('exercise-interactive-area');
+        const currentInput = area ? area.querySelector('.gap-inline-input') : null;
+        const activeAns = currentInput ? currentInput.value.trim() : '';
+
+        for (let idx = 0; idx < sents.length; idx++) {
+            let ans = '';
+            if (idx === studentSubItemIndex && currentInput) {
+                ans = activeAns;
+            } else if (studentAnswersState[actType] && studentAnswersState[actType][idx]) {
+                const prev = studentAnswersState[actType][idx].studentAnswer;
+                ans = (prev && prev !== '(Empty)') ? prev : '';
+            }
+            if (ans.length === 0) return false;
+        }
+        return true;
+    }
 async function saveDraftProgress() {
     if (!currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id) return;
 
@@ -6291,6 +6301,49 @@ function checkExerciseCompletion() {
         submitExBtn.style.display = isComplete ? 'inline-block' : 'none';
     }
 }
+    /* =========================================================
+   STUDENT GAP-FILL GENERATOR FOR ONE-BY-ONE ACTIVITIES
+   ========================================================= */
+function makeStudentGapHTML(text, itemIdx, actType, savedVal = '') {
+    if (!text) return { html: '', cleanGap: '' };
+
+    const preMarked = extractGapWord(text);
+    let fullMatch = preMarked.fullMatch;
+    let cleanGap = preMarked.cleanGap;
+
+    if (!cleanGap) {
+        const words = text.split(' ');
+        const eligibleIndices = words
+            .map((w, idx) => {
+                const clean = w.replace(/[^\p{L}\p{N}]/gu, '');
+                return clean.length >= 3 ? idx : -1;
+            })
+            .filter(idx => idx !== -1);
+
+        const targetPool = eligibleIndices.length > 0
+            ? eligibleIndices
+            : words.map((w, i) => w.trim().length > 0 ? i : -1).filter(i => i !== -1);
+
+        if (targetPool.length === 0) {
+            return { html: text, cleanGap: text };
+        }
+
+        const selectedIndex = targetPool[itemIdx % targetPool.length];
+        const selectedWord = words[selectedIndex];
+
+        const leadingPunct = selectedWord.match(/^[^\p{L}\p{N}]+/u)?.[0] || '';
+        const trailingPunct = selectedWord.match(/[^\p{L}\p{N}]+$/u)?.[0] || '';
+        cleanGap = selectedWord.replace(/^[^\p{L}\p{N}]+/u, '').replace(/[^\p{L}\p{N}]+$/u, '');
+
+        const inputHTML = `${leadingPunct}<input type="text" class="gap-inline-input" data-correct="${cleanGap.replace(/"/g, '&quot;')}" value="${(savedVal || '').replace(/"/g, '&quot;')}" style="padding:4px 10px; border:2px solid #8b5cf6; border-radius:6px; font-weight:bold; font-size:20px; width:150px; text-align:center; outline:none; font-family:inherit; color:#1e293b; background:#fefce8; box-shadow:0 2px 4px rgba(0,0,0,0.05);" placeholder="Type word...">${trailingPunct}`;
+
+        words[selectedIndex] = inputHTML;
+        return { html: words.join(' '), cleanGap: cleanGap };
+    } else {
+        const inputHTML = `<input type="text" class="gap-inline-input" data-correct="${cleanGap.replace(/"/g, '&quot;')}" value="${(savedVal || '').replace(/"/g, '&quot;')}" style="padding:4px 10px; border:2px solid #8b5cf6; border-radius:6px; font-weight:bold; font-size:20px; width:150px; text-align:center; outline:none; font-family:inherit; color:#1e293b; background:#fefce8; box-shadow:0 2px 4px rgba(0,0,0,0.05);" placeholder="Type word...">`;
+        return { html: text.replace(fullMatch, inputHTML), cleanGap: cleanGap };
+    }
+}
 /* =========================
    UPDATED STUDENT EXERCISE RENDERER
 ========================= */
@@ -6331,44 +6384,41 @@ clearStudentOneByOneTimers();
     // -------------------------------------------------------------
     // ONE-BY-ONE ACTIVITIES (Listen/Trad, Listen/Dict, Delayed Dict, Delayed Copying)
     // -------------------------------------------------------------
-    if (isOneByOne) {
+   if (isOneByOne) {
         if (studentSubItemIndex >= sents.length) studentSubItemIndex = 0;
         const currentSent = sents[studentSubItemIndex];
         const targetText = currentSent.t || '';
         const englishText = cleanEnglishText(currentSent.tr || '');
         const safeTarget = targetText.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        const savedVal = (studentAnswersState[actType]?.[studentSubItemIndex]?.studentAnswer !== '(Empty)')
+            ? (studentAnswersState[actType]?.[studentSubItemIndex]?.studentAnswer || '')
+            : '';
 
         let cardContentHTML = '';
 
         if (actType === 'listen-trad') {
-            const gapEnglish = removeWordsFromSentence(englishText);
+            const gapObj = makeStudentGapHTML(englishText, studentSubItemIndex, 'listen-trad', savedVal);
             cardContentHTML = `
                 <div style="text-align:center; padding:15px 0;">
-                    <button type="button" onclick="speakTL('${safeTarget}')" class="btn-purple" style="font-size:16px; padding:10px 24px; margin-bottom:15px;">🔊 Listen Audio</button>
-                    <div style="font-size:22px; font-weight:bold; color:#1e293b; margin-bottom:15px;">${gapEnglish}</div>
+                    <button type="button" onclick="speakTL('${safeTarget}')" class="btn-purple" style="font-size:16px; padding:10px 24px; margin-bottom:20px;">🔊 Listen Audio</button>
+                    <div style="font-size:22px; font-weight:bold; color:#1e293b; margin-bottom:15px;">${gapObj.html}</div>
                 </div>`;
+            setTimeout(() => speakTL(targetText), 200);
         } 
         else if (actType === 'listen-dictation') {
-            const gapTarget = removeWordsFromSentence(targetText);
+            const gapObj = makeStudentGapHTML(targetText, studentSubItemIndex, 'listen-dictation', savedVal);
             cardContentHTML = `
                 <div style="text-align:center; padding:15px 0;">
-                    <button type="button" onclick="speakTL('${safeTarget}')" class="btn-purple" style="font-size:16px; padding:10px 24px; margin-bottom:15px;">🔊 Listen Audio</button>
-                    <div style="font-size:22px; font-weight:bold; color:#1e293b; margin-bottom:15px;">${gapTarget}</div>
+                    <button type="button" onclick="speakTL('${safeTarget}')" class="btn-purple" style="font-size:16px; padding:10px 24px; margin-bottom:20px;">🔊 Listen Audio</button>
+                    <div style="font-size:22px; font-weight:bold; color:#1e293b; margin-bottom:15px;">${gapObj.html}</div>
                 </div>`;
+            setTimeout(() => speakTL(targetText), 200);
         } 
         else if (actType === 'delayed-dictation') {
-            cardContentHTML = `
-                <div id="dd-student-stage" style="text-align:center; padding:15px 0;">
-                    <button type="button" id="dd-play-btn" onclick="runStudentDelayedDictation('${safeTarget}', ${studentSubItemIndex})" class="btn-purple" style="font-size:16px; padding:10px 24px; margin-bottom:15px;">🔊 Start Audio & Timer</button>
-                    <div id="dd-status-text" style="font-size:20px; font-weight:bold; color:#64748b;">Press Start Audio to begin listening.</div>
-                </div>`;
+            cardContentHTML = `<div id="dd-student-stage"></div>`;
         } 
         else if (actType === 'delayed-copying') {
-            cardContentHTML = `
-                <div id="dc-student-stage" style="text-align:center; padding:15px 0;">
-                    <div id="dc-timer-badge" style="font-size:16px; font-weight:bold; color:#8b5cf6; margin-bottom:10px;">⏳ Disappearing in: <span id="dc-sec">7</span>s</div>
-                    <div id="dc-display-text" style="font-size:22px; font-weight:bold; color:#1e293b;">${targetText}</div>
-                </div>`;
+            cardContentHTML = `<div id="dc-student-stage"></div>`;
         }
 
         area.innerHTML = `
@@ -6383,7 +6433,17 @@ clearStudentOneByOneTimers();
                 </div>
             </div>`;
 
-        if (actType === 'delayed-copying') {
+        if (actType === 'listen-trad' || actType === 'listen-dictation') {
+            const inp = area.querySelector('.gap-inline-input');
+            if (inp) {
+                inp.addEventListener('input', () => {
+                    saveStudentCurrentExerciseResponses();
+                    checkExerciseCompletion();
+                });
+            }
+        } else if (actType === 'delayed-dictation') {
+            runStudentDelayedDictation(targetText, studentSubItemIndex);
+        } else if (actType === 'delayed-copying') {
             runStudentDelayedCopying(targetText, studentSubItemIndex);
         }
     }
@@ -6798,32 +6858,56 @@ clearStudentOneByOneTimers();
 
 function runStudentDelayedDictation(targetText, itemIdx) {
     clearStudentOneByOneTimers();
-    const playBtn = document.getElementById('dd-play-btn');
-    const statusText = document.getElementById('dd-status-text');
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
-    if (playBtn) playBtn.style.display = 'none';
-    if (statusText) {
-        statusText.style.color = '#8b5cf6';
-        statusText.innerText = '🎧 Listen carefully...';
-    }
+    const stageEl = document.getElementById('dd-student-stage');
+    if (!stageEl) return;
 
+    const actType = 'delayed-dictation';
+    const savedVal = (studentAnswersState[actType]?.[itemIdx]?.studentAnswer !== '(Empty)')
+        ? (studentAnswersState[actType]?.[itemIdx]?.studentAnswer || '') 
+        : '';
+    const safeTarget = targetText.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+    stageEl.innerHTML = `
+        <div style="text-align:center; padding:15px 0;">
+            <div id="dd-status-text" style="font-size:22px; font-weight:bold; color:#8b5cf6; margin-bottom:15px;">
+                🎧 Listening to audio...
+            </div>
+        </div>
+    `;
+
+    // Stage 1: Play TTS Audio
     speakTL(targetText, () => {
+        // Stage 2: 3-Second Memory Delay
         let count = 3;
-        if (statusText) statusText.innerHTML = `🧠 Memorise! <b>${count}</b>s`;
+        const statusText = document.getElementById('dd-status-text');
+        if (statusText) statusText.innerHTML = `🧠 Memorise! <span style="font-size:28px; color:#d97706;">${count}</span>s`;
 
         const timer = setInterval(() => {
             count--;
             if (count > 0) {
-                if (statusText) statusText.innerHTML = `🧠 Memorise! <b>${count}</b>s`;
+                if (statusText) statusText.innerHTML = `🧠 Memorise! <span style="font-size:28px; color:#d97706;">${count}</span>s`;
             } else {
                 clearStudentOneByOneTimers();
-                const gapTarget = removeWordsFromSentence(targetText);
+                // Stage 3: Display TL sentence with missing word input box
+                const gapObj = makeStudentGapHTML(targetText, itemIdx, 'delayed-dictation', savedVal);
                 if (statusText) {
-                    statusText.style.color = '#000000';
-                    statusText.innerHTML = gapTarget;
+                    statusText.style.color = '#1e293b';
+                    statusText.innerHTML = `
+                        <div style="margin-bottom:15px;">${gapObj.html}</div>
+                        <button type="button" onclick="runStudentDelayedDictation('${safeTarget}', ${itemIdx})" class="btn-outline" style="font-size:13px; margin-top:10px;">🔁 Re-listen Audio</button>
+                    `;
                 }
-                const inputs = statusText.querySelectorAll('.gap-inline-input');
-                inputs.forEach(inp => inp.addEventListener('input', checkExerciseCompletion));
+
+                const inp = statusText ? statusText.querySelector('.gap-inline-input') : null;
+                if (inp) {
+                    inp.focus();
+                    inp.addEventListener('input', () => {
+                        saveStudentCurrentExerciseResponses();
+                        checkExerciseCompletion();
+                    });
+                }
             }
         }, 1000);
         studentOneByOneTimers.push(timer);
@@ -6832,10 +6916,30 @@ function runStudentDelayedDictation(targetText, itemIdx) {
 
 function runStudentDelayedCopying(targetText, itemIdx) {
     clearStudentOneByOneTimers();
-    const badge = document.getElementById('dc-timer-badge');
-    const textEl = document.getElementById('dc-display-text');
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
+    const stageEl = document.getElementById('dc-student-stage');
+    if (!stageEl) return;
+
+    const actType = 'delayed-copying';
+    const savedVal = (studentAnswersState[actType]?.[itemIdx]?.studentAnswer !== '(Empty)')
+        ? (studentAnswersState[actType]?.[itemIdx]?.studentAnswer || '') 
+        : '';
+    const safeTarget = targetText.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+    // Stage 1: Display TL Sentence for 7 seconds
     let phase1Count = 7;
+    stageEl.innerHTML = `
+        <div style="text-align:center; padding:15px 0;">
+            <div id="dc-timer-badge" style="font-size:16px; font-weight:bold; color:#8b5cf6; margin-bottom:12px; background:#f3e8ff; display:inline-block; padding:6px 16px; border-radius:20px;">
+                ⏳ Disappearing in: <span id="dc-sec" style="font-size:20px;">${phase1Count}</span>s
+            </div>
+            <div id="dc-display-text" style="font-size:24px; font-weight:bold; color:#1e293b; margin-top:10px;">
+                ${targetText}
+            </div>
+        </div>
+    `;
+
     const timer1 = setInterval(() => {
         phase1Count--;
         const secSpan = document.getElementById('dc-sec');
@@ -6843,26 +6947,46 @@ function runStudentDelayedCopying(targetText, itemIdx) {
             if (secSpan) secSpan.innerText = phase1Count;
         } else {
             clearStudentOneByOneTimers();
+
+            // Stage 2: 3-Second Memory Delay
             let phase2Count = 3;
-            if (badge) badge.style.display = 'none';
-            if (textEl) {
-                textEl.style.color = '#8b5cf6';
-                textEl.innerHTML = `🧠 Memorise! <b>${phase2Count}</b>s`;
+            const container = document.getElementById('dc-student-stage');
+            if (container) {
+                container.innerHTML = `
+                    <div style="text-align:center; padding:15px 0;">
+                        <div id="dc-status-text" style="font-size:24px; font-weight:bold; color:#8b5cf6;">
+                            🧠 Memorise! <span style="font-size:28px; color:#d97706;">${phase2Count}</span>s
+                        </div>
+                    </div>
+                `;
             }
 
             const timer2 = setInterval(() => {
                 phase2Count--;
+                const statusText = document.getElementById('dc-status-text');
                 if (phase2Count > 0) {
-                    if (textEl) textEl.innerHTML = `🧠 Memorise! <b>${phase2Count}</b>s`;
+                    if (statusText) statusText.innerHTML = `🧠 Memorise! <span style="font-size:28px; color:#d97706;">${phase2Count}</span>s`;
                 } else {
                     clearStudentOneByOneTimers();
-                    const gapTarget = removeWordsFromSentence(targetText);
-                    if (textEl) {
-                        textEl.style.color = '#000000';
-                        textEl.innerHTML = gapTarget;
+                    // Stage 3: Display TL sentence with missing word input box
+                    const gapObj = makeStudentGapHTML(targetText, itemIdx, 'delayed-copying', savedVal);
+                    if (container) {
+                        container.innerHTML = `
+                            <div style="text-align:center; padding:15px 0;">
+                                <div style="font-size:22px; font-weight:bold; color:#1e293b; margin-bottom:15px;">${gapObj.html}</div>
+                                <button type="button" onclick="runStudentDelayedCopying('${safeTarget}', ${itemIdx})" class="btn-outline" style="font-size:13px; margin-top:10px;">🔁 Re-show Sentence</button>
+                            </div>
+                        `;
                     }
-                    const inputs = textEl.querySelectorAll('.gap-inline-input');
-                    inputs.forEach(inp => inp.addEventListener('input', checkExerciseCompletion));
+
+                    const inp = container ? container.querySelector('.gap-inline-input') : null;
+                    if (inp) {
+                        inp.focus();
+                        inp.addEventListener('input', () => {
+                            saveStudentCurrentExerciseResponses();
+                            checkExerciseCompletion();
+                        });
+                    }
                 }
             }, 1000);
             studentOneByOneTimers.push(timer2);
@@ -7141,28 +7265,38 @@ function saveStudentCurrentExerciseResponses() {
             });
         });
     } 
-    else if (['listen-trad', 'listen-dictation', 'delayed-dictation', 'delayed-copying'].includes(actType)) {
-    sents.forEach((s, idx) => {
-        const isTarget = (actType !== 'listen-trad');
-        const fullText = isTarget ? s.t : s.tr;
-        const { cleanGap } = extractGapWord(fullText);
+else if (['listen-trad', 'listen-dictation', 'delayed-dictation', 'delayed-copying'].includes(actType)) {
+        sents.forEach((s, idx) => {
+            const isTarget = (actType !== 'listen-trad');
+            const fullText = isTarget ? s.t : cleanEnglishText(s.tr);
 
-        const currentArea = document.getElementById('exercise-interactive-area');
-        const input = currentArea ? currentArea.querySelector('.gap-inline-input') : null;
-        const ans = (input && studentSubItemIndex === idx) ? input.value.trim() : (studentAnswersState[actType]?.[idx]?.studentAnswer || '');
+            const area = document.getElementById('exercise-interactive-area');
+            const currentInput = (studentSubItemIndex === idx && area) ? area.querySelector('.gap-inline-input') : null;
 
-        const isMatch = (normalizeString(ans) === normalizeString(cleanGap));
-        const points = isMatch ? 1.0 : 0.0;
+            let ans = '';
+            let correct = '';
 
-        responses.push({
-            prompt: isTarget ? s.tr : s.t,
-            studentAnswer: ans || '(Empty)',
-            correctAnswer: cleanGap || fullText,
-            isCorrect: points === 1.0,
-            points: points
+            if (currentInput) {
+                ans = currentInput.value.trim();
+                correct = currentInput.dataset.correct || '';
+            } else {
+                const prev = studentAnswersState[actType]?.[idx];
+                ans = (prev && prev.studentAnswer !== '(Empty)') ? prev.studentAnswer : '';
+                correct = prev ? prev.correctAnswer : makeStudentGapHTML(fullText, idx, actType).cleanGap;
+            }
+
+            const isMatch = (normalizeString(ans) === normalizeString(correct));
+            const points = isMatch ? 1.0 : 0.0;
+
+            responses.push({
+                prompt: isTarget ? s.tr : s.t,
+                studentAnswer: ans || '(Empty)',
+                correctAnswer: correct || fullText,
+                isCorrect: points === 1.0,
+                points: points
+            });
         });
-    });
-}
+    }
     else if (actType === 'gap-en' || actType === 'gap-t') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
