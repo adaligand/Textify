@@ -1867,6 +1867,36 @@ let currentFsFontSize = 28;
 let currentFsWidthPercent = 100;
 let studentSubItemIndex = 0;
 let studentOneByOneTimers = [];
+let firestoreDraftTimer = null;
+
+function triggerFirestoreDraftAutoSave() {
+    // Skip if no assignment active, no student logged in, or in Teacher Preview mode
+    if (!currentStudentAssignment || !currentStudentAssignment.id || window.isTeacherPreview) return;
+
+    clearTimeout(firestoreDraftTimer);
+
+    firestoreDraftTimer = setTimeout(async () => {
+        try {
+            const studentId = (typeof currentStudentUser !== 'undefined' && currentStudentUser) 
+                ? currentStudentUser.uid 
+                : (window.currentStudentId || 'anonymous');
+
+            const docId = `${currentStudentAssignment.id}_${studentId}`;
+
+            await db.collection('drafts').doc(docId).set({
+                assignmentId: currentStudentAssignment.id,
+                studentId: studentId,
+                studentAnswersState: studentAnswersState,
+                completedExercises: window.studentCompletedExercises || {},
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            console.log("☁️ Draft saved to Firestore cloud.");
+        } catch (err) {
+            console.error("Firestore draft save error:", err);
+        }
+    }, 1500); // 1.5-second debounce delay
+}
 function clearStudentOneByOneTimers() {
     studentOneByOneTimers.forEach(t => clearInterval(t));
     studentOneByOneTimers = [];
@@ -7282,6 +7312,7 @@ function saveStudentCurrentExerciseResponses() {
         responses.push({ prompt: '', studentAnswer: '(Empty)', correctAnswer: '', isCorrect: false, points: 0 });
     }
 
+    // --- MATCH UP ACTIVITY ---
     if (actType === 'match') {
         sents.forEach((s, idx) => {
             const tile = area.querySelector(`.match-t-tile[data-id="${idx}"]`);
@@ -7303,19 +7334,15 @@ function saveStudentCurrentExerciseResponses() {
                 isDone: isDone
             };
         });
-        return;
-    }
-
-    const s = sents[studentSubItemIndex];
-    if (!s) return;
-
-    if (actType === 'jumbled') {
+    } 
+    // --- JUMBLED ACTIVITY ---
+    else if (actType === 'jumbled') {
         const block = area.querySelector('.student-item-block');
         if (block) {
             const slot = block.querySelector('.jumble-answer-slot');
             const studentText = slot ? Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText).join(' ').trim() : '';
             const wrongAttempts = parseInt(block.dataset.wrongAttempts || "0", 10);
-            const isExactMatch = (normalizeString(studentText) === normalizeString(s.t));
+            const isExactMatch = (normalizeString(studentText) === normalizeString(sents[studentSubItemIndex]?.t || ''));
 
             let points = 0;
             if (isExactMatch) {
@@ -7323,17 +7350,20 @@ function saveStudentCurrentExerciseResponses() {
             }
 
             responses[studentSubItemIndex] = {
-                prompt: s.tr,
+                prompt: sents[studentSubItemIndex]?.tr || '',
                 studentAnswer: studentText || '(Empty)',
-                correctAnswer: s.t,
+                correctAnswer: sents[studentSubItemIndex]?.t || '',
                 isCorrect: points === 1.0,
                 points: points,
                 mistakes: wrongAttempts
             };
         }
-    } else if (actType === 'nospaces') {
+    } 
+    // --- NO SPACES ACTIVITY ---
+    else if (actType === 'nospaces') {
         const block = area.querySelector('.student-item-block');
-        if (block) {
+        const s = sents[studentSubItemIndex];
+        if (block && s) {
             const unrevealed = block.querySelectorAll('.space-inner:not(.revealed-space)');
             const wrongClicks = parseInt(block.dataset.wrongClicks || "0", 10);
             const isDone = (unrevealed.length === 0);
@@ -7353,9 +7383,12 @@ function saveStudentCurrentExerciseResponses() {
                 isDone: isDone
             };
         }
-    } else if (actType === 'vowels' || actType === 'cons') {
+    } 
+    // --- VOWELS / CONSONANTS ACTIVITY ---
+    else if (actType === 'vowels' || actType === 'cons') {
         const block = area.querySelector('.student-item-block');
-        if (block) {
+        const s = sents[studentSubItemIndex];
+        if (block && s) {
             const boxes = Array.from(block.querySelectorAll('.letter-box'));
             const letterValues = boxes.map(b => b.value || '');
             const wrongEntries = parseInt(block.dataset.wrongEntries || "0", 10);
@@ -7376,77 +7409,163 @@ function saveStudentCurrentExerciseResponses() {
                 letterValues: letterValues
             };
         }
-    } else if (['listen-trad', 'listen-dictation', 'delayed-dictation', 'delayed-copying'].includes(actType)) {
-        const isTarget = (actType !== 'listen-trad');
-        const fullText = isTarget ? s.t : cleanEnglishText(s.tr);
-        const currentInput = area.querySelector('.gap-inline-input');
-        
-        let ans = currentInput ? currentInput.value.trim() : '';
-        let correct = currentInput ? (currentInput.dataset.correct || '') : makeStudentGapHTML(fullText, studentSubItemIndex, actType).cleanGap;
+    } 
+    // --- DICTATION / LISTENING ACTIVITIES ---
+    else if (['listen-trad', 'listen-dictation', 'delayed-dictation', 'delayed-copying'].includes(actType)) {
+        const s = sents[studentSubItemIndex];
+        if (s) {
+            const isTarget = (actType !== 'listen-trad');
+            const fullText = isTarget ? s.t : cleanEnglishText(s.tr);
+            const currentInput = area.querySelector('.gap-inline-input');
+            
+            let ans = currentInput ? currentInput.value.trim() : '';
+            let correct = currentInput ? (currentInput.dataset.correct || '') : makeStudentGapHTML(fullText, studentSubItemIndex, actType).cleanGap;
 
-        if (!ans && responses[studentSubItemIndex] && responses[studentSubItemIndex].studentAnswer !== '(Empty)') {
-            ans = responses[studentSubItemIndex].studentAnswer;
+            if (!ans && responses[studentSubItemIndex] && responses[studentSubItemIndex].studentAnswer !== '(Empty)') {
+                ans = responses[studentSubItemIndex].studentAnswer;
+            }
+
+            const isMatch = (normalizeString(ans) === normalizeString(correct));
+            const points = isMatch ? 1.0 : 0.0;
+
+            responses[studentSubItemIndex] = {
+                prompt: isTarget ? s.tr : s.t,
+                studentAnswer: ans || '(Empty)',
+                correctAnswer: correct || fullText,
+                isCorrect: points === 1.0,
+                points: points
+            };
         }
+    } 
+    // --- GAP FILL ACTIVITIES ---
+    else if (actType === 'gap-en' || actType === 'gap-t') {
+        const s = sents[studentSubItemIndex];
+        if (s) {
+            const input = area.querySelector('.gap-inline-input');
+            const ans = input ? input.value.trim() : '';
+            const correct = input ? input.dataset.correct : '';
+            const wrongAttempts = parseInt(input?.dataset.wrongAttempts || "0", 10);
+            
+            const isMatch = (normalizeString(ans) === normalizeString(correct));
+            let points = 0;
+            if (isMatch) {
+                points = (wrongAttempts === 0) ? 1.0 : 0.5;
+            }
 
-        const isMatch = (normalizeString(ans) === normalizeString(correct));
-        const points = isMatch ? 1.0 : 0.0;
-
-        responses[studentSubItemIndex] = {
-            prompt: isTarget ? s.tr : s.t,
-            studentAnswer: ans || '(Empty)',
-            correctAnswer: correct || fullText,
-            isCorrect: points === 1.0,
-            points: points
-        };
-    } else if (actType === 'gap-en' || actType === 'gap-t') {
-        const input = area.querySelector('.gap-inline-input');
-        const ans = input ? input.value.trim() : '';
-        const correct = input ? input.dataset.correct : '';
-        const wrongAttempts = parseInt(input?.dataset.wrongAttempts || "0", 10);
-        
-        const isMatch = (normalizeString(ans) === normalizeString(correct));
-        let points = 0;
-        if (isMatch) {
-            points = (wrongAttempts === 0) ? 1.0 : 0.5;
+            responses[studentSubItemIndex] = {
+                prompt: s.t,
+                studentAnswer: ans || '(Empty)',
+                correctAnswer: correct || '(No gap set)',
+                isCorrect: points === 1.0,
+                points: points,
+                mistakes: wrongAttempts
+            };
         }
+    } 
+    // --- FAULTY SENTENCE CORRECTION ---
+    else if (actType === 'faulty') {
+        const s = sents[studentSubItemIndex];
+        if (s) {
+            const input = area.querySelector('.full-typing-input');
+            const ans = input ? input.value.trim() : '';
+            const correct = (s.tr || '').trim();
 
-        responses[studentSubItemIndex] = {
-            prompt: s.t,
-            studentAnswer: ans || '(Empty)',
-            correctAnswer: correct || '(No gap set)',
-            isCorrect: points === 1.0,
-            points: points,
-            mistakes: wrongAttempts
-        };
-    } else if (actType === 'faulty') {
-        const input = area.querySelector('.full-typing-input');
-        const ans = input ? input.value.trim() : '';
-        const correct = (s.tr || '').trim();
+            const evalResult = evaluateTextSimilarity(ans, correct);
 
-        const evalResult = evaluateTextSimilarity(ans, correct);
+            responses[studentSubItemIndex] = {
+                prompt: `Correct English for: "${s.t}" (Faulty was: "${s.faultyTr || getOrGenerateFaultyTr(s)}")`,
+                studentAnswer: ans || '(Empty)',
+                correctAnswer: correct || '(No markscheme translation set)',
+                isCorrect: evalResult.points === 1,
+                points: evalResult.points
+            };
+        }
+    } 
+    // --- STANDARD TYPING TRANSLATIONS ---
+    else {
+        const s = sents[studentSubItemIndex];
+        if (s) {
+            const input = area.querySelector('.full-typing-input');
+            const ans = input ? input.value.trim() : '';
+            const cardContainer = area.querySelector('[data-correct]');
+            const correct = (cardContainer ? cardContainer.dataset.correct : (s.tr || s.t || '')).trim();
 
-        responses[studentSubItemIndex] = {
-            prompt: `Correct English for: "${s.t}" (Faulty was: "${s.faultyTr || getOrGenerateFaultyTr(s)}")`,
-            studentAnswer: ans || '(Empty)',
-            correctAnswer: correct || '(No markscheme translation set)',
-            isCorrect: evalResult.points === 1,
-            points: evalResult.points
-        };
-    } else {
-        const input = area.querySelector('.full-typing-input');
-        const ans = input ? input.value.trim() : '';
-        const cardContainer = area.querySelector('[data-correct]');
-        const correct = (cardContainer ? cardContainer.dataset.correct : (s.tr || s.t || '')).trim();
+            const evalResult = evaluateTextSimilarity(ans, correct);
 
-        const evalResult = evaluateTextSimilarity(ans, correct);
+            responses[studentSubItemIndex] = {
+                prompt: s.t || s.tr,
+                studentAnswer: ans || '(Empty)',
+                correctAnswer: correct || '(No markscheme translation set)',
+                isCorrect: evalResult.points === 1,
+                points: evalResult.points
+            };
+        }
+    }
 
-        responses[studentSubItemIndex] = {
-            prompt: s.t || s.tr,
-            studentAnswer: ans || '(Empty)',
-            correctAnswer: correct || '(No markscheme translation set)',
-            isCorrect: evalResult.points === 1,
-            points: evalResult.points
-        };
+    // Save to local storage cache immediately
+    if (currentStudentAssignment && currentStudentAssignment.id) {
+        localStorage.setItem(`draft_${currentStudentAssignment.id}`, JSON.stringify(studentAnswersState));
+    }
+
+    // ⚡ TRIGGER FIRESTORE CLOUD AUTO-SAVE FOR ALL EXERCISES ⚡
+    triggerFirestoreDraftAutoSave();
+}
+
+/* =========================================================
+   3. RESTORE DRAFT FROM CLOUD ON ASSIGNMENT OPEN
+========================================================= */
+async function loadStudentAssignmentProgress(assignmentId, studentId) {
+    const docId = `${assignmentId}_${studentId}`;
+
+    try {
+        const draftDoc = await db.collection('drafts').doc(docId).get();
+        if (draftDoc.exists) {
+            const data = draftDoc.data();
+            studentAnswersState = data.studentAnswersState || {};
+            window.studentCompletedExercises = data.completedExercises || {};
+            console.log("✅ Cloud draft restored from Firestore.");
+            return;
+        }
+    } catch (e) {
+        console.warn("Could not fetch cloud draft from Firestore, falling back to localStorage.", e);
+    }
+
+    const localDraft = localStorage.getItem(`draft_${assignmentId}`);
+    if (localDraft) {
+        try {
+            studentAnswersState = JSON.parse(localDraft);
+            console.log("📱 Restored draft from local storage.");
+        } catch (err) {
+            console.error("Local draft parse error:", err);
+        }
+    }
+}
+   async function loadStudentAssignmentProgress(assignmentId, studentId) {
+    const docId = `${assignmentId}_${studentId}`;
+
+    try {
+        // Attempt to fetch saved draft document from Firestore
+        const draftDoc = await db.collection('drafts').doc(docId).get();
+        if (draftDoc.exists) {
+            const data = draftDoc.data();
+            studentAnswersState = data.studentAnswersState || {};
+            window.studentCompletedExercises = data.completedExercises || {};
+            console.log("✅ Cloud draft restored from Firestore.");
+            return;
+        }
+    } catch (e) {
+        console.warn("Could not fetch cloud draft from Firestore, falling back to localStorage.", e);
+    }
+
+    // Fallback to local storage if offline or no cloud draft exists
+    const localDraft = localStorage.getItem(`draft_${assignmentId}`);
+    if (localDraft) {
+        try {
+            studentAnswersState = JSON.parse(localDraft);
+            console.log("📱 Restored draft from local storage.");
+        } catch (err) {
+            console.error("Local draft parse error:", err);
+        }
     }
 }
 function nextStudentExercise() {
