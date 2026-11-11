@@ -6747,9 +6747,29 @@ function renderCurrentStudentExercise() {
             `;
         }
 
-        area.innerHTML = cardContentHTML;
+        // --- RENDER 1-BY-1 ITEM CONTROLS BAR (PREVIOUS / NEXT SENTENCE / SUBMIT EXERCISE) ---
+        const isLastItem = (studentSubItemIndex >= sents.length - 1);
+        const submitBtnText = isLastItem ? '💾 Submit Exercise' : 'Next Sentence ➡️';
+        const submitBtnBg = isLastItem ? '#10b981' : '#2563eb';
+        const submitBtnAction = isLastItem ? 'submitCurrentExercise()' : 'navigateOneByOneItem(1)';
 
-        // --- POST-RENDER EVENT BINDINGS & COUNTER UPDATES ---
+        const controlsHTML = `
+            <div id="one-by-one-controls" style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; padding-top:15px; border-top:1px solid #e2e8f0; gap:10px;">
+                <button type="button" id="one-by-one-prev-btn" onclick="navigateOneByOneItem(-1)" class="btn-outline" style="${studentSubItemIndex === 0 ? 'visibility:hidden;' : ''}">
+                    ⬅️ Previous Sentence
+                </button>
+                <span style="font-weight:bold; color:#64748b; font-size:14px;">
+                    Sentence ${studentSubItemIndex + 1} of ${sents.length}
+                </span>
+                <button type="button" id="one-by-one-submit-btn" onclick="${submitBtnAction}" class="btn-purple" style="display:none; padding:8px 20px; font-size:15px; background:${submitBtnBg}; margin:0;">
+                    ${submitBtnText}
+                </button>
+            </div>
+        `;
+
+        area.innerHTML = cardContentHTML + controlsHTML;
+
+        // --- POST-RENDER EVENT BINDINGS ---
         if (actType === 'nospaces') {
             const block = area.querySelector('.student-item-block');
             updateNoSpaceCounter(block);
@@ -6757,15 +6777,49 @@ function renderCurrentStudentExercise() {
         else if (actType === 'vowels' || actType === 'cons') {
             setupAutoAdvanceInputs(area, actType === 'vowels' ? '.vowel-input' : '.cons-input');
         }
+        else if (actType === 'jumbled') {
+            const bank = area.querySelector('.jumble-word-bank');
+            const slot = area.querySelector('.jumble-answer-slot');
+            if (bank && slot) {
+                area.querySelectorAll('.jumble-word-tile').forEach(tile => {
+                    tile.onclick = function() {
+                        if (this.parentElement === bank) {
+                            slot.appendChild(this);
+                        } else {
+                            bank.appendChild(this);
+                        }
+                        saveStudentCurrentExerciseResponses();
+                        checkOneByOneItemCompletion();
+                    };
+                });
+            }
+        }
+
+        // Attach input change listeners for gap-fill & typing activities
+        area.querySelectorAll('.full-typing-input, .gap-inline-input').forEach(inp => {
+            inp.oninput = function() {
+                saveStudentCurrentExerciseResponses();
+                checkOneByOneItemCompletion();
+            };
+            inp.onkeydown = function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const submitBtn = document.getElementById('one-by-one-submit-btn');
+                    if (submitBtn && submitBtn.style.display !== 'none') {
+                        submitBtn.click();
+                    }
+                }
+            };
+        });
+
+        checkOneByOneItemCompletion();
     }
 
-    // --- RESTORE SUBMITTED / RECORDED STATE & ATTACH ONE-BY-ONE CONTROLS ---
+    // --- RESTORE SUBMITTED / RECORDED STATE ---
     const isAlreadySubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
     if (isAlreadySubmitted) {
         lockCurrentExerciseUI();
     }
-
-    checkOneByOneItemCompletion();
 }
   function navigateOneByOneItem(direction) {
     clearStudentOneByOneTimers();
@@ -7081,6 +7135,7 @@ function setupAutoAdvanceInputs(area, selector) {
                 this.classList.remove('correct-input', 'wrong-input');
             }
             checkExerciseCompletion();
+            checkOneByOneItemCompletion();
         };
 
         input.onkeydown = function(e) {
