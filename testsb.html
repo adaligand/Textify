@@ -6345,9 +6345,14 @@ function makeStudentGapHTML(text, itemIdx, actType, savedVal = '') {
         return { html: text.replace(fullMatch, inputHTML), cleanGap: cleanGap };
     }
 }
-/* =========================
-   UPDATED STUDENT EXERCISE RENDERER
-========================= */
+// Helper to update One-by-One submit button visibility based on input text
+function updateOneByOneSubmitVisibility(inputEl) {
+    const submitBtn = document.getElementById('one-by-one-submit-btn');
+    if (!submitBtn) return;
+    const hasText = inputEl && inputEl.value.trim().length > 0;
+    submitBtn.style.display = hasText ? 'inline-block' : 'none';
+}
+
 function renderCurrentStudentExercise() {
     clearStudentOneByOneTimers();
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
@@ -6424,20 +6429,19 @@ function renderCurrentStudentExercise() {
 
         const isLastSubItem = (studentSubItemIndex === sents.length - 1);
         const isExSubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
+        const initialSubmitDisplay = savedVal.trim().length > 0 ? 'inline-block' : 'none';
 
         let navButtonsHTML = '';
         if (isExSubmitted) {
             navButtonsHTML = `
-                <button type="button" onclick="navigateOneByOneItem(-1)" class="btn-outline" style="font-size:14px; padding:8px 16px;" ${studentSubItemIndex === 0 ? 'disabled' : ''}>⬅️ Previous Sentence</button>
-                <button type="button" onclick="navigateOneByOneItem(1)" class="btn-purple" style="font-size:14px; padding:8px 16px;" ${isLastSubItem ? 'disabled' : ''}>Next Sentence ➡️</button>
+                <button type="button" id="one-by-one-submit-btn" onclick="navigateOneByOneItem(1)" class="btn-purple" style="font-size:14px; padding:8px 16px; ${isLastSubItem ? 'display:none;' : ''}">Next Sentence ➡️</button>
             `;
         } else {
             navButtonsHTML = `
-                <button type="button" onclick="navigateOneByOneItem(-1)" class="btn-outline" style="font-size:14px; padding:8px 16px;" ${studentSubItemIndex === 0 ? 'disabled' : ''}>⬅️ Previous Sentence</button>
                 ${isLastSubItem ? `
-                    <button type="button" onclick="submitCurrentExercise()" class="btn-purple" style="font-size:15px; padding:10px 24px; background:#10b981;">💾 Submit Exercise</button>
+                    <button type="button" id="one-by-one-submit-btn" onclick="submitCurrentExercise()" class="btn-purple" style="font-size:15px; padding:10px 24px; background:#10b981; display:${initialSubmitDisplay};">💾 Submit Exercise</button>
                 ` : `
-                    <button type="button" onclick="navigateOneByOneItem(1)" class="btn-purple" style="font-size:15px; padding:10px 24px; background:#2563eb;">Submit & Next Sentence ➡️</button>
+                    <button type="button" id="one-by-one-submit-btn" onclick="navigateOneByOneItem(1)" class="btn-purple" style="font-size:15px; padding:10px 24px; background:#2563eb; display:${initialSubmitDisplay};">Submit & Next Sentence ➡️</button>
                 `}
             `;
         }
@@ -6448,7 +6452,7 @@ function renderCurrentStudentExercise() {
                     <strong style="color:#64748b; font-size:14px;">Sentence ${studentSubItemIndex + 1} of ${sents.length}</strong>
                 </div>
                 ${cardContentHTML}
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:25px; border-top:1px solid #f1f5f9; padding-top:16px;">
+                <div style="display:flex; justify-content:flex-end; align-items:center; margin-top:25px; border-top:1px solid #f1f5f9; padding-top:16px;">
                     ${navButtonsHTML}
                 </div>
             </div>`;
@@ -6459,10 +6463,12 @@ function renderCurrentStudentExercise() {
                 inp.addEventListener('input', () => {
                     saveStudentCurrentExerciseResponses();
                     checkExerciseCompletion();
+                    updateOneByOneSubmitVisibility(inp);
                 });
                 inp.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
                         e.preventDefault();
+                        if (!inp.value.trim()) return;
                         if (!isLastSubItem) {
                             navigateOneByOneItem(1);
                         } else if (!isExSubmitted) {
@@ -6868,7 +6874,10 @@ function renderCurrentStudentExercise() {
         lockCurrentExerciseUI();
     }
 
-    document.getElementById('student-prev-ex-btn').style.display = (studentCurrentExIndex > 0) ? 'inline-block' : 'none';
+    // Always hide previous exercise button
+    const prevExBtn = document.getElementById('student-prev-ex-btn');
+    if (prevExBtn) prevExBtn.style.display = 'none';
+
     checkExerciseCompletion();
 }
   function navigateOneByOneItem(direction) {
@@ -6935,9 +6944,24 @@ function runStudentDelayedDictation(targetText, itemIdx) {
                 const inp = statusText ? statusText.querySelector('.gap-inline-input') : null;
                 if (inp) {
                     inp.focus();
+                    updateOneByOneSubmitVisibility(inp);
                     inp.addEventListener('input', () => {
                         saveStudentCurrentExerciseResponses();
                         checkExerciseCompletion();
+                        updateOneByOneSubmitVisibility(inp);
+                    });
+                    inp.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (!inp.value.trim()) return;
+                            const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
+                            const isLast = (itemIdx === sents.length - 1);
+                            if (!isLast) {
+                                navigateOneByOneItem(1);
+                            } else {
+                                submitCurrentExercise();
+                            }
+                        }
                     });
                 }
             }
@@ -7014,9 +7038,24 @@ function runStudentDelayedCopying(targetText, itemIdx) {
                     const inp = container ? container.querySelector('.gap-inline-input') : null;
                     if (inp) {
                         inp.focus();
+                        updateOneByOneSubmitVisibility(inp);
                         inp.addEventListener('input', () => {
                             saveStudentCurrentExerciseResponses();
                             checkExerciseCompletion();
+                            updateOneByOneSubmitVisibility(inp);
+                        });
+                        inp.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (!inp.value.trim()) return;
+                                const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
+                                const isLast = (itemIdx === sents.length - 1);
+                                if (!isLast) {
+                                    navigateOneByOneItem(1);
+                                } else {
+                                    submitCurrentExercise();
+                                }
+                            }
                         });
                     }
                 }
