@@ -672,12 +672,93 @@ button:hover, .btn:hover {
 
 .student-item-block {
     background: #f8fafc;
-    padding: 5px 8px;
-    border-radius: 6px;
-    border: 1px solid #e2e8f0;
-    margin-bottom: 5px;
+    padding: 24px 20px;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+    margin-bottom: 10px;
+}
+/* UNJUMBLED WORD TILES & ANSWER SLOT */
+.jumble-answer-slot {
+    min-height: 64px;
+    min-width: 320px;
+    width: 95%;
+    padding: 12px 18px;
+    background: white;
+    border: 2.5px dashed #cbd5e1;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    transition: all 0.2s ease;
 }
 
+.jumble-word-tile {
+    padding: 10px 18px !important;
+    font-size: 24px !important;
+    font-weight: 700 !important;
+    margin: 4px !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    border: 2px solid #94a3b8 !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+}
+
+.jumble-word-tile:hover {
+    border-color: #3b82f6 !important;
+    background: #eff6ff !important;
+}
+
+/* NO SPACES INTERACTIVE GAME STYLING (LARGE DISPLAY) */
+.no-spaces-interactive-line {
+    background: white;
+    padding: 14px 22px;
+    border: 2px solid #cbd5e1;
+    border-radius: 10px;
+    font-weight: bold;
+    font-size: 32px;
+    line-height: 1.6;
+    display: inline-block;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+
+.no-spaces-interactive-line .space-span {
+    display: inline-block;
+    cursor: pointer !important;
+    vertical-align: middle;
+    user-select: none;
+    min-width: 14px;
+    height: 42px;
+    margin: 0 2px;
+}
+
+.no-spaces-interactive-line .letter-span {
+    cursor: pointer !important;
+    user-select: none;
+    font-size: 32px;
+    line-height: 1.6;
+    padding: 2px 1px;
+}
+
+.no-spaces-interactive-line .space-inner {
+    display: none;
+    background-color: #d1fae5;
+    border-bottom: 4px solid #10b981;
+    border-radius: 3px;
+    padding: 0 6px;
+    font-size: 32px;
+}
+
+.no-spaces-interactive-line .space-inner.revealed-space {
+    display: inline !important;
+    visibility: visible !important;
+}
+
+/* INPUTS & PROMPTS */
+.full-typing-input, .gap-inline-input {
+    font-size: 24px !important;
+}
 .interactive-tile {
     display: inline-block;
     padding: 8px 12px;
@@ -6233,6 +6314,65 @@ async function submitCurrentExercise() {
     // 5. Update action buttons (hides Submit Exercise, shows Next Exercise / Final Submit)
     checkExerciseCompletion();
 }
+/* =========================
+   CLEAN SAVED ANSWER HELPER
+========================= */
+function getCleanSavedStudentAnswer(actType, itemIdx) {
+    const resp = studentAnswersState[actType]?.[itemIdx];
+    if (!resp || !resp.studentAnswer) return '';
+    const ans = resp.studentAnswer.trim();
+    if (ans === '(Empty)' || ans.startsWith('(Incomplete') || ans === '(Unmatched)') {
+        return '';
+    }
+    return ans;
+}
+
+/* =========================
+   1-BY-1 ITEM COMPLETION CHECKER
+========================= */
+function checkOneByOneItemCompletion() {
+    const submitBtn = document.getElementById('one-by-one-submit-btn');
+    if (!submitBtn) return;
+
+    const actType = studentExerciseTypes[studentCurrentExIndex];
+    const isExSubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
+
+    if (isExSubmitted) {
+        submitBtn.style.display = 'inline-block';
+        return;
+    }
+
+    const area = document.getElementById('exercise-interactive-area');
+    if (!area) return;
+
+    let isItemComplete = false;
+
+    if (actType === 'jumbled') {
+        const bank = area.querySelector('.jumble-word-bank');
+        isItemComplete = bank && bank.children.length === 0;
+    } else if (actType === 'nospaces') {
+        const block = area.querySelector('.student-item-block');
+        if (block) {
+            const unrevealed = block.querySelectorAll('.space-inner:not(.revealed-space)');
+            isItemComplete = unrevealed.length === 0;
+        }
+    } else if (actType === 'vowels' || actType === 'cons') {
+        const boxes = Array.from(area.querySelectorAll('.letter-box'));
+        isItemComplete = boxes.length > 0 && boxes.every(b => b.value.trim().length > 0);
+    } else if (['listen-trad', 'listen-dictation', 'delayed-dictation', 'delayed-copying', 'gap-en', 'gap-t'].includes(actType)) {
+        const inp = area.querySelector('.gap-inline-input');
+        isItemComplete = inp && inp.value.trim().length > 0;
+    } else {
+        const inp = area.querySelector('.full-typing-input');
+        isItemComplete = inp && inp.value.trim().length > 0;
+    }
+
+    submitBtn.style.display = isItemComplete ? 'inline-block' : 'none';
+}
+
+/* =========================
+   PREVENT DUPLICATE SUBMIT BUTTONS
+========================= */
 function checkExerciseCompletion() {
     const submitExBtn = document.getElementById('student-submit-ex-btn');
     const nextBtn = document.getElementById('student-next-ex-btn');
@@ -6245,12 +6385,10 @@ function checkExerciseCompletion() {
     const isLastEx = (studentCurrentExIndex === studentExerciseTypes.length - 1);
     const isFirstEx = (studentCurrentExIndex === 0);
 
-    // Teacher Preview Mode: Enable exercise navigation in both directions
+    // Teacher Preview Mode
     if (window.isTeacherPreview) {
         submitExBtn.style.display = 'none';
-        if (prevExBtn) {
-            prevExBtn.style.display = isFirstEx ? 'none' : 'inline-block';
-        }
+        if (prevExBtn) prevExBtn.style.display = isFirstEx ? 'none' : 'inline-block';
         if (isLastEx) {
             nextBtn.style.display = 'none';
             submitBtn.style.display = 'inline-block';
@@ -6262,9 +6400,10 @@ function checkExerciseCompletion() {
     }
 
     // Student Mode
-    if (prevExBtn) {
-        prevExBtn.style.display = 'none';
-    }
+    if (prevExBtn) prevExBtn.style.display = 'none';
+
+    const isOneByOne = (actType !== 'match');
+
     if (isSubmitted) {
         submitExBtn.style.display = 'none';
         if (isLastEx) {
@@ -6277,8 +6416,15 @@ function checkExerciseCompletion() {
     } else {
         nextBtn.style.display = 'none';
         submitBtn.style.display = 'none';
-        const isComplete = isCurrentExerciseCompleted();
-        submitExBtn.style.display = isComplete ? 'inline-block' : 'none';
+        
+        if (isOneByOne) {
+            // Hide bottom bar submit button for 1-by-1 exercises to eliminate duplicates
+            submitExBtn.style.display = 'none';
+        } else {
+            // Show bottom bar submit button only for 'match' when all pairs are matched
+            const isComplete = isCurrentExerciseCompleted();
+            submitExBtn.style.display = isComplete ? 'inline-block' : 'none';
+        }
     }
 }
     /* =========================================================
@@ -6353,7 +6499,6 @@ function renderCurrentStudentExercise() {
         ? (currentStudentAssignment.sentencesPerActivity[actType] || []) 
         : [];
     
-    // All exercises EXCEPT 'match' are displayed 1-by-1
     const isOneByOne = (actType !== 'match');
 
     let html = `
@@ -6376,9 +6521,7 @@ function renderCurrentStudentExercise() {
         const targetText = currentSent.t || '';
         const englishText = cleanEnglishText(currentSent.tr || '');
         const safeTarget = targetText.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-        const savedVal = (studentAnswersState[actType]?.[studentSubItemIndex]?.studentAnswer !== '(Empty)')
-            ? (studentAnswersState[actType]?.[studentSubItemIndex]?.studentAnswer || '')
-            : '';
+        const savedVal = getCleanSavedStudentAnswer(actType, studentSubItemIndex);
 
         let cardContentHTML = '';
 
@@ -6410,11 +6553,11 @@ function renderCurrentStudentExercise() {
             const words = shuffleArray(targetText.split(' '));
             cardContentHTML = `
                 <div style="text-align:center; padding:10px 0;">
-                    <p style="margin:0 0 16px 0; font-weight:bold; color:#1e293b; font-size:18px;">${englishText}</p>
-                    <div style="display:flex; flex-direction:column; gap:14px; align-items:center;">
-                        <div class="jumble-answer-slot" style="min-height:48px; min-width:280px; width:90%; padding:6px 12px; background:white; border:2px dashed #cbd5e1; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:6px;"></div>
-                        <div class="jumble-word-bank" style="display:flex; flex-wrap:wrap; gap:6px; justify-content:center; align-items:center;">
-                            ${words.map(w => `<span class="interactive-tile jumble-word-tile" style="padding:6px 12px; font-size:16px; margin:2px;">${w}</span>`).join('')}
+                    <p style="margin:0 0 18px 0; font-weight:bold; color:#0f172a; font-size:24px;">${englishText}</p>
+                    <div style="display:flex; flex-direction:column; gap:16px; align-items:center;">
+                        <div class="jumble-answer-slot"></div>
+                        <div class="jumble-word-bank" style="display:flex; flex-wrap:wrap; gap:8px; justify-content:center; align-items:center;">
+                            ${words.map(w => `<span class="interactive-tile jumble-word-tile">${w}</span>`).join('')}
                         </div>
                     </div>
                 </div>
@@ -6441,11 +6584,11 @@ function renderCurrentStudentExercise() {
 
             cardContentHTML = `
                 <div style="text-align:center; padding:10px 0;">
-                    <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin-bottom:12px;">
-                        <p style="margin:0; font-weight:bold; color:#1e293b; font-size:18px;">${englishText}</p>
-                        <span class="space-counter-badge" style="font-size:13px; font-weight:bold; color:#2563eb;">(${spaceCount} space${spaceCount === 1 ? '' : 's'} remaining)</span>
+                    <div style="display:flex; justify-content:center; align-items:center; gap:15px; margin-bottom:16px;">
+                        <p style="margin:0; font-weight:bold; color:#0f172a; font-size:24px;">${englishText}</p>
+                        <span class="space-counter-badge" style="font-size:15px; font-weight:bold; color:#2563eb;">(${spaceCount} space${spaceCount === 1 ? '' : 's'} remaining)</span>
                     </div>
-                    <div class="no-spaces-interactive-line" style="font-size:20px; padding:12px 16px; display:inline-block;">
+                    <div class="no-spaces-interactive-line">
                         ${formattedSentence}
                     </div>
                 </div>
@@ -6473,8 +6616,8 @@ function renderCurrentStudentExercise() {
 
             cardContentHTML = `
                 <div style="text-align:center; padding:10px 0;">
-                    <p style="margin:0 0 16px 0; font-weight:bold; font-size:18px; color:#1e293b;">${englishText}</p>
-                    <div style="font-size:22px; line-height:2.2;">
+                    <p style="margin:0 0 16px 0; font-weight:bold; font-size:24px; color:#0f172a;">${englishText}</p>
+                    <div style="font-size:24px; line-height:2.2;">
                         ${lettersHTML}
                     </div>
                 </div>
@@ -6498,40 +6641,39 @@ function renderCurrentStudentExercise() {
 
             let displaySentence = fullSentence;
             if (fullMatch && cleanGap) {
-                const inputHtml = `<input type="text" class="gap-inline-input" data-correct="${cleanGap.replace(/"/g, '&quot;')}" value="${(savedVal || '').replace(/"/g, '&quot;')}" style="padding:4px 10px; border:2px solid #8b5cf6; border-radius:6px; font-weight:bold; font-size:20px; width:150px; text-align:center; outline:none; font-family:inherit; color:#1e293b; background:#fefce8;" placeholder="Type word...">`;
+                const inputHtml = `<input type="text" class="gap-inline-input" data-correct="${cleanGap.replace(/"/g, '&quot;')}" value="${(savedVal || '').replace(/"/g, '&quot;')}" style="padding:4px 10px; border:2px solid #8b5cf6; border-radius:6px; font-weight:bold; font-size:24px; width:170px; text-align:center; outline:none; font-family:inherit; color:#1e293b; background:#fefce8;" placeholder="Type word...">`;
                 displaySentence = displaySentence.replace(fullMatch, inputHtml);
             }
 
             cardContentHTML = `
                 <div style="text-align:center; padding:10px 0;">
-                    <p style="margin:0 0 14px 0; font-size:16px; color:#475569;">Prompt: <b style="color:#0f172a; font-size:18px;">${promptLabel}</b></p>
-                    <div style="padding:16px 20px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; font-size:22px; font-weight:bold; color:#1e293b; line-height:1.6; display:inline-block;">
+                    <p style="margin:0 0 14px 0; font-size:18px; color:#475569;">Prompt: <b style="color:#0f172a; font-size:24px;">${promptLabel}</b></p>
+                    <div style="padding:16px 20px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; font-size:24px; font-weight:bold; color:#1e293b; line-height:1.6; display:inline-block;">
                         ${displaySentence}
                     </div>
                 </div>
             `;
         }
         else {
-            // faulty, trans-en, trans-target
             let promptText = '';
             let answerRef = '';
 
             if (actType === 'faulty') {
                 const faultyText = currentSent.faultyTr || getOrGenerateFaultyTr(currentSent);
-                promptText = `<div style="font-size:20px; font-weight:bold; color:#0f172a; margin-bottom:8px;">${targetText}</div><div style="color:#b91c1c; font-weight:600; font-size:15px; background:#fef2f2; padding:8px 14px; border-radius:6px; display:inline-block; border:1px solid #fca5a5;">Faulty English sentence to correct: "${faultyText}"</div>`;
+                promptText = `<div style="font-size:24px; font-weight:bold; color:#0f172a; margin-bottom:8px;">${targetText}</div><div style="color:#b91c1c; font-weight:600; font-size:18px; background:#fef2f2; padding:8px 14px; border-radius:6px; display:inline-block; border:1px solid #fca5a5;">Faulty English sentence to correct: "${faultyText}"</div>`;
                 answerRef = englishText;
             } else if (actType === 'trans-en') {
-                promptText = `<div style="font-size:15px; color:#475569; margin-bottom:6px;">Translate into English:</div><div style="font-size:22px; font-weight:bold; color:#0f172a;">${targetText}</div>`;
+                promptText = `<div style="font-size:18px; color:#475569; margin-bottom:6px;">Translate into English:</div><div style="font-size:26px; font-weight:bold; color:#0f172a;">${targetText}</div>`;
                 answerRef = englishText;
             } else if (actType === 'trans-target') {
-                promptText = `<div style="font-size:15px; color:#475569; margin-bottom:6px;">Translate into ${docLang}:</div><div style="font-size:22px; font-weight:bold; color:#0f172a;">${englishText}</div>`;
+                promptText = `<div style="font-size:18px; color:#475569; margin-bottom:6px;">Translate into ${docLang}:</div><div style="font-size:26px; font-weight:bold; color:#0f172a;">${englishText}</div>`;
                 answerRef = targetText;
             }
 
             cardContentHTML = `
                 <div style="text-align:center; padding:10px 0;" data-correct="${(answerRef||'').replace(/"/g, '&quot;')}">
                     <div style="margin-bottom:16px;">${promptText}</div>
-                    <input type="text" class="full-typing-input" value="${(savedVal || '').replace(/"/g, '&quot;')}" placeholder="Type answer here..." style="width:85%; max-width:600px; padding:10px 16px; border:2px solid #cbd5e1; border-radius:8px; font-size:18px; outline:none; text-align:center; font-weight:600;">
+                    <input type="text" class="full-typing-input" value="${(savedVal || '').replace(/"/g, '&quot;')}" placeholder="Type answer here..." style="width:85%; max-width:600px; padding:10px 16px; border:2px solid #cbd5e1; border-radius:8px; font-size:24px; outline:none; text-align:center; font-weight:600;">
                 </div>
             `;
         }
@@ -6618,8 +6760,7 @@ function renderCurrentStudentExercise() {
                     }
 
                     saveStudentCurrentExerciseResponses();
-                    checkExerciseCompletion();
-                    updateOneByOneSubmitVisibility({ value: slot.children.length > 0 ? 'filled' : '' });
+                    checkOneByOneItemCompletion();
                 }
             });
         }
@@ -6665,8 +6806,7 @@ function renderCurrentStudentExercise() {
             if (inp) {
                 inp.addEventListener('input', () => {
                     saveStudentCurrentExerciseResponses();
-                    checkExerciseCompletion();
-                    updateOneByOneSubmitVisibility(inp);
+                    checkOneByOneItemCompletion();
                 });
                 inp.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
@@ -6686,8 +6826,7 @@ function renderCurrentStudentExercise() {
             if (inp) {
                 inp.addEventListener('input', () => {
                     saveStudentCurrentExerciseResponses();
-                    checkExerciseCompletion();
-                    updateOneByOneSubmitVisibility(inp);
+                    checkOneByOneItemCompletion();
                 });
                 inp.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
@@ -6702,9 +6841,12 @@ function renderCurrentStudentExercise() {
                 });
             }
         }
+
+        // Check completion state on initial item render
+        checkOneByOneItemCompletion();
     }
     else {
-        // match up (all pairs displayed on one screen)
+        // match up
         let matchState = { selectedTarget: null, selectedEng: null, matchedCount: 0 };
         let shuffledEng = shuffleArray(sents.map((s, idx) => ({ tr: s.tr, id: idx })));
         let shuffledTarget = shuffleArray(sents.map((s, idx) => ({ t: s.t, id: idx })));
@@ -6749,7 +6891,6 @@ function renderCurrentStudentExercise() {
         });
     }
 
-    // AUTO-FOCUS INPUT BOX FOR TYPING
     setTimeout(() => {
         const firstInput = area.querySelector('input.full-typing-input, input.gap-inline-input, input.letter-box');
         if (firstInput && !firstInput.disabled) {
@@ -6992,7 +7133,7 @@ function check_nospace_click(e, element, itemIdx) {
     }
 
     updateNoSpaceCounter(block);
-    checkExerciseCompletion();
+    checkOneByOneItemCompletion();
 }
 function updateNoSpaceCounter(block) {
     if (!block) return;
