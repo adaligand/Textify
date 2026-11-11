@@ -1784,7 +1784,12 @@ let activeAssignmentTransformationsText = null;
 // State variables for Fullscreen controls
 let currentFsFontSize = 28;
 let currentFsWidthPercent = 100;
-
+let studentSubItemIndex = 0;
+let studentOneByOneTimers = [];
+function clearStudentOneByOneTimers() {
+    studentOneByOneTimers.forEach(t => clearInterval(t));
+    studentOneByOneTimers = [];
+}
 
 function initFullscreenToolbar() {
     const fontMinusBtn = document.getElementById('fs-font-minus');
@@ -2047,7 +2052,7 @@ function setupVirtualKeyboard(lang, actType) {
     const bar = document.getElementById('virtual-keyboard-bar');
     if (!bar) return;
 
-    const noKeyboardActivities = ['match', 'nospaces', 'jumbled', 'study', 'gap-en', 'faulty', 'trans-en'];
+   const noKeyboardActivities = ['match', 'nospaces', 'jumbled', 'study', 'gap-en', 'faulty', 'trans-en', 'listen-trad'];
     if (noKeyboardActivities.includes(actType)) {
         bar.style.display = 'none';
         return;
@@ -4315,20 +4320,24 @@ function openActivityMenu() {
     document.getElementById('gc-due-date').value = "";
     document.getElementById('gc-schedule-date').value = "";
 
-    const currentLang = meta.lang || document.getElementById('meta-lang')?.value || "Target Language";
-    const list = [
-        {id:'study', label:'Sentence Table (Reference)'}, 
-        {id:'match', label:'Match up'}, 
-        {id:'nospaces', label:'No Spaces'}, 
-        {id:'jumbled', label:'Unjumble'}, 
-        {id:'gap-en', label:'Gap Fill (English)'}, 
-        {id:'gap-t', label:`Gap Fill (${currentLang})`}, 
-        {id:'vowels', label:'Missing Vowels'}, 
-        {id:'cons', label:'Missing Consonants'}, 
-        {id:'faulty', label:'Faulty Translation'}, 
-        {id:'trans-en', label:'Translate (English)'}, 
-        {id:'trans-target', label:`Translate (${currentLang})`}
-    ];
+const currentLang = meta.lang || document.getElementById('meta-lang')?.value || "Target Language";
+const list = [
+    {id:'study', label:'Sentence Table (Reference)'}, 
+    {id:'match', label:'Match up'}, 
+    {id:'nospaces', label:'No Spaces'}, 
+    {id:'jumbled', label:'Unjumble'}, 
+    {id:'gap-en', label:'Gap Fill (English)'}, 
+    {id:'gap-t', label:`Gap Fill (${currentLang})`}, 
+    {id:'vowels', label:'Missing Vowels'}, 
+    {id:'cons', label:'Missing Consonants'}, 
+    {id:'faulty', label:'Faulty Translation'}, 
+    {id:'trans-en', label:'Translate (English)'}, 
+    {id:'trans-target', label:`Translate (${currentLang})`},
+    {id:'listen-trad', label:'🎧 Listen / Translate'},
+    {id:'listen-dictation', label:'🎧 Listening Dictation'},
+    {id:'delayed-dictation', label:'🎧 Delayed Dictation'},
+    {id:'delayed-copying', label:'Delayed Copying'}
+];
 
     document.getElementById('activity-list').innerHTML = list.map(a => `
         <div class="activity-row" style="padding: 6px 8px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 8px;">
@@ -5292,10 +5301,11 @@ function generateWorksheet() {
         'trans-target': 'Translate the following English sentences into ' + docLang + '.'
     };
 
-    var selected = activityOrder.filter(function(id) {
-        var el = document.getElementById('chk-' + id);
-        return el && el.checked;
-    });
+    // Filter out digital-only listening & delayed activities from print
+var selected = activityOrder.filter(function(id) {
+    var el = document.getElementById('chk-' + id);
+    return el && el.checked && !['listen-trad', 'listen-dictation', 'delayed-dictation', 'delayed-copying'].includes(id);
+});
     
     if (selected.length === 0) return alert("Select at least one activity!");
 
@@ -5825,22 +5835,7 @@ async function publishTaskToClassroom() {
 /* =========================
    STUDENT PORTAL & MARKSHEET REVIEW
 ========================= */
-function getCleanActivityTitle(type, lang) {
-    const map = {
-        'study': 'Sentence Reference Table',
-        'match': 'Match Up',
-        'nospaces': 'No Spaces',
-        'jumbled': 'Unjumble Sentences',
-        'gap-en': 'Gap Fill (English)',
-        'gap-t': `Gap Fill (${lang})`,
-        'vowels': 'Missing Vowels',
-        'cons': 'Missing Consonants',
-        'faulty': 'Faulty Translation',
-        'trans-en': 'Translate to English',
-        'trans-target': `Translate to ${lang}`
-    };
-    return map[type] || type.toUpperCase();
-}
+function getCleanActivityTitle
 
 function getActivityInstruction(type, lang) {
     const map = {
@@ -5854,7 +5849,11 @@ function getActivityInstruction(type, lang) {
         'cons': 'Fill in the missing consonants.',
         'faulty': 'Type the corrected English sentence.',
         'trans-en': `Translate the ${lang} sentence into English.`,
-        'trans-target': `Translate the English sentence into ${lang}.`
+        'trans-target': `Translate the English sentence into ${lang}.`,
+        'listen-trad': 'Listen to the audio and fill in the missing English word.',
+        'listen-dictation': `Listen to the audio and fill in the missing ${lang} word.`,
+        'delayed-dictation': `Listen to the audio,memorise it and fill in the missing ${lang} word.`,
+        'delayed-copying': `Memorise the ${lang} sentence before it disappears, then fill in the missing word.`
     };
     return map[type] || 'Complete the exercise below.';
 }
@@ -6163,7 +6162,11 @@ function isCurrentExerciseCompleted() {
         if (inputs.length === 0) return true;
         return inputs.every(i => i.value.trim().length > 0);
     }
-
+else if (['listen-trad', 'listen-dictation', 'delayed-dictation', 'delayed-copying'].includes(actType)) {
+    const gapInputs = Array.from(area.querySelectorAll('.gap-inline-input'));
+    if (gapInputs.length === 0) return true;
+    return gapInputs.every(i => i.value.trim().length > 0);
+}
     return true;
 }
 async function saveDraftProgress() {
@@ -6273,6 +6276,9 @@ function checkExerciseCompletion() {
    UPDATED STUDENT EXERCISE RENDERER
 ========================= */
 function renderCurrentStudentExercise() {
+clearStudentOneByOneTimers();
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+
     const container = document.getElementById('student-active-exercise-card');
     if (studentExerciseTypes.length === 0) {
         container.innerHTML = '<p>No exercises in this assignment.</p>';
@@ -6287,9 +6293,10 @@ function renderCurrentStudentExercise() {
     setupVirtualKeyboard(docLang, actType);
 
     const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
+    const isOneByOne = ['listen-trad', 'listen-dictation', 'delayed-dictation', 'delayed-copying'].includes(actType);
 
     let html = `
-        <div style="display:flex; justify-space-between; align-items:center; border-bottom:1.5px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1.5px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
             <h3 style="margin:0; font-size:17px; color:#0f172a;">Exercise ${studentCurrentExIndex + 1} of ${studentExerciseTypes.length}: ${actTitle}</h3>
             <span style="background:#e2e8f0; padding:3px 8px; border-radius:12px; font-size:12px; font-weight:bold; color:#475569;">
                 ${sents.length} Items
@@ -6300,8 +6307,67 @@ function renderCurrentStudentExercise() {
     `;
 
     container.innerHTML = html;
-
     const area = document.getElementById('exercise-interactive-area');
+
+    // -------------------------------------------------------------
+    // ONE-BY-ONE ACTIVITIES (Listen/Trad, Listen/Dict, Delayed Dict, Delayed Copying)
+    // -------------------------------------------------------------
+    if (isOneByOne) {
+        if (studentSubItemIndex >= sents.length) studentSubItemIndex = 0;
+        const currentSent = sents[studentSubItemIndex];
+        const targetText = currentSent.t || '';
+        const englishText = cleanEnglishText(currentSent.tr || '');
+        const safeTarget = targetText.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+        let cardContentHTML = '';
+
+        if (actType === 'listen-trad') {
+            const gapEnglish = removeWordsFromSentence(englishText);
+            cardContentHTML = `
+                <div style="text-align:center; padding:15px 0;">
+                    <button type="button" onclick="speakTL('${safeTarget}')" class="btn-purple" style="font-size:16px; padding:10px 24px; margin-bottom:15px;">🔊 Listen Audio</button>
+                    <div style="font-size:22px; font-weight:bold; color:#1e293b; margin-bottom:15px;">${gapEnglish}</div>
+                </div>`;
+        } 
+        else if (actType === 'listen-dictation') {
+            const gapTarget = removeWordsFromSentence(targetText);
+            cardContentHTML = `
+                <div style="text-align:center; padding:15px 0;">
+                    <button type="button" onclick="speakTL('${safeTarget}')" class="btn-purple" style="font-size:16px; padding:10px 24px; margin-bottom:15px;">🔊 Listen Audio</button>
+                    <div style="font-size:22px; font-weight:bold; color:#1e293b; margin-bottom:15px;">${gapTarget}</div>
+                </div>`;
+        } 
+        else if (actType === 'delayed-dictation') {
+            cardContentHTML = `
+                <div id="dd-student-stage" style="text-align:center; padding:15px 0;">
+                    <button type="button" id="dd-play-btn" onclick="runStudentDelayedDictation('${safeTarget}', ${studentSubItemIndex})" class="btn-purple" style="font-size:16px; padding:10px 24px; margin-bottom:15px;">🔊 Start Audio & Timer</button>
+                    <div id="dd-status-text" style="font-size:20px; font-weight:bold; color:#64748b;">Press Start Audio to begin listening.</div>
+                </div>`;
+        } 
+        else if (actType === 'delayed-copying') {
+            cardContentHTML = `
+                <div id="dc-student-stage" style="text-align:center; padding:15px 0;">
+                    <div id="dc-timer-badge" style="font-size:16px; font-weight:bold; color:#8b5cf6; margin-bottom:10px;">⏳ Disappearing in: <span id="dc-sec">7</span>s</div>
+                    <div id="dc-display-text" style="font-size:22px; font-weight:bold; color:#1e293b;">${targetText}</div>
+                </div>`;
+        }
+
+        area.innerHTML = `
+            <div class="student-item-block" data-idx="${studentSubItemIndex}" style="background:white; padding:20px; border-radius:10px; border:1px solid #cbd5e1; box-shadow:0 2px 6px rgba(0,0,0,0.04);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid #f1f5f9; padding-bottom:6px;">
+                    <strong style="color:#64748b; font-size:13px;">Sentence ${studentSubItemIndex + 1} of ${sents.length}</strong>
+                </div>
+                ${cardContentHTML}
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; border-top:1px solid #f1f5f9; padding-top:12px;">
+                    <button type="button" onclick="navigateOneByOneItem(-1)" class="btn-outline" style="font-size:13px;" ${studentSubItemIndex === 0 ? 'disabled' : ''}>⬅️ Previous Sentence</button>
+                    <button type="button" onclick="navigateOneByOneItem(1)" class="btn-purple" style="font-size:13px;" ${studentSubItemIndex === sents.length - 1 ? 'disabled' : ''}>Next Sentence ➡️</button>
+                </div>
+            </div>`;
+
+        if (actType === 'delayed-copying') {
+            runStudentDelayedCopying(targetText, studentSubItemIndex);
+        }
+    }
 
     if (actType === 'match') {
         let matchState = { selectedTarget: null, selectedEng: null, matchedCount: 0 };
@@ -6697,6 +6763,94 @@ function renderCurrentStudentExercise() {
     document.getElementById('student-prev-ex-btn').style.display = (studentCurrentExIndex > 0) ? 'inline-block' : 'none';
     checkExerciseCompletion();
 }
+    function navigateOneByOneItem(direction) {
+    clearStudentOneByOneTimers();
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    
+    const actType = studentExerciseTypes[studentCurrentExIndex];
+    const sents = currentStudentAssignment.sentencesPerActivity[actType] || [];
+
+    studentSubItemIndex += direction;
+    if (studentSubItemIndex < 0) studentSubItemIndex = 0;
+    if (studentSubItemIndex >= sents.length) studentSubItemIndex = sents.length - 1;
+
+    renderCurrentStudentExercise();
+}
+
+function runStudentDelayedDictation(targetText, itemIdx) {
+    clearStudentOneByOneTimers();
+    const playBtn = document.getElementById('dd-play-btn');
+    const statusText = document.getElementById('dd-status-text');
+
+    if (playBtn) playBtn.style.display = 'none';
+    if (statusText) {
+        statusText.style.color = '#8b5cf6';
+        statusText.innerText = '🎧 Listen carefully...';
+    }
+
+    speakTL(targetText, () => {
+        let count = 3;
+        if (statusText) statusText.innerHTML = `🧠 Memorise! <b>${count}</b>s`;
+
+        const timer = setInterval(() => {
+            count--;
+            if (count > 0) {
+                if (statusText) statusText.innerHTML = `🧠 Memorise! <b>${count}</b>s`;
+            } else {
+                clearStudentOneByOneTimers();
+                const gapTarget = removeWordsFromSentence(targetText);
+                if (statusText) {
+                    statusText.style.color = '#000000';
+                    statusText.innerHTML = gapTarget;
+                }
+                const inputs = statusText.querySelectorAll('.gap-inline-input');
+                inputs.forEach(inp => inp.addEventListener('input', checkExerciseCompletion));
+            }
+        }, 1000);
+        studentOneByOneTimers.push(timer);
+    });
+}
+
+function runStudentDelayedCopying(targetText, itemIdx) {
+    clearStudentOneByOneTimers();
+    const badge = document.getElementById('dc-timer-badge');
+    const textEl = document.getElementById('dc-display-text');
+
+    let phase1Count = 7;
+    const timer1 = setInterval(() => {
+        phase1Count--;
+        const secSpan = document.getElementById('dc-sec');
+        if (phase1Count > 0) {
+            if (secSpan) secSpan.innerText = phase1Count;
+        } else {
+            clearStudentOneByOneTimers();
+            let phase2Count = 3;
+            if (badge) badge.style.display = 'none';
+            if (textEl) {
+                textEl.style.color = '#8b5cf6';
+                textEl.innerHTML = `🧠 Memorise! <b>${phase2Count}</b>s`;
+            }
+
+            const timer2 = setInterval(() => {
+                phase2Count--;
+                if (phase2Count > 0) {
+                    if (textEl) textEl.innerHTML = `🧠 Memorise! <b>${phase2Count}</b>s`;
+                } else {
+                    clearStudentOneByOneTimers();
+                    const gapTarget = removeWordsFromSentence(targetText);
+                    if (textEl) {
+                        textEl.style.color = '#000000';
+                        textEl.innerHTML = gapTarget;
+                    }
+                    const inputs = textEl.querySelectorAll('.gap-inline-input');
+                    inputs.forEach(inp => inp.addEventListener('input', checkExerciseCompletion));
+                }
+            }, 1000);
+            studentOneByOneTimers.push(timer2);
+        }
+    }, 1000);
+    studentOneByOneTimers.push(timer1);
+}
 /* =========================
    UPDATED EVENT HELPERS
 ========================= */
@@ -6967,7 +7121,30 @@ function saveStudentCurrentExerciseResponses() {
                 letterValues: letterValues
             });
         });
-    } else if (actType === 'gap-en' || actType === 'gap-t') {
+    } 
+    else if (['listen-trad', 'listen-dictation', 'delayed-dictation', 'delayed-copying'].includes(actType)) {
+    sents.forEach((s, idx) => {
+        const isTarget = (actType !== 'listen-trad');
+        const fullText = isTarget ? s.t : s.tr;
+        const { cleanGap } = extractGapWord(fullText);
+
+        const currentArea = document.getElementById('exercise-interactive-area');
+        const input = currentArea ? currentArea.querySelector('.gap-inline-input') : null;
+        const ans = (input && studentSubItemIndex === idx) ? input.value.trim() : (studentAnswersState[actType]?.[idx]?.studentAnswer || '');
+
+        const isMatch = (normalizeString(ans) === normalizeString(cleanGap));
+        const points = isMatch ? 1.0 : 0.0;
+
+        responses.push({
+            prompt: isTarget ? s.tr : s.t,
+            studentAnswer: ans || '(Empty)',
+            correctAnswer: cleanGap || fullText,
+            isCorrect: points === 1.0,
+            points: points
+        });
+    });
+}
+    else if (actType === 'gap-en' || actType === 'gap-t') {
         area.querySelectorAll('.student-item-block').forEach((block, idx) => {
             const s = sents[idx];
             const input = block.querySelector('.gap-inline-input');
@@ -7178,19 +7355,23 @@ async function duplicateCurrentAssignmentToClass() {
     window.duplicatingAssignmentLang = assign.lang || null;
 
     const currentLang = assign.lang || meta.lang || "Target Language";
-    const list = [
-        {id:'study', label:'Sentence Table (Reference)'}, 
-        {id:'match', label:'Match up'}, 
-        {id:'nospaces', label:'No Spaces'}, 
-        {id:'jumbled', label:'Unjumble'}, 
-        {id:'gap-en', label:'Gap Fill (English)'}, 
-        {id:'gap-t', label:`Gap Fill (${currentLang})`}, 
-        {id:'vowels', label:'Missing Vowels'}, 
-        {id:'cons', label:'Missing Consonants'}, 
-        {id:'faulty', label:'Faulty Translation'}, 
-        {id:'trans-en', label:'Translate (English)'}, 
-        {id:'trans-target', label:`Translate (${currentLang})`}
-    ];
+  const list = [
+    {id:'study', label:'Sentence Table (Reference)'}, 
+    {id:'match', label:'Match up'}, 
+    {id:'nospaces', label:'No Spaces'}, 
+    {id:'jumbled', label:'Unjumble'}, 
+    {id:'gap-en', label:'Gap Fill (English)'}, 
+    {id:'gap-t', label:`Gap Fill (${currentLang})`}, 
+    {id:'vowels', label:'Missing Vowels'}, 
+    {id:'cons', label:'Missing Consonants'}, 
+    {id:'faulty', label:'Faulty Translation'}, 
+    {id:'trans-en', label:'Translate (English)'}, 
+    {id:'trans-target', label:`Translate (${currentLang})`},
+    {id:'listen-trad', label:'🎧 Listen / Translate'},
+    {id:'listen-dictation', label:'🎧 Listening Dictation'},
+    {id:'delayed-dictation', label:'🎧 Delayed Dictation'},
+    {id:'delayed-copying', label:'Delayed Copying'}
+];
 
     document.getElementById('activity-list').innerHTML = list.map(a => `
         <div class="activity-row">
@@ -7675,18 +7856,22 @@ async function editCurrentAssignment() {
 
     const currentLang = assign.lang || meta.lang || "Target Language";
     const list = [
-        {id:'study', label:'Sentence Table (Reference)'}, 
-        {id:'match', label:'Match up'}, 
-        {id:'nospaces', label:'No Spaces'}, 
-        {id:'jumbled', label:'Unjumble'}, 
-        {id:'gap-en', label:'Gap Fill (English)'}, 
-        {id:'gap-t', label:`Gap Fill (${currentLang})`}, 
-        {id:'vowels', label:'Missing Vowels'}, 
-        {id:'cons', label:'Missing Consonants'}, 
-        {id:'faulty', label:'Faulty Translation'}, 
-        {id:'trans-en', label:'Translate (English)'}, 
-        {id:'trans-target', label:`Translate (${currentLang})`}
-    ];
+    {id:'study', label:'Sentence Table (Reference)'}, 
+    {id:'match', label:'Match up'}, 
+    {id:'nospaces', label:'No Spaces'}, 
+    {id:'jumbled', label:'Unjumble'}, 
+    {id:'gap-en', label:'Gap Fill (English)'}, 
+    {id:'gap-t', label:`Gap Fill (${currentLang})`}, 
+    {id:'vowels', label:'Missing Vowels'}, 
+    {id:'cons', label:'Missing Consonants'}, 
+    {id:'faulty', label:'Faulty Translation'}, 
+    {id:'trans-en', label:'Translate (English)'}, 
+    {id:'trans-target', label:`Translate (${currentLang})`},
+    {id:'listen-trad', label:'🎧 Listen / Translate'},
+    {id:'listen-dictation', label:'🎧 Listening Dictation'},
+    {id:'delayed-dictation', label:'🎧 Delayed Dictation'},
+    {id:'delayed-copying', label:'Delayed Copying'}
+];
 
     document.getElementById('activity-list').innerHTML = list.map(a => `
         <div class="activity-row">
