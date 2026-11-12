@@ -6052,18 +6052,37 @@ async function loadStudentTask(assignmentId) {
                     } catch (pErr) {}
                 }
 
-                if (draftData) {
-                    studentAnswersState = draftData.studentAnswersState || {};
-                    window.studentCompletedExercises = draftData.studentCompletedExercises || {};
+              if (draftData) {
+    studentAnswersState = draftData.studentAnswersState || {};
+    const restoredCompleted = draftData.studentCompletedExercises || {};
+    window.studentCompletedExercises = {};
 
-                    // Resume on the first uncompleted exercise
-                    const firstUncompletedIdx = studentExerciseTypes.findIndex(act => !window.studentCompletedExercises[act]);
-                    if (firstUncompletedIdx !== -1) {
-                        studentCurrentExIndex = firstUncompletedIdx;
-                    } else if (studentExerciseTypes.length > 0) {
-                        studentCurrentExIndex = studentExerciseTypes.length - 1;
-                    }
-                }
+    studentExerciseTypes.forEach(act => {
+        const sents = perActSentences[act] || [];
+        const resps = studentAnswersState[act] || [];
+        const allItemsValid = sents.length > 0 && resps.length >= sents.length && sents.every((_, idx) => {
+            const r = resps[idx];
+            if (!r || !r.studentAnswer) return false;
+            const ans = r.studentAnswer.trim();
+            if (ans === '' || ans === '(Empty)' || ans.startsWith('(Incomplete') || ans === '(Unmatched)') return false;
+            if ((act === 'nospaces' || act === 'jumbled') && !r.isDone) return false;
+            if ((act === 'vowels' || act === 'cons') && (!Array.isArray(r.letterValues) || r.letterValues.length === 0 || r.letterValues.some(v => !v.trim()))) return false;
+            return true;
+        });
+
+        if (restoredCompleted[act] && allItemsValid) {
+            window.studentCompletedExercises[act] = true;
+        }
+    });
+
+    // Resume on the first uncompleted exercise
+    const firstUncompletedIdx = studentExerciseTypes.findIndex(act => !window.studentCompletedExercises[act]);
+    if (firstUncompletedIdx !== -1) {
+        studentCurrentExIndex = firstUncompletedIdx;
+    } else if (studentExerciseTypes.length > 0) {
+        studentCurrentExIndex = studentExerciseTypes.length - 1;
+    }
+}
             } catch (draftErr) {
                 console.warn("Could not load draft progress:", draftErr);
             }
@@ -6250,7 +6269,7 @@ function isCurrentExerciseCompleted() {
         if (ans === '' || ans === '(Empty)' || ans.startsWith('(Incomplete') || ans === '(Unmatched)') {
             return false;
         }
-        if (actType === 'nospaces' && !resp.isDone) {
+        if ((actType === 'nospaces' || actType === 'jumbled') && !resp.isDone) {
             return false;
         }
         if ((actType === 'vowels' || actType === 'cons') &&
@@ -6260,6 +6279,70 @@ function isCurrentExerciseCompleted() {
     }
 
     return true;
+}
+
+function checkExerciseCompletion() {
+    const navActions = document.getElementById('student-nav-actions');
+    const submitExBtn = document.getElementById('student-submit-ex-btn');
+    const nextBtn = document.getElementById('student-next-ex-btn');
+    const prevExBtn = document.getElementById('student-prev-ex-btn');
+    const submitBtn = document.getElementById('student-submit-btn');
+    if (!nextBtn || !submitBtn || !submitExBtn) return;
+
+    // Always default Final Submit to hidden
+    submitBtn.style.display = 'none';
+
+    const actType = studentExerciseTypes[studentCurrentExIndex];
+    const isLastEx = (studentCurrentExIndex === studentExerciseTypes.length - 1);
+    const isFirstEx = (studentCurrentExIndex === 0);
+
+    // Teacher Preview Mode
+    if (window.isTeacherPreview) {
+        submitExBtn.style.display = 'none';
+        if (prevExBtn) prevExBtn.style.display = isFirstEx ? 'none' : 'inline-block';
+        if (isLastEx) {
+            nextBtn.style.display = 'none';
+            submitBtn.style.display = 'inline-block';
+        } else {
+            nextBtn.style.display = 'inline-block';
+        }
+        if (navActions) navActions.style.display = 'flex';
+        return;
+    }
+
+    // Student Mode
+    if (prevExBtn) prevExBtn.style.display = 'none';
+    const isOneByOne = (actType !== 'match');
+    const isCompletedInFull = isCurrentExerciseCompleted();
+    let isSubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
+
+    // Prevent stale completion flags from unlocking navigation if sentences are incomplete
+    if (isSubmitted && !isCompletedInFull) {
+        window.studentCompletedExercises[actType] = false;
+        isSubmitted = false;
+    }
+
+    if (isSubmitted && isCompletedInFull) {
+        submitExBtn.style.display = 'none';
+        if (isLastEx) {
+            nextBtn.style.display = 'none';
+            submitBtn.style.display = 'inline-block';
+        } else {
+            nextBtn.style.display = 'inline-block';
+        }
+        if (navActions) navActions.style.display = 'flex';
+    } else {
+        nextBtn.style.display = 'none';
+        submitBtn.style.display = 'none';
+
+        if (isOneByOne) {
+            submitExBtn.style.display = 'none';
+            if (navActions) navActions.style.display = 'none';
+        } else {
+            submitExBtn.style.display = isCompletedInFull ? 'inline-block' : 'none';
+            if (navActions) navActions.style.display = isCompletedInFull ? 'flex' : 'none';
+        }
+    }
 }
 async function saveDraftProgress() {
     if (!currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id) return;
@@ -6384,63 +6467,7 @@ function checkOneByOneItemCompletion() {
     submitBtn.style.display = isItemComplete ? 'inline-block' : 'none';
 }
 
-function checkExerciseCompletion() {
-    const navActions = document.getElementById('student-nav-actions');
-    const submitExBtn = document.getElementById('student-submit-ex-btn');
-    const nextBtn = document.getElementById('student-next-ex-btn');
-    const prevExBtn = document.getElementById('student-prev-ex-btn');
-    const submitBtn = document.getElementById('student-submit-btn');
-    if (!nextBtn || !submitBtn || !submitExBtn) return;
 
-    // Always default Final Submit to hidden
-    submitBtn.style.display = 'none';
-
-    const actType = studentExerciseTypes[studentCurrentExIndex];
-    const isSubmitted = !!(window.studentCompletedExercises && window.studentCompletedExercises[actType]);
-    const isLastEx = (studentCurrentExIndex === studentExerciseTypes.length - 1);
-    const isFirstEx = (studentCurrentExIndex === 0);
-
-    // Teacher Preview Mode
-    if (window.isTeacherPreview) {
-        submitExBtn.style.display = 'none';
-        if (prevExBtn) prevExBtn.style.display = isFirstEx ? 'none' : 'inline-block';
-        if (isLastEx) {
-            nextBtn.style.display = 'none';
-            submitBtn.style.display = 'inline-block';
-        } else {
-            nextBtn.style.display = 'inline-block';
-        }
-        if (navActions) navActions.style.display = 'flex';
-        return;
-    }
-
-    // Student Mode
-    if (prevExBtn) prevExBtn.style.display = 'none';
-    const isOneByOne = (actType !== 'match');
-    const isCompletedInFull = isCurrentExerciseCompleted();
-
-    if (isSubmitted && isCompletedInFull) {
-        submitExBtn.style.display = 'none';
-        if (isLastEx) {
-            nextBtn.style.display = 'none';
-            submitBtn.style.display = 'inline-block';
-        } else {
-            nextBtn.style.display = 'inline-block';
-        }
-        if (navActions) navActions.style.display = 'flex';
-    } else {
-        nextBtn.style.display = 'none';
-        submitBtn.style.display = 'none';
-
-        if (isOneByOne) {
-            submitExBtn.style.display = 'none';
-            if (navActions) navActions.style.display = 'none';
-        } else {
-            submitExBtn.style.display = isCompletedInFull ? 'inline-block' : 'none';
-            if (navActions) navActions.style.display = isCompletedInFull ? 'flex' : 'none';
-        }
-    }
-}
     /* =========================================================
    STUDENT GAP-FILL GENERATOR FOR ONE-BY-ONE ACTIVITIES
    ========================================================= */
@@ -6973,12 +7000,15 @@ function runStudentDelayedDictation(targetText, itemIdx) {
                         }
                     });
                 }
+
+                if (window.studentCompletedExercises && window.studentCompletedExercises[actType] && !window.isTeacherPreview) {
+                    lockCurrentExerciseUI();
+                }
             }
         }, 1000);
         studentOneByOneTimers.push(timer);
     });
 }
-
 function runStudentDelayedCopying(targetText, itemIdx) {
     const existingInp = document.querySelector('#dc-student-stage .gap-inline-input');
     const preservedVal = existingInp ? existingInp.value : '';
@@ -7312,9 +7342,11 @@ function saveStudentCurrentExerciseResponses() {
         const block = area.querySelector('.student-item-block');
         if (block) {
             const slot = block.querySelector('.jumble-answer-slot');
+            const bank = block.querySelector('.jumble-word-bank');
             const studentText = slot ? Array.from(slot.querySelectorAll('.jumble-word-tile')).map(t => t.innerText).join(' ').trim() : '';
             const wrongAttempts = parseInt(block.dataset.wrongAttempts || "0", 10);
             const isExactMatch = (normalizeString(studentText) === normalizeString(sents[studentSubItemIndex]?.t || ''));
+            const isDone = !!(bank && bank.children.length === 0);
 
             let points = 0;
             if (isExactMatch) {
@@ -7327,12 +7359,13 @@ function saveStudentCurrentExerciseResponses() {
                 correctAnswer: sents[studentSubItemIndex]?.t || '',
                 isCorrect: points === 1.0,
                 points: points,
-                mistakes: wrongAttempts
+                mistakes: wrongAttempts,
+                isDone: isDone
             };
         }
     } 
     // --- NO SPACES ACTIVITY ---
-   else if (actType === 'nospaces') {
+    else if (actType === 'nospaces') {
         const block = area.querySelector('.student-item-block');
         const s = sents[studentSubItemIndex];
         if (block && s) {
@@ -7404,7 +7437,7 @@ function saveStudentCurrentExerciseResponses() {
             let ans = currentInput ? currentInput.value.trim() : '';
             let correct = currentInput ? (currentInput.dataset.correct || '') : makeStudentGapHTML(fullText, studentSubItemIndex, actType).cleanGap;
 
-            if (!ans && responses[studentSubItemIndex] && responses[studentSubItemIndex].studentAnswer !== '(Empty)') {
+            if (!currentInput && responses[studentSubItemIndex] && responses[studentSubItemIndex].studentAnswer !== '(Empty)') {
                 ans = responses[studentSubItemIndex].studentAnswer;
             }
 
@@ -7490,10 +7523,9 @@ function saveStudentCurrentExerciseResponses() {
         localStorage.setItem(`draft_${currentStudentAssignment.id}`, JSON.stringify(studentAnswersState));
     }
 
-    // ⚡ TRIGGER FIRESTORE CLOUD AUTO-SAVE FOR ALL EXERCISES ⚡
+    // Trigger Firestore cloud auto-save for all exercises
     triggerFirestoreDraftAutoSave();
 }
-
 /* =========================================================
    3. RESTORE DRAFT FROM CLOUD ON ASSIGNMENT OPEN
 ========================================================= */
@@ -7582,13 +7614,12 @@ function normalizeString(str) {
 }
 
 async function submitStudentWork() {
-   if (window.isTeacherPreview) {
+    if (window.isTeacherPreview) {
         alert("👁️ Teacher Preview complete! Returning to Submissions.");
         exitTeacherPreview();
         return;
     }
     if (!currentUser || !currentUser.email) return alert("Please sign in with your school Google account first.");
-    // ... keep the rest of submitStudentWork() unchanged
 
     saveStudentCurrentExerciseResponses();
 
@@ -7629,9 +7660,16 @@ async function submitStudentWork() {
     try {
         await db.collection("submissions").add(subData);
 
-        // Delete draft from Firestore upon final assignment submission
+        // Delete drafts from Firestore and localStorage upon final assignment submission
         const draftId = `${currentStudentAssignment.id}_${currentUser.email.toLowerCase()}`;
+        const uidDraftId = `${currentStudentAssignment.id}_${currentUser.uid || 'anonymous'}`;
         db.collection("student_drafts").doc(draftId).delete().catch(e => console.warn("Draft cleanup failed:", e));
+        db.collection("drafts").doc(uidDraftId).delete().catch(e => console.warn("Cloud draft cleanup failed:", e));
+        localStorage.removeItem(`student_draft_${draftId}`);
+        localStorage.removeItem(`draft_${currentStudentAssignment.id}`);
+
+        window.studentCompletedExercises = {};
+        studentAnswersState = {};
 
         alert("🎉 Activity Submitted Successfully!\nYour work has been submitted to your teacher for review.");
         renderStudentPendingReviewCard(subData);
