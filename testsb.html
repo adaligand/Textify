@@ -8313,7 +8313,7 @@ async function editCurrentAssignment() {
 async function deleteCurrentAssignment() {
     const assignmentId = document.getElementById('sub-filter-assignment').value;
     if (!assignmentId) return alert("Select an assignment first.");
-    if (!confirm("Are you sure you want to delete this assignment?")) return;
+    if (!confirm("Are you sure you want to delete this assignment and all linked student submissions and drafts?")) return;
 
     if (!auth.currentUser) return alert("Please sign in first.");
 
@@ -8334,14 +8334,33 @@ async function deleteCurrentAssignment() {
             }
         }
 
-        // Firestore document deletion
-        await db.collection("assignments").doc(assignmentId).delete();
-        alert("Assignment deleted successfully!");
-        
+        // 1. Query all submissions and drafts linked to this assignment
+        const [submissionsSnap, draftsSnap] = await Promise.all([
+            db.collection("submissions").where("assignmentId", "==", assignmentId).get(),
+            db.collection("drafts").where("assignmentId", "==", assignmentId).get()
+        ]);
+
+        // 2. Collect all document references (assignment + submissions + drafts)
+        const refsToDelete = [
+            db.collection("assignments").doc(assignmentId),
+            ...submissionsSnap.docs.map(d => d.ref),
+            ...draftsSnap.docs.map(d => d.ref)
+        ];
+
+        // 3. Delete in batches (Firestore caps batches at 500 operations)
+        for (let i = 0; i < refsToDelete.length; i += 450) {
+            const batch = db.batch();
+            refsToDelete.slice(i, i + 450).forEach(ref => batch.delete(ref));
+            await batch.commit();
+        }
+
+        alert("Assignment, submissions, and drafts deleted successfully!");
+
         document.getElementById('active-assignment-info').style.display = 'none';
         const courseId = document.getElementById('sub-filter-course').value;
         loadCourseAssignments(courseId);
     } catch (e) {
+        console.error("Error deleting assignment:", e);
         alert("Error deleting assignment: " + e.message);
     }
 }
