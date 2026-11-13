@@ -1841,68 +1841,66 @@ let firestoreAutoSaveTimer = null;
 let hasPendingCloudSave = false;
 
 function getStudentDraftKey(assignmentId) {
-  const email = (currentUser?.email || '').trim().toLowerCase();
-  if (!assignmentId || !email) return null;
-  return `${assignmentId}_${email}`;
+    const email = (currentUser?.email || '').trim().toLowerCase();
+    if (!assignmentId || !email) return null;
+    return `${assignmentId}_${email}`;
 }
 
 function buildDraftPayload(assignmentId) {
-  return {
-    assignmentId,
-    studentEmail: (currentUser?.email || '').trim().toLowerCase(),
-    studentUid: currentUser?.uid || null,
-    answers: studentAnswersState || {},
-    completedExercises: window.completedExercises || {},
-    currentExerciseIndex: window.currentExerciseIndex || 0,
-    currentSubItemIndex: typeof studentSubItemIndex === 'number' ? studentSubItemIndex : 0,
-    updatedAt: Date.now()
-  };
+    return {
+        assignmentId: assignmentId,
+        studentEmail: (currentUser?.email || '').trim().toLowerCase(),
+        studentUid: currentUser?.uid || null,
+        studentAnswersState: studentAnswersState || {},
+        studentCompletedExercises: window.studentCompletedExercises || {},
+        currentExIndex: typeof studentCurrentExIndex === 'number' ? studentCurrentExIndex : 0,
+        currentSubItemIndex: typeof studentSubItemIndex === 'number' ? studentSubItemIndex : 0,
+        updatedAt: Date.now()
+    };
 }
 
-// Call with { immediate: true } when clicking "Submit Exercise"
-// Call with { immediate: false } on every input/selection change
 async function saveDraftProgress({ immediate = false } = {}) {
-  const assignmentId = window.currentAssignmentId; // match your active assignment ID variable
-  const draftKey = getStudentDraftKey(assignmentId);
-  if (!draftKey) return;
+    if (window.isTeacherPreview) return;
 
-  const payload = buildDraftPayload(assignmentId);
+    const assignmentId = currentStudentAssignment?.id;
+    const draftKey = getStudentDraftKey(assignmentId);
+    if (!draftKey) return;
 
-  // 1. Always update localStorage immediately for instant same-browser resilience
-  try {
-    localStorage.setItem(`draft_${assignmentId}`, JSON.stringify(payload));
-  } catch (e) {
-    console.warn('Local draft save failed:', e);
-  }
+    const payload = buildDraftPayload(assignmentId);
 
-  // 2. Sync to Firestore immediately (on Exercise Submit) or debounced (while typing)
-  const writeToFirestore = async () => {
-    clearTimeout(firestoreAutoSaveTimer);
-    firestoreAutoSaveTimer = null;
-    hasPendingCloudSave = false;
-
+    // 1. Save immediately to localStorage using the exact key loadStudentTask() reads
     try {
-      // Adapt to v8 (db.collection('student_drafts').doc(draftKey).set(...)) if using compat SDK
-      await setDoc(doc(db, 'student_drafts', draftKey), payload, { merge: true });
-    } catch (err) {
-      console.error('Firestore draft sync failed:', err);
+        localStorage.setItem(`student_draft_${draftKey}`, JSON.stringify(payload));
+    } catch (e) {
+        console.warn('Local draft save failed:', e);
     }
-  };
 
-  if (immediate) {
-    await writeToFirestore();
-  } else {
-    hasPendingCloudSave = true;
-    clearTimeout(firestoreAutoSaveTimer);
-    firestoreAutoSaveTimer = setTimeout(writeToFirestore, 1500);
-  }
+    // 2. Sync to Firestore (immediately on Exercise Submit, or debounced 1.5s while typing)
+    const writeToFirestore = async () => {
+        clearTimeout(firestoreAutoSaveTimer);
+        firestoreAutoSaveTimer = null;
+        hasPendingCloudSave = false;
+
+        try {
+            await db.collection('student_drafts').doc(draftKey).set(payload, { merge: true });
+        } catch (err) {
+            console.error('Firestore draft sync failed:', err);
+        }
+    };
+
+    if (immediate) {
+        await writeToFirestore();
+    } else {
+        hasPendingCloudSave = true;
+        clearTimeout(firestoreAutoSaveTimer);
+        firestoreAutoSaveTimer = setTimeout(writeToFirestore, 1500);
+    }
 }
 
-// Flush any pending keystrokes if the student closes the tab or switches apps
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden' && hasPendingCloudSave) {
-    saveDraftProgress({ immediate: true });
-  }
+    if (document.visibilityState === 'hidden' && hasPendingCloudSave) {
+        saveDraftProgress({ immediate: true });
+    }
 });
 function triggerFirestoreDraftAutoSave() {
     if (!currentStudentAssignment || !currentStudentAssignment.id || !currentUser || !currentUser.email || window.isTeacherPreview) return;
@@ -1913,35 +1911,7 @@ function triggerFirestoreDraftAutoSave() {
     }, 1500);
 }
 
-async function saveDraftProgress() {
-    if (!currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id || window.isTeacherPreview) return;
 
-    const studentEmail = currentUser.email.toLowerCase();
-    const assignmentId = currentStudentAssignment.id;
-    const draftId = `${assignmentId}_${studentEmail}`;
-
-    const draftPayload = {
-        assignmentId: assignmentId,
-        studentEmail: studentEmail,
-        studentAnswersState: studentAnswersState,
-        studentCompletedExercises: window.studentCompletedExercises || {},
-        currentExIndex: studentCurrentExIndex,
-        currentSubItemIndex: studentSubItemIndex,
-        updatedAt: Date.now()
-    };
-
-    try {
-        localStorage.setItem(`student_draft_${draftId}`, JSON.stringify(draftPayload));
-    } catch (lsErr) {
-        console.warn("LocalStorage save error:", lsErr);
-    }
-
-    try {
-        await db.collection("drafts").doc(draftId).set(draftPayload, { merge: true });
-    } catch (e) {
-        console.warn("Could not save draft progress to Firestore:", e);
-    }
-}
 function clearStudentOneByOneTimers() {
     studentOneByOneTimers.forEach(t => {
         clearInterval(t);
@@ -6444,12 +6414,14 @@ async function submitCurrentExercise() {
     const actType = studentExerciseTypes[studentCurrentExIndex];
     if (!isCurrentExerciseCompleted()) return;
 
+    const innerSubmitBtn = document.getElementById('one-by-one-submit-btn');
+    if (innerSubmitBtn) innerSubmitBtn.disabled = true;
+
     saveStudentCurrentExerciseResponses();
     window.studentCompletedExercises[actType] = true;
-    await saveDraftProgress();
+    await saveDraftProgress({ immediate: true });
     lockCurrentExerciseUI();
 
-    const innerSubmitBtn = document.getElementById('one-by-one-submit-btn');
     if (innerSubmitBtn) innerSubmitBtn.style.display = 'none';
 
     checkExerciseCompletion();
@@ -7571,13 +7543,8 @@ function saveStudentCurrentExerciseResponses() {
         }
     }
 
-    // Save to local storage cache immediately
-    if (currentStudentAssignment && currentStudentAssignment.id) {
-        localStorage.setItem(`draft_${currentStudentAssignment.id}`, JSON.stringify(studentAnswersState));
-    }
-
-    // Trigger Firestore cloud auto-save for all exercises
-    triggerFirestoreDraftAutoSave();
+// Save full payload immediately to localStorage and debounce Firestore sync (1.5s)
+    saveDraftProgress({ immediate: false });
 }
 
 function nextStudentExercise() {
