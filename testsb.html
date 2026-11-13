@@ -1837,7 +1837,73 @@ let currentFsWidthPercent = 100;
 let studentSubItemIndex = 0;
 let studentOneByOneTimers = [];
 let firestoreDraftTimer = null;
+let firestoreAutoSaveTimer = null;
+let hasPendingCloudSave = false;
 
+function getStudentDraftKey(assignmentId) {
+  const email = (currentUser?.email || '').trim().toLowerCase();
+  if (!assignmentId || !email) return null;
+  return `${assignmentId}_${email}`;
+}
+
+function buildDraftPayload(assignmentId) {
+  return {
+    assignmentId,
+    studentEmail: (currentUser?.email || '').trim().toLowerCase(),
+    studentUid: currentUser?.uid || null,
+    answers: studentAnswersState || {},
+    completedExercises: window.completedExercises || {},
+    currentExerciseIndex: window.currentExerciseIndex || 0,
+    currentSubItemIndex: typeof studentSubItemIndex === 'number' ? studentSubItemIndex : 0,
+    updatedAt: Date.now()
+  };
+}
+
+// Call with { immediate: true } when clicking "Submit Exercise"
+// Call with { immediate: false } on every input/selection change
+async function saveDraftProgress({ immediate = false } = {}) {
+  const assignmentId = window.currentAssignmentId; // match your active assignment ID variable
+  const draftKey = getStudentDraftKey(assignmentId);
+  if (!draftKey) return;
+
+  const payload = buildDraftPayload(assignmentId);
+
+  // 1. Always update localStorage immediately for instant same-browser resilience
+  try {
+    localStorage.setItem(`draft_${assignmentId}`, JSON.stringify(payload));
+  } catch (e) {
+    console.warn('Local draft save failed:', e);
+  }
+
+  // 2. Sync to Firestore immediately (on Exercise Submit) or debounced (while typing)
+  const writeToFirestore = async () => {
+    clearTimeout(firestoreAutoSaveTimer);
+    firestoreAutoSaveTimer = null;
+    hasPendingCloudSave = false;
+
+    try {
+      // Adapt to v8 (db.collection('student_drafts').doc(draftKey).set(...)) if using compat SDK
+      await setDoc(doc(db, 'student_drafts', draftKey), payload, { merge: true });
+    } catch (err) {
+      console.error('Firestore draft sync failed:', err);
+    }
+  };
+
+  if (immediate) {
+    await writeToFirestore();
+  } else {
+    hasPendingCloudSave = true;
+    clearTimeout(firestoreAutoSaveTimer);
+    firestoreAutoSaveTimer = setTimeout(writeToFirestore, 1500);
+  }
+}
+
+// Flush any pending keystrokes if the student closes the tab or switches apps
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && hasPendingCloudSave) {
+    saveDraftProgress({ immediate: true });
+  }
+});
 function triggerFirestoreDraftAutoSave() {
     // Skip if no assignment active, no student logged in, or in Teacher Preview mode
     if (!currentStudentAssignment || !currentStudentAssignment.id || window.isTeacherPreview) return;
@@ -5959,7 +6025,6 @@ function getActivityInstruction(type, lang) {
     };
     return map[type] || 'Complete the exercise below.';
 }
-
 async function loadStudentTask(assignmentId) {
     window.isTeacherPreview = false;
     const previewBanner = document.getElementById('teacher-preview-banner');
@@ -5974,16 +6039,16 @@ async function loadStudentTask(assignmentId) {
 
         currentStudentAssignment = doc.data();
         currentStudentAssignment.id = assignmentId;
-        
+
         const taskTitleEl = document.getElementById('student-task-title');
         if (taskTitleEl) taskTitleEl.innerText = currentStudentAssignment.title || "Interactive Practice";
 
         const selectedActivities = currentStudentAssignment.selectedActivities || [];
         studentExerciseTypes = selectedActivities.filter(a => a !== 'study');
-       studentCurrentExIndex = 0;
-    studentSubItemIndex = 0;
-    studentAnswersState = {};
-    window.studentCompletedExercises = {};
+        studentCurrentExIndex = 0;
+        studentSubItemIndex = 0;
+        studentAnswersState = {};
+        window.studentCompletedExercises = {};
 
         const perActSentences = currentStudentAssignment.sentencesPerActivity || {};
         const hasStudySelected = selectedActivities.includes('study');
@@ -5991,13 +6056,13 @@ async function loadStudentTask(assignmentId) {
         if (hasStudySelected && perActSentences['study'] && perActSentences['study'].length > 0) {
             const refBanner = document.getElementById('student-reference-banner');
             if (refBanner) refBanner.style.display = 'block';
-            
+
             let refHtml = '<table style="width:100%; border-collapse:collapse;"><thead><tr><th>Target Language</th><th>English Translation</th></tr></thead><tbody>';
             perActSentences['study'].forEach(s => {
                 refHtml += `<tr><td><b>${s.t}</b></td><td>${s.tr}</td></tr>`;
             });
             refHtml += '</tbody></table>';
-            
+
             const refBody = document.getElementById('ref-table-body');
             if (refBody) refBody.innerHTML = refHtml;
         } else {
@@ -6046,43 +6111,55 @@ async function loadStudentTask(assignmentId) {
                 if (localDraftRaw) {
                     try {
                         const localDraft = JSON.parse(localDraftRaw);
-                        if (!draftData || (localDraft.studentCompletedExercises && Object.keys(localDraft.studentCompletedExercises).length >= Object.keys(draftData.studentCompletedExercises || {}).length)) {
+                        if (!draftData || (localDraft.updatedAt || 0) > (draftData.updatedAt || 0)) {
                             draftData = localDraft;
                         }
                     } catch (pErr) {}
                 }
 
-              if (draftData) {
-    studentAnswersState = draftData.studentAnswersState || {};
-    const restoredCompleted = draftData.studentCompletedExercises || {};
-    window.studentCompletedExercises = {};
+                if (draftData) {
+                    studentAnswersState = draftData.studentAnswersState || {};
+                    const restoredCompleted = draftData.studentCompletedExercises || {};
+                    window.studentCompletedExercises = {};
 
-    studentExerciseTypes.forEach(act => {
-        const sents = perActSentences[act] || [];
-        const resps = studentAnswersState[act] || [];
-        const allItemsValid = sents.length > 0 && resps.length >= sents.length && sents.every((_, idx) => {
-            const r = resps[idx];
-            if (!r || !r.studentAnswer) return false;
-            const ans = r.studentAnswer.trim();
-            if (ans === '' || ans === '(Empty)' || ans.startsWith('(Incomplete') || ans === '(Unmatched)') return false;
-            if ((act === 'nospaces' || act === 'jumbled') && !r.isDone) return false;
-            if ((act === 'vowels' || act === 'cons') && (!Array.isArray(r.letterValues) || r.letterValues.length === 0 || r.letterValues.some(v => !v.trim()))) return false;
-            return true;
-        });
+                    studentExerciseTypes.forEach(act => {
+                        const sents = perActSentences[act] || [];
+                        const resps = studentAnswersState[act] || [];
+                        const allItemsValid = sents.length > 0 && resps.length >= sents.length && sents.every((_, idx) => {
+                            const r = resps[idx];
+                            if (!r || !r.studentAnswer) return false;
+                            const ans = r.studentAnswer.trim();
+                            if (ans === '' || ans === '(Empty)' || ans.startsWith('(Incomplete') || ans === '(Unmatched)') return false;
+                            if ((act === 'nospaces' || act === 'jumbled') && !r.isDone) return false;
+                            if ((act === 'vowels' || act === 'cons') && (!Array.isArray(r.letterValues) || r.letterValues.length === 0 || r.letterValues.some(v => !v.trim()))) return false;
+                            return true;
+                        });
 
-        if (restoredCompleted[act] && allItemsValid) {
-            window.studentCompletedExercises[act] = true;
-        }
-    });
+                        if (restoredCompleted[act] && allItemsValid) {
+                            window.studentCompletedExercises[act] = true;
+                        }
+                    });
 
-    // Resume on the first uncompleted exercise
-    const firstUncompletedIdx = studentExerciseTypes.findIndex(act => !window.studentCompletedExercises[act]);
-    if (firstUncompletedIdx !== -1) {
-        studentCurrentExIndex = firstUncompletedIdx;
-    } else if (studentExerciseTypes.length > 0) {
-        studentCurrentExIndex = studentExerciseTypes.length - 1;
-    }
-}
+                    // Resume on the first uncompleted exercise
+                    const firstUncompletedIdx = studentExerciseTypes.findIndex(act => !window.studentCompletedExercises[act]);
+                    if (firstUncompletedIdx !== -1) {
+                        studentCurrentExIndex = firstUncompletedIdx;
+                    } else if (studentExerciseTypes.length > 0) {
+                        studentCurrentExIndex = studentExerciseTypes.length - 1;
+                    }
+
+                    // Restore exact sentence/question index within that exercise
+                    const activeAct = studentExerciseTypes[studentCurrentExIndex];
+                    const activeSents = perActSentences[activeAct] || [];
+                    if (
+                        draftData.currentExIndex === studentCurrentExIndex &&
+                        typeof draftData.currentSubItemIndex === 'number' &&
+                        draftData.currentSubItemIndex >= 0 &&
+                        draftData.currentSubItemIndex < activeSents.length
+                    ) {
+                        studentSubItemIndex = draftData.currentSubItemIndex;
+                    }
+                }
             } catch (draftErr) {
                 console.warn("Could not load draft progress:", draftErr);
             }
@@ -6099,7 +6176,6 @@ async function loadStudentTask(assignmentId) {
         if (navActions) navActions.style.display = 'flex';
 
         renderCurrentStudentExercise();
-
     } catch (err) {
         console.error("Critical Error Loading Task:", err);
         alert("Error loading assignment task: " + err.message);
@@ -7528,59 +7604,78 @@ function saveStudentCurrentExerciseResponses() {
 /* =========================================================
    3. RESTORE DRAFT FROM CLOUD ON ASSIGNMENT OPEN
 ========================================================= */
-async function loadStudentAssignmentProgress(assignmentId, studentId) {
-    const docId = `${assignmentId}_${studentId}`;
+async function loadStudentAssignmentProgress(assignmentId, studentEmail) {
+    const cleanEmail = (studentEmail || '').trim().toLowerCase();
+    const docId = cleanEmail ? `${assignmentId}_${cleanEmail}` : null;
 
-    try {
-        const draftDoc = await db.collection('drafts').doc(docId).get();
-        if (draftDoc.exists) {
-            const data = draftDoc.data();
-            studentAnswersState = data.studentAnswersState || {};
-            window.studentCompletedExercises = data.completedExercises || {};
-            console.log("✅ Cloud draft restored from Firestore.");
-            return;
+    let cloudData = null;
+    let localData = null;
+
+    // 1. Fetch cloud draft from student_drafts
+    if (docId) {
+        try {
+            const draftDoc = await db.collection('student_drafts').doc(docId).get();
+            if (draftDoc.exists) {
+                cloudData = draftDoc.data();
+            }
+        } catch (e) {
+            console.warn("Could not fetch cloud draft from Firestore:", e);
         }
-    } catch (e) {
-        console.warn("Could not fetch cloud draft from Firestore, falling back to localStorage.", e);
     }
 
-    const localDraft = localStorage.getItem(`draft_${assignmentId}`);
-    if (localDraft) {
+    // 2. Fetch local draft from localStorage
+    const rawLocal = localStorage.getItem(`draft_${assignmentId}`);
+    if (rawLocal) {
         try {
-            studentAnswersState = JSON.parse(localDraft);
-            console.log("📱 Restored draft from local storage.");
+            localData = JSON.parse(rawLocal);
         } catch (err) {
             console.error("Local draft parse error:", err);
         }
     }
+
+    // 3. Pick whichever draft was saved most recently
+    if (!cloudData && !localData) return;
+
+    const useCloud = cloudData && (!localData || (cloudData.updatedAt || 0) >= (localData.updatedAt || 0));
+    const draft = useCloud ? cloudData : localData;
+
+    studentAnswersState = draft.studentAnswersState || draft.answers || {};
+    window.studentCompletedExercises = draft.completedExercises || {};
+    if (typeof draft.currentSubItemIndex === 'number') {
+        studentSubItemIndex = draft.currentSubItemIndex;
+    }
+
+    console.log(useCloud ? "✅ Cloud draft restored from Firestore." : "📱 Restored draft from local storage.");
 }
-   async function loadStudentAssignmentProgress(assignmentId, studentId) {
-    const docId = `${assignmentId}_${studentId}`;
+    async function restoreStudentDraft(assignmentId) {
+  const draftKey = getStudentDraftKey(assignmentId);
+  let localDraft = null;
+  let cloudDraft = null;
 
+  try {
+    const rawLocal = localStorage.getItem(`draft_${assignmentId}`);
+    if (rawLocal) localDraft = JSON.parse(rawLocal);
+  } catch (e) {
+    console.warn('Could not parse local draft:', e);
+  }
+
+  if (draftKey) {
     try {
-        // Attempt to fetch saved draft document from Firestore
-        const draftDoc = await db.collection('drafts').doc(docId).get();
-        if (draftDoc.exists) {
-            const data = draftDoc.data();
-            studentAnswersState = data.studentAnswersState || {};
-            window.studentCompletedExercises = data.completedExercises || {};
-            console.log("✅ Cloud draft restored from Firestore.");
-            return;
-        }
-    } catch (e) {
-        console.warn("Could not fetch cloud draft from Firestore, falling back to localStorage.", e);
+      // Adapt to v8 (db.collection('student_drafts').doc(draftKey).get()) if using compat SDK
+      const snap = await getDoc(doc(db, 'student_drafts', draftKey));
+      if (snap.exists()) {
+        cloudDraft = snap.data();
+      }
+    } catch (err) {
+      console.error('Could not load Firestore draft:', err);
     }
+  }
 
-    // Fallback to local storage if offline or no cloud draft exists
-    const localDraft = localStorage.getItem(`draft_${assignmentId}`);
-    if (localDraft) {
-        try {
-            studentAnswersState = JSON.parse(localDraft);
-            console.log("📱 Restored draft from local storage.");
-        } catch (err) {
-            console.error("Local draft parse error:", err);
-        }
-    }
+  // Pick whichever draft was saved most recently
+  if (!localDraft && !cloudDraft) return null;
+  if (!localDraft) return cloudDraft;
+  if (!cloudDraft) return localDraft;
+  return (cloudDraft.updatedAt || 0) >= (localDraft.updatedAt || 0) ? cloudDraft : localDraft;
 }
 function nextStudentExercise() {
     if (!window.isTeacherPreview) {
