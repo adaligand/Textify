@@ -8338,23 +8338,74 @@ async function syncAllClassroomGrades() {
     const assignmentId = document.getElementById('sub-filter-assignment').value;
     if (!assignmentId) return alert("Select an assignment first.");
 
-    const snap = await db.collection("submissions").where("assignmentId", "==", assignmentId).get();
-    if (snap.empty) return alert("No student submissions found to sync.");
+    const syncBtn = document.getElementById('sync-all-classroom-grades-btn');
+    const originalBtnText = syncBtn ? syncBtn.innerHTML : '🔄 Sync Grades to Classroom';
 
-    let synced = 0;
-    let errors = 0;
+    try {
+        if (syncBtn) {
+            syncBtn.disabled = true;
+            syncBtn.innerHTML = '⏳ Syncing all grades...';
+        }
 
-    for (let doc of snap.docs) {
-        try {
-            await saveAndSyncGrade(doc.id);
-            synced++;
-        } catch (e) {
-            errors++;
-            console.error(`Failed to sync submission ${doc.id}:`, e);
+        const snap = await db.collection("submissions").where("assignmentId", "==", assignmentId).get();
+        if (snap.empty) return alert("No student submissions found to sync.");
+
+        // Pre-fetch assignment details and Classroom roster once for the whole class
+        const assignDoc = await db.collection("assignments").doc(assignmentId).get();
+        const assign = assignDoc.exists ? assignDoc.data() : null;
+
+        let rosterStudents = null;
+        if (assign && assign.courseId && assign.gClassroomAssignmentId) {
+            const isLoaded = await ensureGapiClassroomLoaded();
+            if (isLoaded) {
+                try {
+                    const rosterRes = await gapi.client.classroom.courses.students.list({
+                        courseId: assign.courseId
+                    });
+                    rosterStudents = rosterRes.result.students || [];
+                } catch (rErr) {
+                    console.warn("Could not fetch course roster:", rErr);
+                }
+            }
+        }
+
+        let synced = 0;
+        let errors = 0;
+        const errorNotes = [];
+
+        for (let doc of snap.docs) {
+            const result = await saveAndSyncGrade(doc.id, {
+                silent: true,
+                preloadedAssign: assign,
+                preloadedRoster: rosterStudents
+            });
+
+            if (result && result.success) {
+                synced++;
+            } else {
+                errors++;
+                if (result && result.message) {
+                    errorNotes.push(`• ${result.message}`);
+                }
+                console.error(`Failed to sync submission ${doc.id}:`, result?.message);
+            }
+        }
+
+        let summaryMsg = `✅ Sync finished! ${synced} grade(s) synced successfully.`;
+        if (errors > 0) {
+            summaryMsg += `\n⚠️ ${errors} failed/skipped:\n${errorNotes.join('\n')}`;
+        }
+        alert(summaryMsg);
+
+    } catch (err) {
+        console.error("Whole-class sync error:", err);
+        alert("Error syncing class grades: " + (err.message || "Unknown error"));
+    } finally {
+        if (syncBtn) {
+            syncBtn.disabled = false;
+            syncBtn.innerHTML = originalBtnText;
         }
     }
-    
-    alert(`Sync finished! ${synced} grade(s) synced successfully${errors > 0 ? `, ${errors} failed` : ''}.`);
 }
 
 
@@ -8471,12 +8522,17 @@ async function saveItemizedMarks(subId) {
     }
 }
 
-async function saveAndSyncGrade(subId) {
+async function saveAndSyncGrade(subId, options = {}) {
+    const { silent = false, preloadedAssign = null, preloadedRoster = null } = options;
+
     const gradeInput = document.getElementById(`grade-${subId}`);
     const possibleInput = document.getElementById(`possible-${subId}`);
     const commentInput = document.getElementById(`comment-${subId}`);
 
-    if (!gradeInput || !possibleInput) return alert("Grade inputs not found.");
+    if (!gradeInput || !possibleInput) {
+        if (!silent) alert("Grade inputs not found.");
+        return { success: false, message: "Grade inputs not found" };
+    }
 
     const gradeVal = parseFloat(gradeInput.value) || 0;
     const possibleVal = parseFloat(possibleInput.value) || 1;
@@ -8494,39 +8550,51 @@ async function saveAndSyncGrade(subId) {
         });
 
         const subDoc = await db.collection("submissions").doc(subId).get();
-        if (!subDoc.exists) return alert("Submission not found in database.");
-        const sub = subDoc.data();
-
-        const assignDoc = await db.collection("assignments").doc(sub.assignmentId).get();
-        if (!assignDoc.exists) {
-            alert("Grade saved locally! (Assignment record not found).");
-            return;
+        if (!subDoc.exists) {
+            if (!silent) alert("Submission not found in database.");
+            return { success: false, message: "Submission not found in database" };
         }
-        const assign = assignDoc.data();
+        const sub = subDoc.data();
+        const studentLabel = sub.studentName || sub.studentEmail || subId;
+
+        let assign = preloadedAssign;
+        if (!assign) {
+            const assignDoc = await db.collection("assignments").doc(sub.assignmentId).get();
+            if (!assignDoc.exists) {
+                if (!silent) alert("Grade saved locally! (Assignment record not found).");
+                return { success: false, message: `${studentLabel}: Assignment record not found` };
+            }
+            assign = assignDoc.data();
+        }
 
         if (!assign.courseId || !assign.gClassroomAssignmentId) {
-            alert("Grade saved locally! (Not linked to Google Classroom).");
-            return;
+            if (!silent) alert("Grade saved locally! (Not linked to Google Classroom).");
+            return { success: false, message: `${studentLabel}: Not linked to Google Classroom` };
         }
 
         const isLoaded = await ensureGapiClassroomLoaded();
         if (!isLoaded) {
-            alert("Grade saved locally! Could not connect to Google Classroom API.");
-            return;
+            if (!silent) alert("Grade saved locally! Could not connect to Google Classroom API.");
+            return { success: false, message: `${studentLabel}: Could not connect to Google Classroom API` };
         }
 
         let studentUserId = null;
-        try {
-            const rosterRes = await gapi.client.classroom.courses.students.list({
-                courseId: assign.courseId
-            });
-            const students = rosterRes.result.students || [];
-            const found = students.find(st => st.profile && st.profile.emailAddress && st.profile.emailAddress.toLowerCase() === sub.studentEmail.toLowerCase());
-            if (found) {
-                studentUserId = found.userId;
+        let students = preloadedRoster;
+        if (!students) {
+            try {
+                const rosterRes = await gapi.client.classroom.courses.students.list({
+                    courseId: assign.courseId
+                });
+                students = rosterRes.result.students || [];
+            } catch (rErr) {
+                console.warn("Could not fetch course roster:", rErr);
+                students = [];
             }
-        } catch (rErr) {
-            console.warn("Could not fetch course roster:", rErr);
+        }
+
+        const found = students.find(st => st.profile && st.profile.emailAddress && st.profile.emailAddress.toLowerCase() === sub.studentEmail.toLowerCase());
+        if (found) {
+            studentUserId = found.userId;
         }
 
         if (!studentUserId) {
@@ -8541,8 +8609,8 @@ async function saveAndSyncGrade(subId) {
 
         const gcSubs = listRes.result.studentSubmissions || [];
         if (gcSubs.length === 0) {
-            alert("Grade saved locally! Student submission not found in Google Classroom.");
-            return;
+            if (!silent) alert("Grade saved locally! Student submission not found in Google Classroom.");
+            return { success: false, message: `${studentLabel}: Not found in Google Classroom` };
         }
 
         const studentGcSubId = gcSubs[0].id;
@@ -8571,10 +8639,17 @@ async function saveAndSyncGrade(subId) {
             }
         }
 
-        alert(`✅ Grade (${gradeVal}/${possibleVal}) synced to Google Classroom for ${sub.studentName}!`);
+        if (!silent) {
+            alert(`✅ Grade (${gradeVal}/${possibleVal}) synced to Google Classroom for ${sub.studentName}!`);
+        }
+        return { success: true };
+
     } catch (err) {
         console.error("Sync Error:", err);
-        alert("Error syncing to Google Classroom: " + (err.message || "Unknown error"));
+        if (!silent) {
+            alert("Error syncing to Google Classroom: " + (err.message || "Unknown error"));
+        }
+        return { success: false, message: `${subId}: ${err.message || "Unknown error"}` };
     }
 }
 
