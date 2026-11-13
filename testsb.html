@@ -1905,32 +1905,42 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 function triggerFirestoreDraftAutoSave() {
-    // Skip if no assignment active, no student logged in, or in Teacher Preview mode
-    if (!currentStudentAssignment || !currentStudentAssignment.id || window.isTeacherPreview) return;
+    if (!currentStudentAssignment || !currentStudentAssignment.id || !currentUser || !currentUser.email || window.isTeacherPreview) return;
 
     clearTimeout(firestoreDraftTimer);
+    firestoreDraftTimer = setTimeout(() => {
+        saveDraftProgress();
+    }, 1500);
+}
 
-    firestoreDraftTimer = setTimeout(async () => {
-        try {
-            const studentId = (typeof currentStudentUser !== 'undefined' && currentStudentUser) 
-                ? currentStudentUser.uid 
-                : (window.currentStudentId || 'anonymous');
+async function saveDraftProgress() {
+    if (!currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id || window.isTeacherPreview) return;
 
-            const docId = `${currentStudentAssignment.id}_${studentId}`;
+    const studentEmail = currentUser.email.toLowerCase();
+    const assignmentId = currentStudentAssignment.id;
+    const draftId = `${assignmentId}_${studentEmail}`;
 
-            await db.collection('drafts').doc(docId).set({
-                assignmentId: currentStudentAssignment.id,
-                studentId: studentId,
-                studentAnswersState: studentAnswersState,
-                completedExercises: window.studentCompletedExercises || {},
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+    const draftPayload = {
+        assignmentId: assignmentId,
+        studentEmail: studentEmail,
+        studentAnswersState: studentAnswersState,
+        studentCompletedExercises: window.studentCompletedExercises || {},
+        currentExIndex: studentCurrentExIndex,
+        currentSubItemIndex: studentSubItemIndex,
+        updatedAt: Date.now()
+    };
 
-            console.log("☁️ Draft saved to Firestore cloud.");
-        } catch (err) {
-            console.error("Firestore draft save error:", err);
-        }
-    }, 1500); // 1.5-second debounce delay
+    try {
+        localStorage.setItem(`student_draft_${draftId}`, JSON.stringify(draftPayload));
+    } catch (lsErr) {
+        console.warn("LocalStorage save error:", lsErr);
+    }
+
+    try {
+        await db.collection("drafts").doc(draftId).set(draftPayload, { merge: true });
+    } catch (e) {
+        console.warn("Could not save draft progress to Firestore:", e);
+    }
 }
 function clearStudentOneByOneTimers() {
     studentOneByOneTimers.forEach(t => {
@@ -6099,7 +6109,7 @@ async function loadStudentTask(assignmentId) {
                 let draftData = null;
 
                 try {
-                    const draftDoc = await db.collection("student_drafts").doc(draftId).get();
+                   const draftDoc = await db.collection("drafts").doc(draftId).get();
                     if (draftDoc.exists) {
                         draftData = draftDoc.data();
                     }
@@ -6417,39 +6427,7 @@ function checkExerciseCompletion() {
         }
     }
 }
-async function saveDraftProgress() {
-    if (!currentUser || !currentUser.email || !currentStudentAssignment || !currentStudentAssignment.id) return;
 
-    const studentEmail = currentUser.email.toLowerCase();
-    const assignmentId = currentStudentAssignment.id;
-    const draftId = `${assignmentId}_${studentEmail}`;
-
-    const draftPayload = {
-        assignmentId: assignmentId,
-        studentEmail: studentEmail,
-        studentAnswersState: studentAnswersState,
-        studentCompletedExercises: window.studentCompletedExercises || {},
-        lastUpdatedIndex: studentCurrentExIndex,
-        updatedAt: new Date().toISOString()
-    };
-
-    // 1. Instant local persistence fallback
-    try {
-        localStorage.setItem(`student_draft_${draftId}`, JSON.stringify(draftPayload));
-    } catch (lsErr) {
-        console.warn("LocalStorage save error:", lsErr);
-    }
-
-    // 2. Cloud Firestore persistence
-    try {
-        await db.collection("student_drafts").doc(draftId).set({
-            ...draftPayload,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-    } catch (e) {
-        console.warn("Could not save draft progress to Firestore:", e);
-    }
-}
 
 function lockCurrentExerciseUI() {
     const area = document.getElementById('exercise-interactive-area');
@@ -7601,82 +7579,7 @@ function saveStudentCurrentExerciseResponses() {
     // Trigger Firestore cloud auto-save for all exercises
     triggerFirestoreDraftAutoSave();
 }
-/* =========================================================
-   3. RESTORE DRAFT FROM CLOUD ON ASSIGNMENT OPEN
-========================================================= */
-async function loadStudentAssignmentProgress(assignmentId, studentEmail) {
-    const cleanEmail = (studentEmail || '').trim().toLowerCase();
-    const docId = cleanEmail ? `${assignmentId}_${cleanEmail}` : null;
 
-    let cloudData = null;
-    let localData = null;
-
-    // 1. Fetch cloud draft from student_drafts
-    if (docId) {
-        try {
-            const draftDoc = await db.collection('student_drafts').doc(docId).get();
-            if (draftDoc.exists) {
-                cloudData = draftDoc.data();
-            }
-        } catch (e) {
-            console.warn("Could not fetch cloud draft from Firestore:", e);
-        }
-    }
-
-    // 2. Fetch local draft from localStorage
-    const rawLocal = localStorage.getItem(`draft_${assignmentId}`);
-    if (rawLocal) {
-        try {
-            localData = JSON.parse(rawLocal);
-        } catch (err) {
-            console.error("Local draft parse error:", err);
-        }
-    }
-
-    // 3. Pick whichever draft was saved most recently
-    if (!cloudData && !localData) return;
-
-    const useCloud = cloudData && (!localData || (cloudData.updatedAt || 0) >= (localData.updatedAt || 0));
-    const draft = useCloud ? cloudData : localData;
-
-    studentAnswersState = draft.studentAnswersState || draft.answers || {};
-    window.studentCompletedExercises = draft.completedExercises || {};
-    if (typeof draft.currentSubItemIndex === 'number') {
-        studentSubItemIndex = draft.currentSubItemIndex;
-    }
-
-    console.log(useCloud ? "✅ Cloud draft restored from Firestore." : "📱 Restored draft from local storage.");
-}
-    async function restoreStudentDraft(assignmentId) {
-  const draftKey = getStudentDraftKey(assignmentId);
-  let localDraft = null;
-  let cloudDraft = null;
-
-  try {
-    const rawLocal = localStorage.getItem(`draft_${assignmentId}`);
-    if (rawLocal) localDraft = JSON.parse(rawLocal);
-  } catch (e) {
-    console.warn('Could not parse local draft:', e);
-  }
-
-  if (draftKey) {
-    try {
-      // Adapt to v8 (db.collection('student_drafts').doc(draftKey).get()) if using compat SDK
-      const snap = await getDoc(doc(db, 'student_drafts', draftKey));
-      if (snap.exists()) {
-        cloudDraft = snap.data();
-      }
-    } catch (err) {
-      console.error('Could not load Firestore draft:', err);
-    }
-  }
-
-  // Pick whichever draft was saved most recently
-  if (!localDraft && !cloudDraft) return null;
-  if (!localDraft) return cloudDraft;
-  if (!cloudDraft) return localDraft;
-  return (cloudDraft.updatedAt || 0) >= (localDraft.updatedAt || 0) ? cloudDraft : localDraft;
-}
 function nextStudentExercise() {
     if (!window.isTeacherPreview) {
         const actType = studentExerciseTypes[studentCurrentExIndex];
@@ -7756,11 +7659,9 @@ async function submitStudentWork() {
 
         // Delete drafts from Firestore and localStorage upon final assignment submission
         const draftId = `${currentStudentAssignment.id}_${currentUser.email.toLowerCase()}`;
-        const uidDraftId = `${currentStudentAssignment.id}_${currentUser.uid || 'anonymous'}`;
-        db.collection("student_drafts").doc(draftId).delete().catch(e => console.warn("Draft cleanup failed:", e));
-        db.collection("drafts").doc(uidDraftId).delete().catch(e => console.warn("Cloud draft cleanup failed:", e));
-        localStorage.removeItem(`student_draft_${draftId}`);
-        localStorage.removeItem(`draft_${currentStudentAssignment.id}`);
+db.collection("drafts").doc(draftId).delete().catch(e => console.warn("Draft cleanup failed:", e));
+localStorage.removeItem(`student_draft_${draftId}`);
+localStorage.removeItem(`draft_${currentStudentAssignment.id}`);
 
         window.studentCompletedExercises = {};
         studentAnswersState = {};
