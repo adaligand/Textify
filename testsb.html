@@ -1902,6 +1902,12 @@ document.addEventListener('visibilitychange', () => {
         saveDraftProgress({ immediate: true });
     }
 });
+    // 1. Add this helper next to saveDraftProgress()
+function cancelPendingDraftSave() {
+    clearTimeout(firestoreAutoSaveTimer);
+    firestoreAutoSaveTimer = null;
+    hasPendingCloudSave = false;
+}
 function triggerFirestoreDraftAutoSave() {
     if (!currentStudentAssignment || !currentStudentAssignment.id || !currentUser || !currentUser.email || window.isTeacherPreview) return;
 
@@ -7628,11 +7634,17 @@ async function submitStudentWork() {
     try {
         await db.collection("submissions").add(subData);
 
-        // Delete drafts from Firestore and localStorage upon final assignment submission
-        const draftId = `${currentStudentAssignment.id}_${currentUser.email.toLowerCase()}`;
-db.collection("drafts").doc(draftId).delete().catch(e => console.warn("Draft cleanup failed:", e));
-localStorage.removeItem(`student_draft_${draftId}`);
-localStorage.removeItem(`draft_${currentStudentAssignment.id}`);
+        // Cancel any queued 1.5s auto-save BEFORE deleting so it doesn't recreate the draft
+        cancelPendingDraftSave();
+
+        const draftId = getStudentDraftKey(currentStudentAssignment.id);
+        if (draftId) {
+            localStorage.removeItem(`student_draft_${draftId}`);
+            localStorage.removeItem(`draft_${currentStudentAssignment.id}`);
+            await db.collection("drafts").doc(draftId).delete().catch(e => {
+                console.warn("Draft cleanup failed:", e);
+            });
+        }
 
         window.studentCompletedExercises = {};
         studentAnswersState = {};
