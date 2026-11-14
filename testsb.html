@@ -1621,14 +1621,15 @@ th { background: #f1f5f9; color: #334155; }
         Enter rules (one per line):
     </p>
    <ul style="font-size: 11px; color: #64748b; margin: 0 0 8px 0; padding-left: 16px; flex-shrink: 0;">
-        <li><b>word1 word2=word3</b> (replaces sequence)</li>
-        <li><b>word1+word3=replacement</b> (replaces outer words around middle text)</li>
+        <li><b>word1 word2=word3</b> (replaces sequence. eg. Have eaten=ate)</li>
+        <li><b>word1+word3=replacement</b> (replaces words around another. eg. like+not=don't like)</li>
+        <li><b>word1$word2=replacement</b> (replaces/deletes word2 when preceded by word1 eg. Je$fatigué(e)(s)=fatigué)</li>
         <li><b>word=</b> (deletes)</li>
-        <li><b>word1*word2</b> (excludes combo)</li>
+        <li><b>word1*word2</b> (excludes combo of two words. eg. J'aime*ennuyeux)</li>
     </ul>
    <textarea id="transformations-input" 
     style="flex: 1; min-height: 180px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: monospace; font-size: 12px; outline: none; resize: none;" 
-    placeholder="Have eaten=ate&#10;like+not=don't like&#10;(m)=&#10;n'est pas*assez" 
+    placeholder="Have eaten=ate&#10;like+not=don't like&#10;Je$fatigué(e)(s)=fatigué&#10;Je$(e)(s)=&#10;(m)=&#10;n'est pas*assez" 
     oninput="transformationsText = this.value;"></textarea>
 </div>
         </div> <!-- Closes Right Column -->
@@ -4509,8 +4510,30 @@ function applyTransformations(text, rulesText) {
         if (find) {
             const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\.]/g, '\\$&');
 
-            // 1. Split / Discontinuous rule: word1+word3=replacement
-            if (find.includes('+')) {
+            // 1. Triggered / Conditional rule: trigger$target=replacement
+            if (find.includes('$')) {
+                const subParts = find.split('$').map(s => s.trim());
+                if (subParts.length === 2 && subParts[0] && subParts[1]) {
+                    const [w1, w2] = subParts;
+                    let p1 = escapeReg(w1);
+                    let p2 = escapeReg(w2);
+
+                    if (/^[\w\u00C0-\u024F]/.test(w1)) p1 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p1;
+                    if (/[\w\u00C0-\u024F]$/.test(w1)) p1 = p1 + '(?![a-zA-Z0-9\u00C0-\u024F])';
+
+                    if (/^[\w\u00C0-\u024F]/.test(w2)) p2 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p2;
+                    if (/[\w\u00C0-\u024F]$/.test(w2)) p2 = p2 + '(?![a-zA-Z0-9\u00C0-\u024F])';
+
+                    const regex = new RegExp(`(${p1}.*?)${p2}`, 'gi');
+                    let prev, guard = 0;
+                    do {
+                        prev = text;
+                        text = text.replace(regex, (match, prefix) => prefix + replace);
+                    } while (text !== prev && ++guard < 20);
+                }
+            }
+            // 2. Split / Discontinuous rule: word1+word3=replacement
+            else if (find.includes('+')) {
                 const subParts = find.split('+').map(s => s.trim());
                 if (subParts.length === 2 && subParts[0] && subParts[1]) {
                     const [w1, w3] = subParts;
@@ -4527,7 +4550,7 @@ function applyTransformations(text, rulesText) {
                     text = text.replace(regex, `${replace} $1`);
                 }
             } 
-            // 2. Standard replace / delete rule
+            // 3. Standard replace / delete rule
             else {
                 let pattern = escapeReg(find);
 
