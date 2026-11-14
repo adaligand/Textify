@@ -8849,31 +8849,39 @@ function playGridTimerEndSound() {
         const ctx = new AudioCtx();
         if (ctx.state === 'suspended') ctx.resume();
 
-        // Soft-limiter maximizes RMS loudness right up to 0 dBFS without harsh clipping
+        // Low-pass filter removes harsh high frequencies while keeping full mid-range body
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1400, ctx.currentTime);
+        filter.Q.setValueAtTime(0.7, ctx.currentTime);
+
+        // Soft-limiter preserves the high volume without clipping or buzz
         const shaper = ctx.createWaveShaper();
         const curve = new Float32Array(44100);
         for (let i = 0; i < 44100; i++) {
             const x = (i * 2) / 44100 - 1;
-            curve[i] = Math.tanh(2.5 * x) / Math.tanh(2.5);
+            curve[i] = Math.tanh(2.2 * x) / Math.tanh(2.2);
         }
         shaper.curve = curve;
         shaper.oversample = '2x';
 
         const masterGain = ctx.createGain();
         masterGain.gain.setValueAtTime(1.0, ctx.currentTime);
+
+        filter.connect(shaper);
         shaper.connect(masterGain);
         masterGain.connect(ctx.destination);
 
-        // High-presence octave (C6 - E6 - G6 - C7) for maximum speaker & classroom projection
-        const notes = [1046.50, 1318.51, 1567.98, 1046.50, 1318.51, 2093.00];
+        // Warm, lower G-major chime (G4 - B4 - D5 - G5) instead of shrill C6-C7
+        const notes = [392.00, 493.88, 587.33, 783.99];
         notes.forEach((freq, idx) => {
-            const startTime = ctx.currentTime + idx * 0.22;
-            const duration = idx === notes.length - 1 ? 0.75 : 0.20;
+            const startTime = ctx.currentTime + idx * 0.24;
+            const duration = idx === notes.length - 1 ? 1.15 : 0.50;
 
             [
-                { type: 'square', mult: 1, gain: 0.55 },
-                { type: 'triangle', mult: 1, gain: 0.75 },
-                { type: 'sine', mult: 2, gain: 0.45 }
+                { type: 'sine', mult: 1, gain: 0.90 },
+                { type: 'triangle', mult: 1, gain: 0.55 },
+                { type: 'sine', mult: 2, gain: 0.20 }
             ].forEach(({ type, mult, gain: peakGain }) => {
                 const osc = ctx.createOscillator();
                 const gain = ctx.createGain();
@@ -8881,27 +8889,26 @@ function playGridTimerEndSound() {
                 osc.type = type;
                 osc.frequency.setValueAtTime(freq * mult, startTime);
 
+                // Smooth bell/marimba strike and resonant decay
                 gain.gain.setValueAtTime(0.001, startTime);
-                gain.gain.exponentialRampToValueAtTime(peakGain, startTime + 0.01);
-                gain.gain.setValueAtTime(peakGain * 0.9, startTime + duration * 0.7);
+                gain.gain.exponentialRampToValueAtTime(peakGain, startTime + 0.015);
                 gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
 
                 osc.connect(gain);
-                gain.connect(shaper);
+                gain.connect(filter);
 
                 osc.start(startTime);
-                osc.stop(startTime + duration + 0.02);
+                osc.stop(startTime + duration + 0.03);
             });
         });
 
         setTimeout(() => {
             if (ctx.state !== 'closed') ctx.close().catch(() => {});
-        }, 2600);
+        }, 2300);
     } catch (e) {
         console.warn("Audio alert blocked or unavailable:", e);
     }
 }
-
 function getGridConfiguredSeconds() {
     const minsEl = document.getElementById('cd-grid-mins');
     const secsEl = document.getElementById('cd-grid-secs');
