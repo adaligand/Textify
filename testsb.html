@@ -4441,12 +4441,68 @@ function speakTL(text, onEndCallback = null) {
 
     window.speechSynthesis.speak(utterance);
 }
+/* =========================
+   PREVIEW & OPTIONS MENU
+========================= */
 function openPreview() {
-    const sentences = getAssembledSentences();
-    const content = sentences.map((s, i) => `<div class="preview-sentence">${i+1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`).join('');
-    document.getElementById('preview-content').innerHTML = content || "No content yet.";
-    document.getElementById('preview-modal').style.display = 'block';
-    document.getElementById('overlay').style.display = 'block';
+    const modal = document.getElementById('preview-modal');
+    const overlay = document.getElementById('overlay');
+    const content = document.getElementById('preview-content');
+    const titleEl = modal ? modal.querySelector('h3') : null;
+
+    if (titleEl) {
+        titleEl.innerHTML = 'Sentence List Preview';
+    }
+    if (content) {
+        content.innerHTML = '<div class="preview-sentence" style="color:#64748b;">⏳ Generating sentence list...</div>';
+    }
+    if (overlay) overlay.style.display = 'block';
+    if (modal) modal.style.display = 'block';
+
+    requestAnimationFrame(() => {
+        setTimeout(() => {
+            const sentences = getAssembledSentences();
+            if (!content) return;
+
+            if (titleEl) {
+                const countLabel = sentences.length === 1 ? '1 sentence' : `${sentences.length} sentences`;
+                titleEl.innerHTML = `Sentence List Preview <span style="font-size: 14px; font-weight: 600; color: #64748b; margin-left: 8px;">(${countLabel})</span>`;
+            }
+
+            if (!sentences || sentences.length === 0) {
+                content.innerHTML = "No content yet.";
+                return;
+            }
+
+            const renderRange = (start, end) => {
+                let html = '';
+                for (let i = start; i < end; i++) {
+                    const s = sentences[i];
+                    html += `<div class="preview-sentence">${i + 1}. <b>${s.t}</b> <span class="tr-text">(${s.tr})</span></div>`;
+                }
+                return html;
+            };
+
+            const FIRST_BATCH = 300;
+            const firstEnd = Math.min(sentences.length, FIRST_BATCH);
+            content.innerHTML = renderRange(0, firstEnd);
+
+            let cursor = firstEnd;
+            function appendRemaining() {
+                if (cursor >= sentences.length || modal.style.display === 'none') return;
+                const nextEnd = Math.min(sentences.length, cursor + 600);
+                content.insertAdjacentHTML('beforeend', renderRange(cursor, nextEnd));
+                cursor = nextEnd;
+                if (cursor < sentences.length) {
+                    requestAnimationFrame(appendRemaining);
+                }
+            }
+
+            if (cursor < sentences.length) {
+                requestAnimationFrame(appendRemaining);
+            }
+        }, 0);
+    });
 }
 
 function openActivityMenu() {
@@ -4500,8 +4556,11 @@ const list = [
     document.getElementById('overlay').style.display = 'block';
 }
 
-function applyTransformations(text, rulesText) {
-    if (!text || !rulesText) return text;
+function compileTransformationRules(rulesText) {
+    const compiled = [];
+    if (!rulesText) return compiled;
+
+    const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\.]/g, '\\$&');
     const lines = rulesText.split('\n');
 
     for (let line of lines) {
@@ -4512,7 +4571,6 @@ function applyTransformations(text, rulesText) {
         let find = rawLine.substring(0, eqIdx);
         let replace = rawLine.substring(eqIdx + 1);
 
-        // If formatted as "find = replace" with surrounding spaces, strip 1 formatting space from each side
         if (find.endsWith(' ') && replace.startsWith(' ')) {
             find = find.slice(0, -1).trim();
             replace = replace.slice(1);
@@ -4520,66 +4578,208 @@ function applyTransformations(text, rulesText) {
             find = find.trim();
         }
 
-        if (find) {
-            const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\.]/g, '\\$&');
+        if (!find) continue;
 
-            // 1. Triggered / Conditional rule: trigger$target=replacement
-            if (find.includes('$')) {
-                const subParts = find.split('$').map(s => s.trim());
-                if (subParts.length === 2 && subParts[0] && subParts[1]) {
-                    const [w1, w2] = subParts;
-                    let p1 = escapeReg(w1);
-                    let p2 = escapeReg(w2);
+        if (find.includes('$')) {
+            const subParts = find.split('$').map(s => s.trim());
+            if (subParts.length === 2 && subParts[0] && subParts[1]) {
+                const [w1, w2] = subParts;
+                let p1 = escapeReg(w1);
+                let p2 = escapeReg(w2);
 
-                    if (/^[\w\u00C0-\u024F]/.test(w1)) p1 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p1;
-                    if (/[\w\u00C0-\u024F]$/.test(w1)) p1 = p1 + '(?![a-zA-Z0-9\u00C0-\u024F])';
+                if (/^[\w\u00C0-\u024F]/.test(w1)) p1 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p1;
+                if (/[\w\u00C0-\u024F]$/.test(w1)) p1 = p1 + '(?![a-zA-Z0-9\u00C0-\u024F])';
+                if (/^[\w\u00C0-\u024F]/.test(w2)) p2 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p2;
+                if (/[\w\u00C0-\u024F]$/.test(w2)) p2 = p2 + '(?![a-zA-Z0-9\u00C0-\u024F])';
 
-                    if (/^[\w\u00C0-\u024F]/.test(w2)) p2 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p2;
-                    if (/[\w\u00C0-\u024F]$/.test(w2)) p2 = p2 + '(?![a-zA-Z0-9\u00C0-\u024F])';
-
-                    const regex = new RegExp(`(${p1}.*?)${p2}`, 'gi');
-                    let prev, guard = 0;
-                    do {
-                        prev = text;
-                        text = text.replace(regex, (match, prefix) => prefix + replace);
-                    } while (text !== prev && ++guard < 20);
-                }
+                compiled.push({ type: 'trigger', regex: new RegExp(`(${p1}.*?)${p2}`, 'gi'), replace });
             }
-            // 2. Split / Discontinuous rule: word1+word3=replacement
-            else if (find.includes('+')) {
-                const subParts = find.split('+').map(s => s.trim());
-                if (subParts.length === 2 && subParts[0] && subParts[1]) {
-                    const [w1, w3] = subParts;
-                    let p1 = escapeReg(w1);
-                    let p3 = escapeReg(w3);
+        } else if (find.includes('+')) {
+            const subParts = find.split('+').map(s => s.trim());
+            if (subParts.length === 2 && subParts[0] && subParts[1]) {
+                const [w1, w3] = subParts;
+                let p1 = escapeReg(w1);
+                let p3 = escapeReg(w3);
 
-                    if (/^[\w\u00C0-\u024F]/.test(w1)) p1 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p1;
-                    if (/[\w\u00C0-\u024F]$/.test(w1)) p1 = p1 + '(?![a-zA-Z0-9\u00C0-\u024F])';
+                if (/^[\w\u00C0-\u024F]/.test(w1)) p1 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p1;
+                if (/[\w\u00C0-\u024F]$/.test(w1)) p1 = p1 + '(?![a-zA-Z0-9\u00C0-\u024F])';
+                if (/^[\w\u00C0-\u024F]/.test(w3)) p3 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p3;
+                if (/[\w\u00C0-\u024F]$/.test(w3)) p3 = p3 + '(?![a-zA-Z0-9\u00C0-\u024F])';
 
-                    if (/^[\w\u00C0-\u024F]/.test(w3)) p3 = '(?<![a-zA-Z0-9\u00C0-\u024F])' + p3;
-                    if (/[\w\u00C0-\u024F]$/.test(w3)) p3 = p3 + '(?![a-zA-Z0-9\u00C0-\u024F])';
-
-                    const regex = new RegExp(`${p1}\\s+(.+?)\\s+${p3}`, 'gi');
-                    text = text.replace(regex, `${replace} $1`);
-                }
-            } 
-            // 3. Standard replace / delete rule
-            else {
-                let pattern = escapeReg(find);
-
-                if (/^[\w\u00C0-\u024F]/.test(find)) {
-                    pattern = '(?<![a-zA-Z0-9\u00C0-\u024F])' + pattern;
-                }
-                if (/[\w\u00C0-\u024F]$/.test(find)) {
-                    pattern = pattern + '(?![a-zA-Z0-9\u00C0-\u024F])';
-                }
-
-                const regex = new RegExp(pattern, 'gi');
-                text = text.replace(regex, replace);
+                compiled.push({ type: 'split', regex: new RegExp(`${p1}\\s+(.+?)\\s+${p3}`, 'gi'), replace: `${replace} $1` });
             }
+        } else {
+            let pattern = escapeReg(find);
+            if (/^[\w\u00C0-\u024F]/.test(find)) pattern = '(?<![a-zA-Z0-9\u00C0-\u024F])' + pattern;
+            if (/[\w\u00C0-\u024F]$/.test(find)) pattern = pattern + '(?![a-zA-Z0-9\u00C0-\u024F])';
+
+            compiled.push({ type: 'std', regex: new RegExp(pattern, 'gi'), replace });
+        }
+    }
+    return compiled;
+}
+
+function compileExclusionRegexes(rulesText) {
+    const compiled = [];
+    if (!rulesText) return compiled;
+
+    const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\]/g, '\\$&');
+    for (let line of rulesText.split('\n')) {
+        line = line.trim();
+        if (!line || line.includes('=') || !line.includes('*')) continue;
+        const tokens = line.split('*').map(t => t.trim()).filter(Boolean);
+        if (tokens.length >= 2) {
+            compiled.push(new RegExp(tokens.map(escapeReg).join('.*?'), 'i'));
+        }
+    }
+    return compiled;
+}
+
+function applyCompiledTransformations(text, compiledRules) {
+    if (!text || !compiledRules || compiledRules.length === 0) return text;
+    for (let i = 0; i < compiledRules.length; i++) {
+        const rule = compiledRules[i];
+        if (rule.type === 'trigger') {
+            let prev, guard = 0;
+            do {
+                prev = text;
+                text = text.replace(rule.regex, (match, prefix) => prefix + rule.replace);
+            } while (text !== prev && ++guard < 20);
+        } else {
+            text = text.replace(rule.regex, rule.replace);
         }
     }
     return text.replace(/\s+/g, ' ').trim();
+}
+
+/* =========================
+   SENTENCE ASSEMBLY & TRANSFORMATIONS
+========================= */
+function compileTransformRules(rulesText) {
+    const compiled = [];
+    if (!rulesText) return compiled;
+
+    // Escape regex special characters and match both straight (') and curly (’) apostrophes
+    const escapeFlex = s => s
+        .replace(/[-[\]{}()*+?^$|#\s\\.]/g, '\\$&')
+        .replace(/['’]/g, "['’]");
+
+    const addBounds = (raw, pat) => {
+        if (/^[\w\u00C0-\u024F]/.test(raw)) pat = '(?<![a-zA-Z0-9\u00C0-\u024F])' + pat;
+        if (/[\w\u00C0-\u024F]$/.test(raw)) pat = pat + '(?![a-zA-Z0-9\u00C0-\u024F])';
+        return pat;
+    };
+
+    for (let line of rulesText.split('\n')) {
+        const rawLine = line.replace(/[\r\n]/g, '');
+        if (!rawLine.trim() || !rawLine.includes('=')) continue;
+
+        const eqIdx = rawLine.indexOf('=');
+        let find = rawLine.substring(0, eqIdx);
+        let replace = rawLine.substring(eqIdx + 1);
+
+        if (find.endsWith(' ') && replace.startsWith(' ')) {
+            find = find.slice(0, -1).trim();
+            replace = replace.slice(1);
+        } else {
+            find = find.trim();
+        }
+        if (!find) continue;
+
+        // 1. Trigger rule: word1$word2=replacement
+        if (find.includes('$')) {
+            const subParts = find.split('$').map(s => s.trim());
+            if (subParts.length === 2 && subParts[0] && subParts[1]) {
+                const [w1, w2] = subParts;
+                const p1 = addBounds(w1, escapeFlex(w1));
+                const p2 = addBounds(w2, escapeFlex(w2));
+                compiled.push({
+                    type: 'trigger',
+                    regex: new RegExp(`(${p1}.*?)${p2}`, 'gi'),
+                    replace
+                });
+            }
+        }
+        // 2. Discontinuous rule: word1+word3=replacement
+        else if (find.includes('+')) {
+            const subParts = find.split('+').map(s => s.trim());
+            if (subParts.length === 2 && subParts[0] && subParts[1]) {
+                const [w1, w3] = subParts;
+                const p1 = addBounds(w1, escapeFlex(w1));
+                const p3 = addBounds(w3, escapeFlex(w3));
+                compiled.push({
+                    type: 'split',
+                    regex: new RegExp(`${p1}\\s+(.+?)\\s+${p3}`, 'gi'),
+                    replace: `${replace} $1`
+                });
+            }
+        }
+        // 3. Standard replace / delete rule: word1=word2
+        else {
+            compiled.push({
+                type: 'std',
+                regex: new RegExp(addBounds(find, escapeFlex(find)), 'gi'),
+                replace
+            });
+        }
+    }
+    return compiled;
+}
+
+function runCompiledTransforms(text, compiledRules) {
+    if (!text || !compiledRules || compiledRules.length === 0) return text;
+    for (let i = 0; i < compiledRules.length; i++) {
+        const rule = compiledRules[i];
+        if (rule.type === 'trigger') {
+            let prev, guard = 0;
+            do {
+                prev = text;
+                text = text.replace(rule.regex, (match, prefix) => prefix + rule.replace);
+            } while (text !== prev && ++guard < 20);
+        } else {
+            text = text.replace(rule.regex, rule.replace);
+        }
+    }
+    return text.replace(/\s+/g, ' ').trim();
+}
+
+function applyTransformations(text, rulesText) {
+    if (!text || !rulesText) return text;
+    return runCompiledTransforms(text, compileTransformRules(rulesText));
+}
+
+function compileExclusionRules(rulesText) {
+    const compiled = [];
+    if (!rulesText) return compiled;
+
+    const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\]/g, '\\$&');
+    for (let line of rulesText.split('\n')) {
+        line = line.trim();
+        if (!line || line.includes('=') || !line.includes('*')) continue;
+        const tokens = line.split('*').map(t => t.trim()).filter(Boolean);
+        if (tokens.length >= 2) {
+            compiled.push(new RegExp(tokens.map(escapeReg).join('.*?'), 'i'));
+        }
+    }
+    return compiled;
+}
+
+function runCompiledTransforms(text, compiledRules) {
+    if (!text || !compiledRules || compiledRules.length === 0) return text;
+    for (let i = 0; i < compiledRules.length; i++) {
+        text = text.replace(compiledRules[i].regex, compiledRules[i].replace);
+    }
+    return text.replace(/\s+/g, ' ').trim();
+}
+
+function applyTransformations(text, rulesText) {
+    if (!text || !rulesText) return text;
+    return runCompiledTransforms(text, compileTransformRules(rulesText));
+}
+
+function shouldExcludeSentence(text, rulesText) {
+    if (!text || !rulesText) return false;
+    return compileExclusionRules(rulesText).some(rx => rx.test(text));
 }
 
 function getAssembledSentences(customGridContext = null) {
@@ -4596,9 +4796,15 @@ function getAssembledSentences(customGridContext = null) {
     }
 
     let targetGrid = (ctx && ctx.grid) ? ctx.grid : grid;
+    if (!targetGrid || !targetGrid.length || !targetGrid[0]) return [];
+
     let targetRules = (ctx && ctx.transformationsText !== undefined)
         ? ctx.transformationsText
         : (activeAssignmentTransformationsText !== null ? activeAssignmentTransformationsText : (document.getElementById('transformations-input')?.value || transformationsText || ""));
+
+    const compiledTransforms = compileTransformRules(targetRules);
+    const compiledExclusions = compileExclusionRules(targetRules);
+    const memo = new Map();
 
     let allSentences = [];
     for (let r = 0; r < targetGrid.length; r++) {
@@ -4606,7 +4812,7 @@ function getAssembledSentences(customGridContext = null) {
             let cell = targetGrid[r][0];
             let rSpan = cell.rS || 1;
             for (let subR = r; subR < r + rSpan; subR++) {
-                let paths = findPaths(r, 0, subR, ctx);
+                let paths = findPaths(r, 0, subR, ctx, memo);
                 paths.forEach(p => { p.originRow = subR; });
                 allSentences = allSentences.concat(paths);
             }
@@ -4615,42 +4821,27 @@ function getAssembledSentences(customGridContext = null) {
 
     const unique = [];
     const seen = new Set();
-    allSentences.forEach(s => {
-        if (shouldExcludeSentence(s.t, targetRules) || shouldExcludeSentence(s.tr, targetRules)) return;
+    for (let i = 0; i < allSentences.length; i++) {
+        const s = allSentences[i];
+        if (compiledExclusions.some(rx => rx.test(s.t) || rx.test(s.tr))) continue;
 
-        s.t = cleanSentenceSpacing(applyTransformations(s.t, targetRules));
-        s.tr = cleanSentenceSpacing(applyTransformations(s.tr, targetRules));
+        const cleanT = cleanSentenceSpacing(runCompiledTransforms(s.t, compiledTransforms));
+        const cleanTr = cleanSentenceSpacing(runCompiledTransforms(s.tr, compiledTransforms));
 
-        const text = s.t.trim();
-        if (text && !seen.has(text)) {
-            unique.push(s);
-            seen.add(text);
-        }
-    });
-    return unique;
-}
-// Checks for exclusion rules using '*' (e.g., word1 * word2)
-function shouldExcludeSentence(text, rulesText) {
-    if (!text || !rulesText) return false;
-    const lines = rulesText.split('\n');
-    
-    for (let line of lines) {
-        line = line.trim();
-        if (!line || line.includes('=')) continue;
-
-        // Lines with '*' (and no '=') are treated as exclusion rules
-        if (line.includes('*')) {
-            const tokens = line.split('*').map(t => t.trim()).filter(Boolean);
-            if (tokens.length >= 2) {
-                const escapeReg = s => s.replace(/[-[\]{}()*+?^$|#\s\\]/g, '\\$&');
-                // Matches token 1 followed anywhere later by token 2
-                const pattern = tokens.map(escapeReg).join('.*?');
-                if (new RegExp(pattern, 'i').test(text)) return true;
-            }
+        if (cleanT && !seen.has(cleanT)) {
+            unique.push({
+                t: cleanT,
+                tr: cleanTr,
+                parts: s.parts,
+                details: s.details,
+                originRow: s.originRow
+            });
+            seen.add(cleanT);
         }
     }
-    return false;
+    return unique;
 }
+
 /* =========================
    PATH VALIDATION ENGINE
 ========================= */
@@ -4662,9 +4853,11 @@ function isPathValid(partsMeta, ctx = null) {
     const exPairs = (ctx && ctx.excludedPairs !== undefined) ? ctx.excludedPairs : (activeAssignmentExcludedPairs !== null ? activeAssignmentExcludedPairs : excludedPairs);
     const reqCombos = (ctx && ctx.requiredCombos !== undefined) ? ctx.requiredCombos : (activeAssignmentRequiredCombos !== null ? activeAssignmentRequiredCombos : requiredCombos);
 
-    const contentParts = partsMeta.filter(p => !p.isBridge);
-    const routeKey = contentParts.map(p => `${p.r + 1}.${p.c + 1}`).join('+');
-    if (dRoutes && dRoutes.includes(routeKey)) return false;
+    if (dRoutes && dRoutes.length > 0) {
+        const contentParts = partsMeta.filter(p => !p.isBridge);
+        const routeKey = contentParts.map(p => `${p.r + 1}.${p.c + 1}`).join('+');
+        if (dRoutes.includes(routeKey)) return false;
+    }
 
     if (exCombos && exCombos.length > 0) {
         for (let combo of exCombos) {
@@ -4693,19 +4886,26 @@ function isPathValid(partsMeta, ctx = null) {
 
     return true;
 }
+
 /* =========================================================
-   PATH ENGINE WITH TALL CELLS & BRIDGE/EMPTY COLUMN TRAVERSAL
+   PATH ENGINE WITH MEMOIZATION & BRIDGE/EMPTY COLUMN TRAVERSAL
    ========================================================= */
 function cleanSentenceSpacing(str) {
     if (!str) return "";
     return str
-        .replace(/\s+([.,!?:;])/g, '$1')                // Removes space before punctuation ("père ." -> "père.")
-        .replace(/([a-zA-ZÀ-ÿ\u00C0-\u024F]')\s+/g, '$1')  // Removes space after apostrophes ("d' un" -> "d'un")
-        .replace(/\s+/g, ' ')                          // Collapses multiple spaces
+        .replace(/\s+([.,!?:;])/g, '$1')
+        .replace(/([a-zA-ZÀ-ÿ\u00C0-\u024F]')\s+/g, '$1')
+        .replace(/\s+/g, ' ')
         .trim();
 }
-function findPaths(r, c, activeRow = null, customCtx = null) {
+
+function findPaths(r, c, activeRow = null, customCtx = null, memo = null) {
     const targetGrid = (customCtx && customCtx.grid) ? customCtx.grid : (activeAssignmentGrid || grid);
+    const cacheKey = `${r}_${c}`;
+    if (memo && memo.has(cacheKey)) {
+        return memo.get(cacheKey);
+    }
+
     let cell = getCellAt(r, c, targetGrid);
     if (!cell) return [];
 
@@ -4727,7 +4927,9 @@ function findPaths(r, c, activeRow = null, customCtx = null) {
         }));
 
     if (nextCol >= targetGrid[0].length) {
-        return currentOptions.filter(path => isPathValid(path.parts, customCtx));
+        const leafRes = currentOptions.filter(path => isPathValid(path.parts, customCtx));
+        if (memo) memo.set(cacheKey, leafRes);
+        return leafRes;
     }
 
     let combinedSubPaths = [];
@@ -4752,55 +4954,73 @@ function findPaths(r, c, activeRow = null, customCtx = null) {
         if (visitedTargetRoots.has(targetKey)) continue;
         visitedTargetRoots.add(targetKey);
 
-        combinedSubPaths = combinedSubPaths.concat(findPaths(targetRootRow, nextCol, evalRow, customCtx));
+        combinedSubPaths = combinedSubPaths.concat(findPaths(targetRootRow, nextCol, evalRow, customCtx, memo));
     }
 
+    let result;
     if (isCurrBridge) {
-        return combinedSubPaths.map(sp => ({
-            t: sp.t, tr: sp.tr,
+        result = combinedSubPaths.map(sp => ({
+            t: sp.t,
+            tr: sp.tr,
             parts: [{ r: r, c: c, isBridge: true }, ...sp.parts],
             details: sp.details || []
         }));
+    } else if (currentOptions.length === 0) {
+        result = combinedSubPaths.filter(p => isPathValid(p.parts, customCtx));
+    } else if (combinedSubPaths.length === 0) {
+        result = currentOptions.filter(p => isPathValid(p.parts, customCtx));
+    } else {
+        result = [];
+        for (let i = 0; i < currentOptions.length; i++) {
+            const curr = currentOptions[i];
+            for (let j = 0; j < combinedSubPaths.length; j++) {
+                const sub = combinedSubPaths[j];
+                const combinedParts = [...curr.parts, ...sub.parts];
+                if (isPathValid(combinedParts, customCtx)) {
+                    result.push({
+                        t: curr.t + " " + sub.t,
+                        tr: curr.tr ? (sub.tr ? curr.tr + " " + sub.tr : curr.tr) : sub.tr,
+                        parts: combinedParts,
+                        details: [...(curr.details || []), ...(sub.details || [])]
+                    });
+                }
+            }
+        }
     }
 
-    if (currentOptions.length === 0) return combinedSubPaths.filter(p => isPathValid(p.parts, customCtx));
-    if (combinedSubPaths.length === 0) return currentOptions.filter(p => isPathValid(p.parts, customCtx));
-
-    let finalPaths = [];
-    currentOptions.forEach(curr => {
-        combinedSubPaths.forEach(sub => {
-            const combinedParts = [...curr.parts, ...sub.parts];
-            if (isPathValid(combinedParts, customCtx)) {
-                finalPaths.push({
-                    t: cleanSentenceSpacing(curr.t + " " + sub.t),
-                    tr: cleanSentenceSpacing(curr.tr + " " + sub.tr),
-                    parts: combinedParts,
-                    details: [...(curr.details || []), ...(sub.details || [])]
-                });
-            }
-        });
-    });
-
-    return finalPaths;
+    if (memo) memo.set(cacheKey, result);
+    return result;
 }
+
 /* =========================
    ROUTES & CELL COMBOS MODAL LOGIC
 ========================= */
 function openRoutesModal() {
     comboPickerMode = null;
     currentComboSelection = [];
-    document.getElementById('combo-picker-status').style.display = 'none';
+    const pickerStatus = document.getElementById('combo-picker-status');
+    if (pickerStatus) pickerStatus.style.display = 'none';
 
     const transInput = document.getElementById('transformations-input');
     if (transInput) {
         transInput.value = transformationsText || "";
     }
 
-    renderRoutesPreviewGrid();
-    switchRoutesTab('routes');
-    
+    const routesList = document.getElementById('routes-list-container');
+    if (routesList) {
+        routesList.innerHTML = '<div style="color:#64748b; font-style:italic; padding:8px;">⏳ Loading routes...</div>';
+    }
+
     document.getElementById('routes-modal').style.display = 'flex';
     document.getElementById('overlay').style.display = 'block';
+
+    requestAnimationFrame(() => {
+        setTimeout(() => {
+            renderRoutesPreviewGrid();
+            switchRoutesTab('routes');
+        }, 0);
+    });
+}
 }
 function switchRoutesTab(tab) {
     const btnRoutes = document.getElementById('tab-btn-routes');
@@ -4939,12 +5159,32 @@ function highlightRouteCells(parts, highlight) {
 }
 
 function getAllRawRoutes() {
-    const backupDisabled = [...disabledRoutes];
-    disabledRoutes = [];
-    const allPaths = getAssembledSentences();
-    disabledRoutes = backupDisabled;
+    if (!grid || !grid.length || !grid[0]) return [];
 
+    // Collapse each cell to at most 1 sample item so route enumeration traverses cells, not every vocab line
+    const cellRepresentativeGrid = grid.map(row =>
+        row.map(cell => {
+            if (!cell) return cell;
+            const firstValid = (cell.items || []).find(it => it.t && it.t.trim() !== "" && it.t.trim().toLowerCase() !== "bridge");
+            return {
+                ...cell,
+                items: firstValid ? [firstValid] : []
+            };
+        })
+    );
+
+    const routeCtx = {
+        grid: cellRepresentativeGrid,
+        disabledRoutes: [],
+        excludedCombos: excludedCombos || [],
+        requiredCombos: requiredCombos || [],
+        excludedPairs: excludedPairs || [],
+        transformationsText: document.getElementById('transformations-input')?.value || transformationsText || ""
+    };
+
+    const allPaths = getAssembledSentences(routeCtx);
     const routesMap = new Map();
+
     allPaths.forEach(p => {
         const contentParts = p.parts.filter(pt => !pt.isBridge);
         const key = contentParts.map(pt => `${pt.r + 1}.${pt.c + 1}`).join('+');
@@ -4956,7 +5196,6 @@ function getAllRawRoutes() {
 
     return Array.from(routesMap.values());
 }
-
 function renderRoutesList() {
     const container = document.getElementById('routes-list-container');
     const routes = getAllRawRoutes();
